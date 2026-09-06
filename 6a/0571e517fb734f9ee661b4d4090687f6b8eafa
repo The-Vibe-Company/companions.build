@@ -1,0 +1,63 @@
+packages/box/transport.ts
+  s_f946242dcf6ba9::t_845e2802b2e81b 4-6
+apps/server/src/api.ts
+  s_f946242dcf6ba9::t_cae4c1d5d89b4c 7-11,20,28-33,38,47-48,66,74
+apps/server/src/automation-routes.ts
+  s_f946242dcf6ba9::t_421b391e8073d4 1-18
+apps/server/src/control.ts
+  s_f946242dcf6ba9::t_381c2f38e8407b 1-49
+apps/server/src/executor.ts
+  s_f946242dcf6ba9::t_8645cbc5c0c41b 170-171
+apps/server/src/files.ts
+  s_f946242dcf6ba9::t_7383760175fbca 87,193
+apps/server/src/plugins.sql
+  s_f946242dcf6ba9::t_4dfb58b6462d14 1-14
+apps/server/src/plugins.ts
+  s_f946242dcf6ba9::t_ca54bbe166134c 1-93
+apps/server/src/product.sql
+  s_f946242dcf6ba9::t_d3a799146e2e25 1-16
+apps/server/src/runtime-product.ts
+  s_f946242dcf6ba9::t_33d7b3d4c9eac5 1-93
+apps/server/src/store.ts
+  s_f946242dcf6ba9::t_5e75e60005cb91 12,29-31,33-34,42,44,67-68
+apps/server/test/automations.test.ts
+  s_f946242dcf6ba9::t_d62b5cbad6365c 8,18,95,104
+apps/server/test/box.test.ts
+  s_f946242dcf6ba9::t_62a6445f607f24 54-58
+apps/server/test/control.test.ts
+  s_f946242dcf6ba9::t_79458ea7211622 1-45
+apps/server/test/local-acceptance.test.ts
+  s_f946242dcf6ba9::t_cbe2374e8ffd0d 7,52-59
+apps/server/test/plugin-oauth.test.ts
+  s_f946242dcf6ba9::t_359d8b69bf12bb 1-618
+packages/agent/src/index.ts
+  s_f946242dcf6ba9::t_ecee2689e09556 6-8,14-22
+packages/agent/src/scripted-model.ts
+  s_f946242dcf6ba9::t_839a5e3fe995d1 21-24
+packages/control/agent.ts
+  s_f946242dcf6ba9::t_996c64c360f24d 1-69
+packages/control/files.ts
+  s_f946242dcf6ba9::t_7ae6b7da468a66 1-50
+packages/plugins/catalog.ts
+  s_f946242dcf6ba9::t_e6f578f6ba4032 1-6
+packages/plugins/oauth.ts
+  s_f946242dcf6ba9::t_52d0f33d156a24 1-785
+packages/plugins/tools.ts
+  s_f946242dcf6ba9::t_3bbfceea35ee19 1-58
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "6a0571e517fb734f9ee661b4d4090687f6b8eafa",
+  "prompts": {},
+  "sessions": {
+    "s_f946242dcf6ba9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a06de4-a8a5-7cd3-b713-2a8d451f7200",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "StanGirard <stan@quivr.app>"
+    }
+  }
+}

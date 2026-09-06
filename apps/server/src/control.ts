@@ -1,3 +1,5 @@
+import {requireHostedActivation} from './activation';
+import {controlHelp} from './control-help';
 import {availableModels,validateModel} from './models';
 import { z } from 'zod';
 import {encrypt,decrypt} from './config';
@@ -21,9 +23,10 @@ export async function applyControl(companionId:string,raw:unknown) {
   }
   let result:unknown;
   try {
+    if(['companion_create','routine_save','routine_test','trigger_save','trigger_test','prepare','spawn','delegate','adopt_template','desktop_takeover'].includes(command.operation))await requireHostedActivation(actor.owner_id);
     const handle=controlHandlers[command.operation as ControlOperation];
     if(!handle) result={error:'This operation is not available.'};
-    else if(actor.parent_id&&['spawn','adopt_template','template_save'].includes(command.operation)) result={error:'Ask your parent to manage templates and additional agents.'};
+    else if(actor.parent_id&&['spawn','adopt_template','template_save','template_rollback'].includes(command.operation)) result={error:'Ask your parent to manage templates and additional agents.'};
     else result=await handle({ownerId:actor.owner_id,companionId,runId:command.runId,commandId:command.id,isChild:!!actor.parent_id},command.input);
   }catch(error){ result={error:error instanceof z.ZodError?'The operation input is invalid.':'The operation could not be completed. Inspect its state before retrying.'}; }
   if(JSON.stringify(result).length>90_000) result={error:'Result too large. Request a narrower result.'};
@@ -32,15 +35,18 @@ export async function applyControl(companionId:string,raw:unknown) {
 }
 export const avatarSchema=z.object({shape:z.number().int().min(0).max(7),color:z.number().int().min(0).max(10),face:z.number().int().min(0).max(4)});
 export const identitySchema=z.object({name:z.string().trim().min(1).max(80).optional(),instructions:z.string().max(20_000).optional(),avatar:avatarSchema.optional(),modelId:z.string().min(1).max(200).optional()});
-export async function configureCompanion(ownerId:string,id:string,input:unknown) {
+export async function configureCompanion(ownerId:string,id:string,input:unknown,sql:any=db) {
   const value=identitySchema.parse(input);
   if(value.modelId)await validateModel(value.modelId);
-  const [row]=await db`UPDATE companions SET model_id=COALESCE(${value.modelId??null},model_id),name=COALESCE(${value.name??null},name),instructions=COALESCE(${value.instructions??null},instructions),avatar=COALESCE(${value.avatar??null},avatar) WHERE id=${id} AND owner_id=${ownerId} AND retired_at IS NULL RETURNING id,name,instructions,avatar,model_id AS "modelId"`;
+  const [row]=await sql`UPDATE companions SET model_id=COALESCE(${value.modelId??null},model_id),name=COALESCE(${value.name??null},name),instructions=COALESCE(${value.instructions??null},instructions),avatar=COALESCE(${value.avatar??null},avatar) WHERE id=${id} AND owner_id=${ownerId} AND retired_at IS NULL RETURNING id,name,instructions,avatar,model_id AS "modelId"`;
   return row??null;
 }
 registerControl({
   models:async()=>({models:await availableModels()}),
-  identity:async context=>({companionId:context.companionId,isChild:context.isChild,operations:Object.keys(controlHandlers),configure:{name:'optional name',instructions:'optional complete instructions',avatar:{shape:'0..7',color:'0..10',face:'0..4'}},routines:{name:'Name',prompt:'Task',cron:'5-field cron',timezone:'IANA timezone',enabled:true},delegation:{companionId:'target ID',prompt:'Self-contained brief'},ask_user:{question:'Question',options:['Choice A','Choice B']},instructions:'Read current state before changing it. Child agents ask their parent for additional agents. Use plugin_tools to discover connected tools. Install local skills under the Pi agent skills directory and verify loading.'}),
+  identity:async context=>{
+    const [companion]=await db`SELECT id,name,instructions,avatar,model_id AS "modelId",desktop_taken AS "desktopTaken",desktop_paused_at AS "desktopPausedAt",status FROM companions WHERE id=${context.companionId} AND owner_id=${context.ownerId}`;
+    return {companion,isChild:context.isChild,operations:Object.keys(controlHandlers),examples:controlHelp,instructions:'Read current state before changing it. Omit example placeholder IDs. OAuth returns a consent link for the human; never claim connection before consent succeeds. Trigger mode filter also accepts filterCode, a JavaScript function (payload,responses) returning a boolean, plus optional filterRequests. New Sentry issues use source sentry and target organization/project. Child agents ask their parent for additional agents. Local Pi skills belong under the agent skills directory; use file/shell tools to install, then verify loading. Desktop takeover pauses the whole agent process until explicit release. Long operations are requests: poll task/template state before reporting completion.'};
+  },
   configure:(context,input)=>configureCompanion(context.ownerId,context.companionId,input),
   companions:async context=>db`SELECT id,name,instructions,avatar,status FROM companions WHERE owner_id=${context.ownerId} AND retired_at IS NULL AND NOT temporary ORDER BY created_at`,
   ask_user:async(context,input)=>{

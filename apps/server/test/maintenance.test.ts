@@ -1,0 +1,27 @@
+import {beforeAll,afterAll,test,expect} from 'bun:test';
+import {db,migrate,createCompanion} from '../src/store';
+import {createDelivery,acceptDelivery,handleDelivery,setDeliveryMailerForTests} from '../src/delivery';
+import {handleMaintenance} from '../src/maintenance';
+const prior=process.env.BILLING_TEST_MODE;
+beforeAll(async()=>{await migrate();process.env.BILLING_TEST_MODE='1';setDeliveryMailerForTests(async()=>{});});
+afterAll(()=>{if(prior===undefined)delete process.env.BILLING_TEST_MODE;else process.env.BILLING_TEST_MODE=prior;setDeliveryMailerForTests(null);});
+test('maintenance is restricted to granted configuration and diagnostics; revocation cancels its queued work',async()=>{
+ const [sender,client,stranger]=[crypto.randomUUID(),crypto.randomUUID(),crypto.randomUUID()];
+ for(const id of [sender,client,stranger])await db`INSERT INTO "user"(id,name,email,"emailVerified") VALUES(${id},'Maintenance',${id+'@example.com'},true)`;
+ const source=await createCompanion(sender,{name:'Prepared',instructions:'Original',provider:'local'});
+ const invite=await createDelivery(sender,{clientDeliveryId:crypto.randomUUID(),companionId:source.id,clientEmail:client+'@example.com',maintenanceRequested:true,includeSkills:false});
+ const copy=await acceptDelivery(client,invite!.id,true);
+ const endpoint=`http://control/api/maintenance/companions/${copy!.companionId}`;
+ expect((await handleMaintenance(new Request(endpoint),stranger))!.status).toBe(404);
+ const changed=await handleMaintenance(new Request(endpoint,{method:'PATCH',body:JSON.stringify({instructions:'Client-specific improvement'})}),sender);
+ expect(changed!.status).toBe(200);
+ expect((await db`SELECT instructions FROM companions WHERE id=${source.id}`)[0].instructions).toBe('Original');
+ const clientMessageId=crypto.randomUUID();const request=()=>new Request(endpoint+'/tasks',{method:'POST',body:JSON.stringify({clientMessageId,prompt:'Validate installed tools'})});
+ const accepted=await (await handleMaintenance(request(),sender))!.json() as any;
+ expect((await (await handleMaintenance(request(),sender))!.json() as any).runId).toBe(accepted.runId);
+ expect((await db`SELECT id FROM maintenance_actions WHERE run_id=${accepted.runId}`)).toHaveLength(1);
+ expect((await handleDelivery(new Request(`http://control/api/deliveries/${invite!.id}/maintenance`,{method:'DELETE'}),client))!.status).toBe(200);
+ expect((await db`SELECT status FROM runs WHERE id=${accepted.runId}`)[0].status).toBe('cancelled');
+ expect((await handleMaintenance(new Request(endpoint),sender))!.status).toBe(404);
+ expect((await handleMaintenance(new Request(endpoint,{method:'PATCH',body:JSON.stringify({name:'Cannot change'})}),sender))!.status).toBe(404);
+});

@@ -7,13 +7,13 @@ import {encrypt} from '../src/config';
 import {enqueueBackground} from '../src/automations';
 import {saveTemplate,allowTemplate} from '../src/templates';
 const companions:string[]=[];
-const envKeys=['NODE_ENV','BILLING_TEST_MODE','STRIPE_SECRET_KEY','STRIPE_PRICE_ID','STRIPE_WEBHOOK_SECRET','STRIPE_METER_EVENT_NAME','APP_URL'];
+const envKeys=['NODE_ENV','BILLING_TEST_MODE','STRIPE_SECRET_KEY','STRIPE_PRICE_ID','STRIPE_WEBHOOK_SECRET','STRIPE_METER_EVENT_NAME','STRIPE_BOX_METER_EVENT_NAME','APP_URL'];
 const original=Object.fromEntries(envKeys.map(key=>[key,process.env[key]]));
 beforeAll(async()=>{await migrate();});
 afterEach(async()=>{for(const key of envKeys){const value=original[key];if(value===undefined)delete process.env[key];else process.env[key]=value;}for(const id of companions.splice(0)){await db`UPDATE companions SET retired_at=now(),prepare_requested=false WHERE id=${id}`;await db`UPDATE runs SET status='cancelled',finished_at=now() WHERE companion_id=${id} AND status IN ('queued','preparing','running','needs_input')`;}});
-function hosted(){Object.assign(process.env,{NODE_ENV:'production',STRIPE_SECRET_KEY:'fixture-only',STRIPE_PRICE_ID:'fixture-price',STRIPE_WEBHOOK_SECRET:'fixture-secret',STRIPE_METER_EVENT_NAME:'fixture-meter',APP_URL:'https://fixture.example'});delete process.env.BILLING_TEST_MODE;}
+function hosted(){Object.assign(process.env,{NODE_ENV:'production',STRIPE_SECRET_KEY:'fixture-only',STRIPE_PRICE_ID:'fixture-price',STRIPE_WEBHOOK_SECRET:'fixture-secret',STRIPE_METER_EVENT_NAME:'fixture-meter',STRIPE_BOX_METER_EVENT_NAME:'fixture-box-meter',APP_URL:'https://fixture.example'});delete process.env.BILLING_TEST_MODE;}
 async function fixture(){const owner=crypto.randomUUID();await db`INSERT INTO "user"(id,name,email,"emailVerified") VALUES(${owner},'Activation fixture',${owner+'@example.test'},true)`;const c=await createCompanion(owner,{name:'Activation fixture',instructions:'',provider:'box'});companions.push(c.id);await db`UPDATE companions SET prepare_requested=false WHERE id=${c.id}`;return {owner,id:c.id as string};}
-async function activate(owner:string){await db`INSERT INTO billing_accounts(owner_id,subscription_status) VALUES(${owner},'active') ON CONFLICT(owner_id) DO UPDATE SET subscription_status='active'`;}
+async function activate(owner:string){const customer='cus_'+owner,subscription='sub_'+owner;await db`INSERT INTO billing_accounts(owner_id,stripe_customer_id,stripe_subscription_id) VALUES(${owner},${customer},${subscription}) ON CONFLICT(owner_id) DO UPDATE SET stripe_customer_id=EXCLUDED.stripe_customer_id,stripe_subscription_id=EXCLUDED.stripe_subscription_id`;await db`INSERT INTO billing_subscriptions(stripe_subscription_id,owner_id,stripe_customer_id,stripe_price_id,subscription_status,last_event_created) VALUES(${subscription},${owner},${customer},'fixture-price','active',1) ON CONFLICT(stripe_subscription_id) DO UPDATE SET subscription_status='active'`;}
 async function leader(){const sql=await acquireExecutor();if(!sql)throw Error('Test executor unavailable');return {sql,async close(){await sql`SELECT pg_advisory_unlock(721440139)`;sql.release();}};}
 function fake(endpoint:string,events:string[],id:string):LifecycleMachines{return {async prepare(c,checkpoint){if(c.id!==id)return null;events.push('prepare '+(c.box_id??'new'));await checkpoint(c.box_id??'known-box');return endpoint;},async health(){return {ready:true};},async pause(){events.push('pause');},async archive(){events.push('archive');return true;},async snapshot(){events.push('snapshot');},async snapshotStatus(){return 'pending';}};}
 
@@ -22,7 +22,7 @@ test('local unconfigured execution remains available; production requires real a
  expect(await ownerMayStartWork(f.owner)).toBe(true);
  process.env.NODE_ENV='production';expect(await ownerMayStartWork(f.owner)).toBe(false);
  hosted();expect(await ownerMayStartWork(f.owner)).toBe(false);await activate(f.owner);expect(await ownerMayStartWork(f.owner)).toBe(true);
- await db`UPDATE billing_accounts SET subscription_status='canceled' WHERE owner_id=${f.owner}`;expect(await ownerMayStartWork(f.owner)).toBe(false);
+ await db`UPDATE billing_subscriptions SET subscription_status='canceled' WHERE owner_id=${f.owner}`;expect(await ownerMayStartWork(f.owner)).toBe(false);
 });
 
 test('revoked queued chat, routine, trigger and delegation work fail visibly before any machine contact',async()=>{
@@ -43,7 +43,7 @@ test('activation is rechecked after configuration immediately before a new promp
  const daemon=Bun.serve({hostname:'127.0.0.1',port:0,fetch(req){if(req.method==='PUT')puts++;return Response.json({ready:true});}});
  try{
   const run=await acceptMessage(f.owner,f.id,crypto.randomUUID(),'Work');
-  await tick(lock.sql,{...productHooks,lifecycleMachines:fake(`http://127.0.0.1:${daemon.port}`,events,f.id),async prepareRun(){await db`UPDATE billing_accounts SET subscription_status='canceled' WHERE owner_id=${f.owner}`;}});
+  await tick(lock.sql,{...productHooks,lifecycleMachines:fake(`http://127.0.0.1:${daemon.port}`,events,f.id),async prepareRun(){await db`UPDATE billing_subscriptions SET subscription_status='canceled' WHERE owner_id=${f.owner}`;}});
   expect(events).toEqual(['prepare new']);expect(puts).toBe(0);expect((await db`SELECT status,error FROM runs WHERE id=${run}`)[0]).toMatchObject({status:'failed',error:SUBSCRIPTION_REQUIRED});
  }finally{daemon.stop(true);await lock.close();}
 });

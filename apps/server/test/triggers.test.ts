@@ -1,7 +1,7 @@
 import { beforeAll, afterAll, describe, expect, test } from "bun:test";
 import { createHmac } from "node:crypto";
 import { db, migrate } from "../src/store";
-import { handleTriggers, handleWebhook, migrateTriggers, processTriggerInbox } from "../src/triggers";
+import { handleTriggers, handleWebhook, migrateTriggers, processTriggerInbox, triggerProviderAdapters } from "../src/triggers";
 import { encrypt } from "../src/config";
 
 const OWNER = `trigger-owner-${crypto.randomUUID()}`;
@@ -137,4 +137,39 @@ describe("durable trigger intake", () => {
       providerAccountId: crypto.randomUUID(), target: { organization: "acme", project: "api" } });
     expect(missing.trigger.registrationStatus).toBe("needs_connection");
   });
+});
+
+test('provider hook recovery follows bounded pagination without repeating a creation',async()=>{
+ let posts=0;const webhookUrl='https://companions.test/api/webhooks/example';
+ const fetchImpl=async(input:RequestInfo|URL,init?:RequestInit)=>{
+  const url=new URL(String(input));if(init?.method==='POST')posts++;
+  if(init?.method==='PATCH')return Response.json({id:9});
+  return url.search?Response.json([{id:9,config:{url:webhookUrl}}]):Response.json([],{headers:{link:`<${url.href}?page=2>; rel="next"`}});
+ };
+ expect(await triggerProviderAdapters.github.register({target:{repo:'acme/web'},webhookUrl,secret:'test-secret',token:'test-only',fetchImpl:fetchImpl as typeof fetch})).toMatchObject({remoteHookId:'9'});
+ expect(posts).toBe(0);
+ let requests=0;
+ await expect(triggerProviderAdapters.github.register({target:{repo:'acme/web'},webhookUrl,secret:'test-secret',token:'test-only',fetchImpl:(async()=>{requests++;return Response.json([],{headers:{link:'<https://attacker.test/steal>; rel="next"'}});}) as unknown as typeof fetch})).rejects.toThrow('pagination');
+ expect(requests).toBe(1);
+});
+
+test('Sentry native service-hook signature admits only the first event of a new issue',async()=>{
+ const accountId=crypto.randomUUID();await db`INSERT INTO plugin_accounts(id,owner_id,provider,label,credential_secret) VALUES(${accountId},${OWNER},'sentry','Native',${encrypt(JSON.stringify({kind:'oauth',accessToken:'test-only'}))})`;
+ const secret='n'.repeat(64);
+ const fetchImpl=async(input:RequestInfo|URL,init?:RequestInit)=>{
+  if(String(input).includes('/events/oldest/'))return Response.json({eventID:'first-event'});
+  return init?.method==='GET'?Response.json([]):Response.json({id:'native-hook',url:'https://companions.test/hook',secret});
+ };
+ const response=await handleTriggers(new Request(`http://control/api/companions/${COMPANION}/triggers`,{method:'POST',body:JSON.stringify({name:'Only new issues',prompt:'Investigate',source:'sentry',mode:'direct',providerAccountId:accountId,target:{organization:'acme',project:'web'}})}),OWNER,{fetchImpl:fetchImpl as typeof fetch});
+ const {trigger}=await response!.json() as any;const firstSeen=new Date(Date.now()+100).toISOString();let enqueued=0;
+ const enqueueBackground=async()=>{enqueued++;const id=crypto.randomUUID();await db`INSERT INTO runs(id,companion_id,client_message_id,content) VALUES(${id},${COMPANION},${crypto.randomUUID()},'Native Sentry')`;return id;};
+ for(const eventID of ['first-event','repeat-event']){
+  const body=JSON.stringify({group:{id:'123',firstSeen},event:{eventID}});
+  const result=await handleWebhook(new Request(`http://control/api/webhooks/${trigger.id}`,{method:'POST',body,headers:{'X-ServiceHook-Signature':createHmac('sha256',secret).update(body).digest('hex')}}));
+  expect(result!.status).toBe(202);
+  await processTriggerInbox({enqueueBackground,fetchImpl:fetchImpl as typeof fetch});
+ }
+ expect(enqueued).toBe(1);
+ const decisions=await db`SELECT decision FROM trigger_deliveries WHERE trigger_id=${trigger.id} ORDER BY received_at`;
+ expect(decisions.map((row:any)=>row.decision)).toEqual(['accepted','ignored']);
 });

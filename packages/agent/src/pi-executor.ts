@@ -171,6 +171,7 @@ export class PiExecutor implements RunExecutor {
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
     }
     const instructions = [input.instructions,
+      "You have a persistent Linux computer with read, write, edit and bash. Use companion_control identity to discover your product configuration and supported operations. Plugins are discovered lazily with plugin_tools and called with plugin_call. Use send_file to return verified files from the workspace. Local Pi skills may be installed in the agent skills directory; verify them before claiming they are ready. Routines and delegated tasks are independent of the main chat; report results only after observing completion. Never invent a successful setup, connection or task result.",
       "Your shared long-term memory is MEMORY.md in your workspace. Chat and background tasks share this file, but have separate histories. Read it before changing it; retain durable preferences and useful facts, not every message.",
       memory ? `Current shared memory (read MEMORY.md again before editing):\n${memory}` : "",
       execution.lane === "background" ? "This is an independent background task. Your final answer stays in this task's activity. Call publish_to_chat with a useful result only when the user should see it in the main conversation." : "",

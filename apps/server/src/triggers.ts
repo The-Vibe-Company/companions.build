@@ -1,3 +1,4 @@
+import {requireHostedActivation} from './activation';
 import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { z } from "zod";
 import type { SQL, ReservedSQL } from "bun";
@@ -114,6 +115,22 @@ async function providerJson(url: string, token: string, init: RequestInit, fetch
   try { return text ? JSON.parse(text) : null; } catch { throw new TriggerError("The provider returned an invalid webhook response.", 502, "provider_rejected"); }
 }
 
+async function providerList(endpoint:string,token:string,fetchImpl:typeof fetch):Promise<unknown[]> {
+ const origin=new URL(endpoint);let next:string|null=endpoint;const seen=new Set<string>();const items:unknown[]=[];
+ for(let page=0;next&&page<50;page++){
+  const url:URL=new URL(next);if(url.origin!==origin.origin||url.pathname!==origin.pathname||url.username||url.password||seen.has(url.href))throw new TriggerError('Provider pagination is invalid.',502,'provider_rejected');
+  seen.add(url.href);
+  const response:Response=await fetchImpl(url.href,{method:'GET',redirect:'error',signal:AbortSignal.timeout(10_000),headers:{Accept:'application/json',Authorization:`Bearer ${token}`}});
+  if(!response.ok)throw new TriggerError('The provider could not list its webhooks.',502,'provider_rejected');
+  const body=await readBody(new Request('http://bounded',{method:'POST',body:response.body,duplex:'half'} as RequestInit),256_000);
+  const value=JSON.parse(new TextDecoder().decode(body));if(!Array.isArray(value))throw new TriggerError('Provider webhook list is invalid.',502,'provider_rejected');items.push(...value);
+  const link:string|undefined=(response.headers.get('link')??'').split(',').find(part=>/rel="next"/.test(part)&&! /results="false"/.test(part));
+  next=link?.match(/<([^>]+)>/)?.[1]??null;
+ }
+ if(next)throw new TriggerError('Provider webhook list exceeds the supported bound.',502,'provider_rejected');
+ return items;
+}
+
 interface ProviderRegistrationResult { remoteHookId: string; secret: string }
 interface TriggerProviderAdapter {
   register(input: { target: z.infer<typeof targetSchema>; webhookUrl: string; secret: string; token: string; fetchImpl: typeof fetch }): Promise<ProviderRegistrationResult>;
@@ -126,7 +143,7 @@ export const triggerProviderAdapters: Record<"github" | "sentry", TriggerProvide
     const [owner, repository] = target.repo!.split("/");
     const endpoint = `https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repository)}/hooks`;
     const listed = z.array(z.object({ id: z.union([z.string(), z.number()]), config: z.object({ url: z.string().optional() }).passthrough() }).passthrough())
-        .parse(await providerJson(endpoint, token, { method: "GET" }, fetchImpl));
+        .parse(await providerList(endpoint, token, fetchImpl));
     const found = listed.find(hook => hook.config.url === webhookUrl);
       let remoteHookId: string;
     if (found) {
@@ -152,7 +169,7 @@ export const triggerProviderAdapters: Record<"github" | "sentry", TriggerProvide
     async register({ target, webhookUrl, token, fetchImpl }) {
     const endpoint = `https://sentry.io/api/0/projects/${encodeURIComponent(target.organization!)}/${encodeURIComponent(target.project!)}/hooks/`;
     const hookSchema = z.object({ id: z.string().min(1), url: z.string(), secret: z.string().min(16) }).passthrough();
-      const listed = z.array(hookSchema).parse(await providerJson(endpoint, token, { method: "GET" }, fetchImpl));
+      const listed = z.array(hookSchema).parse(await providerList(endpoint, token, fetchImpl));
     let hook = listed.find(candidate => candidate.url === webhookUrl);
       if (!hook) hook = hookSchema.parse(await providerJson(endpoint, token, {
       method: "POST", body: JSON.stringify({ url: webhookUrl, events: target.events ?? ["event.created"] }),
@@ -260,7 +277,7 @@ function valueAt(payload: unknown, path: string | null) {
 }
 
 function problemKey(row: TriggerRow, payload: unknown) {
-  const fallbackPath = row.source === "sentry" ? "data.issue.id" : row.source === "github" ? "workflow_run.id" : null;
+  const fallbackPath = row.source === "sentry" ? "group.id" : row.source === "github" ? "workflow_run.id" : null;
   const identity = valueAt(payload, row.problemPath ?? fallbackPath) ?? createHash("sha256").update(JSON.stringify(payload)).digest("hex");
   return createHash("sha256").update(`${row.source}:${identity}`).digest("hex");
 }
@@ -278,7 +295,7 @@ export async function handleWebhook(request: Request, dependencies: { database?:
     const secret = decrypt(trigger.secretCiphertext);
     const digest = createHmac("sha256", secret).update(body).digest("hex");
     const supplied = trigger.source === "github" ? request.headers.get("x-hub-signature-256")?.replace(/^sha256=/, "")
-      : trigger.source === "sentry" ? request.headers.get("sentry-hook-signature")?.replace(/^sha256=/, "")
+      : trigger.source === "sentry" ? request.headers.get("x-servicehook-signature")?.replace(/^sha256=/, "")
       : request.headers.get("x-companions-signature")?.replace(/^sha256=/, "");
     const bearer = trigger.source === "generic" ? request.headers.get("authorization")?.match(/^Bearer (.+)$/i)?.[1] : null;
     if (!(supplied && safeEqual(supplied, digest)) && !(bearer && safeEqual(bearer, secret))) throw new TriggerError("Invalid webhook signature.", 401);
@@ -328,7 +345,17 @@ export async function resolveFilterRequests(row: Pick<TriggerRow, "ownerId" | "f
 
 export interface EnqueueBackground { (input: { companionId: string; clientMessageId: string; content: string; source: "trigger" }): Promise<string | null> }
 
-function sourceMatches(trigger: TriggerRow, payload: unknown, eventName: string | null) {
+async function sourceMatches(trigger: TriggerRow, payload: unknown, eventName: string | null,database:Database=db,fetchImpl:typeof fetch=fetch) {
+  if(trigger.source==='sentry'){
+    const event=z.object({group:z.object({id:z.string().regex(/^\d+$/),firstSeen:z.string()}),event:z.object({eventID:z.string().optional(),id:z.string().optional()}).passthrough()}).passthrough().safeParse(payload);
+    if(!event.success)return false;
+    const firstSeen=Date.parse(event.data.group.firstSeen);
+    if(!Number.isFinite(firstSeen)||firstSeen<new Date(trigger.createdAt).getTime())return false;
+    const eventId=event.data.event.eventID??event.data.event.id;if(!eventId)return false;
+    const credential=await providerCredential(database,trigger.ownerId,'sentry',trigger.providerAccountId);
+    const oldest=z.object({eventID:z.string()}).passthrough().parse(await providerJson(`https://sentry.io/api/0/organizations/${encodeURIComponent(trigger.target!.organization!)}/issues/${event.data.group.id}/events/oldest/`,credential.token,{method:'GET'},fetchImpl));
+    return oldest.eventID===eventId;
+  }
   if (trigger.source !== "github") return true;
   if (eventName !== "workflow_run" || !payload || typeof payload !== "object") return false;
   const value = payload as Record<string, any>;
@@ -378,7 +405,8 @@ export async function processTriggerInbox(dependencies: { database?: Database; e
     return 1;
   }
   try {
-    const matches = sourceMatches(trigger, delivery.payload, delivery.eventName);
+    await requireHostedActivation(trigger.ownerId);
+    const matches = await sourceMatches(trigger, delivery.payload, delivery.eventName,database,dependencies.fetchImpl??fetch);
     const responses = matches && trigger.mode === "filter"
       ? await resolveFilterRequests(trigger, database, dependencies.fetchImpl ?? fetch) : {};
     const accepted = matches && (trigger.mode === "direct"
@@ -412,9 +440,9 @@ export async function triggerBatchContext(runId: string, database: Database = db
 
 export async function syncTriggerBatches(database: Database = db) {
   await database.unsafe(`UPDATE trigger_batches b SET status=CASE WHEN r.status='queued' THEN 'queued'
-    WHEN r.status IN ('preparing','running') THEN 'running' ELSE 'finished' END,updated_at=now()
+    WHEN r.status IN ('preparing','running','needs_input') THEN 'running' ELSE 'finished' END,updated_at=now()
     FROM runs r WHERE b.run_id=r.id AND b.status<>CASE WHEN r.status='queued' THEN 'queued'
-    WHEN r.status IN ('preparing','running') THEN 'running' ELSE 'finished' END`);
+    WHEN r.status IN ('preparing','running','needs_input') THEN 'running' ELSE 'finished' END`);
 }
 
 const response = (body: unknown, status = 200) => Response.json(body, { status, headers: { "Cache-Control": "no-store" } });
@@ -449,7 +477,7 @@ export async function handleTriggers(request: Request, ownerId: string, dependen
       if (member[3] && request.method === "POST") {
         if (member[3] === "/register") return response({ trigger: await reconcileTriggerRegistration(ownerId, companionId, triggerId, { database, fetchImpl }) });
         const payload = await request.json();
-        const matches = sourceMatches(trigger, payload, trigger.source === "github" ? "workflow_run" : trigger.source === "sentry" ? "event.created" : null);
+        const matches = await sourceMatches(trigger, payload, trigger.source === "github" ? "workflow_run" : trigger.source === "sentry" ? "event.created" : null,database,fetchImpl);
         const responses = matches && trigger.mode === "filter" ? await resolveFilterRequests(trigger, database, fetchImpl) : {};
         const accepted = matches && (trigger.mode === "direct"
           || await (dependencies.runFilterImpl ?? runFilter)({ code: trigger.filterCode!, payload, responses }));

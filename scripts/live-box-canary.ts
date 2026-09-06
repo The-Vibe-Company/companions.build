@@ -14,7 +14,7 @@ async function api(path: string, body?: unknown): Promise<any> {
   if (!response.ok) throw new Error(`CANARY_API_${response.status}`);
   return response.json();
 }
-const journal = Bun.file(".local/box-canary.json");
+const journal = Bun.file(process.env.CANARY_STATE_FILE??".local/box-canary.json");
 const state = await journal.exists() ? await journal.json() : { firstMessageId: crypto.randomUUID(), wakeMessageId: crypto.randomUUID() };
 const save = () => Bun.write(journal, JSON.stringify(state, null, 2));
 // Re-run an intentional wake without reusing a completed message's identity.

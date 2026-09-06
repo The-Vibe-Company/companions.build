@@ -1,6 +1,6 @@
 import {db} from './store';
 import {z} from 'zod';
-import {listRoutines,createRoutine,updateRoutine,deleteRoutine,routineHistory,routineInput,requestRunResume} from './automations';
+import {listRoutines,createRoutine,updateRoutine,deleteRoutine,routineHistory,routineInput,requestRunResume,enqueueBackground} from './automations';
 const json=(v:unknown,status=200)=>Response.json(v,{status,headers:{'cache-control':'no-store'}});
 export async function handleAutomations(request:Request,ownerId:string):Promise<Response|null>{
  const path=new URL(request.url).pathname;
@@ -23,12 +23,18 @@ export async function handleAutomations(request:Request,ownerId:string):Promise<
   const rows=await db`UPDATE runs r SET cancel_requested=CASE WHEN r.status IN ('succeeded','failed','interrupted','cancelled') THEN r.cancel_requested ELSE true END,finished_at=CASE WHEN r.status='queued' THEN now() ELSE r.finished_at END,status=CASE WHEN r.status='queued' THEN 'cancelled' ELSE r.status END WHERE r.id=${runId} AND r.companion_id=${companionId} AND EXISTS(SELECT 1 FROM companions c WHERE c.id=r.companion_id AND c.owner_id=${ownerId}) RETURNING r.id`;
   return rows.length?json({ok:true}):json({error:'Task not found.'},404);
  }
- const match=path.match(/^\/api\/companions\/([a-f0-9-]+)\/routines(?:\/([a-f0-9-]+))?(\/history)?$/);
+ const match=path.match(/^\/api\/companions\/([a-f0-9-]+)\/routines(?:\/([a-f0-9-]+))?(\/(?:history|test))?$/);
  if(!match)return null;
  const id=z.string().uuid().parse(match[1]);
  const [companion]=await db`SELECT id FROM companions WHERE id=${id} AND owner_id=${ownerId} AND retired_at IS NULL`;
  if(!companion)return json({error:'Companion not found.'},404);
  if(match[2])z.string().uuid().parse(match[2]);
+ if(request.method==='POST'&&match[2]&&match[3]==='/test'){
+  const {clientMessageId}=z.object({clientMessageId:z.string().uuid()}).parse(await request.json());
+  const [routine]=await db`SELECT prompt FROM routines WHERE id=${match[2]} AND companion_id=${id}`;
+  if(!routine)return json({error:'Routine not found.'},404);
+  return json({runId:await enqueueBackground({companionId:id,clientMessageId,content:routine.prompt,source:'routine'})},202);
+ }
  if(request.method==='GET')return match[2]?json(await routineHistory(id,match[2])):json({routines:await listRoutines(id)});
  if(request.method==='POST'&&!match[2])return json({routine:await createRoutine(id,routineInput.parse(await request.json()))},201);
  if(request.method==='PATCH'&&match[2])return json({routine:await updateRoutine(id,match[2],routineInput.partial().parse(await request.json()))});

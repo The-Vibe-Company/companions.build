@@ -50,3 +50,11 @@ function shouldTrigger(payload, responses) {
 It must return the boolean `true` to accept. Filter code never runs in the API process or on the host. `packages/filters` sends only JSON through stdin to a digest-pinned Node Linux container with no network, no host mount, a read-only filesystem, no capabilities, `no-new-privileges`, an unprivileged user, PID/memory/CPU limits, a VM code-generation ban, a 50 ms script limit, and a two-second host kill. Run `python3 scripts/filter-build.py` during build or deployment so runtime never pulls an image while processing an event.
 
 Optional API consultation is declarative. Each `filterRequests` entry specifies a response `key`, an authorized `provider`, optional exact `connectionId`, and a relative GET `path`. GitHub paths are pinned under `https://api.github.com/repos/`; Sentry paths are pinned under `https://sentry.io/api/0/`. The worker validates the origin, resolves only the owner's OAuth connection, fetches with a timeout and response limit, parses JSON, then supplies the values as `responses`. Credentials, arbitrary URLs, headers, redirects, and network access never enter the filter container.
+
+Sentry uses the native project service-hook payload (`group`, `event`) and
+`X-ServiceHook-Signature`, as implemented in [Sentry's service-hook sender](https://github.com/getsentry/sentry/blob/master/src/sentry/sentry_apps/tasks/service_hooks.py).
+Because `event.created` means an event occurrence, the worker checks the issue's first-seen time
+and compares the delivered event ID with the [oldest issue event](https://docs.sentry.io/api/events/retrieve-an-issue-event/)
+before admitting a task. Repeated occurrences are ignored without an LLM call. Missing event-read
+permission fails visibly; a successful hook registration alone does not prove event-read access.
+Provider hook discovery follows bounded same-origin/path pagination before deciding to create a hook.

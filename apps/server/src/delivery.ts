@@ -150,8 +150,12 @@ export async function handleDelivery(request: Request, ownerId: string) {
     }
   }
   if (match[2] === "maintenance" && request.method === "DELETE") {
-    const rows = await db`UPDATE companion_maintenance_grants SET revoked_at=now() WHERE delivery_id=${id} AND client_owner_id=${ownerId} AND revoked_at IS NULL RETURNING delivery_id`;
-    return rows.length ? json({ revoked: true }) : json({ error: "Maintenance access not found." }, 404);
+    return db.begin(async tx=>{
+      const rows=await tx`UPDATE companion_maintenance_grants SET revoked_at=now() WHERE delivery_id=${id} AND client_owner_id=${ownerId} AND revoked_at IS NULL RETURNING delivery_id`;
+      if(!rows.length)return json({error:"Maintenance access not found."},404);
+      await tx`UPDATE runs r SET cancel_requested=true,status=CASE WHEN r.status='queued' THEN 'cancelled' ELSE r.status END,finished_at=CASE WHEN r.status='queued' THEN now() ELSE r.finished_at END WHERE r.id IN (SELECT run_id FROM maintenance_actions WHERE grant_id=${id}) AND r.status IN ('queued','preparing','running','needs_input')`;
+      return json({revoked:true});
+    });
   }
   if (!match[2] && request.method === "DELETE") {
     const rows = await db`UPDATE companion_deliveries SET status='revoked' WHERE id=${id} AND source_owner_id=${ownerId} AND status='pending' RETURNING id`;

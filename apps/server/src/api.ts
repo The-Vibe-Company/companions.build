@@ -1,7 +1,10 @@
+import {requireHostedActivation,mutationStartsWork} from "./activation";
+import {handleMaintenance} from "./maintenance";
 import {availableModels} from "./models";
 import { handleBilling, handleStripeWebhook, requireProductActivation, billingConfiguration, ProductActivationRequired } from "./billing";
 import { handleDelivery } from "./delivery";
 import { handleLifecycle } from "./lifecycle";
+import {listTemplateRevisions,rollbackTemplate} from "./templates";
 import { LifecycleConflict } from "./templates";
 import { z } from "zod";
 import { config } from "./config";
@@ -22,6 +25,11 @@ async function lifecycleRoute(request:Request,ownerId:string):Promise<Response|n
  if(path==='/api/templates') {
   if(request.method==='GET')return json({templates:await handleLifecycle({operation:'templates'},ownerId)});
   if(request.method==='POST')return json(await handleLifecycle({operation:'template_save',input:await request.json()},ownerId),201);
+ }
+ const revisions=path.match(/^\/api\/templates\/([^/]+)\/(revisions|rollback)$/);
+ if(revisions){const id=idSchema.parse(revisions[1]);
+  if(revisions[2]==='revisions'&&request.method==='GET')return json({revisions:await listTemplateRevisions(ownerId,id)});
+  if(revisions[2]==='rollback'&&request.method==='POST')return json(await rollbackTemplate(ownerId,id,await request.json()));
  }
  const template=path.match(/^\/api\/templates\/([^/]+)$/);
  if(template&&request.method==='PATCH')return json(await handleLifecycle({operation:'template_save',input:{...await request.json() as object,id:idSchema.parse(template[1])}},ownerId));
@@ -67,6 +75,9 @@ export async function handler(request: Request): Promise<Response> {
       return user ? json({ user: { id: user.id, email: user.email, name: user.name } }) : json({ error: "Authentication required." }, 401);
     }
     const ownerId = await requireUser(request);
+    if(mutationStartsWork(url.pathname,request.method))await requireHostedActivation(ownerId);
+    const maintenanceResponse=await handleMaintenance(request,ownerId);
+    if(maintenanceResponse)return maintenanceResponse;
     const billingResponse = await handleBilling(request,ownerId);
     if(billingResponse) return billingResponse;
     const deliveryResponse = await handleDelivery(request,ownerId);
@@ -116,6 +127,7 @@ export async function handler(request: Request): Promise<Response> {
     }
     return json({ error: "Not found." }, 404);
   } catch (error) {
+    if (error instanceof BoxError && error.code === "desktop_preparing") return json({preparing:true},202);
     if (error instanceof AuthenticationRequired) return json({ error: "Authentication required." }, 401);
     if (error instanceof z.ZodError || error instanceof SyntaxError) return json({ error: "Invalid request." }, 400);
     if (error instanceof PluginError) return json({error:error.message},400);

@@ -1,3 +1,4 @@
+import {listTemplateRevisions,rollbackTemplate} from './templates';
 import {z} from 'zod';
 import {registerControl} from './control';
 import {pluginCatalog} from '../../../packages/plugins/catalog';
@@ -10,6 +11,8 @@ import {config} from './config';
 import {handleAutomations} from './automation-routes';
 const uuid=z.string().uuid();
 registerControl({
+ template_history:async(context,raw)=>({revisions:await listTemplateRevisions(context.ownerId,z.object({templateId:uuid}).parse(raw).templateId)}),
+ template_rollback:async(context,raw)=>{const {templateId,...input}=z.object({templateId:uuid,targetRevision:z.number().int().positive(),expectedRevision:z.number().int().positive()}).parse(raw);return rollbackTemplate(context.ownerId,templateId,input);},
  companion_create:async(context,raw)=>{
   if(context.isChild)return {error:'Ask your parent to create Companions.'};
   const input=z.object({name:z.string().trim().min(1).max(80),instructions:z.string().max(20_000).default('')}).parse(raw);
@@ -42,6 +45,6 @@ registerControl({
  deliveries:async context=>(await handleDelivery(new Request('http://control/api/deliveries'),context.ownerId))!.json(),
  delivery_prepare:async(context,raw)=>{
   if(context.isChild)return {error:'Ask your parent to deliver Companions.'};
-  return (await handleDelivery(new Request('http://control/api/deliveries',{method:'POST',body:JSON.stringify({...z.record(z.string(),z.unknown()).parse(raw),companionId:context.companionId})}),context.ownerId))!.json();
+  return (await handleDelivery(new Request('http://control/api/deliveries',{method:'POST',body:JSON.stringify({...z.record(z.string(),z.unknown()).parse(raw),companionId:context.companionId,clientDeliveryId:context.commandId})}),context.ownerId))!.json();
  },
 });

@@ -81,10 +81,13 @@ export async function routineHistory(companionId: string, id: string, sql: Datab
   return { runs, missed };
 }
 
-export async function enqueueBackground(input: { companionId: string; clientMessageId: string; content: string;
-  source: "routine" | "trigger" | "delegation" }, sql: Database = db): Promise<string | null> {
-  if (!input.content.trim() || input.content.length > 50_000) throw new Error("Task content is invalid.");
-  return sql.begin(async tx => {
+export type BackgroundInput={companionId:string;clientMessageId:string;content:string;source:'routine'|'trigger'|'delegation'};
+export async function enqueueBackground(input:BackgroundInput,sql:Database=db):Promise<string|null>{
+ return sql.begin(tx=>enqueueBackgroundInTransaction(input,tx));
+}
+/** Caller owns the transaction, allowing admission and its audit record to commit together. */
+export async function enqueueBackgroundInTransaction(input:BackgroundInput,tx:Database):Promise<string|null>{
+ if(!input.content.trim()||input.content.length>50_000)throw Error('Task content is invalid.');
     const [companion] = await tx`SELECT id FROM companions WHERE id=${input.companionId} FOR UPDATE`;
     if (!companion) return null;
     const [existing] = await tx`SELECT id,content,lane,source FROM runs
@@ -97,7 +100,6 @@ export async function enqueueBackground(input: { companionId: string; clientMess
     await tx`INSERT INTO runs(id,companion_id,client_message_id,content,lane,source)
       VALUES(${id},${input.companionId},${input.clientMessageId},${input.content},'background',${input.source})`;
     return id;
-  });
 }
 
 /** The answer is already durable in the control bridge. It joins the ordinary FIFO at this

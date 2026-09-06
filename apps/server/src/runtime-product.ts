@@ -82,7 +82,7 @@ export const productHooks:ExecutorHooks={
   async recordUsage(event){await recordUsage({operationId:'box:'+event.id,ownerId:event.ownerId,companionId:event.companionId,category:'box_lifecycle',quantity:1,unit:'event',occurredAt:event.at,metadata:{event:event.event}});},
   async filesDurable(run){
    const [companion]=await db`SELECT endpoint_secret,agent_secret,desktop_taken,desktop_paused_at FROM companions WHERE id=${run.companion_id} AND retired_at IS NULL`;
-   if(!companion||companion.desktop_taken||companion.desktop_paused_at)return false;
+   if(!companion)return false;
    const [task]=await db`SELECT dispatched FROM runs WHERE id=${run.id} AND companion_id=${run.companion_id}`;
    // A task cancelled before dispatch has no daemon outbox to retain.
    if(task&&!task.dispatched)return true;

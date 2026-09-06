@@ -1,7 +1,7 @@
 import {beforeAll,afterEach,expect,test} from 'bun:test';
 import {db,migrate,createCompanion,acceptMessage} from '../src/store';
 import {acquireExecutor,tick,persistObservation} from '../src/executor';
-import {migrateLifecycle,type LifecycleMachines} from '../src/lifecycle';
+import {migrateLifecycle,handleLifecycle,type LifecycleMachines} from '../src/lifecycle';
 import {encrypt} from '../src/config';
 import {productHooks} from '../src/runtime-product';
 const owner='00000000-0000-4000-8000-000000000001',ids:string[]=[];
@@ -9,9 +9,9 @@ beforeAll(async()=>{await migrate();await migrateLifecycle();await db.unsafe('AL
 afterEach(async()=>{for(const id of ids.splice(0)){await db`UPDATE companions SET retired_at=now(),prepare_requested=false,desktop_taken=false,desktop_paused_at=null WHERE id=${id}`;await db`UPDATE runs SET status='cancelled',finished_at=now() WHERE companion_id=${id} AND status IN ('queued','preparing','running','needs_input')`;}});
 async function companion(){const c=await createCompanion(owner,{name:'Runtime lifecycle fixture',instructions:'',provider:'box'});ids.push(c.id);await db`UPDATE companions SET prepare_requested=false WHERE id=${c.id}`;return c.id as string;}
 async function leader(){const sql=await acquireExecutor();if(!sql)throw Error('Test executor missing');return {sql,async close(){await sql`SELECT pg_advisory_unlock(721440139)`;sql.release();}};}
-function machines(endpoint:string,events:string[],companionId:string):LifecycleMachines{return {async prepare(c,checkpoint){if(c.id!==companionId)return null;events.push('prepare '+(c.snapshot_name??'base'));await checkpoint('fixture-box');return endpoint;},async health(){events.push('health');return {ready:true};},async pause(_c,taken){events.push('pause '+taken);},async archive(){events.push('archive');return true;},async snapshot(){events.push('snapshot');},async snapshotStatus(){return 'pending';}};}
+function machines(endpoint:string,events:string[],companionId:string):LifecycleMachines{return {async prepare(c,checkpoint){if(c.id!==companionId)return null;events.push('prepare '+(c.snapshot_name??'base'));await checkpoint('fixture-box');return endpoint;},async health(){events.push('health');return {ready:true,desktopBoundaryVersion:1};},async pause(c,taken){events.push('pause '+taken);return {generation:Number(c.desktop_generation),taken,confirmed:true,bootId:'fixture'};},async archive(){events.push('archive');return true;},async snapshot(){events.push('snapshot');},async snapshotStatus(){return 'pending';}};}
 
-test('executor prepares the pinned snapshot before dispatch and pauses admission plus observation during takeover',async()=>{
+test('executor prepares the pinned snapshot and continues admission and observation during GUI takeover',async()=>{
  const id=await companion(),events:string[]=[];let puts=0,submittedModel:string|undefined;
  const daemon=Bun.serve({hostname:'127.0.0.1',port:0,async fetch(req){events.push(req.method+' '+new URL(req.url).pathname);if(req.method==='PUT'){puts++;submittedModel=(await req.json() as any).modelId;}return Response.json(new URL(req.url).pathname==='/health'?{ready:true,activeRuns:{main:null,background:null}}:{status:'running'});}});
  const endpoint=`http://127.0.0.1:${daemon.port}`,fake=machines(endpoint,events,id),lock=await leader();
@@ -19,21 +19,21 @@ test('executor prepares the pinned snapshot before dispatch and pauses admission
   await db`UPDATE companions SET model_id='fixture-model',snapshot_name='private-pinned-template',template_id=${crypto.randomUUID()} WHERE id=${id}`;
   const run=await acceptMessage(owner,id,crypto.randomUUID(),'Work');await tick(lock.sql,{lifecycleMachines:fake});
   expect(events[0]).toBe('prepare private-pinned-template');expect(puts).toBe(1);expect(submittedModel).toBe('fixture-model');
-  await db`UPDATE companions SET desktop_taken=true WHERE id=${id}`;events.length=0;
+  await handleLifecycle({operation:'desktop_takeover',companionId:id},owner);events.length=0;
   const queued=await acceptMessage(owner,id,crypto.randomUUID(),'Queue during takeover');await tick(lock.sql,{lifecycleMachines:fake});
-  expect(events).toEqual(['pause true']);expect((await db`SELECT status FROM runs WHERE id=${queued}`)[0].status).toBe('queued');
-  events.length=0;await tick(lock.sql,{lifecycleMachines:fake});expect(events).toEqual([]);
-  await db`UPDATE companions SET desktop_taken=false WHERE id=${id}`;await tick(lock.sql,{lifecycleMachines:fake});
+  expect(events).toContain('pause true');expect(events).toContain('GET /runs/'+run);expect((await db`SELECT status FROM runs WHERE id=${queued}`)[0].status).toBe('running');
+  events.length=0;await tick(lock.sql,{lifecycleMachines:fake});expect(events).toContain('GET /runs/'+run);
+  await handleLifecycle({operation:'desktop_release',companionId:id},owner);events.length=0;await tick(lock.sql,{lifecycleMachines:fake});
   expect(events[0]).toBe('pause false');expect(events).toContain('GET /runs/'+run);
  }finally{await lock.close();daemon.stop(true);}
 });
 
-test('a takeover arriving during tool configuration prevents prompt dispatch atomically',async()=>{
+test('GUI takeover arriving during tool configuration still permits headless prompt dispatch',async()=>{
  const id=await companion(),events:string[]=[];
  const daemon=Bun.serve({hostname:'127.0.0.1',port:0,fetch(req){events.push(req.method);return Response.json({ready:true});}});
  const lock=await leader();
  try{const run=await acceptMessage(owner,id,crypto.randomUUID(),'Work');await tick(lock.sql,{lifecycleMachines:machines(`http://127.0.0.1:${daemon.port}`,events,id),async prepareRun(){await db`UPDATE companions SET desktop_taken=true WHERE id=${id}`;}});
-  expect(events).not.toContain('PUT');expect((await db`SELECT dispatched FROM runs WHERE id=${run}`)[0].dispatched).toBe(false);
+  expect(events).toContain('PUT');expect((await db`SELECT dispatched FROM runs WHERE id=${run}`)[0].dispatched).toBe(true);
  }finally{await lock.close();daemon.stop(true);}
 });
 
@@ -54,7 +54,7 @@ test('file durability requires a confirmed terminal request and a valid complete
   const input={id:run,companion_id:id};await expect(productHooks.lifecycle!.filesDurable!(input)).rejects.toThrow();
   mode='running';expect(await productHooks.lifecycle!.filesDurable!(input)).toBe(false);
   mode='terminal';expect(await productHooks.lifecycle!.filesDurable!(input)).toBe(true);
-  await db`UPDATE companions SET desktop_taken=true WHERE id=${id}`;expect(await productHooks.lifecycle!.filesDurable!(input)).toBe(false);
+  await db`UPDATE companions SET desktop_taken=true WHERE id=${id}`;expect(await productHooks.lifecycle!.filesDurable!(input)).toBe(true);
  }finally{daemon.stop(true);}
 });
 

@@ -13,7 +13,7 @@ export class AgentDaemon {
   private resumingBackground = false;
 
   constructor(stateDir: string, private readonly token: string, private readonly executor: RunExecutor,
-    private readonly handleRequest?: (request: Request) => Promise<Response | null>) {
+    private readonly handleRequest?: (request: Request) => Promise<Response | null>,private readonly desktopBoundaryVersion=0) {
     this.journal = new RunJournal(join(stateDir, "runs.sqlite"));
     this.journal.interruptUnfinished();
   }
@@ -24,7 +24,7 @@ export class AgentDaemon {
     if (!authorized(request.headers.get("authorization"), this.token)) return json({ error: "UNAUTHORIZED" }, 401);
     const url = new URL(request.url);
     if (request.method === "GET" && url.pathname === "/health") {
-      return json({ ready: true, version: "0.2.0", activeRunId: this.activeRuns.main, activeRuns: this.activeRuns, parkedRuns: [...this.parkedRuns] });
+      return json({ ready: true, version: "0.2.0", desktopBoundaryVersion:this.desktopBoundaryVersion, activeRunId: this.activeRuns.main, activeRuns: this.activeRuns, parkedRuns: [...this.parkedRuns] });
     }
     const handled = await this.handleRequest?.(request);
     if (handled) return handled;

@@ -11,6 +11,7 @@ const workspace = createHash("sha256").update(dataDir).digest("hex").slice(0, 10
 export class MachineError extends Error {}
 export class ExecutionStopped extends Error {}
 export type EffectGuard=()=>Promise<void>;
+export type DesktopMachineState={generation:number;taken:boolean;confirmed:boolean;bootId:string};
 const unguarded:EffectGuard=async()=>{};
 async function docker(args: string[]) {
   const child = Bun.spawn(["docker", ...args], { stdout: "pipe", stderr: "pipe" });
@@ -99,7 +100,8 @@ export async function prepareBox(companion: any, checkpoint: (boxId: string) => 
   await box.writeFile(id, "/home/user/.companions.env", envText);
   const action = companion.config_digest === environmentDigest(companion.agent_secret) ? "start" : "restart";
   await beforeEffect();
-  await box.command(id, `chmod 600 /home/user/.companions.env && ${userSystemctl(`${action} companions-agent.service`)}`);
+  if(!/^[a-f0-9-]{36}$/.test(companion.id))throw new MachineError('invalid_companion_identity');
+  await box.command(id, `chmod 600 /home/user/.companions.env && if test -f /opt/companions/desktop-boundary.version; then sudo -n python3 /opt/companions/configure-desktop.py ${companion.id} && sudo -n systemctl ${action} companions-agent.service && sudo -n systemctl start companions-agent-proxy.socket; else ${userSystemctl(`${action} companions-agent.service`)}; fi`);
   await configured();
   await beforeEffect();
   return box.host(id, 8787);
@@ -113,18 +115,24 @@ export async function agentRequest(endpoint: string, token: string, path: string
 }
 
 /** Only the executor calls these after persisting desired lifecycle state. */
-export async function pauseMachine(companion: any, paused: boolean, beforeEffect:EffectGuard=unguarded) {
-  const runDocker=async(args:string[])=>{await beforeEffect();return docker(args);};
+export async function pauseMachine(companion: any, paused: boolean, beforeEffect:EffectGuard=unguarded,client:BoxClient|null=box):Promise<DesktopMachineState> {
+  const box=client;
   await beforeEffect();
-  if (companion.provider === "box") {
-    if (!box || !companion.box_id) throw new MachineError("box_not_configured");
-    await box.command(companion.box_id, userSystemctl(`${paused ? "freeze" : "thaw"} companions-agent.service`));
-    return;
+  if(companion.desktop_boundary_version!==1)throw new MachineError('desktop_isolation_upgrade_required');
+  if(companion.provider!=='box'||!box||!companion.box_id)throw new MachineError('desktop_unavailable');
+  function parse(raw:string):DesktopMachineState{
+    const value=JSON.parse(raw);
+    if(!Number.isSafeInteger(value.generation)||value.generation<0||typeof value.taken!=='boolean'||typeof value.confirmed!=='boolean'||typeof value.bootId!=='string')throw new MachineError('desktop_state_invalid');
+    return value;
   }
-  const name = `companions-${workspace}-${companion.id}`;
-  const current = JSON.parse(await runDocker(["inspect", name]))[0];
-  if (current.Config?.Labels?.["companions.build.workspace"] !== workspace) throw new MachineError("local_machine_ownership_mismatch");
-  if (!!current.State.Paused !== paused) await runDocker([paused ? "pause" : "unpause", name]);
+  const generation=Number(companion.desktop_generation??0);
+  if(!Number.isSafeInteger(generation)||generation<0)throw new MachineError('desktop_generation_invalid');
+  const current=parse(await box.command(companion.box_id,'sudo -n /usr/local/bin/companions-desktop-state'));
+  await beforeEffect(); // A leader can be lost while the read-only observation is in flight.
+  if(current.generation===generation&&current.taken===paused&&current.confirmed)return current;
+  const applied=parse(await box.command(companion.box_id,`sudo -n /usr/local/bin/companions-desktop-state ${generation} ${paused?'true':'false'}`));
+  if(applied.generation!==generation||applied.taken!==paused||!applied.confirmed)throw new MachineError('desktop_not_confirmed');
+  return applied;
 }
 export async function archiveMachine(companion: any, beforeEffect:EffectGuard=unguarded) {
   const runDocker=async(args:string[])=>{await beforeEffect();return docker(args);};

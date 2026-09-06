@@ -45,7 +45,7 @@ test('a stalled PUT is never observed as missing or reissued by subsequent ticks
  }finally{blocked.release();await runs.close();await lifecycle.close();await lock.close();daemon.stop(true);}
 });
 
-for(const change of ['leader','desktop','endpoint'] as const)test(`${change} change after GET control prevents configuration, command effects and result delivery`,async()=>{
+for(const change of ['leader','retirement','endpoint'] as const)test(`${change} change after GET control prevents configuration, command effects and result delivery`,async()=>{
  const lock=await leader(),blocked=gate();let getStarted=false,effects=0,mutations=0;
  const previous=controlHandlers.configure;controlHandlers.configure=async()=>{effects++;return {ok:true};};
  let run:any,commandId=crypto.randomUUID();
@@ -55,7 +55,7 @@ for(const change of ['leader','desktop','endpoint'] as const)test(`${change} cha
   const promise=productHooks.observeRun!(run,endpoint,decrypt(c.agent_secret),runExecution(run,lock.pid)).then(()=>null,error=>error);
   await until(()=>getStarted);
   if(change==='leader')await lock.sql`SELECT pg_advisory_unlock(721440139)`;
-  else if(change==='desktop')await db`UPDATE companions SET desktop_taken=true,desktop_paused_at=now() WHERE id=${c.id}`;
+  else if(change==='retirement')await db`UPDATE companions SET retired_at=now() WHERE id=${c.id}`;
   else await db`UPDATE companions SET endpoint_secret=${encrypt('http://new-generation')} WHERE id=${c.id}`;
   blocked.release();expect(await promise).toBeInstanceOf(ExecutionStopped);
   expect(effects).toBe(0);expect(mutations).toBe(0);expect(await db`SELECT id FROM control_commands WHERE id=${commandId}`).toHaveLength(0);

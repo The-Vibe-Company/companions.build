@@ -2,7 +2,7 @@ import {handoffDelegationFiles} from './files';
 import { z } from 'zod';
 import { db } from './store';
 import { config, decrypt, encrypt } from './config';
-import { prepareBox, prepareLocal, agentRequest, environmentDigest, pauseMachine, archiveMachine, ExecutionStopped, type EffectGuard } from './machines';
+import { prepareBox, prepareLocal, agentRequest, environmentDigest, pauseMachine, archiveMachine, ExecutionStopped, type EffectGuard, type DesktopMachineState } from './machines';
 import { BoxClient, BoxError } from '../../../packages/box/client';
 import { adoptTemplate, allowTemplate, listTemplates, saveTemplate, recordTemplateRevision, LifecycleConflict } from './templates';
 import { spawnChild, delegateTask } from './delegation';
@@ -17,7 +17,7 @@ export async function ownerMayStartWork(ownerId:string){
 }
 const terminal=['succeeded','failed','cancelled','interrupted'];
 const provider=config.boxKey?new BoxClient(config.boxKey):null;
-export async function migrateLifecycle(sql:any=db){await sql.unsafe(await Bun.file(new URL('./lifecycle.sql',import.meta.url)).text());}
+export async function migrateLifecycle(sql:any=db){await sql.unsafe(await Bun.file(new URL('./lifecycle.sql',import.meta.url)).text());await sql.unsafe(await Bun.file(new URL('./desktop.sql',import.meta.url)).text());}
 export type UsageEvent={id:string,companionId:string,ownerId:string,event:'starting'|'ready'|'archived',at:Date};
 export interface LifecycleHooks {
  canStartWork?(ownerId:string):Promise<boolean>;
@@ -29,7 +29,7 @@ export interface LifecycleHooks {
 export interface LifecycleMachines {
  prepare(companion:any,checkpoint:(id:string)=>Promise<void>,configured:()=>Promise<void>,beforeEffect?:EffectGuard):Promise<string|null>;
  health(endpoint:string,token:string):Promise<any>;
- pause(companion:any,paused:boolean,beforeEffect?:EffectGuard):Promise<void>;
+ pause(companion:any,paused:boolean,beforeEffect?:EffectGuard):Promise<DesktopMachineState|void>;
  archive(companion:any,beforeEffect?:EffectGuard):Promise<boolean>;
  snapshot(companion:any,name:string):Promise<void>;
  snapshotStatus(name:string):Promise<'missing'|'pending'|'ready'|'failed'>;
@@ -48,12 +48,17 @@ export async function requestPreparation(ownerId:string,companionId:string,sql:a
  const [row]=await sql`UPDATE companions SET prepare_requested=true,error=null WHERE id=${companionId} AND owner_id=${ownerId} AND retired_at IS NULL AND archive_requested_at IS NULL RETURNING id,status,ready_at AS "readyAt"`;
  return row??null;
 }
-export async function requestDesktop(ownerId:string,companionId:string,taken:boolean,sql:any=db){
- const [row]=await sql`UPDATE companions SET desktop_taken=${taken},prepare_requested=prepare_requested OR ${taken},error=null WHERE id=${companionId} AND owner_id=${ownerId} AND retired_at IS NULL AND archive_requested_at IS NULL RETURNING id,desktop_taken AS "taken",desktop_paused_at AS "pausedAt"`;
+export async function requestDesktop(ownerId:string,companionId:string,taken:boolean,sql:any=db,source:'human'|'agent'='human'){
+ const [row]=await sql`UPDATE companions SET desktop_generation=desktop_generation+CASE WHEN desktop_taken<>${taken} THEN 1 ELSE 0 END,
+   desktop_taken=${taken},prepare_requested=prepare_requested OR ${taken},desktop_checked_at=null,error=null
+   WHERE id=${companionId} AND owner_id=${ownerId} AND retired_at IS NULL AND archive_requested_at IS NULL
+   AND NOT (${source==='agent'&&!taken} AND desktop_taken)
+   RETURNING id,desktop_taken AS "taken",desktop_paused_at AS "pausedAt",desktop_generation AS generation`;
+ if(!row&&source==='agent'&&!taken)throw new LifecycleConflict('HUMAN_DESKTOP_RELEASE_REQUIRED');
  return row??null;
 }
 /** API entry point: authorization and durable intents only, no machine contact. */
-export async function handleLifecycle(request:{operation:string;companionId?:string;commandId?:string;runId?:string;input?:unknown},ownerId:string,sql:any=db):Promise<any>{
+export async function handleLifecycle(request:{operation:string;companionId?:string;commandId?:string;runId?:string;input?:unknown;source?:'human'|'agent'},ownerId:string,sql:any=db):Promise<any>{
  const id=request.companionId;
  switch(request.operation){
   case 'templates': return listTemplates(ownerId,sql);
@@ -68,8 +73,8 @@ export async function handleLifecycle(request:{operation:string;companionId?:str
  if(['prepare','open_desktop','spawn','delegate','adopt_template'].includes(request.operation)&&!await ownerMayStartWork(ownerId))throw new LifecycleConflict(SUBSCRIPTION_REQUIRED);
  switch(request.operation){
   case 'prepare':case 'open_desktop':return requestPreparation(ownerId,id,sql);
-  case 'desktop_takeover':return requestDesktop(ownerId,id,true,sql);
-  case 'desktop_release':return requestDesktop(ownerId,id,false,sql);
+  case 'desktop_takeover':return requestDesktop(ownerId,id,true,sql,request.source??'human');
+  case 'desktop_release':return requestDesktop(ownerId,id,false,sql,request.source??'human');
   case 'template_permission':return allowTemplate(ownerId,id,request.input,sql);
   case 'spawn':case 'adopt_template':case 'delegate':{
    const command=z.string().uuid().parse(request.commandId);
@@ -82,7 +87,7 @@ export async function handleLifecycle(request:{operation:string;companionId?:str
 }
 export const lifecycleControlHandlers:Record<string,ControlHandler>=Object.fromEntries(
  ['templates','template_save','template_permission','spawn','adopt_template','delegate','prepare','desktop_takeover','desktop_release'].map(operation=>[operation,
-  (context:any,input:unknown)=>handleLifecycle({operation,companionId:context.companionId,runId:context.runId,commandId:context.commandId,input},context.ownerId)]));
+  (context:any,input:unknown)=>handleLifecycle({operation,companionId:context.companionId,runId:context.runId,commandId:context.commandId,input,source:'agent'},context.ownerId)]));
 async function usage(sql:any,companion:any,event:UsageEvent['event']){
  await sql`INSERT INTO machine_usage_events(id,companion_id,owner_id,event) VALUES(${crypto.randomUUID()},${companion.id},${companion.owner_id},${event})`;
 }
@@ -104,8 +109,12 @@ export async function progressLifecycle(sql:any=db,hooks:LifecycleHooks={},machi
   })) as Promise<T>;
   checkpoints=result.catch(()=>undefined);return result;
  }
- // Preparation and takeover are independent of chat. Paused daemons are never health-probed.
- const pending=await sql`SELECT * FROM companions WHERE (${companionId}::uuid IS NULL OR id=${companionId}) AND retired_at IS NULL AND (prepare_requested OR desktop_taken OR desktop_paused_at IS NOT NULL) ORDER BY created_at LIMIT 50`;
+ // GUI coordination never pauses the Pi daemon or headless work. Periodic reconciliation
+ // reopens a restarted fail-closed broker only to the current durable human intent.
+ const pending=await sql`SELECT * FROM companions WHERE (${companionId}::uuid IS NULL OR id=${companionId}) AND retired_at IS NULL AND
+   (prepare_requested OR ((desktop_boundary_version=1 OR desktop_taken) AND status='ready' AND endpoint_secret IS NOT NULL AND
+   (desktop_checked_at IS NULL OR desktop_checked_at<now()-interval '30 seconds' OR
+     (desktop_observed_generation IS DISTINCT FROM desktop_generation AND desktop_checked_at<now()-interval '2 seconds')))) ORDER BY created_at LIMIT 50`;
  let next=0;
  const preparation=await Promise.allSettled(Array.from({length:Math.min(8,pending.length)},async()=>{
   for(;;){const companion=pending[next++];if(!companion)return;await prepare(companion);}
@@ -115,15 +124,11 @@ export async function progressLifecycle(sql:any=db,hooks:LifecycleHooks={},machi
   async function beforePrepareEffect(){
    await assertLeader();
    const [latest]=await sql`SELECT owner_id,box_id,desktop_paused_at,retired_at,archive_requested_at FROM companions WHERE id=${companion.id}`;
-   if(!latest||latest.owner_id!==companion.owner_id||latest.box_id!==companion.box_id||latest.desktop_paused_at||latest.retired_at||latest.archive_requested_at)throw new ExecutionStopped('Machine preparation authority changed');
+   if(!latest||latest.owner_id!==companion.owner_id||latest.box_id!==companion.box_id||latest.retired_at||latest.archive_requested_at)throw new ExecutionStopped('Machine preparation authority changed');
    if(!await (hooks.canStartWork??ownerMayStartWork)(companion.owner_id))throw new ExecutionStopped(SUBSCRIPTION_REQUIRED);
    await assertLeader();
   }
   try {
-   if(companion.desktop_paused_at){
-    if(!companion.desktop_taken){await assertLeader();await machine.pause(companion,false,assertLeader);await checkpoint(async(tx:any)=>{await tx`UPDATE companions SET desktop_paused_at=null,error=null WHERE id=${companion.id}`;});}
-    return;
-   }
    const digest=environmentDigest(companion.agent_secret,companion.provider);
    const reusable=companion.status==='ready'&&companion.endpoint_secret&&companion.box_id&&companion.config_digest===digest;
    if(companion.prepare_requested&&!companion.archive_requested_at&&!reusable&&!await (hooks.canStartWork??ownerMayStartWork)(companion.owner_id)){
@@ -139,22 +144,33 @@ export async function progressLifecycle(sql:any=db,hooks:LifecycleHooks={},machi
     await checkpoint(async()=>{}); // Fence each provider attempt, including subsequent readiness polls.
     const endpoint=reusable?decrypt(companion.endpoint_secret):await machine.prepare(companion,async id=>{await checkpoint(async(tx:any)=>{await tx`UPDATE companions SET box_id=${id} WHERE id=${companion.id}`;});companion.box_id=id;},async()=>{await checkpoint(async(tx:any)=>{await tx`UPDATE companions SET config_digest=${digest} WHERE id=${companion.id}`;});},beforePrepareEffect);
     if(!endpoint)return;
-    try{await assertLeader();if(!(await machine.health(endpoint,decrypt(companion.agent_secret)))?.ready)throw Error('agent_not_ready');}
+    try{await assertLeader();const health=await machine.health(endpoint,decrypt(companion.agent_secret));if(!health?.ready)throw Error('agent_not_ready');companion.desktop_boundary_version=health.desktopBoundaryVersion===1?1:0;}
     catch{await checkpoint(async(tx:any)=>{await tx`UPDATE companions SET endpoint_secret=null WHERE id=${companion.id}`;});return;}
     const execution={sql,assertLeader,checkpoint};
     await stageDeliverySkills(companion.id,endpoint,decrypt(companion.agent_secret),hooks.deliverySkills,execution);
     const portable=await progressDeliverySkillsForCompanion(sql,companion.id,endpoint,decrypt(companion.agent_secret),hooks.deliverySkills,execution);
     await checkpoint(async(tx:any)=>{
-     await tx`UPDATE companions SET prepare_requested=${portable.pending>0},preparation_started_at=${portable.pending>0?companion.preparation_started_at:null},status='ready',error=${portable.pending>0?'Portable skills are waiting to be exported.':null},endpoint_secret=${encrypt(endpoint)},config_digest=${digest},ready_at=now(),archived_at=null WHERE id=${companion.id}`;
+     await tx`UPDATE companions SET prepare_requested=${portable.pending>0},preparation_started_at=${portable.pending>0?companion.preparation_started_at:null},status='ready',error=${portable.pending>0?'Portable skills are waiting to be exported.':null},endpoint_secret=${encrypt(endpoint)},config_digest=${digest},ready_at=now(),archived_at=null,desktop_boundary_version=${companion.desktop_boundary_version} WHERE id=${companion.id}`;
      if(!reusable)await usage(tx,companion,'ready');
     });
     companion.endpoint_secret=encrypt(endpoint);companion.status='ready';
    }
-   if(companion.desktop_taken&&companion.endpoint_secret&&companion.status==='ready'){
-    await assertLeader();await machine.pause(companion,true,assertLeader);
-    await checkpoint(async(tx:any)=>{await tx`UPDATE companions SET desktop_paused_at=now(),error=null WHERE id=${companion.id}`;});
+   if((companion.desktop_taken||companion.desktop_boundary_version===1)&&companion.endpoint_secret&&companion.status==='ready'&&!companion.archive_requested_at){
+    async function desktopGuard(){
+     await assertLeader();
+     const [current]=await sql`SELECT id FROM companions WHERE id=${companion.id} AND owner_id=${companion.owner_id} AND box_id IS NOT DISTINCT FROM ${companion.box_id}
+       AND desktop_generation=${companion.desktop_generation} AND desktop_taken=${companion.desktop_taken} AND retired_at IS NULL AND archive_requested_at IS NULL`;
+     if(!current)throw new ExecutionStopped('Desktop intent changed');
+     await assertLeader();
+    }
+    await desktopGuard();
+    const observed=await machine.pause(companion,companion.desktop_taken,desktopGuard);
+    if(!observed||!observed.confirmed||observed.generation!==Number(companion.desktop_generation)||observed.taken!==companion.desktop_taken)throw Error('desktop_not_confirmed');
+    await checkpoint(async(tx:any)=>{await tx`UPDATE companions SET desktop_paused_at=CASE WHEN ${observed.taken} THEN COALESCE(desktop_paused_at,now()) ELSE NULL END,
+      desktop_observed_generation=${observed.generation},desktop_broker_boot_id=${observed.bootId},desktop_checked_at=now(),error=null
+      WHERE id=${companion.id} AND desktop_generation=${observed.generation} AND desktop_taken=${observed.taken}`;});
    }
-  }catch{await checkpoint(async(tx:any)=>{await tx`UPDATE companions SET error=${companion.desktop_taken?'Desktop takeover could not be confirmed. The agent may still be running.':'Machine preparation is temporarily unavailable.'} WHERE id=${companion.id}`;});}
+  }catch(error){if(error instanceof ExecutionStopped)throw error;await checkpoint(async(tx:any)=>{await tx`UPDATE companions SET desktop_checked_at=now(),error=${companion.desktop_taken?'Desktop takeover could not be confirmed. Desktop interactions may still be active.':'Machine preparation is temporarily unavailable.'} WHERE id=${companion.id} AND desktop_generation=${companion.desktop_generation}`;});}
  }
  // A submitted snapshot name is only observed on recovery; an ambiguous POST is never repeated.
  for(const candidate of await sql`SELECT k.*,c.box_id,c.provider,c.owner_id FROM template_candidates k JOIN companions c ON c.id=k.source_companion_id WHERE (${companionId}::uuid IS NULL OR c.id=${companionId}) AND k.status IN ('queued','capturing','ready') AND NOT c.desktop_taken AND c.desktop_paused_at IS NULL ORDER BY k.requested_at LIMIT 50`){

@@ -16,9 +16,9 @@ afterEach(async()=>{for(const id of owned.splice(0)){await db`UPDATE delegations
 async function parent(ownerId=owner,provider:'local'|'box'='box'){const value=await createCompanion(ownerId,{name:'Parent',instructions:'',provider});owned.push(value.id);await db`UPDATE companions SET prepare_requested=false WHERE id=${value.id}`;return value.id as string;}
 async function setup(){const id=await parent();const template=await saveTemplate(owner,{name:'Developer',instructions:'Use the supplied brief.'});await allowTemplate(owner,id,{templateId:template.id,maxChildren:2});return {id,template};}
 async function leader(){const sql=await acquireExecutor();if(!sql)throw Error('Test executor lock unavailable');return {sql,async close(){await sql`SELECT pg_advisory_unlock(721440139)`;sql.release();}};}
-function fake(){
+function fake(desktop=false){
  const calls:string[]=[];let snapshot:'missing'|'pending'|'ready'|'failed'='missing';
- const machine:LifecycleMachines={async prepare(c,checkpoint){calls.push('prepare '+c.id);await checkpoint('box-'+c.id);return 'http://fake.local';},async health(){calls.push('health');return {ready:true};},async pause(_c,value){calls.push('pause '+value);},async archive(c){calls.push('archive '+c.id);return true;},async snapshot(_c,name){calls.push('snapshot '+name);snapshot='pending';},async snapshotStatus(){calls.push('snapshot GET');return snapshot;}};
+ const machine:LifecycleMachines={async prepare(c,checkpoint){calls.push('prepare '+c.id);await checkpoint('box-'+c.id);return 'http://fake.local';},async health(){calls.push('health');return {ready:true,desktopBoundaryVersion:desktop?1:0};},async pause(c,value){calls.push('pause '+value);return {generation:Number(c.desktop_generation),taken:value,confirmed:true,bootId:'fixture-boot'};},async archive(c){calls.push('archive '+c.id);return true;},async snapshot(_c,name){calls.push('snapshot '+name);snapshot='pending';},async snapshotStatus(){calls.push('snapshot GET');return snapshot;}};
  const objects=new Map<string,Blob>();
  const deliverySkills:DeliverySkillDependencies={storage:{async put(key:string,bytes:Uint8Array,type:string){objects.set(key,new Blob([bytes.slice().buffer as ArrayBuffer],{type}));},async get(key:string){const value=objects.get(key);if(!value)throw Error('missing');return value;},async delete(key:string){objects.delete(key);}},async requestAgent(){calls.push('skills export');return {version:1,skills:[]};},async notifyReady(){}};
  return {machine,calls,deliverySkills,setSnapshot(value:typeof snapshot){snapshot=value;}};
@@ -61,7 +61,7 @@ test('duplicate spawn returns the same child and pins its template revision',asy
 });
 
 test('open desktop persists a wake without chat; confirmed takeover survives browser closure and releases',async()=>{
- const id=await parent();const f=fake(),lock=await leader();
+ const id=await parent();const f=fake(true),lock=await leader();
  try{
   await handleLifecycle({operation:'open_desktop',companionId:id},owner);
   expect(f.calls).toHaveLength(0);expect(await db`SELECT id FROM runs WHERE companion_id=${id}`).toHaveLength(0);
@@ -75,11 +75,11 @@ test('open desktop persists a wake without chat; confirmed takeover survives bro
  }finally{await lock.close();}
 });
 
-test('failed physical freeze is never projected as a confirmed takeover',async()=>{
+test('unconfirmed GUI quiescence is never projected as a confirmed takeover',async()=>{
  const id=await parent(),f=fake(),lock=await leader();f.machine.pause=async()=>{throw Error('provider payload with secret');};
  try{await handleLifecycle({operation:'desktop_takeover',companionId:id},owner);await progressLifecycle(lock.sql,{},f.machine);
   const [row]=await db`SELECT desktop_taken,desktop_paused_at,error FROM companions WHERE id=${id}`;
-  expect(row.desktop_taken).toBe(true);expect(row.desktop_paused_at).toBeNull();expect(row.error).toBe('Desktop takeover could not be confirmed. The agent may still be running.');
+  expect(row.desktop_taken).toBe(true);expect(row.desktop_paused_at).toBeNull();expect(row.error).toBe('Desktop takeover could not be confirmed. Desktop interactions may still be active.');
  }finally{await lock.close();}
 });
 
@@ -114,7 +114,7 @@ test('snapshot recovery observes its durable name and activates only after ready
  try{
   f.machine.snapshot=async(_c,name)=>{f.calls.push('snapshot '+name);f.setSnapshot('pending');throw Error('Lost response after provider accepted snapshot');};
   await db`UPDATE companions SET desktop_taken=true,desktop_paused_at=now() WHERE id=${child.companionId}`;
-  await progressLifecycle(lock.sql,{deliverySkills:f.deliverySkills},f.machine);expect(f.calls).toEqual([]);
+  await progressLifecycle(lock.sql,{deliverySkills:f.deliverySkills},f.machine);expect(f.calls.some(call=>call.startsWith('snapshot'))).toBe(false);
   await db`UPDATE companions SET desktop_taken=false,desktop_paused_at=null WHERE id=${child.companionId}`;
   await progressLifecycle(lock.sql,{deliverySkills:f.deliverySkills},f.machine);await progressLifecycle(lock.sql,{deliverySkills:f.deliverySkills},f.machine);
   expect(f.calls.filter(call=>call.startsWith('snapshot companions-'))).toHaveLength(1);
@@ -211,7 +211,7 @@ test('usage delivery retries with the same persisted ID without repeating machin
  }finally{await lock.close();}
 });
 
-(process.env.RUN_LOCAL_ACCEPTANCE==='1'?test:test.skip)('physical Docker takeover freezes all subprocesses until explicit release',async()=>{
+(process.env.RUN_LOCAL_ACCEPTANCE==='1'?test:test.skip)('legacy local takeover fails without freezing headless subprocesses',async()=>{
  const id=await parent(owner,'local');const [companion]=await db`SELECT * FROM companions WHERE id=${id}`;
  await prepareLocal(companion);
  const listing=Bun.spawn(['docker','ps','--filter',`label=companions.build.verification=${process.env.COMPANIONS_VERIFY_RUN??'development'}`,'--format','{{.Names}}'],{stdout:'pipe'});
@@ -219,8 +219,6 @@ test('usage delivery retries with the same persisted ID without repeating machin
  const name=names.find(name=>name.endsWith(id));if(!name)throw Error('Owned test container missing');
  const marker=join(dataDir,'agents',id,'freeze-test');
  const writer=Bun.spawn(['docker','exec',name,'sh','-c','sleep 0.4; printf done > /state/freeze-test'],{stdout:'ignore',stderr:'pipe'});
- try{
-  await pauseMachine(companion,true);await Bun.sleep(700);expect(await Bun.file(marker).exists()).toBe(false);
-  await pauseMachine(companion,false);expect(await writer.exited).toBe(0);expect(await Bun.file(marker).text()).toBe('done');
- }finally{await pauseMachine(companion,false);}
+ await expect(pauseMachine(companion,true)).rejects.toThrow('desktop_isolation_upgrade_required');
+ expect(await writer.exited).toBe(0);expect(await Bun.file(marker).text()).toBe('done');
 },15_000);

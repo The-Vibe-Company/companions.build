@@ -1,7 +1,7 @@
 import { afterEach, beforeAll, expect, test } from "bun:test";
 import { migrate, createCompanion, db } from "../src/store";
 import { migrateBilling } from "../src/billing";
-import { acceptDelivery, canMaintainCompanion, createDelivery, handleDelivery, migrateDelivery, setDeliveryMailerForTests } from "../src/delivery";
+import { acceptDelivery, canMaintainCompanion, createDelivery, handleDelivery, migrateDelivery, sendDeliveryReadyInvite, setDeliveryMailerForTests } from "../src/delivery";
 import { migrateDeliverySkills } from "../src/delivery-skills";
 
 beforeAll(async () => { await migrate(); await migrateBilling(); await migrateDelivery(); await migrateDeliverySkills(); });
@@ -83,6 +83,45 @@ test("delivery creation retries one immutable request without another email or c
   expect((await acceptDelivery(recipient, first!.id, false))?.accepted).toBe(false);
   expect((await db`SELECT id FROM companions WHERE owner_id=${recipient} AND name='Retry safe'`)).toHaveLength(1);
   await expect(createDelivery(sender, { ...input, clientEmail: `other-${crypto.randomUUID()}@example.com` })).rejects.toThrow("different details");
+});
+
+test("concurrent ready notifications claim one durable email attempt", async () => {
+  process.env.BILLING_TEST_MODE = "1";
+  const sender = await user(`sender-${crypto.randomUUID()}@example.com`);
+  const recipientEmail = `client-${crypto.randomUUID()}@example.com`;
+  const source = await createCompanion(sender, { name: "One invitation", instructions: "Send once", provider: "local" });
+  const delivery = await createDelivery(sender, { clientDeliveryId: crypto.randomUUID(), companionId: source.id, clientEmail: recipientEmail });
+  await db`UPDATE companion_deliveries SET skills_status='ready' WHERE id=${delivery!.id}`;
+  let release!: () => void;
+  const blocked = new Promise<void>(resolve => { release = resolve; });
+  let attempts = 0;
+  setDeliveryMailerForTests(async () => { attempts++; await blocked; });
+
+  const notifications = [sendDeliveryReadyInvite(delivery!.id), sendDeliveryReadyInvite(delivery!.id)];
+  while (attempts === 0) await Bun.sleep(1);
+  release();
+
+  expect((await Promise.all(notifications)).sort()).toEqual(["not_pending", "sent"]);
+  expect(attempts).toBe(1);
+  expect((await db`SELECT email_status FROM companion_deliveries WHERE id=${delivery!.id}`)[0].email_status).toBe("sent");
+});
+
+test("an ambiguous mail failure becomes unknown and is never replayed", async () => {
+  process.env.BILLING_TEST_MODE = "1";
+  const sender = await user(`sender-${crypto.randomUUID()}@example.com`);
+  const recipientEmail = `client-${crypto.randomUUID()}@example.com`;
+  const recipient = await user(recipientEmail);
+  const source = await createCompanion(sender, { name: "Visible invitation", instructions: "Remain accessible", provider: "local" });
+  const delivery = await createDelivery(sender, { clientDeliveryId: crypto.randomUUID(), companionId: source.id, clientEmail: recipientEmail });
+  await db`UPDATE companion_deliveries SET skills_status='ready' WHERE id=${delivery!.id}`;
+  let attempts = 0;
+  setDeliveryMailerForTests(async () => { attempts++; throw new Error("ambiguous transport failure"); });
+
+  expect(await sendDeliveryReadyInvite(delivery!.id)).toBe("unknown");
+  expect(await sendDeliveryReadyInvite(delivery!.id)).toBe("not_pending");
+  expect(attempts).toBe(1);
+  expect((await db`SELECT email_status FROM companion_deliveries WHERE id=${delivery!.id}`)[0].email_status).toBe("unknown");
+  expect((await acceptDelivery(recipient, delivery!.id, false))?.accepted).toBe(true);
 });
 
 test("a delivery stays pending when the recipient has no active subscription", async () => {

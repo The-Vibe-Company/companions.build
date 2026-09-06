@@ -76,3 +76,14 @@ test("revoked, invalid, cross-owner, and empty exports fail closed",async()=>{
  await progressDeliverySkillsForCompanion(executor,source.id,"source","token",{storage,requestAgent:async()=>({version:1,skills:[]}),notifyReady:sendDeliveryReadyInvite});
  expect((await db`SELECT skills_status FROM companion_deliveries WHERE id=${empty!.id}`)[0].skills_status).toBe("ready");expect(mail).toEqual([`${recipient}@example.test`]);
 });
+
+test("an ambiguous ready-email attempt does not turn a completed skill export into an error",async()=>{
+ process.env.BILLING_TEST_MODE="1";const sender=await user(),recipient=await user();
+ const source=await createCompanion(sender,{name:"Mail uncertain",instructions:"",provider:"local"});
+ await db`UPDATE companions SET status='ready',prepare_requested=false,endpoint_secret=${encrypt("source")},agent_secret=${encrypt("token")} WHERE id=${source.id}`;
+ const delivery=await createDelivery(sender,{clientDeliveryId:crypto.randomUUID(),companionId:source.id,clientEmail:`${recipient}@example.test`});
+ setDeliveryMailerForTests(async()=>{throw new Error("ambiguous SMTP result");});
+ await progressDeliverySkillsForCompanion(executor,source.id,"source","token",{storage:new MemoryStorage(),requestAgent:async()=>({version:1,skills:[]}),notifyReady:sendDeliveryReadyInvite});
+ expect((await db`SELECT skills_status,email_status FROM companion_deliveries WHERE id=${delivery!.id}`)[0]).toEqual({skills_status:"ready",email_status:"unknown"});
+ expect(await acceptDelivery(recipient,delivery!.id,false)).toMatchObject({accepted:true});
+});

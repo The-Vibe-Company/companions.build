@@ -6,7 +6,7 @@ CREATE TABLE IF NOT EXISTS companion_deliveries (
   profile_snapshot jsonb NOT NULL,
   template_profiles jsonb NOT NULL DEFAULT '[]'::jsonb,
   maintenance_requested boolean NOT NULL DEFAULT false,
-  email_status text NOT NULL DEFAULT 'pending' CHECK (email_status IN ('pending','sent','skipped')),
+  email_status text NOT NULL DEFAULT 'pending' CHECK (email_status IN ('pending','sending','sent','unknown','skipped')),
   status text NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','accepted','revoked')),
   expires_at timestamptz NOT NULL,
   accepted_by text REFERENCES "user"(id) ON DELETE SET NULL,
@@ -17,6 +17,8 @@ CREATE TABLE IF NOT EXISTS companion_deliveries (
 );
 ALTER TABLE companion_deliveries ADD COLUMN IF NOT EXISTS client_delivery_id uuid;
 ALTER TABLE companion_deliveries ADD COLUMN IF NOT EXISTS request_fingerprint text;
+ALTER TABLE companion_deliveries DROP CONSTRAINT IF EXISTS companion_deliveries_email_status_check;
+ALTER TABLE companion_deliveries ADD CONSTRAINT companion_deliveries_email_status_check CHECK (email_status IN ('pending','sending','sent','unknown','skipped'));
 UPDATE companion_deliveries SET client_delivery_id=id WHERE client_delivery_id IS NULL;
 UPDATE companion_deliveries SET request_fingerprint=encode(sha256(id::text::bytea),'hex') WHERE request_fingerprint IS NULL;
 ALTER TABLE companion_deliveries ALTER COLUMN client_delivery_id SET NOT NULL;

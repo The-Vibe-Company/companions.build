@@ -76,11 +76,20 @@ export async function createDelivery(ownerId: string, raw: unknown) {
 }
 
 function deliveryResult(row:any){return{id:row.id,clientEmail:row.recipient_email,expiresAt:row.expires_at,maintenanceRequested:row.maintenance_requested,skillsStatus:row.skills_status,skillsError:row.skills_error};}
-export async function sendDeliveryReadyInvite(deliveryId:string){
- const [delivery]=await db`SELECT id,recipient_email,profile_snapshot,expires_at FROM companion_deliveries WHERE id=${deliveryId} AND status='pending' AND skills_status='ready' AND email_status='pending'`;
- if(!delivery)return false;const link=`${config.authUrl.replace(/\/$/,"")}/deliveries/${delivery.id}`;
- await sendInvite({to:delivery.recipient_email,subject:`${String(delivery.profile_snapshot.name)} is ready for you`,text:`Sign in with ${delivery.recipient_email} to review and activate your independent Companion copy:\n\n${link}\n\nThe invitation expires in 14 days.`});
- await db`UPDATE companion_deliveries SET email_status=${config.smtpHost||mailOverride?'sent':'skipped'} WHERE id=${delivery.id} AND email_status='pending'`;return true;
+export type DeliveryInviteResult="sent"|"skipped"|"unknown"|"not_pending";
+export async function sendDeliveryReadyInvite(deliveryId:string):Promise<DeliveryInviteResult>{
+ const [delivery]=await db`UPDATE companion_deliveries SET email_status='sending' WHERE id=${deliveryId} AND status='pending' AND skills_status='ready' AND email_status='pending' RETURNING id,recipient_email,profile_snapshot,expires_at`;
+ if(!delivery)return "not_pending";
+ if(!config.smtpHost&&!mailOverride){await db`UPDATE companion_deliveries SET email_status='skipped' WHERE id=${delivery.id} AND email_status='sending'`;return "skipped";}
+ const link=`${config.authUrl.replace(/\/$/,"")}/deliveries/${delivery.id}`;
+ try{
+  await sendInvite({to:delivery.recipient_email,subject:`${String(delivery.profile_snapshot.name)} is ready for you`,text:`Sign in with ${delivery.recipient_email} to review and activate your independent Companion copy:\n\n${link}\n\nThe invitation expires in 14 days.`});
+ }catch{
+  await db`UPDATE companion_deliveries SET email_status='unknown' WHERE id=${delivery.id} AND email_status='sending'`;
+  return "unknown";
+ }
+ await db`UPDATE companion_deliveries SET email_status='sent' WHERE id=${delivery.id} AND email_status='sending'`;
+ return "sent";
 }
 
 async function copyPortableTemplates(sql: any, ownerId: string, companionId: string, deliveryId:string,templates: unknown) {

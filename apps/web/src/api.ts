@@ -57,6 +57,7 @@ export interface Run {
 }
 
 export interface CompanionDetail {
+  files?: ThreadFile[];
   questions?: Array<{id:string;runId:string;question:string;options:string[];answer:string|null}>;
   companion: Companion;
   messages: ChatMessage[];

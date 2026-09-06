@@ -88,7 +88,7 @@ export async function prepareBox(companion: any, checkpoint: (boxId: string) => 
   await beforeEffect();
   const machine = await box.get(id);
   if (machine.state === "archived") { await beforeEffect(); await box.resume(id); return null; }
-  if (!["ready", "idle"].includes(machine.state)) return null;
+  if (!["ready", "idle", "running"].includes(machine.state)) return null;
   if (machine.setupStatus === "failed") throw new MachineError("box_setup_failed");
   if (machine.setupStatus && machine.setupStatus !== "done") return null;
   if (companion.endpoint_secret && companion.config_digest === environmentDigest(companion.agent_secret)) return decrypt(companion.endpoint_secret);
@@ -134,7 +134,7 @@ export async function archiveMachine(companion: any, beforeEffect:EffectGuard=un
     if (!box || !companion.box_id) throw new MachineError("box_not_configured");
     const machine = await box.get(companion.box_id);
     if (machine.state === "archived") return true;
-    if (["ready", "idle"].includes(machine.state)) { await beforeEffect(); await box.stop(companion.box_id); }
+    if (["ready", "idle", "running"].includes(machine.state)) { await beforeEffect(); await box.stop(companion.box_id); }
     return false;
   }
   const name = `companions-${workspace}-${companion.id}`;

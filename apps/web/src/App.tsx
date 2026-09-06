@@ -318,6 +318,7 @@ function ActivityPanel({ detail, onClose }: { detail: CompanionDetail; onClose: 
               <small>{readableDate(run.createdAt)}</small>
               {run.error && <p className="run-error">{run.error}</p>}
               {run.lane === "background" && run.resultText && <div className="task-result"><MessageResponse>{run.resultText}</MessageResponse></div>}
+              {run.lane === "background" && detail.files?.some(file => file.runId === run.id) && <div className="message-files">{detail.files.filter(file => file.runId === run.id).map(file => <a key={file.id} href={file.url} target="_blank" rel="noreferrer"><FileText /><span>{file.name}</span></a>)}</div>}
             </div>
           </div>
         ))}

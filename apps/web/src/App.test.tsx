@@ -124,7 +124,8 @@ describe("first Companion flow", () => {
         return response({
           companion: adaReady,
           messages: [],
-          runs: [{ id: "run-active", status: "running", error: null, createdAt: companion.createdAt }],
+          runs: [{ id: "run-active", status: "running", error: null, createdAt: companion.createdAt }, { id: "review", lane: "background", status: "succeeded", resultText: "Reviewed the specialist's report.", error: null, createdAt: companion.createdAt }],
+          files: [{ id: "report", runId: "review", kind: "agent_output", name: "report.md", mimeType: "text/markdown", size: 24, url: "/api/companions/ada/files/report" }],
           activity: [],
         });
       }
@@ -144,6 +145,7 @@ describe("first Companion flow", () => {
     expect(screen.queryByRole("complementary", { name: "Activity" })).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Activity" }));
     expect(screen.getByRole("complementary", { name: "Activity" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "report.md" })).toHaveAttribute("href", "/api/companions/ada/files/report");
     await user.click(screen.getAllByRole("button", { name: "Close activity" }).at(-1)!);
     await user.click(screen.getByRole("button", { name: "Settings for Ada" }));
     expect(screen.getByRole("dialog", { name: "Settings" })).toBeInTheDocument();

@@ -64,3 +64,19 @@ test("snapshot refusals expose only the known recoverable codes",async()=>{
   await expect(client.snapshot("owned-build","immutable-release")).rejects.toThrow(expected);
  }
 });
+
+
+test("preparation reuses an interactive Box in ready, idle, or running state",async()=>{
+ const {prepareBox,environmentDigest}=await import('../src/machines');
+ const {config,encrypt}=await import('../src/config');
+ const previous=config.boxTemplate;config.boxTemplate='test-frozen-template';
+ try{
+  for(const state of ['ready','idle','running']){
+   let calls=0;
+   const client=new BoxClient('test-only',(async()=>{calls++;return Response.json({box:{id:'owned-box',state,setupStatus:'done'}});}) as unknown as typeof fetch);
+   const secret=encrypt('test-daemon');
+   const endpoint=await prepareBox({box_id:'owned-box',agent_secret:secret,endpoint_secret:encrypt('https://private.invalid'),config_digest:environmentDigest(secret)},async()=>{throw Error('unexpected create');},async()=>{throw Error('unexpected configuration');},async()=>{},client);
+   expect(endpoint).toBe('https://private.invalid');expect(calls).toBe(1);
+  }
+ }finally{config.boxTemplate=previous;}
+});

@@ -15,6 +15,13 @@ CREATE TABLE IF NOT EXISTS companion_deliveries (
   created_at timestamptz NOT NULL DEFAULT now(),
   CHECK (recipient_email = lower(recipient_email))
 );
+ALTER TABLE companion_deliveries ADD COLUMN IF NOT EXISTS client_delivery_id uuid;
+ALTER TABLE companion_deliveries ADD COLUMN IF NOT EXISTS request_fingerprint text;
+UPDATE companion_deliveries SET client_delivery_id=id WHERE client_delivery_id IS NULL;
+UPDATE companion_deliveries SET request_fingerprint=encode(sha256(id::text::bytea),'hex') WHERE request_fingerprint IS NULL;
+ALTER TABLE companion_deliveries ALTER COLUMN client_delivery_id SET NOT NULL;
+ALTER TABLE companion_deliveries ALTER COLUMN request_fingerprint SET NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS companion_delivery_client_id ON companion_deliveries(source_owner_id,client_delivery_id);
 CREATE INDEX IF NOT EXISTS companion_deliveries_sender_idx ON companion_deliveries(source_owner_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS companion_deliveries_recipient_idx ON companion_deliveries(recipient_email, created_at DESC);
 

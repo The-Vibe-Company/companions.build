@@ -1,13 +1,13 @@
 import { afterEach, beforeAll, expect, test } from "bun:test";
 import { createHmac } from "node:crypto";
 import { createCompanion, migrate } from "../src/store";
-import { billingConfiguration, flushPendingUsage, handleBilling, handleStripeWebhook, migrateBilling, recordUsage, setBillingProviderForTests, verifyStripeSignature, type BillingProvider } from "../src/billing";
+import { billingConfiguration, flushPendingUsage, handleBilling, handleStripeWebhook, migrateBilling, recordUsage, setBillingProviderForTests, verifyStripeSignature, type BillingProvider, type UsageInput } from "../src/billing";
 import { db } from "../src/store";
 
 const saved = { ...process.env };
 beforeAll(async () => { await migrate(); await migrateBilling(); });
 afterEach(() => {
-  for (const key of ["STRIPE_SECRET_KEY","STRIPE_PRICE_ID","STRIPE_WEBHOOK_SECRET","STRIPE_METER_EVENT_NAME","APP_URL","BILLING_TEST_MODE"]) {
+  for (const key of ["STRIPE_SECRET_KEY","STRIPE_PRICE_ID","STRIPE_WEBHOOK_SECRET","STRIPE_METER_EVENT_NAME","STRIPE_BOX_METER_EVENT_NAME","APP_URL","BILLING_TEST_MODE"]) {
     if (saved[key] === undefined) delete process.env[key]; else process.env[key] = saved[key];
   }
   setBillingProviderForTests(null);
@@ -22,15 +22,22 @@ function stripeMode() {
   process.env.STRIPE_PRICE_ID = "price_local";
   process.env.STRIPE_WEBHOOK_SECRET = "whsec_local_signing_secret";
   process.env.STRIPE_METER_EVENT_NAME = "companions_usage";
+  process.env.STRIPE_BOX_METER_EVENT_NAME = "companions_box_seconds";
   process.env.APP_URL = "http://127.0.0.1:4310";
 }
 function signed(body: string, timestamp = Math.floor(Date.now() / 1000)) {
   const digest = createHmac("sha256", process.env.STRIPE_WEBHOOK_SECRET!).update(`${timestamp}.${body}`).digest("hex");
   return `t=${timestamp},v1=${digest}`;
 }
+async function webhook(type: string, object: Record<string, unknown>, created: number) {
+  const body = JSON.stringify({ id: `evt_${crypto.randomUUID()}`, type, created, data: { object } });
+  return handleStripeWebhook(new Request("http://localhost/api/stripe/webhook", {
+    method: "POST", headers: { "stripe-signature": signed(body) }, body,
+  }));
+}
 
 test("missing Stripe configuration remains visibly unavailable", async () => {
-  for (const key of ["STRIPE_SECRET_KEY","STRIPE_PRICE_ID","STRIPE_WEBHOOK_SECRET","STRIPE_METER_EVENT_NAME","APP_URL","BILLING_TEST_MODE"]) delete process.env[key];
+  for (const key of ["STRIPE_SECRET_KEY","STRIPE_PRICE_ID","STRIPE_WEBHOOK_SECRET","STRIPE_METER_EVENT_NAME","STRIPE_BOX_METER_EVENT_NAME","APP_URL","BILLING_TEST_MODE"]) delete process.env[key];
   expect(billingConfiguration().mode).toBe("unconfigured");
   const owner = await user(`unconfigured-${crypto.randomUUID()}@example.com`);
   const overview = await handleBilling(new Request("http://localhost/api/billing"), owner);
@@ -47,9 +54,11 @@ test("usage is durable, owner scoped and deduplicated before meter delivery", as
     async createCheckout() { throw new Error("unused"); }, async createPortal() { throw new Error("unused"); },
     async sendMeterEvent(input) { delivered.push(input.operationId); },
   });
-  const input = { operationId: `run:${crypto.randomUUID()}`, ownerId: owner, category: "model_tokens", quantity: 42, unit: "token", metadata: { model: "test" } };
+  const input = { operationId: `run:${crypto.randomUUID()}`, ownerId: owner, category: "model_tokens", quantity: 42, unit: "token", metadata: { model: "test" } } satisfies UsageInput;
   expect(await recordUsage(input)).toEqual({ recorded: true, delivery: "sent" });
   expect(await recordUsage(input)).toEqual({ recorded: false, delivery: "duplicate" });
+  await expect(recordUsage({ ...input, quantity: 43 })).rejects.toThrow("different billing data");
+  await expect(recordUsage({ ...input, operationId: `run:${crypto.randomUUID()}`, unit: "second" } as unknown as UsageInput)).rejects.toThrow();
   expect(delivered).toEqual([input.operationId]);
   const overview = await handleBilling(new Request("http://localhost/api/billing"), owner);
   expect((await overview!.json() as any).usage).toEqual([{ category: "model_tokens", unit: "token", quantity: "42" }]);
@@ -59,15 +68,54 @@ test("usage is durable, owner scoped and deduplicated before meter delivery", as
   await expect(recordUsage({ ...input, operationId: `run:${crypto.randomUUID()}`, companionId: anotherCompanion.id })).rejects.toThrow("does not belong");
 });
 
-test("usage recorded before Checkout remains pending and can be flushed", async () => {
+test("metered usage recorded before Checkout remains pending while lifecycle audit events are skipped", async () => {
   stripeMode();
   const owner = await user(`pending-${crypto.randomUUID()}@example.com`);
   const operationId = `box:${crypto.randomUUID()}`; const delivered: string[] = [];
   setBillingProviderForTests({ async createCheckout() { throw new Error("unused"); }, async createPortal() { throw new Error("unused"); }, async sendMeterEvent(input) { delivered.push(input.operationId); } });
   expect(await recordUsage({ operationId, ownerId: owner, category: "box_seconds", quantity: 60, unit: "second" })).toEqual({ recorded: true, delivery: "pending" });
+  expect(await recordUsage({ operationId: `lifecycle:${crypto.randomUUID()}`, ownerId: owner, category: "box_lifecycle", quantity: 1, unit: "event" })).toEqual({ recorded: true, delivery: "skipped" });
   await db`INSERT INTO billing_accounts (owner_id,stripe_customer_id) VALUES (${owner},${`cus_${crypto.randomUUID()}`})`;
   expect(await flushPendingUsage(owner)).toEqual({ sent: 1, pending: 0 });
   expect(delivered).toEqual([operationId]);
+});
+
+test("only the selected subscription and configured price grant access", async () => {
+  stripeMode();
+  const owner = await user(`subscriptions-${crypto.randomUUID()}@example.com`);
+  const customer = `cus_${crypto.randomUUID()}`;
+  const firstSubscription = `sub_${crypto.randomUUID()}`;
+  const selectedSubscription = `sub_${crypto.randomUUID()}`;
+  const base = Math.floor(Date.now() / 1000) - 100;
+  const subscriptionObject = (id: string, status: string, price = "price_local") => ({
+    id, customer, status, metadata: { owner_id: owner }, current_period_end: base + 3600,
+    cancel_at_period_end: false, items: { data: [{ price: { id: price } }] },
+  });
+
+  expect((await webhook("customer.subscription.updated", subscriptionObject(firstSubscription, "active"), base)).status).toBe(200);
+  expect((await webhook("checkout.session.completed", {
+    id: `cs_${crypto.randomUUID()}`, customer, subscription: firstSubscription,
+    client_reference_id: owner, metadata: { owner_id: owner },
+  }, base + 1)).status).toBe(200);
+  expect(await (await handleBilling(new Request("http://localhost/api/billing"), owner))!.json()).toMatchObject({ active: true, status: "active" });
+
+  expect((await webhook("checkout.session.completed", {
+    id: `cs_${crypto.randomUUID()}`, customer, subscription: selectedSubscription,
+    client_reference_id: owner, metadata: { owner_id: owner },
+  }, base + 2)).status).toBe(200);
+  expect(await (await handleBilling(new Request("http://localhost/api/billing"), owner))!.json()).toMatchObject({ active: false, status: null });
+
+  expect((await webhook("customer.subscription.updated", subscriptionObject(selectedSubscription, "active"), base + 3)).status).toBe(200);
+  expect((await webhook("customer.subscription.deleted", subscriptionObject(firstSubscription, "canceled"), base + 4)).status).toBe(200);
+  expect(await (await handleBilling(new Request("http://localhost/api/billing"), owner))!.json()).toMatchObject({ active: true, status: "active" });
+
+  const wrongPriceSubscription = `sub_${crypto.randomUUID()}`;
+  expect((await webhook("checkout.session.completed", {
+    id: `cs_${crypto.randomUUID()}`, customer, subscription: wrongPriceSubscription,
+    client_reference_id: owner, metadata: { owner_id: owner },
+  }, base + 5)).status).toBe(200);
+  expect((await webhook("customer.subscription.updated", subscriptionObject(wrongPriceSubscription, "active", "price_other"), base + 6)).status).toBe(200);
+  expect(await (await handleBilling(new Request("http://localhost/api/billing"), owner))!.json()).toMatchObject({ active: false, status: "active", plan: "inactive" });
 });
 
 test("raw Stripe signatures and durable event IDs protect subscription ownership", async () => {

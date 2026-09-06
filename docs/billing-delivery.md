@@ -4,20 +4,20 @@ The hosted product uses a companions.build Stripe subscription and a durable int
 
 ## Configuration and routes
 
-Hosted billing requires `STRIPE_SECRET_KEY`, `STRIPE_PRICE_ID`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_METER_EVENT_NAME`, and `APP_URL`. Missing configuration produces an explicit unavailable state. It never projects an active plan. `BILLING_TEST_MODE=1` is accepted only outside production; it permits local delivery activation and returns a deterministic local Checkout destination without creating a subscription.
+Hosted billing requires `STRIPE_SECRET_KEY`, `STRIPE_PRICE_ID`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_METER_EVENT_NAME`, `STRIPE_BOX_METER_EVENT_NAME`, and `APP_URL`. Model tokens and elapsed Box seconds use those two distinct Stripe meters. Missing configuration produces an explicit unavailable state. It never projects an active plan. `BILLING_TEST_MODE=1` is accepted only outside production; it permits local delivery activation and returns a deterministic local Checkout destination without creating a subscription.
 
 - `GET /api/billing` returns configuration mode, subscription status, activation state, and owner-scoped usage totals.
 - `POST /api/billing/checkout` creates a Stripe-hosted subscription Checkout Session.
 - `POST /api/billing/portal` creates a short-lived customer portal session for the authenticated account's Stripe customer.
 - `POST /api/stripe/webhook` is public but accepts only a fresh, valid Stripe signature over the untouched request body. Stripe event IDs are committed with account changes to deduplicate retries.
 
-`recordUsage({operationId, ownerId, companionId?, category, quantity, unit, occurredAt?, metadata?})` commits an immutable ledger row before attempting Stripe delivery. `(ownerId, operationId)` deduplicates retries. Metadata is bounded and rejects credential-like keys or values. `flushPendingUsage(ownerId)` retries rows recorded before the account had a Stripe customer. Runtime failures must not be caused by temporary Stripe delivery failures.
+`recordUsage({operationId, ownerId, companionId?, category, quantity, unit, occurredAt?, metadata?})` commits an immutable ledger row before attempting Stripe delivery. The accepted pairs are `model_tokens`/`token`, `box_seconds`/`second`, and the non-metered `box_lifecycle`/`event` audit category. `(ownerId, operationId)` deduplicates retries only when all billing data matches; a changed replay is rejected. Metadata is bounded and rejects credential-like keys or values. `flushPendingUsage(ownerId)` retries rows recorded before the account had a Stripe customer. Runtime failures must not be caused by temporary Stripe delivery failures.
 
-Stripe Checkout uses subscription mode and the configured Price ID. The server stores Customer and Subscription IDs received through signed events. Subscription events are applied by Stripe creation time, so out-of-order events cannot roll status backward. Stripe's customer portal remains the payment and cancellation surface.
+Stripe Checkout uses subscription mode and the configured Price ID. The server stores each Subscription received through signed events and separately tracks the Subscription selected by Checkout. Only that selected Subscription with the configured Price ID grants access. Events for another Subscription cannot overwrite it, and out-of-order events cannot roll its status backward. Stripe's customer portal remains the payment and cancellation surface.
 
 ## Client delivery
 
-`POST /api/deliveries` creates an invitation for a lower-cased client email and an owned Companion. Only the portable profile is captured: name, instructions, avatar, and explicitly selected agent-template profiles. Private template snapshots, source references, personal connections, OAuth tokens, browser sessions, machine identifiers, secrets, and transcripts are excluded.
+`POST /api/deliveries` requires a stable `clientDeliveryId` UUID and creates an invitation for a lower-cased client email and an owned Companion. The web client keeps that UUID across ambiguous retries. Reusing it with the same request returns the first invitation without another email; reusing it with changed details is rejected. Only the portable profile is captured: name, instructions, avatar, and explicitly selected agent-template profiles. Private template snapshots, source references, personal connections, OAuth tokens, browser sessions, machine identifiers, secrets, and transcripts are excluded.
 
 The recipient signs in through Better Auth and must have the exact verified email before `POST /api/deliveries/:id/accept` succeeds. Activation requires an active subscription whenever Stripe billing is configured. Acceptance creates a new Companion identity and a fresh Box from the configured base template. Portable child templates receive new IDs and preserve only their declarative profile and bounded child permission.
 

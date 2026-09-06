@@ -4,7 +4,10 @@ import { migrateBilling } from "../src/billing";
 import { acceptDelivery, canMaintainCompanion, createDelivery, handleDelivery, migrateDelivery, setDeliveryMailerForTests } from "../src/delivery";
 
 beforeAll(async () => { await migrate(); await migrateBilling(); await migrateDelivery(); });
-afterEach(() => { setDeliveryMailerForTests(null); delete process.env.BILLING_TEST_MODE; });
+afterEach(() => {
+  setDeliveryMailerForTests(null);
+  for (const key of ["BILLING_TEST_MODE", "STRIPE_SECRET_KEY", "STRIPE_PRICE_ID", "STRIPE_WEBHOOK_SECRET", "STRIPE_METER_EVENT_NAME", "STRIPE_BOX_METER_EVENT_NAME", "APP_URL"]) delete process.env[key];
+});
 async function user(email: string) {
   const id = crypto.randomUUID();
   await db`INSERT INTO "user" (id,name,email,"emailVerified","createdAt","updatedAt") VALUES (${id},${email},${email},true,now(),now())`;
@@ -20,7 +23,7 @@ test("a verified matching client receives an independent copy with explicit revo
   const source = await createCompanion(sender, { name: "Scout", instructions: "Watch the market", provider: "local" });
   const mails: Array<{ to: string; text: string }> = [];
   setDeliveryMailerForTests(async mail => { mails.push(mail); });
-  const delivery = await createDelivery(sender, { companionId: source.id, clientEmail: recipientEmail.toUpperCase(), maintenanceRequested: true });
+  const delivery = await createDelivery(sender, { clientDeliveryId: crypto.randomUUID(), companionId: source.id, clientEmail: recipientEmail.toUpperCase(), maintenanceRequested: true });
   expect(delivery?.clientEmail).toBe(recipientEmail);
   expect(mails[0].to).toBe(recipientEmail);
   expect(await acceptDelivery(stranger, delivery!.id, true)).toBeNull();
@@ -42,7 +45,7 @@ test("maintenance is never granted unless the client explicitly accepts it", asy
   const recipientEmail = `client-${crypto.randomUUID()}@example.com`; const recipient = await user(recipientEmail);
   const source = await createCompanion(sender, { name: "Private", instructions: "No access", provider: "local" });
   setDeliveryMailerForTests(async () => {});
-  const delivery = await createDelivery(sender, { companionId: source.id, clientEmail: recipientEmail, maintenanceRequested: true });
+  const delivery = await createDelivery(sender, { clientDeliveryId: crypto.randomUUID(), companionId: source.id, clientEmail: recipientEmail, maintenanceRequested: true });
   const accepted = await acceptDelivery(recipient, delivery!.id, false);
   expect(await canMaintainCompanion(sender, accepted!.companionId)).toBe(false);
 });
@@ -53,11 +56,47 @@ test("sender and recipient listings do not leak deliveries across accounts", asy
   const stranger = await user(`stranger-${crypto.randomUUID()}@example.com`);
   const source = await createCompanion(sender, { name: "Ledger", instructions: "Reconcile", provider: "local" });
   setDeliveryMailerForTests(async () => {});
-  const delivery = await createDelivery(sender, { companionId: source.id, clientEmail: recipientEmail });
+  const delivery = await createDelivery(sender, { clientDeliveryId: crypto.randomUUID(), companionId: source.id, clientEmail: recipientEmail });
   const sent = await (await handleDelivery(new Request("http://localhost/api/deliveries"), sender))!.json() as any;
   const received = await (await handleDelivery(new Request("http://localhost/api/deliveries"), recipient))!.json() as any;
   const unrelated = await (await handleDelivery(new Request("http://localhost/api/deliveries"), stranger))!.json() as any;
   expect(sent.sent.some((item: any) => item.id === delivery!.id)).toBe(true);
   expect(received.received.some((item: any) => item.id === delivery!.id)).toBe(true);
   expect(unrelated.sent).toEqual([]); expect(unrelated.received).toEqual([]);
+});
+
+test("delivery creation retries one immutable request without another email or copy", async () => {
+  process.env.BILLING_TEST_MODE = "1";
+  const sender = await user(`sender-${crypto.randomUUID()}@example.com`);
+  const recipientEmail = `client-${crypto.randomUUID()}@example.com`; const recipient = await user(recipientEmail);
+  const source = await createCompanion(sender, { name: "Retry safe", instructions: "Portable", provider: "local" });
+  const clientDeliveryId = crypto.randomUUID(); let mails = 0;
+  setDeliveryMailerForTests(async () => { mails++; });
+  const input = { clientDeliveryId, companionId: source.id, clientEmail: recipientEmail, maintenanceRequested: false };
+  const [first, retry] = await Promise.all([createDelivery(sender, input), createDelivery(sender, input)]);
+  expect(retry).toEqual(first);
+  expect(mails).toBe(1);
+  expect((await db`SELECT id FROM companion_deliveries WHERE source_owner_id=${sender} AND client_delivery_id=${clientDeliveryId}`)).toHaveLength(1);
+  const accepted = await acceptDelivery(recipient, first!.id, false);
+  expect(accepted?.accepted).toBe(true);
+  expect((await acceptDelivery(recipient, first!.id, false))?.accepted).toBe(false);
+  expect((await db`SELECT id FROM companions WHERE owner_id=${recipient} AND name='Retry safe'`)).toHaveLength(1);
+  await expect(createDelivery(sender, { ...input, clientEmail: `other-${crypto.randomUUID()}@example.com` })).rejects.toThrow("different details");
+});
+
+test("a delivery stays pending when the recipient has no active subscription", async () => {
+  process.env.STRIPE_SECRET_KEY = "sk_test_local";
+  process.env.STRIPE_PRICE_ID = "price_local";
+  process.env.STRIPE_WEBHOOK_SECRET = "whsec_local";
+  process.env.STRIPE_METER_EVENT_NAME = "tokens";
+  process.env.STRIPE_BOX_METER_EVENT_NAME = "box_seconds";
+  process.env.APP_URL = "http://127.0.0.1:4310";
+  const sender = await user(`sender-${crypto.randomUUID()}@example.com`);
+  const recipientEmail = `client-${crypto.randomUUID()}@example.com`; const recipient = await user(recipientEmail);
+  const source = await createCompanion(sender, { name: "Awaiting plan", instructions: "Remain pending", provider: "local" });
+  setDeliveryMailerForTests(async () => {});
+  const delivery = await createDelivery(sender, { clientDeliveryId: crypto.randomUUID(), companionId: source.id, clientEmail: recipientEmail });
+  await expect(acceptDelivery(recipient, delivery!.id, false)).rejects.toThrow("active subscription");
+  const [persisted] = await db`SELECT status,accepted_by,delivered_companion_id FROM companion_deliveries WHERE id=${delivery!.id}`;
+  expect(persisted).toMatchObject({ status: "pending", accepted_by: null, delivered_companion_id: null });
 });

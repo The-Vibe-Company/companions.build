@@ -5,16 +5,19 @@ import { db } from "./store";
 const json = (body: unknown, status = 200) => Response.json(body, { status, headers: { "Cache-Control": "no-store" } });
 const activeStatuses = new Set(["active", "trialing"]);
 const safeId = z.string().min(1).max(200).regex(/^[A-Za-z0-9_.:-]+$/);
-const usageInput = z.object({
+const usageBase = z.object({
   operationId: safeId,
   ownerId: z.string().min(1).max(200),
   companionId: z.string().uuid().optional(),
-  category: z.string().min(1).max(80).regex(/^[a-z][a-z0-9_]*$/),
   quantity: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
-  unit: z.string().min(1).max(40).regex(/^[a-z][a-z0-9_]*$/),
   occurredAt: z.coerce.date().optional(),
   metadata: z.record(z.string().max(80), z.union([z.string().max(200), z.number().finite(), z.boolean()])).optional(),
-}).superRefine((value, context) => {
+});
+const usageInput = z.discriminatedUnion("category", [
+  usageBase.extend({ category: z.literal("model_tokens"), unit: z.literal("token") }),
+  usageBase.extend({ category: z.literal("box_seconds"), unit: z.literal("second") }),
+  usageBase.extend({ category: z.literal("box_lifecycle"), unit: z.literal("event") }),
+]).superRefine((value, context) => {
   for (const [key, item] of Object.entries(value.metadata ?? {})) {
     if (/(secret|token|password|cookie|authorization|credential|api.?key)/i.test(key) || (typeof item === "string" && /^(sk|rk|whsec)_(live|test|[A-Za-z0-9])/i.test(item))) {
       context.addIssue({ code: "custom", path: ["metadata", key], message: "Sensitive metadata is not allowed" });
@@ -22,6 +25,7 @@ const usageInput = z.object({
   }
 });
 export type UsageInput = z.input<typeof usageInput>;
+export class UsageConflict extends Error {}
 
 export interface BillingProvider {
   createCheckout(input: { ownerId: string; email: string; customerId: string | null }): Promise<string>;
@@ -31,7 +35,7 @@ export interface BillingProvider {
 
 export function billingConfiguration(env: NodeJS.ProcessEnv = process.env) {
   const test = env.NODE_ENV !== "production" && env.BILLING_TEST_MODE === "1";
-  const required = ["STRIPE_SECRET_KEY", "STRIPE_PRICE_ID", "STRIPE_WEBHOOK_SECRET", "STRIPE_METER_EVENT_NAME", "APP_URL"] as const;
+  const required = ["STRIPE_SECRET_KEY", "STRIPE_PRICE_ID", "STRIPE_WEBHOOK_SECRET", "STRIPE_METER_EVENT_NAME", "STRIPE_BOX_METER_EVENT_NAME", "APP_URL"] as const;
   const missing = required.filter(key => !env[key]);
   return { mode: test ? "test" as const : missing.length ? "unconfigured" as const : "stripe" as const, missing };
 }
@@ -96,14 +100,27 @@ export async function migrateBilling(sql = db) {
 
 export async function billingOverview(ownerId: string) {
   const mode = billingConfiguration().mode;
-  const [account] = await db`SELECT subscription_status AS status,current_period_end AS "currentPeriodEnd",cancel_at_period_end AS "cancelAtPeriodEnd",stripe_customer_id AS "customerId" FROM billing_accounts WHERE owner_id=${ownerId}`;
+  const account = await billingAccountState(ownerId);
   const usage = await db`SELECT category,unit,sum(quantity)::text AS quantity FROM usage_ledger WHERE owner_id=${ownerId} GROUP BY category,unit ORDER BY category,unit`;
-  return { configured: mode !== "unconfigured", mode, plan: account && activeStatuses.has(account.status) ? "subscription" : "inactive", active: mode === "test" || (mode === "stripe" && !!account && activeStatuses.has(account.status)), status: account?.status ?? null, currentPeriodEnd: account?.currentPeriodEnd ?? null, cancelAtPeriodEnd: account?.cancelAtPeriodEnd ?? false, portalAvailable: mode === "stripe" && !!account?.customerId, usage };
+  const entitled = hasEntitlement(account);
+  return { configured: mode !== "unconfigured", mode, plan: entitled ? "subscription" : "inactive", active: mode === "test" || (mode === "stripe" && entitled), status: account?.status ?? null, currentPeriodEnd: account?.currentPeriodEnd ?? null, cancelAtPeriodEnd: account?.cancelAtPeriodEnd ?? false, portalAvailable: mode === "stripe" && !!account?.customerId, usage };
+}
+
+async function billingAccountState(ownerId: string) {
+  const [account] = await db`SELECT s.subscription_status AS status,s.current_period_end AS "currentPeriodEnd",
+    s.cancel_at_period_end AS "cancelAtPeriodEnd",a.stripe_customer_id AS "customerId",s.stripe_price_id AS "priceId"
+    FROM billing_accounts a LEFT JOIN billing_subscriptions s ON s.stripe_subscription_id=a.stripe_subscription_id
+      AND s.owner_id=a.owner_id AND s.stripe_customer_id=a.stripe_customer_id WHERE a.owner_id=${ownerId}`;
+  return account;
+}
+function hasEntitlement(account: Awaited<ReturnType<typeof billingAccountState>>) {
+  return !!account && account.priceId === process.env.STRIPE_PRICE_ID && activeStatuses.has(account.status);
 }
 
 export async function productActivation(ownerId: string) {
-  const overview = await billingOverview(ownerId);
-  return { allowed: overview.active, reason: overview.active ? null : overview.configured ? "An active subscription is required." : "Billing is not configured." };
+  const mode = billingConfiguration().mode;
+  const allowed = mode === "test" || (mode === "stripe" && hasEntitlement(await billingAccountState(ownerId)));
+  return { allowed, reason: allowed ? null : mode === "unconfigured" ? "Billing is not configured." : "An active subscription is required." };
 }
 export async function requireProductActivation(ownerId: string) {
   const result = await productActivation(ownerId);
@@ -121,7 +138,14 @@ export async function recordUsage(raw: UsageInput) {
   const [row] = await db`INSERT INTO usage_ledger (id,owner_id,companion_id,operation_id,category,quantity,unit,metadata,occurred_at)
     VALUES (${crypto.randomUUID()},${input.ownerId},${input.companionId ?? null},${input.operationId},${input.category},${input.quantity},${input.unit},${input.metadata ?? {}},${occurredAt})
     ON CONFLICT (owner_id,operation_id) DO NOTHING RETURNING id`;
-  if (!row) return { recorded: false, delivery: "duplicate" as const };
+  if (!row) {
+    const [existing] = await db`SELECT companion_id IS NOT DISTINCT FROM ${input.companionId ?? null}::uuid
+      AND category=${input.category} AND quantity=${input.quantity} AND unit=${input.unit}
+      AND metadata=${input.metadata ?? {}}::jsonb AS matches FROM usage_ledger
+      WHERE owner_id=${input.ownerId} AND operation_id=${input.operationId}`;
+    if (!existing?.matches) throw new UsageConflict("Usage identifier was already used with different billing data");
+    return { recorded: false, delivery: "duplicate" as const };
+  }
   const mode = billingConfiguration().mode;
   const [account] = await db`SELECT stripe_customer_id FROM billing_accounts WHERE owner_id=${input.ownerId}`;
   if (mode !== "stripe" || input.category === "box_lifecycle") {
@@ -186,7 +210,9 @@ export async function handleStripeWebhook(request: Request) {
       if (event.type === "checkout.session.completed") {
         const ownerId = stringValue((object.metadata as any)?.owner_id) ?? stringValue(object.client_reference_id);
         const customer = stringValue(object.customer); const subscription = stringValue(object.subscription);
-        if (!ownerId || !customer) throw new Error("invalid_checkout_owner");
+        if (!ownerId || !customer || !subscription) throw new Error("invalid_checkout_owner");
+        const [knownSubscription] = await tx`SELECT owner_id,stripe_customer_id FROM billing_subscriptions WHERE stripe_subscription_id=${subscription} FOR UPDATE`;
+        if (knownSubscription && (knownSubscription.owner_id !== ownerId || knownSubscription.stripe_customer_id !== customer)) throw new Error("checkout_subscription_conflict");
         const rows = await tx`INSERT INTO billing_accounts (owner_id,stripe_customer_id,stripe_subscription_id,stripe_price_id,last_event_created)
           VALUES (${ownerId},${customer},${subscription},${process.env.STRIPE_PRICE_ID!},${event.created})
           ON CONFLICT (owner_id) DO UPDATE SET stripe_customer_id=excluded.stripe_customer_id,
@@ -204,12 +230,27 @@ export async function handleStripeWebhook(request: Request) {
         const periodEnd = Number(object.current_period_end ?? (object.items as any)?.data?.[0]?.current_period_end ?? 0);
         const priceId = stringValue((object.items as any)?.data?.[0]?.price);
         const [account] = ownerId
-          ? await tx`SELECT owner_id,last_event_created FROM billing_accounts WHERE owner_id=${ownerId} AND (stripe_customer_id IS NULL OR stripe_customer_id=${customer}) FOR UPDATE`
-          : await tx`SELECT owner_id,last_event_created FROM billing_accounts WHERE stripe_customer_id=${customer} FOR UPDATE`;
+          ? await tx`SELECT u.id AS owner_id FROM "user" u LEFT JOIN billing_accounts a ON a.owner_id=u.id
+              WHERE u.id=${ownerId} AND (a.stripe_customer_id IS NULL OR a.stripe_customer_id=${customer}) FOR UPDATE OF u`
+          : await tx`SELECT owner_id FROM billing_accounts WHERE stripe_customer_id=${customer} FOR UPDATE`;
         if (!account) {
           if (ownerId) throw new Error("subscription_owner_conflict");
-        } else if (account.last_event_created <= event.created) {
-          await tx`UPDATE billing_accounts SET stripe_customer_id=${customer},stripe_subscription_id=${subscription},stripe_price_id=${priceId},subscription_status=${status},current_period_end=${periodEnd ? new Date(periodEnd * 1000) : null},cancel_at_period_end=${object.cancel_at_period_end === true},last_event_created=${event.created},updated_at=now() WHERE owner_id=${account.owner_id}`;
+        } else {
+          const [known] = await tx`SELECT owner_id,stripe_customer_id FROM billing_subscriptions WHERE stripe_subscription_id=${subscription} FOR UPDATE`;
+          if (known && (known.owner_id !== account.owner_id || known.stripe_customer_id !== customer)) throw new Error("subscription_owner_conflict");
+          await tx`INSERT INTO billing_subscriptions(stripe_subscription_id,owner_id,stripe_customer_id,stripe_price_id,subscription_status,current_period_end,cancel_at_period_end,last_event_created)
+            VALUES(${subscription},${account.owner_id},${customer},${priceId},${status},${periodEnd ? new Date(periodEnd * 1000) : null},${object.cancel_at_period_end === true},${event.created})
+            ON CONFLICT(stripe_subscription_id) DO UPDATE SET stripe_price_id=excluded.stripe_price_id,
+              subscription_status=excluded.subscription_status,current_period_end=excluded.current_period_end,
+              cancel_at_period_end=excluded.cancel_at_period_end,last_event_created=excluded.last_event_created,updated_at=now()
+            WHERE billing_subscriptions.owner_id=excluded.owner_id
+              AND billing_subscriptions.stripe_customer_id=excluded.stripe_customer_id
+              AND billing_subscriptions.last_event_created<=excluded.last_event_created`;
+          await tx`UPDATE billing_accounts SET stripe_subscription_id=COALESCE(stripe_subscription_id,${subscription}),stripe_price_id=${priceId},
+            subscription_status=${status},current_period_end=${periodEnd ? new Date(periodEnd * 1000) : null},
+            cancel_at_period_end=${object.cancel_at_period_end === true},updated_at=now()
+            WHERE owner_id=${account.owner_id} AND stripe_customer_id=${customer}
+              AND (stripe_subscription_id IS NULL OR stripe_subscription_id=${subscription})`;
         }
       }
       return false;

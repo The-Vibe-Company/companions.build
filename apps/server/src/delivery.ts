@@ -1,4 +1,4 @@
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import nodemailer from "nodemailer";
 import { z } from "zod";
 import { config, encrypt } from "./config";
@@ -7,7 +7,10 @@ import { ProductActivationRequired, requireProductActivation } from "./billing";
 
 const json = (body: unknown, status = 200) => Response.json(body, { status, headers: { "Cache-Control": "no-store" } });
 const idSchema = z.string().uuid();
-const createSchema = z.object({ companionId: idSchema, clientEmail: z.string().trim().email().max(320).transform(value => value.toLowerCase()), templateIds: z.array(idSchema).max(20).default([]), maintenanceRequested: z.boolean().default(false) });
+const createSchema = z.object({ clientDeliveryId: idSchema, companionId: idSchema,
+  clientEmail: z.string().trim().email().max(320).transform(value => value.toLowerCase()),
+  templateIds: z.array(idSchema).max(20).refine(ids => new Set(ids).size === ids.length, "Template IDs must be unique").default([]),
+  maintenanceRequested: z.boolean().default(false) });
 
 type Mail = { to: string; subject: string; text: string };
 let mailOverride: ((mail: Mail) => Promise<void>) | null = null;
@@ -39,6 +42,14 @@ async function portableTemplates(ownerId: string, companionId: string, ids: stri
 export class DeliveryConflict extends Error {}
 export async function createDelivery(ownerId: string, raw: unknown) {
   const input = createSchema.parse(raw);
+  const fingerprint = createHash("sha256").update(JSON.stringify({ companionId: input.companionId,
+    clientEmail: input.clientEmail, templateIds: input.templateIds, maintenanceRequested: input.maintenanceRequested })).digest("hex");
+  const [prior] = await db`SELECT id,recipient_email,expires_at,maintenance_requested,request_fingerprint
+    FROM companion_deliveries WHERE source_owner_id=${ownerId} AND client_delivery_id=${input.clientDeliveryId}`;
+  if (prior) {
+    if (prior.request_fingerprint !== fingerprint) throw new DeliveryConflict("This delivery identifier was already used with different details.");
+    return { id: prior.id, clientEmail: prior.recipient_email, expiresAt: prior.expires_at, maintenanceRequested: prior.maintenance_requested };
+  }
   const [companion] = await db`SELECT to_jsonb(companions) AS value FROM companions WHERE id=${input.companionId} AND owner_id=${ownerId}`;
   if (!companion) return null;
   const source = companion.value as Record<string, unknown>;
@@ -46,8 +57,15 @@ export async function createDelivery(ownerId: string, raw: unknown) {
   const profile = { name: source.name, instructions: source.instructions, avatar: source.avatar ?? null };
   const id = crypto.randomUUID();
   const expiresAt = new Date(Date.now() + 14 * 86_400_000);
-  await db`INSERT INTO companion_deliveries (id,source_owner_id,source_companion_id,recipient_email,profile_snapshot,template_profiles,maintenance_requested,expires_at)
-    VALUES (${id},${ownerId},${input.companionId},${input.clientEmail},${profile},${templates},${input.maintenanceRequested},${expiresAt})`;
+  const inserted = await db`INSERT INTO companion_deliveries (id,client_delivery_id,request_fingerprint,source_owner_id,source_companion_id,recipient_email,profile_snapshot,template_profiles,maintenance_requested,expires_at)
+    VALUES (${id},${input.clientDeliveryId},${fingerprint},${ownerId},${input.companionId},${input.clientEmail},${profile},${templates},${input.maintenanceRequested},${expiresAt})
+    ON CONFLICT(source_owner_id,client_delivery_id) DO NOTHING RETURNING id`;
+  if (!inserted[0]) {
+    const [winner] = await db`SELECT id,recipient_email,expires_at,maintenance_requested,request_fingerprint
+      FROM companion_deliveries WHERE source_owner_id=${ownerId} AND client_delivery_id=${input.clientDeliveryId}`;
+    if (!winner || winner.request_fingerprint !== fingerprint) throw new DeliveryConflict("This delivery identifier was already used with different details.");
+    return { id: winner.id, clientEmail: winner.recipient_email, expiresAt: winner.expires_at, maintenanceRequested: winner.maintenance_requested };
+  }
   const link = `${config.authUrl.replace(/\/$/, "")}/deliveries/${id}`;
   try {
     await sendInvite({ to: input.clientEmail, subject: `${String(source.name)} is ready for you`, text: `Sign in with ${input.clientEmail} to review and activate your independent Companion copy:\n\n${link}\n\nThe invitation expires in 14 days.` });

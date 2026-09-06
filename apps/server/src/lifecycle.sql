@@ -46,3 +46,19 @@ CREATE TABLE IF NOT EXISTS machine_usage_events (
  event text NOT NULL CHECK(event IN ('starting','ready','archived')), occurred_at timestamptz NOT NULL DEFAULT now(), reported_at timestamptz
 );
 ALTER TABLE companions ADD COLUMN IF NOT EXISTS preparation_started_at timestamptz;
+
+-- A parent review references the child's one immutable object; it never owns a second storage key.
+CREATE TABLE IF NOT EXISTS delegation_files (
+ delegation_id uuid NOT NULL REFERENCES delegations(id),
+ attachment_id uuid NOT NULL REFERENCES attachments(id) ON DELETE RESTRICT,
+ owner_id text NOT NULL,
+ target_companion_id uuid NOT NULL,
+ target_run_id uuid NOT NULL,
+ position integer NOT NULL CHECK(position BETWEEN 0 AND 4),
+ created_at timestamptz NOT NULL DEFAULT now(),
+ PRIMARY KEY(target_run_id,position),
+ UNIQUE(delegation_id,attachment_id),
+ FOREIGN KEY(target_companion_id,owner_id) REFERENCES companions(id,owner_id),
+ FOREIGN KEY(target_run_id,target_companion_id) REFERENCES runs(id,companion_id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS delegation_files_target ON delegation_files(owner_id,target_companion_id,target_run_id);

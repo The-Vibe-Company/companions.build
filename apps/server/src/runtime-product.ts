@@ -36,13 +36,13 @@ export const productHooks:ExecutorHooks={
   const request=execution?.requestAgent??agentRequest;
   const ownerId=await owner(run);await syncConfiguration(run,endpoint,token,undefined,execution);
   await execution?.assertActive();await stageTriggerContext(run,endpoint,token,request);
-  if(run.attachment_count){
+  if(run.attachment_count||run.source==='delegation'){
    const files=await filesForAgent({ownerId,companionId:run.companion_id,runId:run.id});const paths:string[]=[];
    for(const file of files){
     const result=await request(endpoint,token,`/files/inbox/${run.id}/${file.attachment.position}`,'PUT',{name:file.attachment.filename,sha256:file.attachment.sha256,data:Buffer.from(file.bytes).toString('base64')});
     if(!result?.path)throw Error('FILE_STAGING_FAILED');paths.push(result.path);
    }
-   run.content+='\n\nAttached files in your workspace:\n'+paths.join('\n');
+   if(paths.length)run.content+='\n\nAttached files in your workspace:\n'+paths.join('\n');
   }
  },
  async observeRun(run,endpoint,token,execution){

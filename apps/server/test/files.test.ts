@@ -35,6 +35,7 @@ class FilesDatabase {
   attachments: any[] = [];
   run = { id: RUN, status: "queued", dispatched: false, attachmentCount: 1 };
   async unsafe(query: string, values: unknown[] = []) {
+    if(query.includes("FROM delegation_files"))return [];
     if (query.includes("FROM runs r JOIN companions")) {
       return values[0] === RUN && values[1] === COMPANION && values[2] === OWNER ? [this.run] : [];
     }
@@ -131,6 +132,20 @@ describe("task attachments", () => {
       { database: database as any, storage },
     )).resolves.toMatchObject({ status: 500 });
     expect(storage.objects.size).toBe(0);
+  });
+
+  test("preserves uploaded bytes when a failed insert cannot determine whether an attachment committed",async()=>{
+    let lookups=0;
+    class UncertainDatabase extends FilesDatabase {
+      override async unsafe(query:string,values:unknown[]=[]){
+        if(query.startsWith("INSERT INTO attachments"))throw Error("insert acknowledgement lost");
+        if(query.includes("client_file_id=$4")&&++lookups>1)throw Error("reference lookup unavailable");
+        return super.unsafe(query,values);
+      }
+    }
+    const storage=new MemoryStorage();
+    const result=await handleFiles(uploadRequest(new File(["retained"],"report.txt",{type:"text/plain"})),OWNER,{database:new UncertainDatabase() as any,storage});
+    expect(result?.status).toBe(500);expect(storage.objects.size).toBe(1);
   });
 
   test("gives the agent only user uploads from its exact task and stores bounded outputs", async () => {

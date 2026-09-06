@@ -219,7 +219,9 @@ async function storeAttachment(
         [input.ownerId, input.companionId, input.runId, input.clientFileId],
       ) as StoredAttachment[];
     } catch {
-      // Preserve the insert failure and still attempt to remove the unreferenced object.
+      // An uncertain lookup may hide a committed attachment already referenced by a parent.
+      // Preserve bytes until reference state can be reconciled.
+      throw error;
     }
     if (accepted[0]?.storageKey === storageKey) return publicAttachment(accepted[0]);
     await storage.delete(storageKey).catch(() => undefined);
@@ -231,6 +233,33 @@ export function storeAgentOutput(input: StoreAttachmentInput, dependencies: File
   return storeAttachment(input, "agent_output", dependencies);
 }
 
+/** Called inside the fenced transaction that creates a delegation's parent review. */
+export async function handoffDelegationFiles(ownerId:string,delegationId:string,targetRunId:string,database:FilesDatabase=db){
+ const [delegation]=await database.unsafe(`SELECT d.id,d.parent_id FROM delegations d
+  JOIN companions child ON child.id=d.target_id AND child.owner_id=$1
+  JOIN companions parent ON parent.id=d.parent_id AND parent.owner_id=$1
+  JOIN runs source ON source.id=d.run_id AND source.companion_id=child.id
+  JOIN runs review ON review.id=$3 AND review.companion_id=parent.id AND review.source='delegation'
+  WHERE d.id=$2 AND d.returned_run_id=review.id AND d.files_saved_at IS NOT NULL
+    AND source.status IN ('succeeded','failed','interrupted','cancelled')`,[ownerId,delegationId,targetRunId]);
+ if(!delegation)throw new FileRequestError('Delegation files are not available for this review.',404);
+ await database.unsafe(`INSERT INTO delegation_files(delegation_id,attachment_id,owner_id,target_companion_id,target_run_id,position)
+  SELECT d.id,a.id,$1,d.parent_id,$3,a.position FROM delegations d
+  JOIN attachments a ON a.run_id=d.run_id AND a.companion_id=d.target_id AND a.owner_id=$1 AND a.kind='agent_output'
+  WHERE d.id=$2 ON CONFLICT DO NOTHING`,[ownerId,delegationId,targetRunId]);
+}
+
+type HandoffAttachment=StoredAttachment&{targetRunId:string};
+async function handoffRows(database:FilesDatabase,ownerId:string,companionId:string,runId:string|null=null):Promise<HandoffAttachment[]>{
+ return await database.unsafe(`SELECT ${joinedSelectColumns},h.target_run_id AS "targetRunId"
+  FROM delegation_files h JOIN delegations d ON d.id=h.delegation_id AND d.returned_run_id=h.target_run_id AND d.parent_id=h.target_companion_id
+  JOIN attachments a ON a.id=h.attachment_id AND a.owner_id=h.owner_id AND a.companion_id=d.target_id AND a.run_id=d.run_id AND a.kind='agent_output'
+  JOIN companions parent ON parent.id=h.target_companion_id AND parent.owner_id=h.owner_id
+  JOIN companions child ON child.id=a.companion_id AND child.owner_id=h.owner_id
+  WHERE h.owner_id=$1 AND h.target_companion_id=$2 AND ($3::uuid IS NULL OR h.target_run_id=$3)
+  ORDER BY h.created_at,h.position,a.id`,[ownerId,companionId,runId]) as HandoffAttachment[];
+}
+
 export async function filesForAgent(
   scope: Pick<StoreAttachmentInput, "ownerId" | "companionId" | "runId">,
   dependencies: FilesDependencies = {},
@@ -239,16 +268,20 @@ export async function filesForAgent(
   if (!await ownedRun(database, scope.ownerId, scope.companionId, scope.runId)) {
     throw new FileRequestError("Task not found.", 404);
   }
-  const storage = dependencies.storage ?? createObjectStorage();
   const rows = await database.unsafe(
     `SELECT ${selectColumns} FROM attachments WHERE owner_id=$1 AND companion_id=$2 AND run_id=$3 AND kind='user_upload' ORDER BY position,id`,
     [scope.ownerId, scope.companionId, scope.runId],
   ) as StoredAttachment[];
-  return Promise.all(rows.map(async row => ({
-    attachment: publicAttachment(row),
-    path: `attachments/${row.position}-${row.filename}`,
-    bytes: new Uint8Array(await (await storage.get(row.storageKey)).arrayBuffer()),
-  })));
+  const handoffs=await handoffRows(database,scope.ownerId,scope.companionId,scope.runId);
+  for(const {targetRunId,...row} of handoffs)rows.push({...row,runId:targetRunId,companionId:scope.companionId});
+  if(!rows.length)return [];
+  if(rows.length>FILE_MAX_COUNT||new Set(rows.map(row=>row.position)).size!==rows.length)throw new FileRequestError('Task file positions are inconsistent.',409);
+  const storage=dependencies.storage??createObjectStorage();
+  return Promise.all(rows.sort((a,b)=>a.position-b.position).map(async row=>{
+    const bytes=new Uint8Array(await (await storage.get(row.storageKey)).arrayBuffer());
+    if(bytes.length!==Number(row.byteSize)||createHash('sha256').update(bytes).digest('hex')!==row.sha256)throw new FileRequestError('Stored file integrity could not be confirmed.',409);
+    return {attachment:publicAttachment(row),path:`attachments/${row.position}-${row.filename}`,bytes};
+  }));
 }
 
 function responseFile(attachment: Attachment): ThreadFile {
@@ -275,7 +308,8 @@ export async function filesForThread(
      WHERE a.companion_id=$1 AND a.owner_id=$2 AND c.owner_id=$2 ORDER BY a.created_at,a.position,a.id`,
     [companionId, ownerId],
   ) as StoredAttachment[];
-  return rows.map(responseFile);
+  const handoffs=await handoffRows(database,ownerId,companionId);
+  return [...rows.map(responseFile),...handoffs.map(({targetRunId,...row})=>responseFile({...publicAttachment(row),runId:targetRunId}))];
 }
 
 const json = (body: unknown, status = 200) => Response.json(body, { status, headers: { "Cache-Control": "no-store" } });

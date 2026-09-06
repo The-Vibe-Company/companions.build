@@ -1,3 +1,4 @@
+import {handoffDelegationFiles} from './files';
 import { z } from 'zod';
 import { db } from './store';
 import { config, decrypt, encrypt } from './config';
@@ -206,6 +207,7 @@ export async function progressLifecycle(sql:any=db,hooks:LifecycleHooks={},machi
     const content='Delegated task finished. Review this result and any retained files; if useful, adopt the child Box as a template before finishing this review.\n'+JSON.stringify(result);
     await tx`INSERT INTO runs(id,companion_id,client_message_id,content,lane,source) VALUES(${returned},${delegation.parent_id},${returned},${content},'background','delegation')`;
     await tx`UPDATE delegations SET result=${result},returned_run_id=${returned} WHERE id=${delegation.id}`;
+    await handoffDelegationFiles(delegation.owner_id,delegation.id,returned,tx);
    });
    continue;
   }

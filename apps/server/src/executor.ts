@@ -4,7 +4,7 @@ import { prepareLocal, agentRequest } from "./machines";
 import { SQL, type ReservedSQL } from "bun";
 import {z} from "zod";
 import { migrateAutomations, scheduleDueRoutines } from "./automations";
-import { migrateLifecycle, progressLifecycle, type LifecycleHooks, type LifecycleMachines } from "./lifecycle";
+import { migrateLifecycle, progressLifecycle, ownerMayStartWork, SUBSCRIPTION_REQUIRED, type LifecycleHooks, type LifecycleMachines } from "./lifecycle";
 
 // A reserved PostgreSQL session owns the lock and ALL execution checkpoints.
 // A lost connection stops this executor; another process reconciles the durable journal.
@@ -43,6 +43,7 @@ export async function persistObservation(sql:any,run:any,result:any){
 }
 
 export interface ExecutorHooks {
+  canStartWork?(ownerId: string): Promise<boolean>;
   lifecycle?: LifecycleHooks;
   /** Test boundary; production uses the sole machine adapter. */
   lifecycleMachines?: LifecycleMachines;
@@ -71,15 +72,22 @@ export async function tick(sql: ReservedSQL, hooks: ExecutorHooks = {}) {
   const [ownership] = await sql`SELECT EXISTS(SELECT 1 FROM pg_locks WHERE locktype='advisory' AND pid=pg_backend_pid() AND objid=721440139 AND granted) AS owned`;
   if (!ownership.owned) throw new Error("Executor ownership lost");
   await scheduleDueRoutines(sql);
+  // Accepted work retains a visible denial. Previously dispatched requests continue through
+  // journal reconciliation, cancellation, output harvest and human-answer resumption.
+  for(const owner of await sql`SELECT DISTINCT c.owner_id FROM runs r JOIN companions c ON c.id=r.companion_id WHERE NOT r.dispatched AND r.status IN ('queued','preparing')`){
+    if(!await (hooks.canStartWork??ownerMayStartWork)(owner.owner_id)){
+      await sql`UPDATE runs SET status=CASE WHEN cancel_requested THEN 'cancelled' ELSE 'failed' END,error=CASE WHEN cancel_requested THEN NULL ELSE ${SUBSCRIPTION_REQUIRED} END,finished_at=now() WHERE NOT dispatched AND status IN ('queued','preparing') AND companion_id IN (SELECT id FROM companions WHERE owner_id=${owner.owner_id})`;
+    }
+  }
   await claimQueuedRuns(sql);
   // Accepted work routes wake intent through lifecycle before any prompt. A native steer or
   // another lane on an already active daemon reuses that machine without restarting it.
   await sql`UPDATE companions c SET prepare_requested=true WHERE c.retired_at IS NULL AND c.archive_requested_at IS NULL
     AND NOT c.desktop_taken AND c.desktop_paused_at IS NULL AND NOT c.prepare_requested
-    AND EXISTS(SELECT 1 FROM runs r WHERE r.companion_id=c.id AND r.status='preparing' AND NOT r.dispatched AND (c.ready_at IS NULL OR c.ready_at<r.started_at))
+    AND EXISTS(SELECT 1 FROM runs r WHERE r.companion_id=c.id AND r.status='preparing' AND NOT r.dispatched AND (c.endpoint_secret IS NULL OR c.status<>'ready' OR c.archived_at IS NOT NULL))
     AND NOT EXISTS(SELECT 1 FROM runs r WHERE r.companion_id=c.id AND r.dispatched AND r.status IN ('running','preparing','needs_input'))`;
-  await progressLifecycle(sql, hooks.lifecycle, hooks.lifecycleMachines);
-  const runs = await sql`SELECT r.id,r.companion_id,r.client_message_id,r.content,r.status,r.dispatched,r.cancel_requested,r.error,r.created_at,r.started_at,r.finished_at,r.prepared_at,r.lane,r.source,r.response_root_id,r.result_text,r.publish_to_chat,r.routine_id,r.scheduled_for,r.resume_requested_at,r.attachment_count,c.provider,c.box_id,c.create_key,c.create_started_at,c.agent_secret,c.endpoint_secret,c.instructions,c.config_digest,c.snapshot_name,c.template_id,c.template_revision,c.model_id
+  await progressLifecycle(sql, {...hooks.lifecycle,canStartWork:hooks.canStartWork??hooks.lifecycle?.canStartWork??ownerMayStartWork}, hooks.lifecycleMachines);
+  const runs = await sql`SELECT r.id,r.companion_id,r.client_message_id,r.content,r.status,r.dispatched,r.cancel_requested,r.error,r.created_at,r.started_at,r.finished_at,r.prepared_at,r.lane,r.source,r.response_root_id,r.result_text,r.publish_to_chat,r.routine_id,r.scheduled_for,r.resume_requested_at,r.attachment_count,c.provider,c.box_id,c.create_key,c.create_started_at,c.agent_secret,c.endpoint_secret,c.instructions,c.config_digest,c.snapshot_name,c.template_id,c.template_revision,c.model_id,c.owner_id
     FROM runs r JOIN companions c ON c.id=r.companion_id WHERE r.status IN ('preparing','running','needs_input') AND c.retired_at IS NULL AND NOT c.desktop_taken AND c.desktop_paused_at IS NULL AND c.archive_requested_at IS NULL ORDER BY r.created_at`;
   // One machine preparation at a time per Companion; independent Companions progress in parallel.
   // Each network call only accepts/observes work, so a long Pi task does not occupy this loop.
@@ -134,6 +142,7 @@ export async function tick(sql: ReservedSQL, hooks: ExecutorHooks = {}) {
           return;
         }
         if (run.status === "preparing") {
+          if(!await (hooks.canStartWork??ownerMayStartWork)(run.owner_id)){await settle(sql,run,"failed",null,SUBSCRIPTION_REQUIRED);return;}
           if (hooks.canPrepareRun && !await hooks.canPrepareRun(run)) {
             if (age > 5 * 60_000) await settle(sql, run, "failed", null, "File upload did not finish. Send the message again with its files.");
             return;
@@ -158,15 +167,13 @@ export async function tick(sql: ReservedSQL, hooks: ExecutorHooks = {}) {
               // Main sends enter Pi's native steer path. Background never owns that session.
             }
           } catch (error) {
-            // Provider readiness precedes the user service after resume. Give its
-            // existing endpoint a bounded startup grace instead of reconfiguring
-            // the machine on the first transient connection failure.
-            if (run.provider === "box" && age < 45_000 && !(error instanceof Error && error.message === "agent_auth_expired")) return;
-            // Re-resolve/restart the existing machine on the next pass, never replace it.
+            // Lifecycle already confirmed readiness. A failed probe requests repair of
+            // this same Box on the next tick; healthy runs never prepare it again.
             await sql`UPDATE companions SET endpoint_secret=null,prepare_requested=true WHERE id=${run.companion_id} AND NOT desktop_taken AND desktop_paused_at IS NULL`;
             return;
           }
           await hooks.prepareRun?.(run, endpoint, token);
+          if(!await (hooks.canStartWork??ownerMayStartWork)(run.owner_id)){await settle(sql,run,"failed",null,SUBSCRIPTION_REQUIRED);return;}
           // Cancellation may arrive during machine/file preparation. Recheck before dispatch.
           const [latest] = await sql`SELECT r.cancel_requested,c.desktop_taken,c.desktop_paused_at,c.retired_at FROM runs r JOIN companions c ON c.id=r.companion_id WHERE r.id=${run.id}`;
           if (latest?.desktop_taken || latest?.desktop_paused_at || latest?.retired_at) return;

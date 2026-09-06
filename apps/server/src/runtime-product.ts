@@ -5,7 +5,7 @@ import {machinePlugins} from './plugins';
 import {filesForAgent,storeAgentOutput} from './files';
 import {createObjectStorage} from './storage';
 import {decrypt} from './config';
-import {lifecycleControlHandlers} from './lifecycle';
+import {lifecycleControlHandlers,ownerMayStartWork} from './lifecycle';
 import {recordUsage} from './billing';
 import {stageTriggerContext} from './trigger-control';
 import {applyControl} from './control';
@@ -23,6 +23,7 @@ async function syncConfiguration(run:any,endpoint:string,token:string,observedGe
  }
 }
 export const productHooks:ExecutorHooks={
+ canStartWork:ownerMayStartWork,
  async canPrepareRun(run){
   if(!run.attachment_count)return true;
   const [row]=await db`SELECT count(*)::int AS count FROM attachments WHERE companion_id=${run.companion_id} AND run_id=${run.id} AND kind='user_upload'`;
@@ -65,6 +66,7 @@ export const productHooks:ExecutorHooks={
  },
  async beforeSettle(run,endpoint,token){await collectOutputs(run,endpoint,token);},
  lifecycle:{
+  canStartWork:ownerMayStartWork,
   async recordUsage(event){await recordUsage({operationId:'box:'+event.id,ownerId:event.ownerId,companionId:event.companionId,category:'box_lifecycle',quantity:1,unit:'event',occurredAt:event.at,metadata:{event:event.event}});},
   async filesDurable(run){
    const [companion]=await db`SELECT endpoint_secret,agent_secret,desktop_taken,desktop_paused_at FROM companions WHERE id=${run.companion_id} AND retired_at IS NULL`;

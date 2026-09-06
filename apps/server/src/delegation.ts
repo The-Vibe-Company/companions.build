@@ -47,24 +47,26 @@ export async function delegateTask(ownerId:string,parentId:string,parentRunId:st
   return {companionId:value.companionId,runId};
  });
 }
-export async function delegationStatus(ownerId:string,runId:string,sql:any=db,parentId?:string,parentRunId?:string){
+export async function delegationStatus(ownerId:string,runId:string,sql:any=db,parentId?:string){
  const [row]=await sql`SELECT d.id,d.target_id AS "companionId",d.run_id AS "runId",r.status,r.result_text AS "resultText",r.error,d.files_saved_at AS "filesSavedAt",d.returned_run_id AS "returnedRunId",
   q.id AS "questionId",q.question,q.options
   FROM delegations d JOIN companions c ON c.id=d.parent_id JOIN companions target ON target.id=d.target_id AND target.owner_id=c.owner_id JOIN runs r ON r.id=d.run_id AND r.companion_id=target.id
   LEFT JOIN LATERAL(SELECT id,question,options FROM task_questions WHERE companion_id=d.target_id AND run_id=d.run_id AND answer IS NULL ORDER BY created_at,id LIMIT 1)q ON true
-  WHERE d.run_id=${runId} AND c.owner_id=${ownerId} AND (${parentId??null}::uuid IS NULL OR d.parent_id=${parentId??null}) AND (${parentRunId??null}::uuid IS NULL OR d.parent_run_id=${parentRunId??null})`;
+  WHERE d.run_id=${runId} AND c.owner_id=${ownerId} AND c.parent_id IS NULL AND NOT c.temporary AND c.retired_at IS NULL
+   AND (${parentId??null}::uuid IS NULL OR d.parent_id=${parentId??null})`;
  if(!row)return null;
  const {questionId,question,options,...status}=row;
  return {...status,pendingQuestion:questionId?{id:questionId,companionId:row.companionId,question,options}:null};
 }
-export async function answerDelegationQuestion(ownerId:string,parentId:string,parentRunId:string,runId:string,questionId:string,answer:string,sql:any=db){
+export async function answerDelegationQuestion(ownerId:string,parentId:string,runId:string,questionId:string,answer:string,sql:any=db){
  return sql.begin(async(tx:any)=>{
   const [row]=await tx`SELECT q.answer,d.target_id,r.status FROM delegations d
    JOIN companions parent ON parent.id=d.parent_id AND parent.owner_id=${ownerId} AND parent.retired_at IS NULL
    JOIN companions target ON target.id=d.target_id AND target.owner_id=parent.owner_id AND target.retired_at IS NULL
    JOIN runs r ON r.id=d.run_id AND r.companion_id=d.target_id
    JOIN task_questions q ON q.id=${questionId} AND q.run_id=d.run_id AND q.companion_id=d.target_id
-   WHERE d.parent_id=${parentId} AND d.parent_run_id=${parentRunId} AND d.run_id=${runId} AND d.finished_at IS NULL FOR UPDATE OF q`;
+   WHERE d.parent_id=${parentId} AND parent.parent_id IS NULL AND NOT parent.temporary
+    AND d.run_id=${runId} AND d.finished_at IS NULL FOR UPDATE OF q`;
   if(!row)throw new LifecycleConflict('Delegated question unavailable.');
   if(row.answer){if(row.answer!==answer)throw new LifecycleConflict('This question already has an answer.');return {ok:true};}
   if(!['running','needs_input'].includes(row.status))throw new LifecycleConflict('This delegated task is no longer waiting.');

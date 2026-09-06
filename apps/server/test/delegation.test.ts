@@ -27,7 +27,7 @@ test('active directed delegations reject multi-Companion and concurrent circular
  expect(attempts.filter(result=>result.status==='rejected')).toHaveLength(1);
 });
 
-test('only the active delegating run can inspect and answer its correlated child question',async()=>{
+test('a later active parent run can inspect and answer only its correlated child question',async()=>{
  const parent=await companion('Question parent'),target=await companion('Question target'),unrelated=await companion('Unrelated'),other=crypto.randomUUID();
  await db`INSERT INTO "user"(id,name,email,"emailVerified") VALUES(${other},'Other owner',${other+'@example.test'},true)`;
  const parentTask=await parentRun(parent.id),unrelatedTask=await parentRun(unrelated.id);
@@ -37,17 +37,21 @@ test('only the active delegating run can inspect and answer its correlated child
  await db`INSERT INTO task_questions(id,companion_id,run_id,question,options) VALUES(${questionId},${target.id},${delegated.runId},'Which color?',${['Blue','Green']})`;
  const otherRun=await parentRun(target.id);await db`INSERT INTO task_questions(id,companion_id,run_id,question,options) VALUES(${foreignQuestion},${target.id},${otherRun},'Unrelated?',${[]})`;
 
- const context:ControlContext={ownerId:owner,companionId:parent.id,runId:parentTask,commandId:crypto.randomUUID(),isChild:false};
+ await db`UPDATE runs SET status='succeeded' WHERE id=${parentTask}`;
+ const laterParentTask=await parentRun(parent.id);
+ await db`UPDATE runs SET status='running' WHERE id=${laterParentTask}`;
+ const context:ControlContext={ownerId:owner,companionId:parent.id,runId:laterParentTask,commandId:crypto.randomUUID(),isChild:false};
  expect(await controlHandlers.task_status!(context,{runId:delegated.runId})).toMatchObject({status:'needs_input',pendingQuestion:{id:questionId,companionId:target.id,question:'Which color?',options:['Blue','Green']}});
- expect(await delegationStatus(owner,delegated.runId,db,parent.id,parentTask)).toMatchObject({status:'needs_input',pendingQuestion:{id:questionId}});
- expect(await delegationStatus(owner,delegated.runId,db,unrelated.id,unrelatedTask)).toBeNull();
+ expect(await delegationStatus(owner,delegated.runId,db,parent.id)).toMatchObject({status:'needs_input',pendingQuestion:{id:questionId}});
+ expect(await delegationStatus(owner,delegated.runId,db,unrelated.id)).toBeNull();
  expect(await delegationStatus(other,delegated.runId)).toBeNull();
- await expect(answerDelegationQuestion(other,parent.id,parentTask,delegated.runId,questionId,'Blue')).rejects.toBeInstanceOf(LifecycleConflict);
- await expect(answerDelegationQuestion(owner,unrelated.id,unrelatedTask,delegated.runId,questionId,'Blue')).rejects.toBeInstanceOf(LifecycleConflict);
- await expect(answerDelegationQuestion(owner,parent.id,parentTask,delegated.runId,foreignQuestion,'Blue')).rejects.toBeInstanceOf(LifecycleConflict);
+ expect(await controlHandlers.task_status!(context,{runId:unrelatedTask})).toEqual({error:'Task not found.'});
+ await expect(answerDelegationQuestion(other,parent.id,delegated.runId,questionId,'Blue')).rejects.toBeInstanceOf(LifecycleConflict);
+ await expect(answerDelegationQuestion(owner,unrelated.id,delegated.runId,questionId,'Blue')).rejects.toBeInstanceOf(LifecycleConflict);
+ await expect(answerDelegationQuestion(owner,parent.id,delegated.runId,foreignQuestion,'Blue')).rejects.toBeInstanceOf(LifecycleConflict);
  expect(await controlHandlers.task_answer!(context,{runId:delegated.runId,questionId,answer:'Blue'})).toEqual({ok:true});
- expect(await answerDelegationQuestion(owner,parent.id,parentTask,delegated.runId,questionId,'Blue')).toEqual({ok:true});
- await expect(answerDelegationQuestion(owner,parent.id,parentTask,delegated.runId,questionId,'Green')).rejects.toThrow('already has an answer');
+ expect(await answerDelegationQuestion(owner,parent.id,delegated.runId,questionId,'Blue')).toEqual({ok:true});
+ await expect(answerDelegationQuestion(owner,parent.id,delegated.runId,questionId,'Green')).rejects.toThrow('already has an answer');
  expect((await db`SELECT answer,resume_requested_at FROM task_questions q JOIN runs r ON r.id=q.run_id WHERE q.id=${questionId}`)[0]).toMatchObject({answer:'Blue'});
  expect((await db`SELECT resume_requested_at FROM runs WHERE id=${delegated.runId}`)[0].resume_requested_at).not.toBeNull();
 });

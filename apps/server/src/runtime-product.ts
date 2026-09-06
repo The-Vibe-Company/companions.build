@@ -111,14 +111,14 @@ registerControl({
  plugin_select:async(context,input)=>{const value=z.object({accountId:z.string().uuid(),enabled:z.boolean()}).parse(input);await attachPlugin(context.ownerId,context.companionId,value.accountId,value.enabled);return{ok:true};},
  task_status:async(context,input)=>{
   const {runId}=z.object({runId:z.string().uuid()}).parse(input);
-  const delegated=await delegationStatus(context.ownerId,runId,db,context.companionId,context.runId);
+  const delegated=await delegationStatus(context.ownerId,runId,db,context.companionId);
   if(delegated)return delegated;
-  const [run]=await db`SELECT r.id,r.status,r.result_text AS "resultText",r.error FROM runs r JOIN companions c ON c.id=r.companion_id WHERE r.id=${runId} AND c.owner_id=${context.ownerId}`;
+  const [run]=await db`SELECT r.id,r.status,r.result_text AS "resultText",r.error FROM runs r JOIN companions c ON c.id=r.companion_id WHERE r.id=${runId} AND r.companion_id=${context.companionId} AND c.owner_id=${context.ownerId}`;
   return run??{error:'Task not found.'};
  },
  task_answer:async(context,input)=>{
   const value=z.object({runId:z.string().uuid(),questionId:z.string().uuid(),answer:z.string().trim().min(1).max(5000)}).parse(input);
-  return answerDelegationQuestion(context.ownerId,context.companionId,context.runId,value.runId,value.questionId,value.answer);
+  return answerDelegationQuestion(context.ownerId,context.companionId,value.runId,value.questionId,value.answer);
  },
 });
 

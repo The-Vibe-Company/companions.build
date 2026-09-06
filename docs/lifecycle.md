@@ -6,7 +6,7 @@ Only the executor calls `progressLifecycle`. There is no machine contact in API/
 
 ## Integration
 
-`store.migrate()` applies `lifecycle.sql` in the canonical migration transaction. The production
+`store.migrate()` applies `lifecycle.sql` and `desktop.sql` in the canonical migration transaction. The production
 executor owns one `LifecycleCoordinator`, and `runtime-product.ts` registers
 `lifecycleControlHandlers` with the compiled control vocabulary. The coordinator starts at most
 four independent Companion jobs without awaiting their provider calls, so a cold Box cannot hold
@@ -28,7 +28,7 @@ owner from request JSON. Operations and payloads:
 | delegate | companionId, prompt; commandId and parent runId are required |
 | adopt_template | templateId, childId, expectedRevision, durable commandId |
 | prepare / open_desktop | Persist wake intent; no message is created |
-| desktop_takeover / desktop_release | Persist desired physical pause state |
+| desktop_takeover / desktop_release | Persist desired GUI takeover generation (release requires human authority) |
 
 Creation should set `prepare_requested=true`. Include `snapshot_name`, `template_id` and
 `template_revision` in the Companion passed to `prepareBox`, including preparation from a queued
@@ -43,18 +43,46 @@ state, credentials, history, or connections.
 
 ## Desktop takeover
 
-The executor must block new claims and skip all ordinary Box/daemon contact when `desktop_taken`
-is true **or** `desktop_paused_at` is set. Lifecycle processing remains responsible for physical
-freeze/thaw. Box runs `systemctl --user freeze/thaw companions-agent.service` through its remote
-user bus; local development uses label-checked Docker pause/unpause. The process and its child
-tools freeze together. A persisted timestamp appears only after physical confirmation. Closing
-the browser does not release takeover. A failed freeze keeps an explicit error and never claims
-that the agent has stopped. A live provider canary confirmed daemon-wide freeze/resume for one Box.
+Takeover closes only the dedicated GUI broker. Chat, file tools, shell work and ordinary network
+requests continue in a separate headless runtime. PostgreSQL stores `desktop_taken`, a monotonic
+`desktop_generation`, the observed generation, broker boot ID and confirmed pause timestamp.
+Only the authenticated human API can release a taken desktop; MCP cannot grant itself access.
+Closing the browser keeps the persisted intent. Late responses cannot overwrite a newer generation.
 
-Release thaws the original process and clears the observed timestamp before ordinary journal
-reconciliation. An external model request may time out while frozen; that task can fail visibly
-when released. It is never replayed. `/runs/:id/suspend` is for a tool already awaiting human input,
-and is deliberately not used as a physical desktop pause.
+The broker serializes fixed capture, click, type, keys and scroll primitives. Confirmation follows
+abort of an active action, termination of its subprocess group and an X11 input-release roundtrip.
+A cancelled or interrupted GUI request is never replayed. Tools return `desktop_paused` promptly,
+so the model can continue headless work. Release requires a fresh capture before another action.
+Every broker boot is closed until the executor reconciles the durable generation. Periodic checks
+also detect broker restarts while idle. Headless run admission never waits for this GUI check.
+
+The broker runs as the desktop user. Pi runs as `companions-agent`, without sudo or capabilities,
+inside private mount, PID and network namespaces. It sees only its exact original state path and
+an agent-only Unix socket; desktop home, X11 sockets, admin socket and host CDP ports are excluded.
+A root-owned TCP proxy exposes the authenticated daemon to the controller. Snapshot/archive remains
+blocked during takeover to preserve the human's machine; headless output harvesting continues.
+
+This is a functional boundary for the product tools, not protection against hostile automation
+created through GUI applications. A GUI terminal could launch desktop-user code outside the
+headless namespace. Pi's brief prohibits that route and requires shell work through headless bash.
+The acceptance proof covers the supported tools and blocked direct headless access; it does not
+claim containment of every process an adversarial desktop user could create.
+
+Builds install the immutable binary and Linux helpers in `/opt/companions`; wake installs no
+dependencies. Existing Boxes require the explicit operator procedure below. A legacy Box without
+boundary version 1 retains headless chat but reports an unsupported takeover instead of freezing
+its entire daemon or claiming success.
+
+### Existing Box upgrade
+
+Build with `python3 scripts/bun.py scripts/build-agent.ts`. Stop the executor and wait for active
+and parked tasks to finish or be explicitly cancelled. With an authenticated owner's private
+`.local/session-cookie`, run `python3 scripts/bun.py scripts/upgrade-box-desktop-boundary.ts <id>`.
+The script refuses an active executor, active tasks, changed Box identity, or an archived machine.
+It pins its private journal/archive, checks leadership before each remote write, stops only owned
+services and installs on the same Box. It retains Pi state paths, files and desktop intent; a
+completed journal is an idempotent no-op. Restart the executor to reconcile readiness. No request
+is replayed. New base snapshots install the same helpers during the existing template build.
 
 ## Results, adoption and retirement
 
@@ -100,13 +128,14 @@ boundaries. Preparation has a five-minute bound; retry wakes or repairs the same
 
 `apps/server/test/lifecycle.test.ts` uses isolated PostgreSQL and a fake machine boundary to prove
 cross-owner denial, concurrent child limits, identity/revision isolation, no-chat wake,
-physical-pause confirmation, lost snapshot replies, activation checkpoint failure, output durability,
-parent review before archive and durable billing delivery. With `RUN_LOCAL_ACCEPTANCE=1`, an actual
-owned Linux container proves a subprocess cannot write while paused and resumes after release.
+GUI-pause confirmation, lost snapshot replies, activation checkpoint failure, output durability,
+parent review before archive and durable billing delivery. The optional production proof in `experiments/desktop-boundary/README.md` runs the compiled Pi
+binary and GUI broker inside an owned Linux container, exercising GUI interruption while chat,
+network work and human input continue. It also starts from a partial network setup to prove recovery.
 `apps/server/test/async-lifecycle.test.ts` additionally proves that warm chat dispatches and finishes
 while another prepare remains blocked, that repeated ticks do not duplicate jobs, that pending
 machines share the bounded preparation slots fairly, and that a lost leader cannot checkpoint a
 late provider response. `python3 scripts/verify.py` runs these with the existing Pi/Linux suite.
-Isolated credentialed canaries have observed live Box freeze/resume, snapshot lookup/re-entry,
+Historical credentialed canaries observed the old whole-daemon freeze/resume, snapshot lookup/re-entry,
 archive/wake, and delegated-file handoff on individual Boxes; these observations are not continuous
 provider or latency guarantees. No worktree test uses live keys.

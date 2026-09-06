@@ -52,3 +52,12 @@ The deterministic product fixtures exercise real Pi tools and bridges without mo
 `plugin-roundtrip:<connection-id>` plus `plugin-detached:<connection-id>` verify discovery,
 generic MCP execution, and configuration revocation. They are acceptance prompts, not commands
 available in production mode.
+
+Desktop-enabled distributions run the same binary with `--desktop-broker` in a separate desktop-user
+service. The ordinary Pi service uses an unprivileged headless namespace. `GET /health` includes
+`desktopBoundaryVersion`; authenticated `GET /desktop` reports broker state. Per-session
+`desktop_capture`, `desktop_click`, `desktop_type`, `desktop_keys` and `desktop_scroll` tools use the
+agent Unix socket. Takeover aborts GUI actions and returns `desktop_paused`; it does not suspend Pi,
+chat, shell tools or network. The admin socket is invisible to Pi and release requires human API
+authority. See `docs/lifecycle.md` for state generations, restart recovery, deployment and the
+explicit limit concerning automation launched through GUI applications.

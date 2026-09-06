@@ -43,7 +43,14 @@ export function scriptedModel(model: any, context: any) {
     message.content = [{ type: "toolCall", id: `fixture-${results.length}`, name, arguments: args }];
     message.stopReason = "toolUse";
   };
-  if (text === "control-identity") {
+  if (text === "desktop-type-fixture" || text === "desktop-key-fixture") {
+    if(results.length===0)tool(text==='desktop-type-fixture'?'desktop_type':'desktop_capture',text==='desktop-type-fixture'?{text:'a'.repeat(1000),intervalMs:100}:{});
+    else if(text==='desktop-key-fixture'&&results.length===1)tool('desktop_keys',{keys:['a']});
+    else message.content=[{type:'text',text:lastResult().includes('desktop_paused')?'Desktop paused; headless work can continue.':'Desktop tool returned.'}];
+  } else if(text==='desktop-network-fixture') {
+    if(results.length===0)tool('bash',{command:'python3 /proof/network-worker.py'});
+    else message.content=[{type:'text',text:'Headless network fixture completed.'}];
+  } else if (text === "control-identity") {
     if (results.length === 0) tool("companion_control", { operation: "identity", input: {} });
     else message.content = [{type:"text",text:JSON.stringify(results.at(-1)?.content).includes("companionId") ? "Control verified" : "Control failed"}];
   } else if (text === "write-note") {

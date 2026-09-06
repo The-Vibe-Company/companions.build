@@ -1,0 +1,22 @@
+experiments/desktop-boundary/worker.py
+  s_f946242dcf6ba9::t_1b16bc98629a8b 22-25,43-45
+experiments/desktop-boundary/prove.py
+  s_f946242dcf6ba9::t_1b16bc98629a8b 45,47-48,106,112
+  s_f946242dcf6ba9::t_54fde103c7e6cd 39
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "0bd512a51b07cb56f2114307cdc56a27378b989c",
+  "prompts": {},
+  "sessions": {
+    "s_f946242dcf6ba9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a06de4-a8a5-7cd3-b713-2a8d451f7200",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "StanGirard <stan@quivr.app>"
+    }
+  }
+}

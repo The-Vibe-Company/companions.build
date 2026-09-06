@@ -1,0 +1,20 @@
+scripts/live-desktop-canary.ts
+  s_f946242dcf6ba9::t_0bfd6ef7b3a289 1
+  s_f946242dcf6ba9::t_df2afd47056590 2-8,10-67
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "5a8e0af418ca52a7b3c6dd53db296237effc3c11",
+  "prompts": {},
+  "sessions": {
+    "s_f946242dcf6ba9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a06de4-a8a5-7cd3-b713-2a8d451f7200",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "StanGirard <stan@quivr.app>"
+    }
+  }
+}

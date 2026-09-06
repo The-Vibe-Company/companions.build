@@ -1,0 +1,227 @@
+{
+  "verification": {
+    "status": "passed",
+    "run": "20260906T182904Z-2647def8",
+    "scenario": null,
+    "host": {
+      "system": "Darwin",
+      "arch": "arm64",
+      "release": "25.6.0"
+    },
+    "bun": "1.4.2",
+    "target": "linux-x64-baseline",
+    "steps": [
+      {
+        "name": "doctor",
+        "command": [
+          "docker",
+          "version"
+        ],
+        "log": ".artifacts/pi-bun/20260906T182904Z-2647def8/doctor.log",
+        "exitCode": 0,
+        "durationSeconds": 0.036
+      },
+      {
+        "name": "install",
+        "command": [
+          "./.artifacts/toolchain/bun-1.4.2-bun-darwin-aarch64/bun",
+          "install",
+          "--frozen-lockfile",
+          "--ignore-scripts"
+        ],
+        "log": ".artifacts/pi-bun/20260906T182904Z-2647def8/install.log",
+        "exitCode": 0,
+        "durationSeconds": 0.565
+      },
+      {
+        "name": "typecheck",
+        "command": [
+          "./.artifacts/toolchain/bun-1.4.2-bun-darwin-aarch64/bun",
+          "node_modules/typescript/bin/tsc"
+        ],
+        "log": ".artifacts/pi-bun/20260906T182904Z-2647def8/typecheck.log",
+        "exitCode": 0,
+        "durationSeconds": 0.887
+      },
+      {
+        "name": "build",
+        "command": [
+          "./.artifacts/toolchain/bun-1.4.2-bun-darwin-aarch64/bun",
+          "experiments/pi-bun/build.ts"
+        ],
+        "log": ".artifacts/pi-bun/20260906T182904Z-2647def8/build.log",
+        "exitCode": 0,
+        "durationSeconds": 0.347
+      },
+      {
+        "name": "linux-image",
+        "command": [
+          "docker",
+          "build",
+          "--platform",
+          "linux/amd64",
+          "-t",
+          "companions-build-probe:597f22d186c8",
+          "-f",
+          "experiments/pi-bun/Dockerfile",
+          "experiments/pi-bun"
+        ],
+        "log": ".artifacts/pi-bun/20260906T182904Z-2647def8/linux-image.log",
+        "exitCode": 0,
+        "durationSeconds": 0.499
+      },
+      {
+        "name": "linux-environment",
+        "command": [
+          "docker",
+          "run",
+          "--rm",
+          "--network=none",
+          "--platform",
+          "linux/amd64",
+          "companions-build-probe:597f22d186c8",
+          "sh",
+          "-c",
+          "uname -a; cat /etc/os-release; ldd --version"
+        ],
+        "log": ".artifacts/pi-bun/20260906T182904Z-2647def8/linux-environment.log",
+        "exitCode": 0,
+        "durationSeconds": 0.176
+      },
+      {
+        "name": "acceptance",
+        "command": [
+          "./.artifacts/toolchain/bun-1.4.2-bun-darwin-aarch64/bun",
+          "test",
+          "experiments/pi-bun/acceptance.test.ts"
+        ],
+        "log": ".artifacts/pi-bun/20260906T182904Z-2647def8/acceptance.log",
+        "exitCode": 0,
+        "durationSeconds": 40.889
+      }
+    ],
+    "durationSeconds": 51.859
+  },
+  "timings": {
+    "note": "Linux x86_64 container; host may emulate x86_64. Excludes Box provisioning and real model latency. Host event polling has 10ms resolution.",
+    "samples": [
+      {
+        "sample": 1,
+        "dockerLaunchToReadyMs": 1509.6166660000017,
+        "processUptimeAtReadyMs": 1384.919042,
+        "initializationAfterImportsMs": 234.068667,
+        "acceptedMs": 10.50566599999729,
+        "scriptedResponseMs": 21.111790999999357
+      },
+      {
+        "sample": 2,
+        "dockerLaunchToReadyMs": 1451.0404170000002,
+        "processUptimeAtReadyMs": 1331.697584,
+        "initializationAfterImportsMs": 295.00637499999993,
+        "acceptedMs": 10.43879200000083,
+        "scriptedResponseMs": 20.5881249999984
+      },
+      {
+        "sample": 3,
+        "dockerLaunchToReadyMs": 1463.9459580000002,
+        "processUptimeAtReadyMs": 1340.917918,
+        "initializationAfterImportsMs": 296.32025,
+        "acceptedMs": 10.188624999998865,
+        "scriptedResponseMs": 20.490208999999595
+      },
+      {
+        "sample": 4,
+        "dockerLaunchToReadyMs": 1509.074625000001,
+        "processUptimeAtReadyMs": 1388.350125,
+        "initializationAfterImportsMs": 236.15566599999988,
+        "acceptedMs": 10.84570900000108,
+        "scriptedResponseMs": 20.900667000001704
+      },
+      {
+        "sample": 5,
+        "dockerLaunchToReadyMs": 1426.0900419999998,
+        "processUptimeAtReadyMs": 1307.743001,
+        "initializationAfterImportsMs": 235.9196669999999,
+        "acceptedMs": 21.778540999999677,
+        "scriptedResponseMs": 32.60954099999799
+      },
+      {
+        "sample": 6,
+        "dockerLaunchToReadyMs": 1462.1733340000028,
+        "processUptimeAtReadyMs": 1353.416042,
+        "initializationAfterImportsMs": 293.12633299999993,
+        "acceptedMs": 21.570999999996275,
+        "scriptedResponseMs": 32.49816699999792
+      },
+      {
+        "sample": 7,
+        "dockerLaunchToReadyMs": 1464.593084,
+        "processUptimeAtReadyMs": 1346.490709,
+        "initializationAfterImportsMs": 292.5107499999999,
+        "acceptedMs": 10.316042000005837,
+        "scriptedResponseMs": 20.814084000005096
+      },
+      {
+        "sample": 8,
+        "dockerLaunchToReadyMs": 1557.0354579999985,
+        "processUptimeAtReadyMs": 1431.609001,
+        "initializationAfterImportsMs": 251.80904099999998,
+        "acceptedMs": 21.131625000001804,
+        "scriptedResponseMs": 21.148042000000714
+      },
+      {
+        "sample": 9,
+        "dockerLaunchToReadyMs": 1511.7716669999936,
+        "processUptimeAtReadyMs": 1383.851751,
+        "initializationAfterImportsMs": 236.92829200000006,
+        "acceptedMs": 10.449833000006038,
+        "scriptedResponseMs": 21.061916000006022
+      },
+      {
+        "sample": 10,
+        "dockerLaunchToReadyMs": 1479.6359589999993,
+        "processUptimeAtReadyMs": 1349.098668,
+        "initializationAfterImportsMs": 294.68433400000004,
+        "acceptedMs": 10.711916000000201,
+        "scriptedResponseMs": 20.971666000004916
+      }
+    ]
+  },
+  "distribution": [
+    {
+      "path": "companion-probe",
+      "bytes": 92812768,
+      "sha256": "b35031ae78718852ba65722485f2c04db99127d16eda00940a18a4ee4fb1a566"
+    },
+    {
+      "path": "fixtures/large.png",
+      "bytes": 11073,
+      "sha256": "ca42ba394cf14876b8e78ecba0f06a8edbdef31529bf699a9faf053d8a263d9f"
+    },
+    {
+      "path": "mcp-fixture",
+      "bytes": 82028000,
+      "sha256": "055fb3741ee87d52857080c3d02591d6cdfec2ceb457d9a4fc86de8f7551e2f3"
+    },
+    {
+      "path": "package.json",
+      "bytes": 4167,
+      "sha256": "1dba78e1dee92c7ea4d0997d815a390ad5bfaf47ea5ada6f71818d01e97a70dc"
+    },
+    {
+      "path": "photon_rs_bg.wasm",
+      "bytes": 1881634,
+      "sha256": "10468181565c56004c867f3a4af96f89a0ef5a63a72f2b5fb12c1f1992a3615c"
+    },
+    {
+      "path": "skills/probe-skill/SKILL.md",
+      "bytes": 271,
+      "sha256": "6b8950e7fe732922e0e3b151cdf979732a0fd75f1e361595fed28ebb94ce20df"
+    },
+    {
+      "path": "skills/probe-skill/scripts/check.sh",
+      "bytes": 44,
+      "sha256": "36ab594d5872e7b3409ebdf0b6beae40508cfa8044534aed1a8858812213020f"
+    }
+  ]
+}

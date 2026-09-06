@@ -1,7 +1,7 @@
 import { afterEach, beforeAll, expect, test } from "bun:test";
 import { createHmac } from "node:crypto";
 import { createCompanion, migrate } from "../src/store";
-import { billingConfiguration, flushPendingUsage, handleBilling, handleStripeWebhook, migrateBilling, recordUsage, setBillingProviderForTests, verifyStripeSignature, type BillingProvider, type UsageInput } from "../src/billing";
+import { productActivation, billingConfiguration, flushPendingUsage, handleBilling, handleStripeWebhook, migrateBilling, recordUsage, setBillingProviderForTests, verifyStripeSignature, type BillingProvider, type UsageInput } from "../src/billing";
 import { db } from "../src/store";
 
 const saved = { ...process.env };
@@ -153,4 +153,17 @@ test("checkout and portal use injected provider without exposing configuration",
   const portal = await handleBilling(new Request("http://localhost/api/billing/portal", { method: "POST" }), owner);
   expect(await portal!.json()).toEqual({ url: "https://billing.stripe.test/session" });
   expect(calls).toEqual([`checkout:${owner}`, "portal:cus_portal"]);
+});
+
+
+test("activation can share an existing transaction instead of acquiring a nested connection",async()=>{
+ stripeMode();delete process.env.BILLING_TEST_MODE;
+ const owner=await user(`transaction-${crypto.randomUUID()}@example.com`),customer=`cus_${crypto.randomUUID()}`,subscription=`sub_${crypto.randomUUID()}`;
+ await db.begin(async tx=>{
+  await tx`INSERT INTO billing_accounts(owner_id,stripe_customer_id,stripe_subscription_id) VALUES(${owner},${customer},${subscription})`;
+  await tx`INSERT INTO billing_subscriptions(stripe_subscription_id,owner_id,stripe_customer_id,stripe_price_id,subscription_status,last_event_created) VALUES(${subscription},${owner},${customer},'price_local','active',1)`;
+  expect((await productActivation(owner,tx)).allowed).toBe(true);
+  await tx`UPDATE billing_subscriptions SET subscription_status='canceled' WHERE stripe_subscription_id=${subscription}`;
+  expect((await productActivation(owner,tx)).allowed).toBe(false);
+ });
 });

@@ -24,7 +24,7 @@ export async function handleMaintenance(request:Request,actorId:string):Promise<
    return json({companion:result});
   }
   if(request.method==='POST'&&['prepare','tasks'].includes(match[2])){
-   await requireHostedActivation(grant.client_owner_id);
+   await requireHostedActivation(grant.client_owner_id,tx);
    if(match[2]==='prepare'){
     await tx`UPDATE companions SET prepare_requested=true WHERE id=${id}`;
     await tx`INSERT INTO maintenance_actions(id,grant_id,actor_id,companion_id,operation) VALUES(${crypto.randomUUID()},${grant.delivery_id},${actorId},${id},'prepare')`;

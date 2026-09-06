@@ -106,8 +106,8 @@ export async function billingOverview(ownerId: string) {
   return { configured: mode !== "unconfigured", mode, plan: entitled ? "subscription" : "inactive", active: mode === "test" || (mode === "stripe" && entitled), status: account?.status ?? null, currentPeriodEnd: account?.currentPeriodEnd ?? null, cancelAtPeriodEnd: account?.cancelAtPeriodEnd ?? false, portalAvailable: mode === "stripe" && !!account?.customerId, usage };
 }
 
-async function billingAccountState(ownerId: string) {
-  const [account] = await db`SELECT s.subscription_status AS status,s.current_period_end AS "currentPeriodEnd",
+async function billingAccountState(ownerId: string, sql:any=db) {
+  const [account] = await sql`SELECT s.subscription_status AS status,s.current_period_end AS "currentPeriodEnd",
     s.cancel_at_period_end AS "cancelAtPeriodEnd",a.stripe_customer_id AS "customerId",s.stripe_price_id AS "priceId"
     FROM billing_accounts a LEFT JOIN billing_subscriptions s ON s.stripe_subscription_id=a.stripe_subscription_id
       AND s.owner_id=a.owner_id AND s.stripe_customer_id=a.stripe_customer_id WHERE a.owner_id=${ownerId}`;
@@ -117,13 +117,13 @@ function hasEntitlement(account: Awaited<ReturnType<typeof billingAccountState>>
   return !!account && account.priceId === process.env.STRIPE_PRICE_ID && activeStatuses.has(account.status);
 }
 
-export async function productActivation(ownerId: string) {
+export async function productActivation(ownerId: string, sql:any=db) {
   const mode = billingConfiguration().mode;
-  const allowed = mode === "test" || (mode === "stripe" && hasEntitlement(await billingAccountState(ownerId)));
+  const allowed = mode === "test" || (mode === "stripe" && hasEntitlement(await billingAccountState(ownerId,sql)));
   return { allowed, reason: allowed ? null : mode === "unconfigured" ? "Billing is not configured." : "An active subscription is required." };
 }
-export async function requireProductActivation(ownerId: string) {
-  const result = await productActivation(ownerId);
+export async function requireProductActivation(ownerId: string, sql:any=db) {
+  const result = await productActivation(ownerId,sql);
   if (!result.allowed) throw new ProductActivationRequired(result.reason!);
 }
 export class ProductActivationRequired extends Error {}

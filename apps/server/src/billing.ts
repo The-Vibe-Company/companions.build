@@ -35,9 +35,27 @@ export interface BillingProvider {
 
 export function billingConfiguration(env: NodeJS.ProcessEnv = process.env) {
   const test = env.NODE_ENV !== "production" && env.BILLING_TEST_MODE === "1";
-  const required = ["STRIPE_SECRET_KEY", "STRIPE_PRICE_ID", "STRIPE_WEBHOOK_SECRET", "STRIPE_METER_EVENT_NAME", "STRIPE_BOX_METER_EVENT_NAME", "APP_URL"] as const;
+  const required = ["STRIPE_SECRET_KEY", "STRIPE_MODEL_PRICE_ID", "STRIPE_BOX_PRICE_ID", "STRIPE_WEBHOOK_SECRET", "STRIPE_METER_EVENT_NAME", "STRIPE_BOX_METER_EVENT_NAME", "APP_URL"] as const;
   const missing = required.filter(key => !env[key]);
-  return { mode: test ? "test" as const : missing.length ? "unconfigured" as const : "stripe" as const, missing };
+  const duplicatePrices = !missing.length && env.STRIPE_MODEL_PRICE_ID === env.STRIPE_BOX_PRICE_ID;
+  return { mode: test ? "test" as const : missing.length || duplicatePrices ? "unconfigured" as const : "stripe" as const, missing, duplicatePrices };
+}
+
+function configuredPriceFingerprint(env: NodeJS.ProcessEnv = process.env) {
+  return JSON.stringify([env.STRIPE_MODEL_PRICE_ID!, env.STRIPE_BOX_PRICE_ID!].sort());
+}
+
+export function stripeCheckoutForm(input: { ownerId: string; email: string; customerId: string | null }, env: NodeJS.ProcessEnv = process.env) {
+  const base = env.APP_URL!.replace(/\/$/, "");
+  const form = new URLSearchParams({
+    mode: "subscription", success_url: `${base}/account?checkout=complete`, cancel_url: `${base}/account`,
+    "line_items[0][price]": env.STRIPE_MODEL_PRICE_ID!,
+    "line_items[1][price]": env.STRIPE_BOX_PRICE_ID!,
+    client_reference_id: input.ownerId, "metadata[owner_id]": input.ownerId,
+    "subscription_data[metadata][owner_id]": input.ownerId,
+  });
+  form.set(input.customerId ? "customer" : "customer_email", input.customerId ?? input.email);
+  return form;
 }
 
 class StripeHttpProvider implements BillingProvider {
@@ -58,16 +76,9 @@ class StripeHttpProvider implements BillingProvider {
     return body;
   }
   async createCheckout(input: { ownerId: string; email: string; customerId: string | null }) {
-    const base = this.env.APP_URL!.replace(/\/$/, "");
-    const form = new URLSearchParams({
-      mode: "subscription", success_url: `${base}/account?checkout=complete`, cancel_url: `${base}/account`,
-      "line_items[0][price]": this.env.STRIPE_PRICE_ID!, "line_items[0][quantity]": "1",
-      client_reference_id: input.ownerId, "metadata[owner_id]": input.ownerId,
-      "subscription_data[metadata][owner_id]": input.ownerId,
-    });
-    form.set(input.customerId ? "customer" : "customer_email", input.customerId ?? input.email);
+    const form = stripeCheckoutForm(input, this.env);
     const bucket = Math.floor(Date.now() / 1_800_000);
-    const result = await this.post("/v1/checkout/sessions", form, `checkout:${input.ownerId}:${this.env.STRIPE_PRICE_ID}:${bucket}`);
+    const result = await this.post("/v1/checkout/sessions", form, `checkout:${input.ownerId}:${configuredPriceFingerprint(this.env)}:${bucket}`);
     if (!result?.url) throw new Error("Billing provider did not return a checkout URL");
     return result.url;
   }
@@ -114,7 +125,7 @@ async function billingAccountState(ownerId: string, sql:any=db) {
   return account;
 }
 function hasEntitlement(account: Awaited<ReturnType<typeof billingAccountState>>) {
-  return !!account && account.priceId === process.env.STRIPE_PRICE_ID && activeStatuses.has(account.status);
+  return !!account && account.priceId === configuredPriceFingerprint() && activeStatuses.has(account.status);
 }
 
 export async function productActivation(ownerId: string, sql:any=db) {
@@ -193,6 +204,13 @@ export function verifyStripeSignature(rawBody: string, header: string, secret: s
 
 const stripeEvent = z.object({ id: safeId, type: z.string().min(1).max(100), created: z.number().int().nonnegative(), data: z.object({ object: z.record(z.string(), z.unknown()) }) });
 function stringValue(value: unknown) { return typeof value === "string" ? value : value && typeof value === "object" && "id" in value ? String((value as any).id) : null; }
+function subscriptionPriceFingerprint(object: Record<string, unknown>) {
+  const data = (object.items as any)?.data;
+  if (!Array.isArray(data)) return null;
+  const prices = data.map(item => stringValue(item?.price)).filter((price): price is string => !!price);
+  if (prices.length !== data.length || new Set(prices).size !== prices.length) return null;
+  return JSON.stringify([...prices].sort());
+}
 export async function handleStripeWebhook(request: Request) {
   if (request.method !== "POST") return json({ error: "Not found." }, 404);
   const configuration = billingConfiguration();
@@ -214,7 +232,7 @@ export async function handleStripeWebhook(request: Request) {
         const [knownSubscription] = await tx`SELECT owner_id,stripe_customer_id FROM billing_subscriptions WHERE stripe_subscription_id=${subscription} FOR UPDATE`;
         if (knownSubscription && (knownSubscription.owner_id !== ownerId || knownSubscription.stripe_customer_id !== customer)) throw new Error("checkout_subscription_conflict");
         const rows = await tx`INSERT INTO billing_accounts (owner_id,stripe_customer_id,stripe_subscription_id,stripe_price_id,last_event_created)
-          VALUES (${ownerId},${customer},${subscription},${process.env.STRIPE_PRICE_ID!},${event.created})
+          VALUES (${ownerId},${customer},${subscription},${configuredPriceFingerprint()},${event.created})
           ON CONFLICT (owner_id) DO UPDATE SET stripe_customer_id=excluded.stripe_customer_id,
             stripe_subscription_id=CASE WHEN billing_accounts.last_event_created<=excluded.last_event_created THEN coalesce(excluded.stripe_subscription_id,billing_accounts.stripe_subscription_id) ELSE billing_accounts.stripe_subscription_id END,
             stripe_price_id=CASE WHEN billing_accounts.last_event_created<=excluded.last_event_created THEN excluded.stripe_price_id ELSE billing_accounts.stripe_price_id END,
@@ -228,7 +246,8 @@ export async function handleStripeWebhook(request: Request) {
         const allowed = ["incomplete","incomplete_expired","trialing","active","past_due","canceled","unpaid","paused"];
         if (!subscription || !customer || !allowed.includes(status)) throw new Error("invalid_subscription");
         const periodEnd = Number(object.current_period_end ?? (object.items as any)?.data?.[0]?.current_period_end ?? 0);
-        const priceId = stringValue((object.items as any)?.data?.[0]?.price);
+        const priceId = subscriptionPriceFingerprint(object);
+        if (!priceId) throw new Error("invalid_subscription_prices");
         const [account] = ownerId
           ? await tx`SELECT u.id AS owner_id FROM "user" u LEFT JOIN billing_accounts a ON a.owner_id=u.id
               WHERE u.id=${ownerId} AND (a.stripe_customer_id IS NULL OR a.stripe_customer_id=${customer}) FOR UPDATE OF u`

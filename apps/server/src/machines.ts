@@ -72,7 +72,7 @@ export async function prepareBox(companion: any, checkpoint: (boxId: string) => 
   let id = companion.box_id;
   if (!id) {
     if (companion.create_started_at && Date.now() - new Date(companion.create_started_at).getTime() > 23 * 3600_000) throw new MachineError("box_creation_needs_reconciliation");
-    const created = await box.create(companion.create_key, config.boxTemplate);
+    const created = await box.create(companion.create_key, companion.snapshot_name ?? config.boxTemplate);
     id = created.id;
     await checkpoint(id);
   }
@@ -82,7 +82,7 @@ export async function prepareBox(companion: any, checkpoint: (boxId: string) => 
   if (machine.setupStatus === "failed") throw new MachineError("box_setup_failed");
   if (machine.setupStatus && machine.setupStatus !== "done") return null;
   if (companion.endpoint_secret && companion.config_digest === environmentDigest(companion.agent_secret)) return decrypt(companion.endpoint_secret);
-  const values = { ...modelEnvironment(decrypt(companion.agent_secret)), AGENT_STATE_DIR: "/home/user/.companions" };
+  const values = { ...modelEnvironment(decrypt(companion.agent_secret)), AGENT_STATE_DIR: companion.template_id ? `/home/user/.companions/agents/${companion.id}` : "/home/user/.companions" };
   // systemd EnvironmentFile uses double quoted values, not shell expansion.
   const envText = Object.entries(values).map(([key, value]) => `${key}="${value.replace(/\\/g, "\\\\").replace(/"/g, '\\"').replace(/\n/g, "\\n")}"`).join("\n");
   await box.writeFile(id, "/home/user/.companions.env", envText);
@@ -97,4 +97,34 @@ export async function agentRequest(endpoint: string, token: string, path: string
   if (result.status === 401 || result.status === 403) throw new MachineError("agent_auth_expired");
   if (!result.ok) throw new MachineError("agent_unavailable");
   return result.json() as Promise<any>;
+}
+
+/** Only the executor calls these after persisting desired lifecycle state. */
+export async function pauseMachine(companion: any, paused: boolean) {
+  if (companion.provider === "box") {
+    if (!box || !companion.box_id) throw new MachineError("box_not_configured");
+    await box.command(companion.box_id, userSystemctl(`${paused ? "freeze" : "thaw"} companions-agent.service`));
+    return;
+  }
+  const name = `companions-${workspace}-${companion.id}`;
+  const current = JSON.parse(await docker(["inspect", name]))[0];
+  if (current.Config?.Labels?.["companions.build.workspace"] !== workspace) throw new MachineError("local_machine_ownership_mismatch");
+  if (!!current.State.Paused !== paused) await docker([paused ? "pause" : "unpause", name]);
+}
+export async function archiveMachine(companion: any) {
+  if (companion.provider === "box") {
+    if (!companion.box_id && !companion.create_started_at) return true;
+    if (!box || !companion.box_id) throw new MachineError("box_not_configured");
+    const machine = await box.get(companion.box_id);
+    if (machine.state === "archived") return true;
+    if (["ready", "idle"].includes(machine.state)) await box.stop(companion.box_id);
+    return false;
+  }
+  const name = `companions-${workspace}-${companion.id}`;
+  let current: any;
+  try { current = JSON.parse(await docker(["inspect", name]))[0]; } catch { return false; }
+  if (current.Config?.Labels?.["companions.build.workspace"] !== workspace) throw new MachineError("local_machine_ownership_mismatch");
+  if (current.State.Paused) await docker(["unpause", name]);
+  if (current.State.Running) await docker(["stop", "--time", "10", name]);
+  return true;
 }

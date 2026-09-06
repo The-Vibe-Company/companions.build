@@ -1,0 +1,39 @@
+import { z } from 'zod';
+import { db } from './store';
+import { avatarSchema } from './control';
+export class LifecycleConflict extends Error {}
+export const templateInput=z.object({name:z.string().trim().min(1).max(80),instructions:z.string().max(20_000).default(''),avatar:avatarSchema.default({shape:0,color:0,face:0})});
+export async function listTemplates(ownerId:string,sql:any=db) {
+ return sql`SELECT id,name,instructions,avatar,revision,source_companion_id AS "sourceCompanionId",snapshot_name IS NOT NULL AS "hasSnapshot" FROM agent_templates WHERE owner_id=${ownerId} ORDER BY created_at,id`;
+}
+export async function saveTemplate(ownerId:string,input:unknown,sql:any=db) {
+ const value=templateInput.extend({id:z.string().uuid().optional(),expectedRevision:z.number().int().positive().optional()}).parse(input);
+ if(!value.id){const id=crypto.randomUUID();return(await sql`INSERT INTO agent_templates(id,owner_id,name,instructions,avatar) VALUES(${id},${ownerId},${value.name},${value.instructions},${value.avatar}) RETURNING id,revision`)[0];}
+ if(!value.expectedRevision)throw new LifecycleConflict('Read the current template revision before editing.');
+ const [row]=await sql`UPDATE agent_templates SET name=${value.name},instructions=${value.instructions},avatar=${value.avatar},revision=revision+1,updated_at=now() WHERE id=${value.id} AND owner_id=${ownerId} AND revision=${value.expectedRevision} RETURNING id,revision`;
+ if(!row)throw new LifecycleConflict('Template missing or changed.');return row;
+}
+export async function allowTemplate(ownerId:string,parentId:string,input:unknown,sql:any=db){
+ const value=z.object({templateId:z.string().uuid(),maxChildren:z.number().int().min(0).max(20)}).parse(input);
+ return sql.begin(async(tx:any)=>{
+  const [parent]=await tx`SELECT id FROM companions WHERE id=${parentId} AND owner_id=${ownerId} AND parent_id IS NULL AND NOT temporary AND retired_at IS NULL FOR UPDATE`;
+  const [template]=await tx`SELECT id FROM agent_templates WHERE id=${value.templateId} AND owner_id=${ownerId}`;
+  if(!parent||!template)throw new LifecycleConflict('Parent or template unavailable.');
+  await tx`INSERT INTO template_permissions(parent_id,template_id,max_children) VALUES(${parentId},${value.templateId},${value.maxChildren}) ON CONFLICT(parent_id,template_id) DO UPDATE SET max_children=EXCLUDED.max_children`;
+  return {templateId:value.templateId,maxChildren:value.maxChildren};
+ });
+}
+/** Capture is asynchronous. A unique name is persisted before the first provider request. */
+export async function adoptTemplate(ownerId:string,parentId:string,commandId:string,input:unknown,sql:any=db){
+ const value=z.object({templateId:z.string().uuid(),childId:z.string().uuid(),expectedRevision:z.number().int().positive()}).parse(input);
+ return sql.begin(async(tx:any)=>{
+  const [parent]=await tx`SELECT id FROM companions WHERE id=${parentId} AND owner_id=${ownerId} AND parent_id IS NULL AND NOT temporary AND retired_at IS NULL FOR UPDATE`;
+  const [prior]=await tx`SELECT id,template_id,source_companion_id,expected_revision FROM template_candidates WHERE id=${commandId}`;
+  if(prior){if(!parent||prior.template_id!==value.templateId||prior.source_companion_id!==value.childId||prior.expected_revision!==value.expectedRevision)throw new LifecycleConflict('Request identifier changed.');return {candidateId:prior.id};}
+  const [child]=await tx`SELECT id FROM companions WHERE id=${value.childId} AND parent_id=${parentId} AND owner_id=${ownerId} AND temporary AND retired_at IS NULL AND archive_requested_at IS NULL AND provider='box' FOR UPDATE`;
+  const [template]=await tx`SELECT t.id FROM agent_templates t JOIN template_permissions p ON p.template_id=t.id WHERE t.id=${value.templateId} AND t.owner_id=${ownerId} AND p.parent_id=${parentId} AND t.revision=${value.expectedRevision} FOR UPDATE OF t`;
+  if(!parent||!child||!template)throw new LifecycleConflict('Child or template unavailable or changed.');
+  await tx`INSERT INTO template_candidates(id,template_id,source_companion_id,expected_revision,snapshot_name) VALUES(${commandId},${value.templateId},${value.childId},${value.expectedRevision},${'companions-'+commandId})`;
+  return {candidateId:commandId};
+ });
+}

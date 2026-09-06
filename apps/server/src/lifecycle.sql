@@ -1,0 +1,36 @@
+ALTER TABLE companions ADD COLUMN IF NOT EXISTS snapshot_name text;
+ALTER TABLE companions ADD COLUMN IF NOT EXISTS template_id uuid;
+ALTER TABLE companions ADD COLUMN IF NOT EXISTS template_revision integer;
+ALTER TABLE companions ADD COLUMN IF NOT EXISTS ready_at timestamptz;
+ALTER TABLE companions ADD COLUMN IF NOT EXISTS archive_requested_at timestamptz;
+ALTER TABLE companions ADD COLUMN IF NOT EXISTS archived_at timestamptz;
+ALTER TABLE companions ADD COLUMN IF NOT EXISTS desktop_paused_at timestamptz;
+CREATE TABLE IF NOT EXISTS agent_templates (
+ id uuid PRIMARY KEY, owner_id text NOT NULL REFERENCES "user"(id), name text NOT NULL,
+ instructions text NOT NULL DEFAULT '', avatar jsonb NOT NULL DEFAULT '{"shape":0,"color":0,"face":0}',
+ snapshot_name text, source_companion_id uuid REFERENCES companions(id), revision integer NOT NULL DEFAULT 1,
+ created_at timestamptz NOT NULL DEFAULT now(), updated_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE TABLE IF NOT EXISTS template_permissions (
+ parent_id uuid NOT NULL REFERENCES companions(id), template_id uuid NOT NULL REFERENCES agent_templates(id),
+ max_children integer NOT NULL CHECK(max_children BETWEEN 0 AND 20), PRIMARY KEY(parent_id,template_id)
+);
+CREATE TABLE IF NOT EXISTS template_candidates (
+ id uuid PRIMARY KEY, template_id uuid NOT NULL REFERENCES agent_templates(id), source_companion_id uuid NOT NULL REFERENCES companions(id),
+ expected_revision integer NOT NULL, snapshot_name text NOT NULL UNIQUE,
+ status text NOT NULL DEFAULT 'queued' CHECK(status IN ('queued','capturing','ready','activated','failed')),
+ requested_at timestamptz NOT NULL DEFAULT now(), attempted_at timestamptz, ready_at timestamptz,
+ error text
+);
+CREATE UNIQUE INDEX IF NOT EXISTS one_template_candidate ON template_candidates(template_id) WHERE status IN ('queued','capturing','ready');
+CREATE TABLE IF NOT EXISTS delegations (
+ id uuid PRIMARY KEY, parent_id uuid NOT NULL REFERENCES companions(id), parent_run_id uuid REFERENCES runs(id),
+ target_id uuid NOT NULL REFERENCES companions(id), run_id uuid NOT NULL UNIQUE REFERENCES runs(id),
+ result jsonb, files_saved_at timestamptz, returned_run_id uuid REFERENCES runs(id),
+ created_at timestamptz NOT NULL DEFAULT now(), finished_at timestamptz
+);
+CREATE TABLE IF NOT EXISTS machine_usage_events (
+ id uuid PRIMARY KEY, companion_id uuid NOT NULL REFERENCES companions(id), owner_id text NOT NULL REFERENCES "user"(id),
+ event text NOT NULL CHECK(event IN ('starting','ready','archived')), occurred_at timestamptz NOT NULL DEFAULT now(), reported_at timestamptz
+);
+ALTER TABLE companions ADD COLUMN IF NOT EXISTS preparation_started_at timestamptz;

@@ -177,7 +177,7 @@ export class PiExecutor implements RunExecutor {
     ].filter(Boolean);
     const resourceLoader = new DefaultResourceLoader({ cwd: this.cwd, agentDir: this.agentDir, settingsManager, appendSystemPrompt: instructions });
     await resourceLoader.reload();
-    const model = this.modelRuntime.getModel(this.provider, this.modelId);
+    const model = this.modelRuntime.getModel(this.provider, input.modelId??this.modelId);
     if (!model) throw new Error("MODEL_NOT_FOUND");
     const sessionDir = execution.lane === "main" ? this.sessionsDir : join(this.sessionsDir, "background", execution.id);
     const testTools = this.provider === "companion-test" ? [scriptedHumanTool(execution.id, this.cwd)] : [];

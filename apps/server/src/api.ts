@@ -1,3 +1,4 @@
+import {availableModels} from "./models";
 import { handleBilling, handleStripeWebhook, requireProductActivation, billingConfiguration, ProductActivationRequired } from "./billing";
 import { handleDelivery } from "./delivery";
 import { handleLifecycle } from "./lifecycle";
@@ -80,7 +81,7 @@ export async function handler(request: Request): Promise<Response> {
     if(automationResponse) return automationResponse;
     const pluginResponse = await handlePlugins(request,ownerId);
     if(pluginResponse) return pluginResponse;
-    if (request.method === "GET" && url.pathname === "/api/config") return json({ localAvailable: config.localAvailable, boxAvailable: !!(config.boxKey && config.boxTemplate), model: config.testMode ? "Local test model" : `${config.modelProvider}/${config.modelId}` });
+    if (request.method === "GET" && url.pathname === "/api/config") return json({ models:await availableModels(),localAvailable: config.localAvailable, boxAvailable: !!(config.boxKey && config.boxTemplate), model: config.testMode ? "Local test model" : `${config.modelProvider}/${config.modelId}` });
     if (url.pathname === "/api/companions") {
       if (request.method === "GET") return json({ companions: await listCompanions(ownerId) });
       if (request.method === "POST") {
@@ -88,7 +89,7 @@ export async function handler(request: Request): Promise<Response> {
         const input = z.object({ name: z.string().trim().min(1).max(80), instructions: z.string().max(20_000).default(""), provider: z.enum(["local", "box"]), avatar: avatarSchema.optional() }).parse(await request.json());
         if (input.provider === "box" && (!config.boxKey || !config.boxTemplate)) return json({ error: "Box needs an API key and a prepared template." }, 409);
         if (input.provider === "local" && !config.localAvailable) return json({ error: "Local runtime is disabled." }, 409);
-        return json({ companion: await createCompanion(ownerId, input) }, 201);
+        return json({ companion: await createCompanion(ownerId, {...input,prepare:true}) }, 201);
       }
     }
     const match = url.pathname.match(/^\/api\/companions\/([^/]+)(?:\/(messages|cancel|desktop))?$/);

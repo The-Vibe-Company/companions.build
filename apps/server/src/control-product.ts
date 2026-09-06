@@ -1,0 +1,47 @@
+import {z} from 'zod';
+import {registerControl} from './control';
+import {pluginCatalog} from '../../../packages/plugins/catalog';
+import {startPluginConnection,addCustomPlugin,disconnectPlugin} from './plugins';
+import {routineHistory,enqueueBackground} from './automations';
+import {handleTriggers} from './triggers';
+import {handleDelivery} from './delivery';
+import {db,createCompanion} from './store';
+import {config} from './config';
+import {handleAutomations} from './automation-routes';
+const uuid=z.string().uuid();
+registerControl({
+ companion_create:async(context,raw)=>{
+  if(context.isChild)return {error:'Ask your parent to create Companions.'};
+  const input=z.object({name:z.string().trim().min(1).max(80),instructions:z.string().max(20_000).default('')}).parse(raw);
+  return createCompanion(context.ownerId,{...input,prepare:true,provider:config.boxKey&&config.boxTemplate?'box':'local'});
+ },
+ plugin_catalog:async()=>({plugins:pluginCatalog}),
+ plugin_connect:async(context,raw)=>{const input=z.object({serverId:z.string(),label:z.string().max(80).default('')}).parse(raw);return startPluginConnection(context.ownerId,input.serverId,input.label);},
+ plugin_custom:async(context,raw)=>addCustomPlugin(context.ownerId,raw),
+ plugin_disconnect:async(context,raw)=>{await disconnectPlugin(context.ownerId,z.object({accountId:uuid}).parse(raw).accountId);return {ok:true};},
+ routine_history:async(context,raw)=>routineHistory(context.companionId,z.object({id:uuid}).parse(raw).id),
+ routine_test:async(context,raw)=>{
+  const {id}=z.object({id:uuid}).parse(raw);const [routine]=await db`SELECT prompt FROM routines WHERE id=${id} AND companion_id=${context.companionId}`;
+  if(!routine)return {error:'Routine not found.'};
+  return {runId:await enqueueBackground({companionId:context.companionId,clientMessageId:context.commandId,content:routine.prompt,source:'routine'})};
+ },
+ trigger_test:async(context,raw)=>{
+  const {id,payload}=z.object({id:uuid,payload:z.unknown()}).parse(raw);
+  return (await handleTriggers(new Request(`http://control/api/companions/${context.companionId}/triggers/${id}/test`,{method:'POST',body:JSON.stringify(payload)}),context.ownerId))!.json();
+ },
+ trigger_history:async(context,raw)=>{
+  const {id}=z.object({id:uuid}).parse(raw);
+  return (await handleTriggers(new Request(`http://control/api/companions/${context.companionId}/triggers/${id}/deliveries`),context.ownerId))!.json();
+ },
+ task_cancel:async(context,raw)=>{
+  const {runId}=z.object({runId:uuid}).parse(raw);
+  const [run]=await db`SELECT r.companion_id FROM runs r JOIN companions c ON c.id=r.companion_id WHERE r.id=${runId} AND c.owner_id=${context.ownerId}`;
+  if(!run)return {error:'Task not found.'};
+  return (await handleAutomations(new Request(`http://control/api/companions/${run.companion_id}/runs/${runId}/cancel`,{method:'POST'}),context.ownerId))!.json();
+ },
+ deliveries:async context=>(await handleDelivery(new Request('http://control/api/deliveries'),context.ownerId))!.json(),
+ delivery_prepare:async(context,raw)=>{
+  if(context.isChild)return {error:'Ask your parent to deliver Companions.'};
+  return (await handleDelivery(new Request('http://control/api/deliveries',{method:'POST',body:JSON.stringify({...z.record(z.string(),z.unknown()).parse(raw),companionId:context.companionId})}),context.ownerId))!.json();
+ },
+});

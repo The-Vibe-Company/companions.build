@@ -19,3 +19,4 @@ ALTER TABLE control_commands ADD COLUMN IF NOT EXISTS result_secret text;
 
 ALTER TABLE runs ADD COLUMN IF NOT EXISTS preview_text text;
 ALTER TABLE runs ADD COLUMN IF NOT EXISTS usage jsonb;
+ALTER TABLE companions ADD COLUMN IF NOT EXISTS model_id text;

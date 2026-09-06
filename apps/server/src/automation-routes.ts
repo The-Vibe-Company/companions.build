@@ -20,7 +20,7 @@ export async function handleAutomations(request:Request,ownerId:string):Promise<
  const task=path.match(/^\/api\/companions\/([a-f0-9-]+)\/runs\/([a-f0-9-]+)\/cancel$/);
  if(task&&request.method==='POST') {
   const companionId=z.string().uuid().parse(task[1]);const runId=z.string().uuid().parse(task[2]);
-  const rows=await db`UPDATE runs r SET cancel_requested=true,status=CASE WHEN r.status='queued' THEN 'cancelled' ELSE r.status END WHERE r.id=${runId} AND r.companion_id=${companionId} AND EXISTS(SELECT 1 FROM companions c WHERE c.id=r.companion_id AND c.owner_id=${ownerId}) RETURNING r.id`;
+  const rows=await db`UPDATE runs r SET cancel_requested=CASE WHEN r.status IN ('succeeded','failed','interrupted','cancelled') THEN r.cancel_requested ELSE true END,finished_at=CASE WHEN r.status='queued' THEN now() ELSE r.finished_at END,status=CASE WHEN r.status='queued' THEN 'cancelled' ELSE r.status END WHERE r.id=${runId} AND r.companion_id=${companionId} AND EXISTS(SELECT 1 FROM companions c WHERE c.id=r.companion_id AND c.owner_id=${ownerId}) RETURNING r.id`;
   return rows.length?json({ok:true}):json({error:'Task not found.'},404);
  }
  const match=path.match(/^\/api\/companions\/([a-f0-9-]+)\/routines(?:\/([a-f0-9-]+))?(\/history)?$/);

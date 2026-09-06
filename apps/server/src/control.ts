@@ -1,3 +1,4 @@
+import {availableModels,validateModel} from './models';
 import { z } from 'zod';
 import {encrypt,decrypt} from './config';
 import { db } from './store';
@@ -30,13 +31,15 @@ export async function applyControl(companionId:string,raw:unknown) {
   return result;
 }
 export const avatarSchema=z.object({shape:z.number().int().min(0).max(7),color:z.number().int().min(0).max(10),face:z.number().int().min(0).max(4)});
-export const identitySchema=z.object({name:z.string().trim().min(1).max(80).optional(),instructions:z.string().max(20_000).optional(),avatar:avatarSchema.optional()});
+export const identitySchema=z.object({name:z.string().trim().min(1).max(80).optional(),instructions:z.string().max(20_000).optional(),avatar:avatarSchema.optional(),modelId:z.string().min(1).max(200).optional()});
 export async function configureCompanion(ownerId:string,id:string,input:unknown) {
   const value=identitySchema.parse(input);
-  const [row]=await db`UPDATE companions SET name=COALESCE(${value.name??null},name),instructions=COALESCE(${value.instructions??null},instructions),avatar=COALESCE(${value.avatar??null},avatar) WHERE id=${id} AND owner_id=${ownerId} AND retired_at IS NULL RETURNING id,name,instructions,avatar`;
+  if(value.modelId)await validateModel(value.modelId);
+  const [row]=await db`UPDATE companions SET model_id=COALESCE(${value.modelId??null},model_id),name=COALESCE(${value.name??null},name),instructions=COALESCE(${value.instructions??null},instructions),avatar=COALESCE(${value.avatar??null},avatar) WHERE id=${id} AND owner_id=${ownerId} AND retired_at IS NULL RETURNING id,name,instructions,avatar,model_id AS "modelId"`;
   return row??null;
 }
 registerControl({
+  models:async()=>({models:await availableModels()}),
   identity:async context=>({companionId:context.companionId,isChild:context.isChild,operations:Object.keys(controlHandlers),configure:{name:'optional name',instructions:'optional complete instructions',avatar:{shape:'0..7',color:'0..10',face:'0..4'}},routines:{name:'Name',prompt:'Task',cron:'5-field cron',timezone:'IANA timezone',enabled:true},delegation:{companionId:'target ID',prompt:'Self-contained brief'},ask_user:{question:'Question',options:['Choice A','Choice B']},instructions:'Read current state before changing it. Child agents ask their parent for additional agents. Use plugin_tools to discover connected tools. Install local skills under the Pi agent skills directory and verify loading.'}),
   configure:(context,input)=>configureCompanion(context.ownerId,context.companionId,input),
   companions:async context=>db`SELECT id,name,instructions,avatar,status FROM companions WHERE owner_id=${context.ownerId} AND retired_at IS NULL AND NOT temporary ORDER BY created_at`,

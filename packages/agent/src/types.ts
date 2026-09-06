@@ -22,6 +22,7 @@ export interface RunRecord {
 export interface RunInput {
   content: string;
   instructions: string;
+  modelId?:string;
   lane?: RunLane;
 }
 

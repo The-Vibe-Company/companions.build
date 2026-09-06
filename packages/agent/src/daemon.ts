@@ -55,7 +55,8 @@ export class AgentDaemon {
         return json({ error: "INVALID_REQUEST" }, 400);
       }
       if (value.lane !== undefined && value.lane !== "main" && value.lane !== "background") return json({ error: "INVALID_REQUEST" }, 400);
-      input = { content: value.content, instructions: value.instructions, lane: value.lane ?? "main" };
+      if(value.modelId!==undefined&&(typeof value.modelId!=="string"||!value.modelId.length||value.modelId.length>200))return json({error:"INVALID_REQUEST"},400);
+      input = { ...(value.modelId?{modelId:value.modelId}:{}),content: value.content, instructions: value.instructions, lane: value.lane ?? "main" };
     } catch { return json({ error: "INVALID_REQUEST" }, 400); }
 
     const existing = this.journal.get(id);

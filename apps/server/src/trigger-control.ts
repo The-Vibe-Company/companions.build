@@ -1,3 +1,4 @@
+import './control-product';
 import {z} from 'zod';
 import {registerControl,type ControlContext} from './control';
 import {handleTriggers,triggerBatchContext} from './triggers';

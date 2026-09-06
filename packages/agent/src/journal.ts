@@ -109,6 +109,7 @@ export class RunJournal {
 function requestHash(input: RunInput): string {
   // Preserve historical main request hashes across a daemon upgrade.
   const fields = input.lane === "background" ? [input.content, input.instructions, "background"] : [input.content, input.instructions];
+  if(input.modelId)fields.push(input.modelId);
   return createHash("sha256").update(JSON.stringify(fields)).digest("hex");
 }
 

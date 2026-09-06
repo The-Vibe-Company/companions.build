@@ -26,12 +26,12 @@ export async function migrate(sql = db) {
     await tx`ALTER TABLE companions ALTER COLUMN owner_id SET NOT NULL`;
   });
 }
-export const companionColumns = `id,name,instructions,avatar,provider,status,error,desktop_taken AS "desktopTaken",desktop_paused_at AS "desktopPausedAt",prepare_requested AS "prepareRequested",ready_at AS "readyAt",parent_id AS "parentId",template_id AS "templateId",template_revision AS "templateRevision",retired_at AS "retiredAt",temporary,box_id AS "boxId",created_at AS "createdAt"`;
+export const companionColumns = `id,name,instructions,avatar,model_id AS "modelId",provider,status,error,desktop_taken AS "desktopTaken",desktop_paused_at AS "desktopPausedAt",prepare_requested AS "prepareRequested",ready_at AS "readyAt",parent_id AS "parentId",template_id AS "templateId",template_revision AS "templateRevision",retired_at AS "retiredAt",temporary,box_id AS "boxId",created_at AS "createdAt"`;
 export async function listCompanions(ownerId: string) { return db.unsafe(`SELECT ${companionColumns} FROM companions WHERE owner_id=$1 AND retired_at IS NULL AND NOT temporary ORDER BY created_at,id`, [ownerId]); }
-export async function createCompanion(ownerId: string, input: { name: string; instructions: string; provider: "local" | "box"; avatar?: {shape:number;color:number;face:number} }) {
+export async function createCompanion(ownerId: string, input: { name: string; instructions: string; provider: "local" | "box"; prepare?:boolean; avatar?: {shape:number;color:number;face:number} }) {
   const id = crypto.randomUUID();
   await db`INSERT INTO companions (id,owner_id,name,instructions,provider,create_key,agent_secret,avatar,prepare_requested)
-    VALUES (${id},${ownerId},${input.name},${input.instructions},${input.provider},${crypto.randomUUID()},${encrypt(randomBytes(32).toString("hex"))},${input.avatar??{shape:0,color:0,face:0}},true)`;
+    VALUES (${id},${ownerId},${input.name},${input.instructions},${input.provider},${crypto.randomUUID()},${encrypt(randomBytes(32).toString("hex"))},${input.avatar??{shape:0,color:0,face:0}},${input.prepare??false})`;
   return (await db.unsafe(`SELECT ${companionColumns} FROM companions WHERE id=$1 AND owner_id=$2`, [id, ownerId]))[0];
 }
 export async function detail(ownerId: string, id: string) {

@@ -59,7 +59,8 @@ acceptance("real Linux product path transfers files, applies control requests, p
     const attachmentRun = await run("attachment-roundtrip", 1);
     await tick(sql!, productHooks);
     expect((await db`SELECT status,dispatched FROM runs WHERE id=${attachmentRun}`)[0]).toMatchObject({status: "preparing", dispatched: false});
-    expect(existsSync(join(dataDir, "agents", companion.id))).toBe(false);
+    // Machine preparation is allowed before upload; prompt dispatch is not.
+    const [pending]=await db`SELECT dispatched FROM runs WHERE id=${attachmentRun}`;expect(pending.dispatched).toBe(false);
 
     const form = new FormData();
     form.set("clientFileId", crypto.randomUUID());

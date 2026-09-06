@@ -1,0 +1,46 @@
+apps/web/src/components/AutomationPanels.test.tsx
+  s_f946242dcf6ba9::t_a6ebf725dba5b0 48-54,56-62
+  s_f946242dcf6ba9::t_6ac5bf0fd57c1c 1-47,55,63-83
+apps/web/src/App.tsx
+  s_f946242dcf6ba9::t_6016f07de4ebe5 53
+apps/web/src/components/ProductPanels.tsx
+  s_f946242dcf6ba9::t_101b4c9c91cbf2 109,121,125-126,128,134
+  s_f946242dcf6ba9::t_e73dea0d2624d8 2-3,14-15,24,50-51,55-64
+  s_f946242dcf6ba9::t_b7903ef5228465 97-103,105-106,110-120,122-124,127,129-131
+  s_f946242dcf6ba9::t_025196b524f93a 65-66
+apps/web/src/components/ProductPanels.test.tsx
+  s_f946242dcf6ba9::t_0816d6837a3178 31,33-39,41-50,53-54,110
+  s_f946242dcf6ba9::t_3fc12755420bac 32,40,51-52
+  s_f946242dcf6ba9::t_43ace57977f143 102,108
+  s_f946242dcf6ba9::t_3955b187916206 3,10,92-101,103-107,109
+apps/web/src/index.css
+  s_f946242dcf6ba9::t_101b4c9c91cbf2 590-625,633-640
+  s_f946242dcf6ba9::t_e73dea0d2624d8 542-543,626-632
+apps/web/src/api.ts
+  s_f946242dcf6ba9::t_16d816e043357c 224
+  s_f946242dcf6ba9::t_073e82db7eb1ca 198-202,223,226,229-231
+  s_f946242dcf6ba9::t_e73dea0d2624d8 207-209,249-254
+apps/web/src/components/AutomationPanels.tsx
+  s_f946242dcf6ba9::t_101b4c9c91cbf2 59
+  s_f946242dcf6ba9::t_cd4443b7f2f1cb 22,55
+  s_f946242dcf6ba9::t_16d816e043357c 1-21,23-54,56-58,60-71
+apps/web/UI_CONTRACT.md
+  s_f946242dcf6ba9::t_101b4c9c91cbf2 29-32,46
+  s_f946242dcf6ba9::t_e73dea0d2624d8 47-52
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "46614f978b49f81c510735285a0a504b4432a4d9",
+  "prompts": {},
+  "sessions": {
+    "s_f946242dcf6ba9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a06de4-a8a5-7cd3-b713-2a8d451f7200",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "StanGirard <stan@quivr.app>"
+    }
+  }
+}

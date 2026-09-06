@@ -68,7 +68,7 @@ export async function claimQueuedRuns(sql: ReservedSQL) {
     ORDER BY q.companion_id,q.lane,COALESCE(q.resume_requested_at,q.created_at),q.id)
     AND EXISTS(SELECT 1 FROM pg_locks WHERE locktype='advisory' AND pid=pg_backend_pid() AND objid=721440139 AND granted)`;
 }
-export async function tick(sql: ReservedSQL, hooks: ExecutorHooks = {}) {
+export async function tick(sql: ReservedSQL, hooks: ExecutorHooks = {}, lifecycle?:LifecycleCoordinator) {
   const [ownership] = await sql`SELECT EXISTS(SELECT 1 FROM pg_locks WHERE locktype='advisory' AND pid=pg_backend_pid() AND objid=721440139 AND granted) AS owned`;
   if (!ownership.owned) throw new Error("Executor ownership lost");
   await scheduleDueRoutines(sql);
@@ -86,7 +86,8 @@ export async function tick(sql: ReservedSQL, hooks: ExecutorHooks = {}) {
     AND NOT c.desktop_taken AND c.desktop_paused_at IS NULL AND NOT c.prepare_requested
     AND EXISTS(SELECT 1 FROM runs r WHERE r.companion_id=c.id AND r.status='preparing' AND NOT r.dispatched AND (c.endpoint_secret IS NULL OR c.status<>'ready' OR c.archived_at IS NOT NULL))
     AND NOT EXISTS(SELECT 1 FROM runs r WHERE r.companion_id=c.id AND r.dispatched AND r.status IN ('running','preparing','needs_input'))`;
-  await progressLifecycle(sql, {...hooks.lifecycle,canStartWork:hooks.canStartWork??hooks.lifecycle?.canStartWork??ownerMayStartWork}, hooks.lifecycleMachines);
+  if(lifecycle)await lifecycle.schedule(sql,hooks);
+  else await progressLifecycle(sql, {...hooks.lifecycle,canStartWork:hooks.canStartWork??hooks.lifecycle?.canStartWork??ownerMayStartWork}, hooks.lifecycleMachines);
   const runs = await sql`SELECT r.id,r.companion_id,r.client_message_id,r.content,r.status,r.dispatched,r.cancel_requested,r.error,r.created_at,r.started_at,r.finished_at,r.prepared_at,r.lane,r.source,r.response_root_id,r.result_text,r.publish_to_chat,r.routine_id,r.scheduled_for,r.resume_requested_at,r.attachment_count,c.provider,c.box_id,c.create_key,c.create_started_at,c.agent_secret,c.endpoint_secret,c.instructions,c.config_digest,c.snapshot_name,c.template_id,c.template_revision,c.model_id,c.owner_id
     FROM runs r JOIN companions c ON c.id=r.companion_id WHERE r.status IN ('preparing','running','needs_input') AND c.retired_at IS NULL AND NOT c.desktop_taken AND c.desktop_paused_at IS NULL AND c.archive_requested_at IS NULL ORDER BY r.created_at`;
   // One machine preparation at a time per Companion; independent Companions progress in parallel.
@@ -227,12 +228,53 @@ export async function tick(sql: ReservedSQL, hooks: ExecutorHooks = {}) {
       }
   }
 }
+/** Cold machines progress outside the chat loop. Each job owns a separate SQL connection;
+ * its checkpoints are fenced by the still-live leader PID, never by a pooled connection.
+ * Four jobs leave connections available for product authorization and file persistence. */
+export class LifecycleCoordinator {
+ private jobs=new Map<string,Promise<void>>();
+ private closing=false;
+ private lastScheduled=new Map<string,number>();
+ private sequence=0;
+ private leaderPid:number|null=null;
+ constructor(private database=db){}
+ get activeCount(){return this.jobs.size;}
+ async schedule(leader:ReservedSQL,hooks:ExecutorHooks={}){
+  if(this.closing)return;
+  const [identity]=await leader`SELECT pg_backend_pid() AS pid,EXISTS(SELECT 1 FROM pg_locks WHERE locktype='advisory' AND pid=pg_backend_pid() AND objid=721440139 AND granted) AS owned`;
+  if(!identity.owned||(this.leaderPid!==null&&this.leaderPid!==identity.pid))throw Error('Executor ownership lost');
+  this.leaderPid=identity.pid;
+  const pending=await leader`SELECT c.id FROM companions c WHERE
+   (c.retired_at IS NULL AND (c.prepare_requested OR (c.desktop_taken AND c.desktop_paused_at IS NULL) OR (NOT c.desktop_taken AND c.desktop_paused_at IS NOT NULL) OR c.archive_requested_at IS NOT NULL
+    OR EXISTS(SELECT 1 FROM template_candidates t WHERE t.source_companion_id=c.id AND t.status IN ('queued','capturing','ready'))
+    OR EXISTS(SELECT 1 FROM delegations d JOIN runs r ON r.id=d.run_id WHERE d.target_id=c.id AND d.finished_at IS NULL AND r.status IN ('succeeded','failed','interrupted','cancelled'))))
+   OR EXISTS(SELECT 1 FROM machine_usage_events e WHERE e.companion_id=c.id AND e.reported_at IS NULL)
+   ORDER BY c.created_at,c.id LIMIT 100`;
+  const pendingIds=new Set(pending.map((companion:any)=>companion.id));
+  for(const id of this.lastScheduled.keys())if(!pendingIds.has(id)&&!this.jobs.has(id))this.lastScheduled.delete(id);
+  for(const companion of [...pending].sort((a,b)=>(this.lastScheduled.get(a.id)??0)-(this.lastScheduled.get(b.id)??0))){
+   if(this.jobs.size>=4)break;
+   if(this.jobs.has(companion.id))continue;
+   this.lastScheduled.set(companion.id,++this.sequence);
+   const job=this.progress(companion.id,identity.pid,hooks).catch(()=>{console.error('lifecycle_progress_failed');}).finally(()=>{this.jobs.delete(companion.id);});
+   this.jobs.set(companion.id,job);
+  }
+ }
+ private async progress(companionId:string,leaderPid:number,hooks:ExecutorHooks){
+  const sql=await this.database.reserve();
+  try{await progressLifecycle(sql,{...hooks.lifecycle,canStartWork:hooks.canStartWork??hooks.lifecycle?.canStartWork??ownerMayStartWork},hooks.lifecycleMachines,{companionId,leaderPid});}
+  finally{sql.release();}
+ }
+ async close(){this.closing=true;await Promise.allSettled([...this.jobs.values()]);}
+}
+
 if (import.meta.main) {
   await migrate();
   const sql = await acquireExecutor();
   if (!sql) { console.error("Another executor already owns this workspace."); process.exit(1); }
   console.log("Executor ready");
   const { productHooks } = await import("./runtime-product");
-  try { for (;;) { await tick(sql, productHooks); await Bun.sleep(500); } }
-  finally { sql.release(); await db.close(); }
+  const lifecycle=new LifecycleCoordinator();
+  try { for (;;) { await tick(sql, productHooks,lifecycle); await Bun.sleep(500); } }
+  finally { await lifecycle.close(); sql.release(); await db.close(); }
 }

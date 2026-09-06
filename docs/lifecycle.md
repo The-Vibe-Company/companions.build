@@ -7,8 +7,12 @@ Only the executor calls `progressLifecycle`. There is no machine contact in API/
 ## Integration
 
 Run `migrateLifecycle(tx)` after product/auth/automation migrations under the existing migration
-lock. Call `progressLifecycle(reservedExecutorConnection, hooks)` before the ordinary executor tick.
-The module checks advisory executor ownership. Import `lifecycleControlHandlers` into
+lock. The production executor creates one `LifecycleCoordinator` and passes it to `tick`.
+It starts at most four independent Companion jobs without awaiting their provider calls, so a cold
+Box cannot hold warm chat or active task reconciliation. Each job reserves a separate PostgreSQL
+connection and fences its effects and checkpoints against the captured leader PID. Pending machines
+are polled fairly, with one in-flight job per Companion; shutdown drains jobs before releasing the
+leader connection. Direct `progressLifecycle` remains available for deterministic behavior tests. Import `lifecycleControlHandlers` into
 `registerControl` after the original delegate and desktop handlers so the durable versions win.
 Add `templates`, `template_permission` and `prepare` to the control tool's operation vocabulary.
 
@@ -71,6 +75,8 @@ before POST leaves an uncertain capture that fails visibly after ten minutes; th
 request a new capture. Activation uses the expected profile revision and occurs only after provider
 readiness. A concurrent profile edit wins; capture never overwrites that edit.
 
+Template activation also records the immutable revision in the same transaction.
+
 After review, durable outputs and pending snapshots are checked before requesting child archive.
 The provider is observed until archived; only then is the child soft-retired. No healthy permanent
 Box is deleted, replaced or archived by this module. An archive failure retains the child and its
@@ -95,5 +101,8 @@ cross-owner denial, concurrent child limits, identity/revision isolation, no-cha
 physical-pause confirmation, lost snapshot replies, activation checkpoint failure, output durability,
 parent review before archive and durable billing delivery. With `RUN_LOCAL_ACCEPTANCE=1`, an actual
 owned Linux container proves a subprocess cannot write while paused and resumes after release.
-`python3 scripts/verify.py` runs these with the existing Pi/Linux suite. Live Box freeze, snapshot
+`apps/server/test/async-lifecycle.test.ts` additionally proves that warm chat dispatches and finishes
+while another prepare remains blocked, that repeated ticks do not duplicate jobs, that pending
+machines share the bounded preparation slots fairly, and that a lost leader cannot checkpoint a
+late provider response. `python3 scripts/verify.py` runs these with the existing Pi/Linux suite. Live Box freeze, snapshot
 and archive validation is left to the isolated credentialed canary; no worktree test uses live keys.

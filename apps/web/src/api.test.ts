@@ -56,4 +56,23 @@ describe("Companion API client", () => {
       expect.objectContaining({ message: "Desktop is still starting", status: 409 }),
     );
   });
+
+  it("declares attachments before uploading each file with a stable client id", async () => {
+    const fetchMock = vi.fn((path: RequestInfo | URL, _options?: RequestInit) => {
+      if (String(path).endsWith("/messages")) return Promise.resolve(new Response(JSON.stringify({ runId: "run-files" }), { status: 202, headers: { "content-type": "application/json" } }));
+      return Promise.resolve(new Response(JSON.stringify({ file: { id: "file-1" } }), { status: 201, headers: { "content-type": "application/json" } }));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const file = new File(["brief"], "brief.txt", { type: "text/plain" });
+    await api.sendMessage("ada-files", "Read this", [file]);
+
+    const admission = JSON.parse((fetchMock.mock.calls[0][1] as RequestInit).body as string);
+    expect(admission).toMatchObject({ content: "Read this", attachmentCount: 1 });
+    const upload = fetchMock.mock.calls[1];
+    expect(String(upload[0])).toBe("/api/companions/ada-files/runs/run-files/files");
+    const form = (upload[1] as RequestInit).body as FormData;
+    expect(form.get("file")).toBe(file);
+    expect(form.get("position")).toBe("0");
+    expect(form.get("clientFileId")).toMatch(/^[0-9a-f-]{36}$/);
+  });
 });

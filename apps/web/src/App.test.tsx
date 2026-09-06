@@ -127,6 +127,14 @@ describe("first Companion flow", () => {
     await user.type(adaComposer, "Queue this next");
     expect(screen.getByRole("button", { name: "Cancel" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Send message" })).toBeEnabled();
+    expect(screen.queryByRole("complementary", { name: "Activity" })).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Activity" }));
+    expect(screen.getByRole("complementary", { name: "Activity" })).toBeInTheDocument();
+    await user.click(screen.getAllByRole("button", { name: "Close activity" }).at(-1)!);
+    await user.click(screen.getByRole("button", { name: "Settings for Ada" }));
+    expect(screen.getByRole("dialog", { name: "Settings" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Identity" })).toHaveAttribute("aria-current", "page");
+    await user.click(screen.getAllByRole("button", { name: "Close settings" }).at(-1)!);
 
     await user.click(screen.getByRole("button", { name: /Browser Ready/ }));
     const browserComposer = await screen.findByRole("textbox", { name: "Message Browser" });

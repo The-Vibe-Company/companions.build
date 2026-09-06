@@ -1,23 +1,30 @@
 import {
   Box,
+  CalendarClock,
   Check,
   ChevronRight,
   CircleAlert,
   CircleStop,
   Computer,
+  ExternalLink,
+  FileText,
   LoaderCircle,
   LogOut,
   Mail,
   Menu,
   MonitorUp,
   PanelLeftClose,
+  Paperclip,
   Plus,
   Settings,
   Send,
   Server,
+  Trash2,
   UserRound,
   UsersRound,
   Waypoints,
+  X,
+  Zap,
 } from "lucide-react";
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -38,6 +45,11 @@ import {
   type CompanionDetail,
   isActiveRun,
   type RunStatus,
+  workspaceApi,
+  type PluginAccount,
+  type PluginServer,
+  type Routine,
+  type Trigger,
 } from "@/api";
 import { cn } from "@/lib/utils";
 import { AvatarPicker, CompanionAvatar, DEFAULT_AVATAR, type CompanionAvatarValue } from "@/components/CompanionAvatar";
@@ -282,13 +294,13 @@ function Sidebar({
   );
 }
 
-function ActivityPanel({ detail }: { detail: CompanionDetail }) {
+function ActivityPanel({ detail, onClose }: { detail: CompanionDetail; onClose: () => void }) {
   const latestRuns = detail.runs.slice().reverse().slice(0, 8);
   return (
     <aside className="activity-panel" aria-label="Activity">
       <div className="activity-heading">
         <span>Activity</span>
-        <span className="model-badge">{detail.companion.provider === "box" ? "Box" : "Local"}</span>
+        <Button variant="ghost" size="icon" onClick={onClose} aria-label="Close activity"><X /></Button>
       </div>
       <div className="mission-copy">
         <span>Mission</span>
@@ -316,6 +328,7 @@ function ActivityPanel({ detail }: { detail: CompanionDetail }) {
 
 function Chat({ detail, onRefresh, onUnauthorized }: { detail: CompanionDetail; onRefresh: () => Promise<void>; onUnauthorized: () => void }) {
   const [draft, setDraft] = useState("");
+  const [files, setFiles] = useState<File[]>([]);
   const [sending, setSending] = useState(false);
   const [actionError, setActionError] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -328,8 +341,9 @@ function Chat({ detail, onRefresh, onUnauthorized }: { detail: CompanionDetail; 
     setSending(true);
     setActionError("");
     try {
-      await api.sendMessage(detail.companion.id, content);
+      await api.sendMessage(detail.companion.id, content, files);
       setDraft("");
+      setFiles([]);
       await onRefresh();
       textareaRef.current?.focus();
     } catch (cause) {
@@ -376,6 +390,7 @@ function Chat({ detail, onRefresh, onUnauthorized }: { detail: CompanionDetail; 
             <Message from={message.role} key={message.id}>
               {message.role === "assistant" && <span className="message-author">{detail.companion.name}</span>}
               <MessageContent><p className="message-text">{message.content}</p></MessageContent>
+              {message.files?.length ? <div className="message-files">{message.files.map((file) => <a key={file.id} href={file.url} target="_blank" rel="noreferrer"><FileText /><span>{file.name}</span></a>)}</div> : null}
               <time className="message-time" dateTime={message.createdAt}>{readableDate(message.createdAt)}</time>
             </Message>
           ))}
@@ -390,6 +405,7 @@ function Chat({ detail, onRefresh, onUnauthorized }: { detail: CompanionDetail; 
       </Conversation>
       <form className="composer-wrap" onSubmit={send}>
         {actionError && <p className="composer-error" role="alert">{actionError}</p>}
+        {files.length > 0 && <div className="pending-files">{files.map((file, index) => <span key={`${file.name}-${file.lastModified}`}><FileText />{file.name}<button type="button" onClick={() => setFiles((current) => current.filter((_, item) => item !== index))} aria-label={`Remove ${file.name}`}><X /></button></span>)}</div>}
         <div className="composer">
           <Textarea
             ref={textareaRef}
@@ -408,6 +424,7 @@ function Chat({ detail, onRefresh, onUnauthorized }: { detail: CompanionDetail; 
           <div className="composer-actions">
             <span className="composer-hint">Enter to send · Shift + Enter for a new line</span>
             <div className="composer-buttons">
+              <label className="attach-button" aria-label="Attach files"><Paperclip /><input type="file" multiple onChange={(event) => setFiles(Array.from(event.target.files ?? []).slice(0, 5))} /></label>
               {activeRun && (
                 <Button type="button" variant="outline" size="sm" onClick={cancel}><CircleStop />Cancel</Button>
               )}
@@ -422,7 +439,50 @@ function Chat({ detail, onRefresh, onUnauthorized }: { detail: CompanionDetail; 
   );
 }
 
-function IdentitySheet({ detail, onClose, onSaved }: { detail: CompanionDetail; onClose: () => void; onSaved: () => Promise<void> }) {
+function RoutineSettings({ companionId }: { companionId: string }) {
+  const [items, setItems] = useState<Routine[]>([]);
+  const [name, setName] = useState("");
+  const [prompt, setPrompt] = useState("");
+  const [cron, setCron] = useState("0 9 * * 1-5");
+  const [error, setError] = useState("");
+  const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const load = useCallback(() => workspaceApi.routines(companionId).then((result) => setItems(result.routines)).catch((cause) => setError(cause instanceof Error ? cause.message : "Could not load routines")), [companionId]);
+  useEffect(() => { void load(); }, [load]);
+  async function create(event: FormEvent) {
+    event.preventDefault(); setError("");
+    try { await workspaceApi.createRoutine(companionId, { name: name.trim(), prompt: prompt.trim(), cron, timezone, enabled: true }); setName(""); setPrompt(""); await load(); }
+    catch (cause) { setError(cause instanceof Error ? cause.message : "Could not create routine"); }
+  }
+  return <div className="settings-stack"><div className="settings-intro"><CalendarClock /><div><h3>Routines</h3><p>Give recurring work a time and a clear instruction.</p></div></div>
+    {items.map((item) => <div className="settings-item" key={item.id}><div><strong>{item.name}</strong><small>{item.cron === "0 9 * * 1-5" ? "Weekdays at 9:00" : item.cron === "0 9 * * *" ? "Daily at 9:00" : "Mondays at 9:00"}</small></div><label className="switch"><input type="checkbox" checked={item.enabled} onChange={() => void workspaceApi.updateRoutine(companionId, item.id, { enabled: !item.enabled }).then(load)} /><span /></label><button className="icon-action" onClick={() => void workspaceApi.deleteRoutine(companionId, item.id).then(load)} aria-label={`Delete ${item.name}`}><Trash2 /></button></div>)}
+    <form className="inline-create" onSubmit={create}><h3>New routine</h3><div className="field"><label htmlFor="routine-name">Name</label><input id="routine-name" value={name} onChange={(event) => setName(event.target.value)} placeholder="Morning brief" /></div><div className="field"><label htmlFor="routine-prompt">What should happen?</label><Textarea id="routine-prompt" value={prompt} onChange={(event) => setPrompt(event.target.value)} rows={3} /></div><div className="field"><label htmlFor="routine-time">When</label><select id="routine-time" value={cron} onChange={(event) => setCron(event.target.value)}><option value="0 9 * * 1-5">Weekdays at 9:00</option><option value="0 9 * * *">Every day at 9:00</option><option value="0 9 * * 1">Mondays at 9:00</option></select></div>{error && <p className="field-error">{error}</p>}<Button type="submit" disabled={!name.trim() || !prompt.trim()}><Plus />Add routine</Button></form>
+  </div>;
+}
+
+function TriggerSettings({ companionId }: { companionId: string }) {
+  const [items, setItems] = useState<Trigger[]>([]);
+  const [name, setName] = useState(""); const [prompt, setPrompt] = useState(""); const [source, setSource] = useState("generic"); const [mode, setMode] = useState<"direct" | "filter">("direct"); const [filterCode, setFilterCode] = useState(""); const [error, setError] = useState("");
+  const [newWebhook, setNewWebhook] = useState<{ url?: string | null; secret: string } | null>(null);
+  const load = useCallback(() => workspaceApi.triggers(companionId).then((result) => setItems(result.triggers)).catch((cause) => setError(cause instanceof Error ? cause.message : "Could not load triggers")), [companionId]);
+  useEffect(() => { void load(); }, [load]);
+  async function create(event: FormEvent) { event.preventDefault(); setError(""); setNewWebhook(null); try { const result = await workspaceApi.createTrigger(companionId, { name: name.trim(), prompt: prompt.trim(), source, mode, filterCode: mode === "filter" ? filterCode : undefined, enabled: true }); if (result.secret) setNewWebhook({ url: result.trigger.url, secret: result.secret }); setName(""); setPrompt(""); await load(); } catch (cause) { setError(cause instanceof Error ? cause.message : "Could not create trigger"); } }
+  return <div className="settings-stack"><div className="settings-intro"><Zap /><div><h3>Triggers</h3><p>Start work when an event arrives. Filters run before the Companion wakes.</p></div></div>
+    {newWebhook && <div className="secret-callout" role="status"><strong>Save this webhook secret</strong><p>It is shown once. Send it with requests to the webhook URL.</p>{newWebhook.url && <code>{newWebhook.url}</code>}<code>{newWebhook.secret}</code></div>}
+    {items.map((item) => <div className="settings-item" key={item.id}><div><strong>{item.name}</strong><small>{item.source} · {item.mode === "filter" ? "filtered" : "every event"}{item.registrationStatus ? ` · ${item.registrationStatus.replace("_", " ")}` : ""}</small></div><label className="switch"><input type="checkbox" checked={item.enabled} onChange={() => void workspaceApi.updateTrigger(companionId, item.id, { enabled: !item.enabled }).then(load)} /><span /></label><button className="icon-action" onClick={() => void workspaceApi.deleteTrigger(companionId, item.id).then(load)} aria-label={`Delete ${item.name}`}><Trash2 /></button></div>)}
+    <form className="inline-create" onSubmit={create}><h3>New trigger</h3><div className="field"><label htmlFor="trigger-name">Name</label><input id="trigger-name" value={name} onChange={(event) => setName(event.target.value)} placeholder="Main branch failed" /></div><div className="field"><label htmlFor="trigger-source">Source</label><select id="trigger-source" value={source} onChange={(event) => setSource(event.target.value)}><option value="generic">Webhook</option><option value="github">GitHub</option><option value="sentry">Sentry</option></select></div><div className="field"><label htmlFor="trigger-prompt">What should happen?</label><Textarea id="trigger-prompt" value={prompt} onChange={(event) => setPrompt(event.target.value)} rows={3} /></div><label className="filter-toggle"><input type="checkbox" checked={mode === "filter"} onChange={(event) => setMode(event.target.checked ? "filter" : "direct")} />Only run when a code filter accepts the event</label>{mode === "filter" && <div className="field"><label htmlFor="trigger-filter">Filter code</label><Textarea id="trigger-filter" className="code-input" value={filterCode} onChange={(event) => setFilterCode(event.target.value)} rows={4} placeholder="return payload.action === 'opened'" /></div>}{error && <p className="field-error">{error}</p>}<Button type="submit" disabled={!name.trim() || !prompt.trim() || (mode === "filter" && !filterCode.trim())}><Plus />Add trigger</Button></form>
+  </div>;
+}
+
+function CompanionConnections({ companionId }: { companionId: string }) {
+  const [all, setAll] = useState<PluginAccount[]>([]); const [selected, setSelected] = useState<PluginAccount[]>([]); const [error, setError] = useState("");
+  const load = useCallback(async () => { try { const [plugins, current] = await Promise.all([workspaceApi.plugins(), workspaceApi.companionPlugins(companionId)]); setAll(plugins.accounts); setSelected(current.accounts); } catch (cause) { setError(cause instanceof Error ? cause.message : "Could not load connections"); } }, [companionId]);
+  useEffect(() => { void load(); }, [load]);
+  const selectedIds = new Set(selected.map((item) => item.id));
+  return <div className="settings-stack"><div className="settings-intro"><Waypoints /><div><h3>Connections</h3><p>Choose which connected accounts this Companion can use.</p></div></div>{all.length === 0 ? <p className="settings-empty">Connect an account from Connections first.</p> : all.map((account) => <label className="connection-choice" key={account.id}><span className="provider-dot">{(account.provider ?? account.label).slice(0, 1).toUpperCase()}</span><span><strong>{account.label}</strong><small>{account.provider ?? account.serverId}</small></span><input type="checkbox" checked={selectedIds.has(account.id)} onChange={() => void (selectedIds.has(account.id) ? workspaceApi.unselectPlugin(companionId, account.id) : workspaceApi.selectPlugin(companionId, account.id)).then(load)} /></label>)}{error && <p className="field-error">{error}</p>}</div>;
+}
+
+function SettingsSheet({ detail, onClose, onSaved }: { detail: CompanionDetail; onClose: () => void; onSaved: () => Promise<void> }) {
+  const [tab, setTab] = useState<"identity" | "routines" | "connections" | "triggers">("identity");
   const [name, setName] = useState(detail.companion.name);
   const [instructions, setInstructions] = useState(detail.companion.instructions);
   const [avatar, setAvatar] = useState(detail.companion.avatar ?? DEFAULT_AVATAR);
@@ -439,15 +499,16 @@ function IdentitySheet({ detail, onClose, onSaved }: { detail: CompanionDetail; 
   }
   return <div className="sheet-layer" role="presentation">
     <button className="sheet-scrim" onClick={onClose} aria-label="Close settings" />
-    <aside className="settings-sheet" role="dialog" aria-modal="true" aria-labelledby="identity-title">
-      <header className="sheet-header"><div><span>Settings</span><h2 id="identity-title">Identity</h2></div><Button variant="ghost" size="icon" onClick={onClose} aria-label="Close settings">×</Button></header>
-      <form className="sheet-content identity-form" onSubmit={save}>
+    <aside className="settings-sheet" role="dialog" aria-modal="true" aria-labelledby="settings-title">
+      <header className="sheet-header"><div><span>{detail.companion.name}</span><h2 id="settings-title">Settings</h2></div><Button variant="ghost" size="icon" onClick={onClose} aria-label="Close settings"><X /></Button></header>
+      <nav className="settings-tabs" aria-label="Companion settings">{(["identity", "routines", "connections", "triggers"] as const).map((value) => <button key={value} aria-current={tab === value ? "page" : undefined} onClick={() => setTab(value)}>{value[0].toUpperCase() + value.slice(1)}</button>)}</nav>
+      {tab === "identity" ? <form className="sheet-content identity-form" onSubmit={save}>
         <AvatarPicker value={avatar} onChange={setAvatar} />
         <div className="field"><label htmlFor="identity-name">Name</label><input id="identity-name" value={name} onChange={(event) => setName(event.target.value)} maxLength={80} /></div>
         <div className="field"><label htmlFor="identity-mission">Mission</label><Textarea id="identity-mission" value={instructions} onChange={(event) => setInstructions(event.target.value)} rows={5} maxLength={20_000} /></div>
         {error && <p className="field-error" role="alert">{error}</p>}
         <div className="sheet-actions"><Button type="button" variant="ghost" onClick={onClose}>Cancel</Button><Button type="submit" disabled={saving || !name.trim()}>{saving ? <LoaderCircle className="spin" /> : <Check />}Save</Button></div>
-      </form>
+      </form> : <div className="sheet-content">{tab === "routines" ? <RoutineSettings companionId={detail.companion.id} /> : tab === "connections" ? <CompanionConnections companionId={detail.companion.id} /> : <TriggerSettings companionId={detail.companion.id} />}</div>}
     </aside>
   </div>;
 }
@@ -456,6 +517,7 @@ function CompanionView({ detail, onRefresh, onUnauthorized, onMenu }: { detail: 
   const [desktopBusy, setDesktopBusy] = useState(false);
   const [desktopError, setDesktopError] = useState("");
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [activityOpen, setActivityOpen] = useState(false);
 
   async function openDesktop() {
     const desktopWindow = window.open("about:blank", "_blank");
@@ -490,14 +552,15 @@ function CompanionView({ detail, onRefresh, onUnauthorized, onMenu }: { detail: 
               <span>Open desktop</span>
             </Button>
           )}
+          <Button variant="ghost" size="sm" onClick={() => setActivityOpen(true)}><CalendarClock /><span>Activity</span></Button>
           <Button variant="ghost" size="icon" onClick={() => setSettingsOpen(true)} aria-label={`Settings for ${detail.companion.name}`}><Settings /></Button>
         </div>
       </header>
       <div className="workspace-body">
         <Chat detail={detail} onRefresh={onRefresh} onUnauthorized={onUnauthorized} />
-        <ActivityPanel detail={detail} />
       </div>
-      {settingsOpen && <IdentitySheet detail={detail} onClose={() => setSettingsOpen(false)} onSaved={onRefresh} />}
+      {activityOpen && <div className="activity-layer"><button className="sheet-scrim" onClick={() => setActivityOpen(false)} aria-label="Close activity" /><ActivityPanel detail={detail} onClose={() => setActivityOpen(false)} /></div>}
+      {settingsOpen && <SettingsSheet detail={detail} onClose={() => setSettingsOpen(false)} onSaved={onRefresh} />}
     </main>
   );
 }
@@ -519,7 +582,17 @@ function AccountPage({ user, onSignOut, onMenu }: { user: AccountUser; onSignOut
 }
 
 function ConnectionsPage({ onMenu }: { onMenu: () => void }) {
-  return <main className="simple-page" id="main-content"><header className="mobile-page-header"><Button variant="ghost" size="icon" onClick={onMenu} aria-label="Open navigation"><Menu /></Button><span className="wordmark">companions.build</span></header><div className="simple-inner"><h1>Connections</h1><p className="muted-copy">Connect the tools your Companions can use.</p><div className="quiet-empty"><Waypoints /><strong>No connections yet</strong><span>Add your first connection when the provider catalog is available.</span></div></div></main>;
+  const [catalog, setCatalog] = useState<PluginServer[]>([]); const [accounts, setAccounts] = useState<PluginAccount[]>([]); const [error, setError] = useState(""); const [customOpen, setCustomOpen] = useState(false); const [label, setLabel] = useState(""); const [url, setUrl] = useState("");
+  const load = useCallback(() => workspaceApi.plugins().then((result) => { setCatalog(result.catalog); setAccounts(result.accounts); }).catch((cause) => setError(cause instanceof Error ? cause.message : "Could not load connections")), []);
+  useEffect(() => { void load(); }, [load]);
+  async function connect(server: PluginServer) { setError(""); try { const result = await workspaceApi.connectPlugin(server.id, server.name); if (result.url) window.location.assign(result.url); else await load(); } catch (cause) { setError(cause instanceof Error ? cause.message : "Could not connect account"); } }
+  async function addCustom(event: FormEvent) { event.preventDefault(); setError(""); try { await workspaceApi.addCustomPlugin({ label: label.trim(), url: url.trim() }); setLabel(""); setUrl(""); setCustomOpen(false); await load(); } catch (cause) { setError(cause instanceof Error ? cause.message : "Could not add MCP server"); } }
+  return <main className="simple-page" id="main-content"><header className="mobile-page-header"><Button variant="ghost" size="icon" onClick={onMenu} aria-label="Open navigation"><Menu /></Button><span className="wordmark">companions.build</span></header><div className="simple-inner connections-inner"><div className="page-title-row"><div><h1>Connections</h1><p className="muted-copy">Accounts your Companions can use.</p></div><Button variant="outline" onClick={() => setCustomOpen((value) => !value)}><Plus />Custom MCP</Button></div>
+    {error && <p className="field-error" role="alert">{error}</p>}
+    {customOpen && <form className="custom-connection" onSubmit={addCustom}><div className="field"><label htmlFor="custom-label">Name</label><input id="custom-label" value={label} onChange={(event) => setLabel(event.target.value)} placeholder="Internal tools" /></div><div className="field"><label htmlFor="custom-url">Server URL</label><input id="custom-url" type="url" value={url} onChange={(event) => setUrl(event.target.value)} placeholder="https://example.com/mcp" /></div><Button type="submit" disabled={!label.trim() || !url.trim()}>Add server</Button></form>}
+    {accounts.length > 0 && <section className="connection-section"><h2>Connected</h2>{accounts.map((account) => <div className="connected-row" key={account.id}><span className="provider-dot">{(account.provider ?? account.label)[0]?.toUpperCase()}</span><div><strong>{account.label}</strong><small>{account.provider ?? account.serverId}</small></div><button className="icon-action" onClick={() => void workspaceApi.deletePlugin(account.id).then(load)} aria-label={`Disconnect ${account.label}`}><Trash2 /></button></div>)}</section>}
+    <section className="connection-section"><h2>Add a connection</h2><div className="provider-list">{catalog.map((server) => <div className="provider-row" key={server.id}><span className="provider-dot">{(server.provider ?? server.name)[0]?.toUpperCase()}</span><div><strong>{server.name}</strong><small>{server.description ?? "Tools and events"}</small></div><Button variant="outline" size="sm" onClick={() => void connect(server)}>Connect<ExternalLink /></Button></div>)}</div>{catalog.length === 0 && <div className="quiet-empty"><Waypoints /><strong>No providers available</strong><span>Add a custom MCP server or try again shortly.</span></div>}</section>
+  </div></main>;
 }
 
 function LoadingApp() {

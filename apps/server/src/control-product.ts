@@ -24,7 +24,7 @@ registerControl({
  template_rollback:async(context,raw)=>{const {templateId,...input}=z.object({templateId:uuid,targetRevision:z.number().int().positive(),expectedRevision:z.number().int().positive()}).parse(raw);return rollbackTemplate(context.ownerId,templateId,input);},
  companion_create:async(context,raw)=>{
   if(context.isChild)return {error:'Ask your parent to create Companions.'};
-  const input=z.object({name:z.string().trim().min(1).max(80),instructions:z.string().max(20_000).default('')}).parse(raw);
+  const input=z.object({name:z.string().trim().min(1).max(80),instructions:z.string().max(20_000).optional(),templateId:uuid.optional(),templateRevision:z.number().int().positive().optional()}).parse(raw);
   return createCompanion(context.ownerId,{...input,prepare:true,provider:config.boxKey&&config.boxTemplate?'box':'local'});
  },
  plugin_catalog:async()=>({plugins:listPluginCatalog()}),

@@ -2,7 +2,7 @@ import { timingSafeEqual, createHmac } from "node:crypto";
 import { z } from "zod";
 import { config } from "./config";
 import { db, migrate, listCompanions, createCompanion, detail, acceptMessage, cancel, Conflict } from "./store";
-import { BoxClient } from "../../../packages/box/client";
+import { BoxClient, BoxError } from "../../../packages/box/client";
 
 const idSchema = z.string().uuid();
 const json = (body: unknown, status = 200, headers: Record<string, string> = {}) => Response.json(body, { status, headers: { "Cache-Control": "no-store", ...headers } });
@@ -58,7 +58,7 @@ export async function handler(request: Request): Promise<Response> {
   } catch (error) {
     if (error instanceof z.ZodError || error instanceof SyntaxError) return json({ error: "Invalid request." }, 400);
     if (error instanceof Conflict) return json({ error: error.message }, 409);
-    console.error("api_request_failed");
+    console.error(error instanceof BoxError ? `api_request_failed:${error.code}:${error.status}` : "api_request_failed");
     return json({ error: "The request could not be completed. Please try again." }, 500);
   }
 }

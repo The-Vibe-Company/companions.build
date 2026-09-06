@@ -167,6 +167,7 @@ if (import.meta.main) {
   const sql = await acquireExecutor();
   if (!sql) { console.error("Another executor already owns this workspace."); process.exit(1); }
   console.log("Executor ready");
-  try { for (;;) { await tick(sql); await Bun.sleep(500); } }
+  const { productHooks } = await import("./runtime-product");
+  try { for (;;) { await tick(sql, productHooks); await Bun.sleep(500); } }
   finally { sql.release(); await db.close(); }
 }

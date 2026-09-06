@@ -18,7 +18,10 @@ export function scriptedModel(model: any, context: any) {
     message.content = [{ type: "toolCall", id: `fixture-${results.length}`, name, arguments: args }];
     message.stopReason = "toolUse";
   };
-  if (text === "write-note") {
+  if (text === "control-identity") {
+    if (results.length === 0) tool("companion_control", { operation: "identity", input: {} });
+    else message.content = [{type:"text",text:JSON.stringify(results.at(-1)?.content).includes("companionId") ? "Control verified" : "Control failed"}];
+  } else if (text === "write-note") {
     if (results.length === 0) tool("write", { path: "note.txt", content: "written by real Pi tools\n" });
     else if (results.length === 1) tool("read", { path: "note.txt" });
     else message.content = [{ type: "text", text: JSON.stringify(results.at(-1)?.content).includes("written by real Pi tools")

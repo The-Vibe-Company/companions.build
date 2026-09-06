@@ -5,6 +5,7 @@ import { createRoutine, updateRoutine, deleteRoutine, listRoutines, routineHisto
   migrateAutomations, enqueueBackground, nextRoutineFire, AutomationConflict } from "../src/automations";
 import { encrypt } from "../src/config";
 
+const owner="00000000-0000-4000-8000-000000000001";
 const companions: string[] = [];
 beforeAll(async () => { await migrate(); await migrateAutomations(); });
 afterEach(async () => {
@@ -14,7 +15,7 @@ afterEach(async () => {
   }
 });
 async function companion() {
-  const row = await createCompanion({ name: "Automation fixture", instructions: "", provider: "local" });
+  const row = await createCompanion(owner,{ name: "Automation fixture", instructions: "", provider: "local" });
   companions.push(row.id); return row.id as string;
 }
 async function leader() {
@@ -91,7 +92,7 @@ test("background sources dedupe durably and remain FIFO while main can steer", a
   const second = await enqueueBackground({ companionId: id, clientMessageId: key, content: "Second", source: "delegation" });
   expect(await enqueueBackground({ companionId: id, clientMessageId: key, content: "Second", source: "delegation" })).toBe(second);
   await expect(enqueueBackground({ companionId: id, clientMessageId: key, content: "Changed", source: "delegation" })).rejects.toBeInstanceOf(AutomationConflict);
-  const main = await acceptMessage(id, crypto.randomUUID(), "Chat");
+  const main = await acceptMessage(owner,id, crypto.randomUUID(), "Chat");
   const lock = await leader();
   try {
     await claimQueuedRuns(lock.sql);
@@ -100,7 +101,7 @@ test("background sources dedupe durably and remain FIFO while main can steer", a
     expect(rows.find((r: any) => r.id === second).status).toBe("queued");
     expect(rows.find((r: any) => r.id === main).status).toBe("preparing");
     await db`UPDATE runs SET status='running',dispatched=true WHERE companion_id=${id} AND status='preparing'`;
-    const steer = await acceptMessage(id, crypto.randomUUID(), "While active");
+    const steer = await acceptMessage(owner,id, crypto.randomUUID(), "While active");
     await claimQueuedRuns(lock.sql);
     expect((await db`SELECT status FROM runs WHERE id=${steer}`)[0].status).toBe("preparing");
     expect((await db`SELECT status FROM runs WHERE id=${second}`)[0].status).toBe("queued");

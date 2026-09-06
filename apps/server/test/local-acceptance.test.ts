@@ -4,6 +4,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { config, dataDir } from "../src/config";
 import { db, migrate, createCompanion, acceptMessage, detail, cancel } from "../src/store";
+import {productHooks} from "../src/runtime-product";
 import { acquireExecutor, tick } from "../src/executor";
 
 test.skipIf(process.env.RUN_LOCAL_ACCEPTANCE !== "1")("full local path: real Pi files, independent machines, cancel, daemon crash without replay, next work", async () => {
@@ -48,6 +49,14 @@ test.skipIf(process.env.RUN_LOCAL_ACCEPTANCE !== "1")("full local path: real Pi 
     await until(async () => (await detail(owner, ada.id))!.runs.find((r: any) => r.id === next).status === "succeeded");
     expect(readFileSync(effectPath, "utf8")).toBe("effect");
     expect((await detail(owner, ada.id))!.messages.filter((m: any) => m.role === "assistant")).toHaveLength(2);
+    const controlled=await acceptMessage(owner,ada.id,crypto.randomUUID(),"control-identity");
+    const deadline=Date.now()+30_000;
+    while((await detail(owner,ada.id))!.runs.find((r:any)=>r.id===controlled).status!=="succeeded") {
+      if(Date.now()>deadline)throw Error("Control integration timed out");
+      await tick(sql!,productHooks);await Bun.sleep(100);
+    }
+    expect((await detail(owner,ada.id))!.messages.find((m:any)=>m.runId===controlled&&m.role==="assistant").content).toBe("Control verified");
+    expect((await db`SELECT status FROM control_commands WHERE run_id=${controlled}`)[0].status).toBe("done");
   } finally {
     for (const id of created) {
       const child = Bun.spawn(["docker", "rm", "-f", `companions-${workspace}-${id}`], { stdout: "ignore", stderr: "ignore" });

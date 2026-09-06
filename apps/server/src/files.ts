@@ -84,7 +84,7 @@ export async function migrateFiles(database: FilesDatabase = db) {
   const schema = await Bun.file(new URL("./storage-schema.sql", import.meta.url)).text();
   if (database === db) {
     await db.begin(async tx => {
-      await tx`SELECT pg_advisory_xact_lock(721440139)`;
+      await tx`SELECT pg_advisory_xact_lock(721440138)`;
       await tx.unsafe(schema);
     });
     return;
@@ -190,7 +190,7 @@ async function storeAttachment(
   }
   if (kind === "user_upload" && (
     run.dispatched
-    || run.status !== "queued"
+    || !["queued","preparing"].includes(run.status)
     || input.position >= run.attachmentCount
   )) {
     throw new FileRequestError("This task is not waiting for that file.", 409);

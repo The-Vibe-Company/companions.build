@@ -9,6 +9,7 @@ export async function migrate(sql = db) {
     await tx`SELECT pg_advisory_xact_lock(721440138)`;
     await tx.unsafe(schema);
     await tx.unsafe(authSchema);
+    for (const name of ["product.sql", "plugins.sql", "storage-schema.sql", "automations.sql"]) await tx.unsafe(await Bun.file(new URL(`./${name}`,import.meta.url)).text());
     const localId = "00000000-0000-4000-8000-000000000001";
     if (process.env.NODE_ENV !== "production") {
       await tx`INSERT INTO "user" ("id","name","email","emailVerified","createdAt","updatedAt")
@@ -25,12 +26,12 @@ export async function migrate(sql = db) {
     await tx`ALTER TABLE companions ALTER COLUMN owner_id SET NOT NULL`;
   });
 }
-export const companionColumns = `id,name,instructions,provider,status,error,box_id AS "boxId",created_at AS "createdAt"`;
-export async function listCompanions(ownerId: string) { return db.unsafe(`SELECT ${companionColumns} FROM companions WHERE owner_id=$1 ORDER BY created_at,id`, [ownerId]); }
-export async function createCompanion(ownerId: string, input: { name: string; instructions: string; provider: "local" | "box" }) {
+export const companionColumns = `id,name,instructions,avatar,provider,status,error,box_id AS "boxId",created_at AS "createdAt"`;
+export async function listCompanions(ownerId: string) { return db.unsafe(`SELECT ${companionColumns} FROM companions WHERE owner_id=$1 AND retired_at IS NULL AND NOT temporary ORDER BY created_at,id`, [ownerId]); }
+export async function createCompanion(ownerId: string, input: { name: string; instructions: string; provider: "local" | "box"; avatar?: {shape:number;color:number;face:number} }) {
   const id = crypto.randomUUID();
-  await db`INSERT INTO companions (id,owner_id,name,instructions,provider,create_key,agent_secret)
-    VALUES (${id},${ownerId},${input.name},${input.instructions},${input.provider},${crypto.randomUUID()},${encrypt(randomBytes(32).toString("hex"))})`;
+  await db`INSERT INTO companions (id,owner_id,name,instructions,provider,create_key,agent_secret,avatar)
+    VALUES (${id},${ownerId},${input.name},${input.instructions},${input.provider},${crypto.randomUUID()},${encrypt(randomBytes(32).toString("hex"))},${input.avatar??{shape:0,color:0,face:0}})`;
   return (await db.unsafe(`SELECT ${companionColumns} FROM companions WHERE id=$1 AND owner_id=$2`, [id, ownerId]))[0];
 }
 export async function detail(ownerId: string, id: string) {
@@ -38,9 +39,9 @@ export async function detail(ownerId: string, id: string) {
   if (!companion) return null;
   const [messages, runs] = await Promise.all([
     db`SELECT id,role,content,created_at AS "createdAt",run_id AS "runId" FROM messages WHERE companion_id=${id} ORDER BY created_at,id`,
-    db`SELECT id,status,error,created_at AS "createdAt",prepared_at AS "preparedAt",finished_at AS "finishedAt" FROM runs WHERE companion_id=${id} ORDER BY created_at,id`,
+    db`SELECT id,status,error,lane,source,result_text AS "resultText",publish_to_chat AS "publishToChat",response_root_id AS "responseRootId",created_at AS "createdAt",prepared_at AS "preparedAt",finished_at AS "finishedAt" FROM runs WHERE companion_id=${id} ORDER BY created_at,id`,
   ]);
-  return { companion, messages, runs, activity: [] };
+  return { companion, messages, runs, activity: runs.filter((run:any)=>run.lane === "background") };
 }
 export class Conflict extends Error {}
 export async function acceptMessage(ownerId: string, companionId: string, clientMessageId: string, content: string, attachmentCount = 0) {
@@ -63,8 +64,8 @@ export async function cancel(ownerId: string, companionId: string) {
   return db.begin(async sql => {
     const [companion] = await sql`SELECT id FROM companions WHERE id=${companionId} AND owner_id=${ownerId} FOR UPDATE`;
     if (!companion) return false;
-    await sql`UPDATE runs SET status='cancelled',finished_at=now() WHERE companion_id=${companionId} AND status='queued'`;
-    await sql`UPDATE runs SET cancel_requested=true WHERE companion_id=${companionId} AND status IN ('preparing','running')`;
+    await sql`UPDATE runs SET status='cancelled',finished_at=now() WHERE companion_id=${companionId} AND lane='main' AND status='queued'`;
+    await sql`UPDATE runs SET cancel_requested=true WHERE companion_id=${companionId} AND lane='main' AND status IN ('preparing','running')`;
     return true;
   });
 }

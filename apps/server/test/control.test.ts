@@ -1,0 +1,45 @@
+import {beforeAll,test,expect} from 'bun:test';
+import {mkdtempSync,rmSync} from 'node:fs';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
+import {AgentControl} from '../../../packages/control/agent';
+import {db,migrate,createCompanion,acceptMessage} from '../src/store';
+import {applyControl,registerControl,controlHandlers} from '../src/control';
+import {addCustomPlugin,attachPlugin,listPluginAccounts,machinePlugins,disconnectPlugin} from '../src/plugins';
+const owner='00000000-0000-4000-8000-000000000001';
+beforeAll(async()=>{await migrate();});
+test('control MCP persists a request and returns the controller result without a public callback',async()=>{
+ const dir=mkdtempSync(join(tmpdir(),'companions-control-'));const bridge=new AgentControl(dir);
+ const factory=await bridge.toolsFactory({runId:crypto.randomUUID()});const tool=factory.tools[0];
+ try{
+   const pending=tool.execute('test',{operation:'identity',input:{}},new AbortController().signal,undefined,{} as any);
+   let command:any;
+   for(let i=0;i<20&&!command;i++) {const r=await bridge.handleRequest(new Request('http://agent/control'));command=(await r!.json() as any).requests[0];if(!command)await Bun.sleep(10);}
+   expect(command.operation).toBe('identity');
+   await bridge.handleRequest(new Request(`http://agent/control/${command.id}/result`,{method:'POST',body:JSON.stringify({name:'Ada'})}));
+   const result=await pending;expect(result.content).toEqual([{type:'text',text:'{"name":"Ada"}'}]);
+   const r=await bridge.handleRequest(new Request('http://agent/control'));expect((await r!.json() as any).requests).toHaveLength(0);
+ }finally{await factory.close();bridge.close();rmSync(dir,{recursive:true,force:true});}
+});
+test('a repeated control request cannot repeat its effect or target another run',async()=>{
+ const c=await createCompanion(owner,{name:'Control',instructions:'',provider:'local'});
+ const runId=await acceptMessage(owner,c.id,crypto.randomUUID(),'Configure');
+ await db`UPDATE runs SET status='running',dispatched=true,started_at=now() WHERE id=${runId}`;
+ const original=controlHandlers.identity;let effects=0;registerControl({identity:async()=>({counter:++effects})});
+ const command={id:crypto.randomUUID(),runId,operation:'identity',input:{}};
+ expect(await applyControl(c.id,command)).toEqual({counter:1});
+ expect(await applyControl(c.id,command)).toEqual({counter:1});expect(effects).toBe(1);
+ expect(await applyControl(crypto.randomUUID(),command)).toHaveProperty('error');expect(effects).toBe(1);
+ await db`UPDATE runs SET status='succeeded' WHERE id=${runId}`;controlHandlers.identity=original;
+});
+test('plugin secrets are write-only and attaching another owner account is refused',async()=>{
+ const other=crypto.randomUUID();await db`INSERT INTO "user"(id,name,email,"emailVerified") VALUES(${other},'Other',${other+'@example.com'},true)`;
+ const c=await createCompanion(owner,{name:'Plugins',instructions:'',provider:'local'});
+ const account=await addCustomPlugin(owner,{label:'Private',transport:'http',url:'https://example.com/mcp',headers:{Authorization:'Bearer synthetic-plugin-secret'}});
+ const foreign=await addCustomPlugin(other,{label:'Other',transport:'http',url:'https://example.com/mcp'});
+ await expect(attachPlugin(owner,c.id,foreign.id,true)).rejects.toThrow('not found');
+ await attachPlugin(owner,c.id,account.id,true);
+ expect(JSON.stringify(await listPluginAccounts(owner))).not.toContain('synthetic-plugin-secret');
+ expect((await machinePlugins(c.id))[0].headers?.Authorization).toBe('Bearer synthetic-plugin-secret');
+ await disconnectPlugin(owner,account.id);expect(await machinePlugins(c.id)).toHaveLength(0);
+});

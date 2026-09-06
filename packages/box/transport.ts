@@ -1,7 +1,9 @@
 /** The Box preview gate exchanges _token for a cookie using a same-origin, same-path redirect. */
 export async function fetchAgent(endpoint: string, token: string, path: string, method = "GET", body?: unknown, timeoutMs = 10_000, transport: typeof fetch = fetch) {
   let url = new URL(endpoint);
-  url.pathname = path;
+  const requestUrl = new URL(path, url.origin);
+  url.pathname = requestUrl.pathname;
+  for (const [key, value] of requestUrl.searchParams) if (key !== "_token") url.searchParams.set(key, value);
   const origin = url.origin;
   const headers = new Headers({ Authorization: `Bearer ${token}`, "Content-Type": "application/json" });
   const cookies = new Map<string, string>();

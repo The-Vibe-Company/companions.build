@@ -51,3 +51,8 @@ test("private preview redirects cannot replay a mutation to another path", async
     10_000, (async () => { calls++; return new Response(null, { status: 302, headers: { location: "/runs/other" } }); }) as any)).rejects.toThrow("agent_cross_path_redirect");
   expect(calls).toBe(1);
 });
+test("private preview transport preserves request query parameters alongside its access token",async()=>{
+ let observed:URL|undefined;
+ await fetchAgent('https://test.on.ascii.dev?_token=synthetic','daemon-secret','/files/outbox?runId=example','GET',undefined,1000,(async(url:any)=>{observed=new URL(url);return Response.json({files:[]});}) as any);
+ expect(observed!.pathname).toBe('/files/outbox');expect(observed!.searchParams.get('runId')).toBe('example');expect(observed!.searchParams.get('_token')).toBe('synthetic');
+});

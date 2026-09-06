@@ -28,14 +28,25 @@ export type DesktopAction = z.infer<typeof desktopActionSchema>;
 export type DesktopActionRequest = z.infer<typeof desktopActionRequestSchema>;
 export type DesktopAdminState = z.infer<typeof desktopAdminStateSchema>;
 
-export type DesktopResult =
-  | { kind: "ok" }
-  | { kind: "screenshot"; mimeType: "image/png"; data: string; width: number; height: number };
+export const desktopResultSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("ok") }),
+  z.object({
+    kind: z.literal("screenshot"), mimeType: z.literal("image/png"), data: z.string(),
+    width: z.number().int().positive().max(16_384), height: z.number().int().positive().max(16_384),
+  }),
+]);
+
+export type DesktopResult = z.infer<typeof desktopResultSchema>;
 
 export type DesktopState = DesktopAdminState & {
   confirmed: boolean;
   bootId: string;
 };
+
+export const desktopStateSchema = desktopAdminStateSchema.extend({
+  confirmed: z.boolean(),
+  bootId: z.string().uuid(),
+});
 
 export interface DesktopDriver {
   execute(action: DesktopAction, signal: AbortSignal): Promise<DesktopResult>;

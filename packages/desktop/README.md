@@ -20,9 +20,11 @@ PostgreSQL state without inventing a transition.
 
 `CommandDesktopDriver` executes fixed argv through `/usr/bin/xdotool`; it never invokes a shell or
 launches an application. Capture uses `/usr/local/bin/companions-desktop-capture`, which must emit
-one bounded PNG on stdout. The Box image supplies Xvfb, xdotool, X11/XTest libraries, ffmpeg, and
-that fixed capture helper. Long text is sent in chunks so takeover can interrupt it, then the driver
-releases common modifiers and mouse buttons and completes an X11 round trip before confirmation.
+one bounded PNG on stdout. Quiescence uses `/usr/local/bin/companions-desktop-quiesce`, which
+releases every pressed key and mouse button through XTest and completes XSync before returning. The
+Box image supplies Xvfb, xdotool, X11/XTest libraries, ffmpeg, and both fixed helpers. Long text is
+sent in chunks so takeover can interrupt it. Commands and whole actions have hard deadlines;
+termination escalates from SIGTERM to SIGKILL and waits for process exit before takeover confirms.
 
 Build `run.ts` as the separate desktop-UID executable. Agent code should use
 `desktopTools({socketPath, runId})`; it speaks only to the agent socket and returns

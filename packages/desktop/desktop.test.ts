@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdtempSync, rmSync, statSync } from "node:fs";
+import { chmodSync, mkdtempSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { DesktopBroker, serveDesktopBroker } from "./broker";
@@ -145,15 +145,25 @@ test("command driver uses fixed argv, chunks typing, cleans input state and vali
   expect(calls.some(call => call.join(" ").includes("key --clearmodifiers Control_L+l"))).toBe(true);
   expect(calls.some(call => call.join(" ").includes("click --repeat 3 --delay 20 5"))).toBe(true);
   expect(calls.some(call => call.join(" ").includes("click --repeat 2 --delay 20 6"))).toBe(true);
-  expect(calls.at(-1)).toContain("getmouselocation");
-  expect(calls.every(call => ["/usr/bin/xdotool", "/usr/local/bin/companions-desktop-capture"].includes(call[0]))).toBe(true);
+  expect(calls.at(-1)).toEqual(["/usr/local/bin/companions-desktop-quiesce"]);
+  expect(calls.every(call => ["/usr/bin/xdotool", "/usr/local/bin/companions-desktop-capture", "/usr/local/bin/companions-desktop-quiesce"].includes(call[0]))).toBe(true);
+});
+
+test("a stuck process group is killed within the command deadline", async () => {
+  const directory = dirname(journalPath());
+  const executable = join(directory, "stuck-capture");
+  writeFileSync(executable, "#!/bin/sh\ntrap '' TERM\nsleep 10\n"); chmodSync(executable, 0o700);
+  const driver = new CommandDesktopDriver({ capturePath: executable, commandTimeoutMs: 25, killGraceMs: 25 });
+  const started = performance.now();
+  await expect(driver.execute({ kind: "screenshot" }, new AbortController().signal)).rejects.toThrow();
+  expect(performance.now() - started).toBeLessThan(1_000);
 });
 
 test("Pi desktop tools return desktop_paused promptly and use a stable action ID per tool call", async () => {
   const bodies: any[] = [];
   let paused = true;
   const transport = async (path: string, init?: RequestInit) => {
-    if (path === "/state") return Response.json({ generation: 4, taken: paused, confirmed: !paused, bootId: "boot" });
+    if (path === "/state") return Response.json({ generation: 4, taken: paused, confirmed: !paused, bootId: "00000000-0000-4000-a000-000000000001" });
     bodies.push(JSON.parse(String(init?.body))); return Response.json({ result: { kind: "ok" } });
   };
   const runId = crypto.randomUUID(); const click = desktopTools({ socketPath: "unused", runId, request: transport })[1];
@@ -163,4 +173,19 @@ test("Pi desktop tools return desktop_paused promptly and use a stable action ID
   await click.execute("pi-tool-call", { x: 1, y: 2 }, new AbortController().signal, undefined as never, undefined as never);
   await click.execute("pi-tool-call", { x: 1, y: 2 }, new AbortController().signal, undefined as never, undefined as never);
   expect(bodies[0].id).toBe(bodies[1].id); expect(bodies[0]).toMatchObject({ runId, generation: 4, action: { kind: "click", x: 1, y: 2, button: "left" } });
+});
+
+test("Pi desktop tools reject malformed broker replies and bound an unavailable socket", async () => {
+  const runId = crypto.randomUUID();
+  const malformed = desktopTools({ socketPath: "unused", runId, request: async () => Response.json({ unexpected: true }) })[0];
+  const malformedResult = await malformed.execute("malformed", {}, new AbortController().signal, undefined as never, undefined as never);
+  expect((malformedResult.content[0] as any).text).toContain("desktop_unavailable");
+
+  const hanging = desktopTools({ socketPath: "unused", runId, requestTimeoutMs: 20, request: (_path, init) => new Promise((_resolve, reject) => {
+    init?.signal?.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError")), { once: true });
+  }) })[0];
+  const started = performance.now();
+  const timeoutResult = await hanging.execute("timeout", {}, new AbortController().signal, undefined as never, undefined as never);
+  expect(performance.now() - started).toBeLessThan(500);
+  expect((timeoutResult.content[0] as any).text).toContain("desktop_unavailable");
 });

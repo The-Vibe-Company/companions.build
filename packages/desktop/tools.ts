@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { Type } from "@earendil-works/pi-ai";
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
-import type { DesktopAction, DesktopResult, DesktopState } from "./types";
+import { desktopResultSchema, desktopStateSchema, type DesktopAction, type DesktopResult } from "./types";
 
 type DesktopRequest = (path: string, init?: RequestInit) => Promise<Response>;
 
@@ -14,12 +14,35 @@ function unixRequest(socketPath: string): DesktopRequest {
   return (path, init) => fetch(`http://desktop${path}`, { ...init, unix: socketPath } as RequestInit & { unix: string });
 }
 
-async function invoke(request: DesktopRequest, runId: string, toolCallId: string, action: DesktopAction) {
-  const stateResponse = await request("/state");
-  const state = await stateResponse.json() as DesktopState;
-  if (!stateResponse.ok || state.taken || !state.confirmed) return { error: "desktop_paused" };
-  const response = await request("/actions", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ id: stableUuid(runId, toolCallId), runId, generation: state.generation, action }) });
-  return await response.json() as { result?: DesktopResult; error?: string };
+async function boundedRequest(request: DesktopRequest, path: string, init: RequestInit | undefined, signal: AbortSignal, timeoutMs: number) {
+  const controller = new AbortController();
+  const abort = () => controller.abort();
+  signal.addEventListener("abort", abort, { once: true });
+  const timeout = setTimeout(abort, timeoutMs);
+  try { return await request(path, { ...init, signal: controller.signal }); }
+  finally { clearTimeout(timeout); signal.removeEventListener("abort", abort); }
+}
+
+async function safeJson(response: Response): Promise<unknown> {
+  try { return await response.json(); } catch { return null; }
+}
+
+async function invoke(request: DesktopRequest, runId: string, toolCallId: string, action: DesktopAction, signal: AbortSignal, requestTimeoutMs: number) {
+  try {
+    const stateResponse = await boundedRequest(request, "/state", undefined, signal, Math.min(requestTimeoutMs, 2_000));
+    const state = desktopStateSchema.safeParse(await safeJson(stateResponse));
+    if (!stateResponse.ok || !state.success) return { error: "desktop_unavailable" };
+    if (state.data.taken || !state.data.confirmed) return { error: "desktop_paused" };
+    const response = await boundedRequest(request, "/actions", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ id: stableUuid(runId, toolCallId), runId, generation: state.data.generation, action }),
+    }, signal, requestTimeoutMs);
+    const body = await safeJson(response);
+    if (body && typeof body === "object" && "error" in body && typeof body.error === "string") return { error: body.error };
+    const result = body && typeof body === "object" && "result" in body ? desktopResultSchema.safeParse(body.result) : null;
+    if (!response.ok || !result?.success) return { error: "desktop_unavailable" };
+    return { result: result.data };
+  } catch { return { error: signal.aborted ? "desktop_interrupted" : "desktop_unavailable" }; }
 }
 
 function resultContent(value: { result?: DesktopResult; error?: string }) {
@@ -32,11 +55,11 @@ function resultContent(value: { result?: DesktopResult; error?: string }) {
   return { content: [{ type: "text" as const, text: JSON.stringify(value.error ? { error: value.error } : { ok: true }) }], details: {} };
 }
 
-export function desktopTools(input: { socketPath: string; runId: string; request?: DesktopRequest }): ToolDefinition[] {
+export function desktopTools(input: { socketPath: string; runId: string; request?: DesktopRequest; requestTimeoutMs?: number }): ToolDefinition[] {
   const request = input.request ?? unixRequest(input.socketPath);
   const tool = <T>(name: string, description: string, parameters: any, action: (value: T) => DesktopAction): ToolDefinition => ({
     name, label: name.replace("desktop_", "Desktop "), description, parameters,
-    async execute(toolCallId, value) { return resultContent(await invoke(request, input.runId, toolCallId, action(value as T))); },
+    async execute(toolCallId, value, signal) { return resultContent(await invoke(request, input.runId, toolCallId, action(value as T), signal ?? new AbortController().signal, input.requestTimeoutMs ?? 35_000)); },
   });
   return [
     tool("desktop_capture", "Capture the current desktop as a PNG.", Type.Object({}), () => ({ kind: "screenshot" })),

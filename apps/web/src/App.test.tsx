@@ -175,3 +175,24 @@ describe("first Companion flow", () => {
     }));
   });
 });
+
+
+it("preserves the configured default model when editing only a Companion identity",async()=>{
+ window.history.replaceState({},"","/companions/ada");
+ const fetchMock=vi.fn((input:RequestInfo|URL,options?:RequestInit)=>{
+  const path=String(input);
+  if(path==="/api/me")return response(me);
+  if(path==="/api/config")return response({...config,models:[{id:"different-model",name:"Another model"}]});
+  if(path==="/api/companions")return response({companions:[companion]});
+  if(path==="/api/companions/ada")return response(options?.method==="PATCH"?{companion}:{companion:{...companion,modelId:null},messages:[],runs:[],activity:[]});
+  throw new Error(`Unexpected request: ${path}`);
+ });
+ vi.stubGlobal("fetch",fetchMock);const user=userEvent.setup();render(<App/>);
+ await user.click(await screen.findByRole("button",{name:"Settings for Ada"}));
+ expect(screen.getByLabelText("Model")).toHaveValue("");
+ await user.clear(screen.getByLabelText("Name"));await user.type(screen.getByLabelText("Name"),"Ada renamed");
+ await user.click(screen.getByRole("button",{name:"Save"}));
+ await waitFor(()=>expect(fetchMock.mock.calls.some(([,options])=>options?.method==="PATCH")).toBe(true));
+ const update=fetchMock.mock.calls.find(([,options])=>options?.method==="PATCH");
+ expect(JSON.parse(update![1]!.body as string)).toMatchObject({name:"Ada renamed",modelId:null});
+});

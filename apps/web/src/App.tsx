@@ -466,7 +466,7 @@ function SettingsSheet({ detail, models, onClose, onSaved }: { detail: Companion
   const [name, setName] = useState(detail.companion.name);
   const [instructions, setInstructions] = useState(detail.companion.instructions);
   const [avatar, setAvatar] = useState(detail.companion.avatar ?? DEFAULT_AVATAR);
-  const [modelId, setModelId] = useState(detail.companion.modelId ?? models[0]?.id ?? "");
+  const [modelId, setModelId] = useState(detail.companion.modelId ?? "");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   async function save(event: FormEvent) {
@@ -487,7 +487,7 @@ function SettingsSheet({ detail, models, onClose, onSaved }: { detail: Companion
         <AvatarPicker value={avatar} onChange={setAvatar} />
         <div className="field"><label htmlFor="identity-name">Name</label><input id="identity-name" value={name} onChange={(event) => setName(event.target.value)} maxLength={80} /></div>
         <div className="field"><label htmlFor="identity-mission">Mission</label><Textarea id="identity-mission" value={instructions} onChange={(event) => setInstructions(event.target.value)} rows={5} maxLength={20_000} /></div>
-        {models.length > 0 && <div className="field"><label htmlFor="identity-model">Model</label><select id="identity-model" value={modelId} onChange={(event) => setModelId(event.target.value)}>{models.map((model) => <option value={model.id} key={model.id}>{model.name}</option>)}</select></div>}
+        {models.length > 0 && <div className="field"><label htmlFor="identity-model">Model</label><select id="identity-model" value={modelId} onChange={(event) => setModelId(event.target.value)}><option value="">Default model</option>{models.map((model) => <option value={model.id} key={model.id}>{model.name}</option>)}</select></div>}
         {error && <p className="field-error" role="alert">{error}</p>}
         <div className="sheet-actions"><Button type="button" variant="ghost" onClick={onClose}>Cancel</Button><Button type="submit" disabled={saving || !name.trim()}>{saving ? <LoaderCircle className="spin" /> : <Check />}Save</Button></div>
       </form> : <div className="sheet-content">{tab === "routines" ? <RoutineSettings companionId={detail.companion.id} /> : tab === "connections" ? <CompanionConnections companionId={detail.companion.id} /> : tab === "triggers" ? <TriggerSettings companionId={detail.companion.id} /> : tab === "specialists" ? <SpecialistsSettings companionId={detail.companion.id} /> : <DeliverySettings companionId={detail.companion.id} />}</div>}

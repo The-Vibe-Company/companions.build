@@ -34,6 +34,7 @@ export function scriptedModel(model: any, context: any) {
   const text = typeof user?.content === "string" ? user.content : user?.content
     ?.filter((item: any) => item.type === "text").map((item: any) => item.text).join("");
   const results = context.messages.slice(userIndex + 1).filter((item: any) => item.role === "toolResult");
+  const lastResult = () => JSON.stringify(results.at(-1)?.content ?? "");
   const tool = (name: string, args: Record<string, unknown>) => {
     message.content = [{ type: "toolCall", id: `fixture-${results.length}`, name, arguments: args }];
     message.stopReason = "toolUse";
@@ -73,6 +74,33 @@ export function scriptedModel(model: any, context: any) {
     message.content = [{ type: "text", text: JSON.stringify(users) }];
   } else if (text === "steered-result") {
     message.content = [{ type: "text", text: "Native steering applied." }];
+  } else if (text?.startsWith("attachment-roundtrip")) {
+    const path = text.match(/attachments\/0-[^\s]+/)?.[0];
+    if (results.length === 0 && path) tool("read", { path });
+    else if (results.length === 1) tool("write", { path: "attachment-result.txt", content: lastResult().includes("MINIO_INPUT_BYTES")
+      ? "MINIO_INPUT_BYTES -> agent output\n" : "attachment input missing\n" });
+    else if (results.length === 2) tool("send_file", { path: "attachment-result.txt" });
+    else message.content = [{ type: "text", text: lastResult().includes("queued for attachment") ? "Attachment roundtrip verified" : "Attachment roundtrip failed" }];
+  } else if (text === "control-create-routine") {
+    if (results.length === 0) tool("companion_control", { operation: "routine_save", input: {
+      name: "Daily acceptance", prompt: "Check the acceptance fixture", cron: "17 9 * * 1-5", timezone: "Europe/Paris", enabled: true,
+    } });
+    else message.content = [{ type: "text", text: lastResult().includes("Daily acceptance") ? "Routine created" : "Routine creation failed" }];
+  } else if (text === "control-ask-background") {
+    if (results.length === 0) tool("bash", { command: "printf asked\\n >> control-question-dispatches.txt" });
+    else if (results.length === 1) tool("companion_control", { operation: "ask_user", input: {
+      question: "Which option should the background task use?", options: ["Blue", "Green"],
+    } });
+    else message.content = [{ type: "text", text: lastResult().includes("Blue") ? "Answer received: Blue" : "Answer missing" }];
+  } else if (text?.startsWith("plugin-roundtrip:")) {
+    const connectionId = text.slice("plugin-roundtrip:".length).trim();
+    if (results.length === 0) tool("plugin_tools", { connectionId });
+    else if (results.length === 1) tool("plugin_call", { connectionId, tool: "echo", arguments: { message: "PRODUCT_MCP_OK" } });
+    else message.content = [{ type: "text", text: lastResult().includes("HTTP_MCP:PRODUCT_MCP_OK") ? "Plugin roundtrip verified" : "Plugin roundtrip failed" }];
+  } else if (text?.startsWith("plugin-detached:")) {
+    const connectionId = text.slice("plugin-detached:".length).trim();
+    if (results.length === 0) tool("plugin_call", { connectionId, tool: "echo", arguments: { message: "MUST_NOT_CALL" } });
+    else message.content = [{ type: "text", text: lastResult().includes("HTTP_MCP:MUST_NOT_CALL") ? "Detached plugin was called" : "Detached plugin denied" }];
   }
   queueMicrotask(() => {
     stream.push({ type: "start", partial: message });

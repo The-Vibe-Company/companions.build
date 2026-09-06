@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "./App";
 
 const config = { localAvailable: true, boxAvailable: true, model: "scripted/test" };
+const me = { user: { id: "user-1", email: "stan@example.com", name: "Stan" } };
 const companion = {
   id: "ada",
   name: "Ada",
@@ -12,6 +13,7 @@ const companion = {
   status: "preparing" as const,
   error: null,
   createdAt: "2026-09-06T12:00:00.000Z",
+  avatar: { shape: 1, color: 2, face: 0 },
 };
 
 function response(body: unknown, status = 200) {
@@ -30,6 +32,7 @@ describe("first Companion flow", () => {
     let created = false;
     const fetchMock = vi.fn((input: RequestInfo | URL, options?: RequestInit) => {
       const path = String(input);
+      if (path === "/api/me") return response(me);
       if (path === "/api/config") return response(config);
       if (path === "/api/companions" && options?.method === "POST") {
         created = true;
@@ -58,6 +61,7 @@ describe("first Companion flow", () => {
       name: "Ada",
       instructions: "Research customer questions.",
       provider: "box",
+      avatar: { shape: 1, color: 2, face: 0 },
     });
     await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(
       "/api/companions/ada",
@@ -69,6 +73,7 @@ describe("first Companion flow", () => {
     let unavailable = true;
     const fetchMock = vi.fn((input: RequestInfo | URL) => {
       const path = String(input);
+      if (path === "/api/me") return response(me);
       if (path === "/api/config" && unavailable) return Promise.reject(new Error("Service unavailable"));
       if (path === "/api/config") return response(config);
       if (path === "/api/companions") return response({ companions: [] });
@@ -87,6 +92,7 @@ describe("first Companion flow", () => {
   });
 
   it("keeps send available during active work and clears drafts when switching Companions", async () => {
+    window.history.replaceState({}, "", "/companions/ada");
     const browserCompanion = {
       ...companion,
       id: "browser",
@@ -97,6 +103,7 @@ describe("first Companion flow", () => {
     const adaReady = { ...companion, status: "ready" as const };
     const fetchMock = vi.fn((input: RequestInfo | URL) => {
       const path = String(input);
+      if (path === "/api/me") return response(me);
       if (path === "/api/config") return response(config);
       if (path === "/api/companions") return response({ companions: [adaReady, browserCompanion] });
       if (path === "/api/companions/ada") {
@@ -124,5 +131,25 @@ describe("first Companion flow", () => {
     await user.click(screen.getByRole("button", { name: /Browser Ready/ }));
     const browserComposer = await screen.findByRole("textbox", { name: "Message Browser" });
     expect(browserComposer).toHaveValue("");
+  });
+
+  it("requests a Better Auth magic link and offers the local Mailpit inbox", async () => {
+    const fetchMock = vi.fn((input: RequestInfo | URL, options?: RequestInit) => {
+      const path = String(input);
+      if (path === "/api/me") return response({ error: "Authentication required" }, 401);
+      if (path === "/api/auth/sign-in/magic-link" && options?.method === "POST") return response({ status: true });
+      throw new Error(`Unexpected request: ${path}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+    render(<App />);
+    await user.type(await screen.findByLabelText("Email"), "alex@example.com");
+    await user.click(screen.getByRole("button", { name: "Email me a sign-in link" }));
+    expect(await screen.findByRole("heading", { name: "Check your inbox" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Open local inbox" })).toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledWith("/api/auth/sign-in/magic-link", expect.objectContaining({
+      method: "POST",
+      body: JSON.stringify({ email: "alex@example.com", callbackURL: "/" }),
+    }));
   });
 });

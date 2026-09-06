@@ -1,3 +1,5 @@
+import type { CompanionAvatarValue } from "@/components/CompanionAvatar";
+
 export type CompanionStatus = "new" | "preparing" | "ready" | "error";
 export type RunStatus =
   | "queued"
@@ -16,7 +18,10 @@ export interface Companion {
   status: CompanionStatus;
   error: string | null;
   createdAt: string;
+  avatar?: CompanionAvatarValue | null;
 }
+
+export interface AccountUser { id: string; email: string; name: string }
 
 export interface ChatMessage {
   id: string;
@@ -118,10 +123,16 @@ function clearPendingMessage(companionId: string, acknowledgedId: string) {
 }
 
 export const api = {
+  getMe: () => request<{ user: AccountUser }>("/api/me"),
+  requestMagicLink: (email: string) => request<unknown>("/api/auth/sign-in/magic-link", {
+    method: "POST",
+    body: JSON.stringify({ email, callbackURL: "/" }),
+  }),
+  signOut: () => request<unknown>("/api/auth/sign-out", { method: "POST" }),
   getConfig: () => request<AppConfig>("/api/config"),
   getCompanions: () => request<{ companions: Companion[] }>("/api/companions"),
   getCompanion: (id: string) => request<CompanionDetail>(`/api/companions/${id}`),
-  createCompanion: (input: Pick<Companion, "name" | "instructions" | "provider">) =>
+  createCompanion: (input: Pick<Companion, "name" | "instructions" | "provider" | "avatar">) =>
     request<{ companion: Companion }>("/api/companions", {
       method: "POST",
       body: JSON.stringify(input),
@@ -144,11 +155,8 @@ export const api = {
     request<{ ok: true }>(`/api/companions/${id}/cancel`, { method: "POST" }),
   openDesktop: (id: string) =>
     request<{ url: string }>(`/api/companions/${id}/desktop`, { method: "POST" }),
-  createSession: (token: string) =>
-    request<unknown>("/api/session", {
-      method: "POST",
-      body: JSON.stringify({ token }),
-    }),
+  updateCompanion: (id: string, input: Pick<Companion, "name" | "instructions" | "avatar">) =>
+    request<{ companion: Companion }>(`/api/companions/${id}`, { method: "PATCH", body: JSON.stringify(input) }),
 };
 
 export function isActiveRun(status: RunStatus) {

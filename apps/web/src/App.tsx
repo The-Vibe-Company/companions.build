@@ -1,5 +1,4 @@
 import {
-  ArrowRight,
   Box,
   Check,
   ChevronRight,
@@ -7,13 +6,18 @@ import {
   CircleStop,
   Computer,
   LoaderCircle,
+  LogOut,
+  Mail,
   Menu,
-  MessageSquare,
   MonitorUp,
   PanelLeftClose,
   Plus,
+  Settings,
   Send,
   Server,
+  UserRound,
+  UsersRound,
+  Waypoints,
 } from "lucide-react";
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -29,12 +33,14 @@ import {
   api,
   ApiError,
   type AppConfig,
+  type AccountUser,
   type Companion,
   type CompanionDetail,
   isActiveRun,
   type RunStatus,
 } from "@/api";
 import { cn } from "@/lib/utils";
+import { AvatarPicker, CompanionAvatar, DEFAULT_AVATAR, type CompanionAvatarValue } from "@/components/CompanionAvatar";
 
 const ACTIVE_DETAIL_INTERVAL = 1_000;
 const IDLE_DETAIL_INTERVAL = 5_000;
@@ -61,19 +67,25 @@ function StatusDot({ status }: { status: Companion["status"] }) {
   return <span className={cn("status-dot", `status-dot--${status}`)} aria-hidden="true" />;
 }
 
-function AccessGate({ onAuthenticated }: { onAuthenticated: () => void }) {
-  const [token, setToken] = useState("");
+function AccessGate() {
+  const [email, setEmail] = useState("");
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [sent, setSent] = useState(false);
+  const localInbox = useMemo(() => {
+    if (!["127.0.0.1", "localhost"].includes(window.location.hostname)) return null;
+    const port = Number(window.location.port || (window.location.protocol === "https:" ? 443 : 80));
+    return `${window.location.protocol}//${window.location.hostname}:${port + 6}`;
+  }, []);
 
   async function submit(event: FormEvent) {
     event.preventDefault();
-    if (!token.trim()) return;
+    if (!email.trim()) return;
     setSubmitting(true);
     setError("");
     try {
-      await api.createSession(token.trim());
-      onAuthenticated();
+      await api.requestMagicLink(email.trim());
+      setSent(true);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Could not sign in");
     } finally {
@@ -84,27 +96,20 @@ function AccessGate({ onAuthenticated }: { onAuthenticated: () => void }) {
   return (
     <main className="access-page">
       <form className="access-form" onSubmit={submit}>
+        <div className="signin-mark" aria-hidden="true"><CompanionAvatar name="companions.build" avatar={{ shape: 6, color: 7, face: 1 }} size={76} /></div>
         <div className="wordmark wordmark--center">companions.build</div>
-        <div>
-          <h1>Welcome back</h1>
-          <p>Enter your operator access token to continue.</p>
-        </div>
-        <label htmlFor="access-token">Access token</label>
-        <input
-          id="access-token"
-          type="password"
-          autoComplete="current-password"
-          value={token}
-          onChange={(event) => setToken(event.target.value)}
-          aria-describedby={error ? "access-error" : undefined}
-          aria-invalid={Boolean(error)}
-          autoFocus
-        />
-        {error && <p className="field-error" id="access-error">{error}</p>}
-        <Button type="submit" disabled={!token.trim() || submitting}>
-          {submitting ? <LoaderCircle className="spin" /> : <ArrowRight />}
-          Continue
-        </Button>
+        {sent ? <div className="signin-sent" role="status">
+          <h1>Check your inbox</h1>
+          <p>We sent a sign-in link to <strong>{email.trim()}</strong>.</p>
+          {localInbox && <a className="inbox-link" href={localInbox} target="_blank" rel="noreferrer"><Mail />Open local inbox</a>}
+          <button type="button" className="text-button" onClick={() => setSent(false)}>Use another email</button>
+        </div> : <>
+          <div className="signin-copy"><h1>Your Companions,<br />ready when you are.</h1><p>Sign in with a private link. No password to remember.</p></div>
+          <label htmlFor="signin-email">Email</label>
+          <input id="signin-email" type="email" autoComplete="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="you@example.com" aria-describedby={error ? "access-error" : undefined} aria-invalid={Boolean(error)} autoFocus />
+          {error && <p className="field-error" id="access-error">{error}</p>}
+          <Button type="submit" disabled={!email.trim() || submitting}>{submitting ? <LoaderCircle className="spin" /> : <Mail />}Email me a sign-in link</Button>
+        </>}
       </form>
     </main>
   );
@@ -123,6 +128,7 @@ function CreateCompanion({
   const [name, setName] = useState("");
   const [instructions, setInstructions] = useState("");
   const [provider, setProvider] = useState<"local" | "box">(firstProvider);
+  const [avatar, setAvatar] = useState<CompanionAvatarValue>(DEFAULT_AVATAR);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
 
@@ -136,6 +142,7 @@ function CreateCompanion({
         name: name.trim(),
         instructions: instructions.trim(),
         provider,
+        avatar,
       });
       onCreated(result.companion);
     } catch (cause) {
@@ -149,12 +156,13 @@ function CreateCompanion({
     <form className={cn("create-form", compact && "create-form--compact")} onSubmit={submit}>
       {!compact && (
         <div className="create-intro">
-          <div className="companion-glyph"><MessageSquare /></div>
           <h1>Create your first Companion</h1>
           <p>Give them a name and a clear mission. Their chat stays here while they work.</p>
         </div>
       )}
       {compact && <h2>New Companion</h2>}
+
+      <AvatarPicker value={avatar} onChange={setAvatar} />
 
       <div className="field">
         <label htmlFor={compact ? "name-compact" : "name"}>Name</label>
@@ -221,6 +229,9 @@ function Sidebar({
   selectedId,
   onSelect,
   onCreate,
+  onNavigate,
+  currentPath,
+  user,
   open,
   onClose,
 }: {
@@ -228,6 +239,9 @@ function Sidebar({
   selectedId: string | null;
   onSelect: (id: string) => void;
   onCreate: () => void;
+  onNavigate: (path: string) => void;
+  currentPath: string;
+  user: AccountUser;
   open: boolean;
   onClose: () => void;
 }) {
@@ -236,10 +250,11 @@ function Sidebar({
       {open && <button className="sidebar-scrim" onClick={onClose} aria-label="Close navigation" />}
       <aside className={cn("sidebar", open && "sidebar--open")} aria-label="Companions">
         <div className="sidebar-header">
-          <div className="wordmark">companions.build</div>
+          <button className="wordmark wordmark-button" onClick={() => onNavigate("/")}>companions.build</button>
           <Button variant="ghost" size="icon" className="sidebar-close" onClick={onClose} aria-label="Close navigation"><PanelLeftClose /></Button>
         </div>
-        <div className="sidebar-label">Your Companions</div>
+        <button className={cn("nav-link", currentPath === "/" && "nav-link--active")} onClick={() => onNavigate("/")}><UsersRound />Companions</button>
+        <div className="sidebar-label">Your team</div>
         <nav className="companion-list">
           {companions.map((companion) => (
             <button
@@ -248,7 +263,7 @@ function Sidebar({
               onClick={() => onSelect(companion.id)}
               aria-current={selectedId === companion.id ? "page" : undefined}
             >
-              <span className="companion-avatar">{companion.name.slice(0, 1).toUpperCase()}</span>
+              <CompanionAvatar name={companion.name} avatar={companion.avatar} size={34} />
               <span className="companion-link-copy">
                 <strong>{companion.name}</strong>
                 <small><StatusDot status={companion.status} />{statusLabel(companion.status)}</small>
@@ -258,7 +273,10 @@ function Sidebar({
           ))}
         </nav>
         <Button variant="outline" className="new-companion" onClick={onCreate}><Plus />New Companion</Button>
-        <div className="sidebar-footer">Open source · {companions.length} {companions.length === 1 ? "Companion" : "Companions"}</div>
+        <nav className="sidebar-global" aria-label="Workspace">
+          <button className={cn("nav-link", currentPath === "/connections" && "nav-link--active")} onClick={() => onNavigate("/connections")}><Waypoints />Connections</button>
+          <button className={cn("nav-link", currentPath === "/account" && "nav-link--active")} onClick={() => onNavigate("/account")}><UserRound />Account<span className="account-initial">{user.email.slice(0, 1).toUpperCase()}</span></button>
+        </nav>
       </aside>
     </>
   );
@@ -350,7 +368,7 @@ function Chat({ detail, onRefresh, onUnauthorized }: { detail: CompanionDetail; 
         <ConversationContent className="conversation-content">
           {detail.messages.length === 0 ? (
             <ConversationEmptyState className="chat-empty">
-              <div className="companion-glyph companion-glyph--small">{detail.companion.name.slice(0, 1).toUpperCase()}</div>
+              <CompanionAvatar name={detail.companion.name} avatar={detail.companion.avatar} size={72} />
               <h2>What should {detail.companion.name} work on?</h2>
               <p>Send a task or ask a question to begin.</p>
             </ConversationEmptyState>
@@ -404,9 +422,40 @@ function Chat({ detail, onRefresh, onUnauthorized }: { detail: CompanionDetail; 
   );
 }
 
+function IdentitySheet({ detail, onClose, onSaved }: { detail: CompanionDetail; onClose: () => void; onSaved: () => Promise<void> }) {
+  const [name, setName] = useState(detail.companion.name);
+  const [instructions, setInstructions] = useState(detail.companion.instructions);
+  const [avatar, setAvatar] = useState(detail.companion.avatar ?? DEFAULT_AVATAR);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  async function save(event: FormEvent) {
+    event.preventDefault();
+    setSaving(true); setError("");
+    try {
+      await api.updateCompanion(detail.companion.id, { name: name.trim(), instructions: instructions.trim(), avatar });
+      await onSaved(); onClose();
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "Could not save identity"); }
+    finally { setSaving(false); }
+  }
+  return <div className="sheet-layer" role="presentation">
+    <button className="sheet-scrim" onClick={onClose} aria-label="Close settings" />
+    <aside className="settings-sheet" role="dialog" aria-modal="true" aria-labelledby="identity-title">
+      <header className="sheet-header"><div><span>Settings</span><h2 id="identity-title">Identity</h2></div><Button variant="ghost" size="icon" onClick={onClose} aria-label="Close settings">×</Button></header>
+      <form className="sheet-content identity-form" onSubmit={save}>
+        <AvatarPicker value={avatar} onChange={setAvatar} />
+        <div className="field"><label htmlFor="identity-name">Name</label><input id="identity-name" value={name} onChange={(event) => setName(event.target.value)} maxLength={80} /></div>
+        <div className="field"><label htmlFor="identity-mission">Mission</label><Textarea id="identity-mission" value={instructions} onChange={(event) => setInstructions(event.target.value)} rows={5} maxLength={20_000} /></div>
+        {error && <p className="field-error" role="alert">{error}</p>}
+        <div className="sheet-actions"><Button type="button" variant="ghost" onClick={onClose}>Cancel</Button><Button type="submit" disabled={saving || !name.trim()}>{saving ? <LoaderCircle className="spin" /> : <Check />}Save</Button></div>
+      </form>
+    </aside>
+  </div>;
+}
+
 function CompanionView({ detail, onRefresh, onUnauthorized, onMenu }: { detail: CompanionDetail; onRefresh: () => Promise<void>; onUnauthorized: () => void; onMenu: () => void }) {
   const [desktopBusy, setDesktopBusy] = useState(false);
   const [desktopError, setDesktopError] = useState("");
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   async function openDesktop() {
     const desktopWindow = window.open("about:blank", "_blank");
@@ -430,8 +479,8 @@ function CompanionView({ detail, onRefresh, onUnauthorized, onMenu }: { detail: 
       <header className="chat-header">
         <Button className="mobile-menu" variant="ghost" size="icon" onClick={onMenu} aria-label="Open navigation"><Menu /></Button>
         <div className="header-identity">
-          <h1>{detail.companion.name}</h1>
-          <span><StatusDot status={detail.companion.status} />{statusLabel(detail.companion.status)}</span>
+          <CompanionAvatar name={detail.companion.name} avatar={detail.companion.avatar} size={38} />
+          <div><h1>{detail.companion.name}</h1><span><StatusDot status={detail.companion.status} />{statusLabel(detail.companion.status)}</span></div>
         </div>
         <div className="header-actions">
           {desktopError && <span className="desktop-error" role="alert">{desktopError}</span>}
@@ -441,14 +490,36 @@ function CompanionView({ detail, onRefresh, onUnauthorized, onMenu }: { detail: 
               <span>Open desktop</span>
             </Button>
           )}
+          <Button variant="ghost" size="icon" onClick={() => setSettingsOpen(true)} aria-label={`Settings for ${detail.companion.name}`}><Settings /></Button>
         </div>
       </header>
       <div className="workspace-body">
         <Chat detail={detail} onRefresh={onRefresh} onUnauthorized={onUnauthorized} />
         <ActivityPanel detail={detail} />
       </div>
+      {settingsOpen && <IdentitySheet detail={detail} onClose={() => setSettingsOpen(false)} onSaved={onRefresh} />}
     </main>
   );
+}
+
+function Home({ companions, onSelect, onCreate, onMenu }: { companions: Companion[]; onSelect: (id: string) => void; onCreate: () => void; onMenu: () => void }) {
+  return <main className="home-page" id="main-content">
+    <header className="mobile-page-header"><Button variant="ghost" size="icon" onClick={onMenu} aria-label="Open navigation"><Menu /></Button><span className="wordmark">companions.build</span></header>
+    <div className="home-inner"><div className="home-heading"><div><h1>Your Companions</h1><p>A small team, each with their own computer.</p></div><Button onClick={onCreate}><Plus />New Companion</Button></div>
+      <div className="home-list">{companions.map((companion) => <button key={companion.id} className="home-companion" onClick={() => onSelect(companion.id)}>
+        <CompanionAvatar name={companion.name} avatar={companion.avatar} size={62} />
+        <span><strong>{companion.name}</strong><small>{companion.instructions}</small><em><StatusDot status={companion.status} />{statusLabel(companion.status)}</em></span><ChevronRight />
+      </button>)}</div>
+    </div>
+  </main>;
+}
+
+function AccountPage({ user, onSignOut, onMenu }: { user: AccountUser; onSignOut: () => Promise<void>; onMenu: () => void }) {
+  return <main className="simple-page" id="main-content"><header className="mobile-page-header"><Button variant="ghost" size="icon" onClick={onMenu} aria-label="Open navigation"><Menu /></Button><span className="wordmark">companions.build</span></header><div className="simple-inner"><h1>Account</h1><div className="account-row"><span className="large-initial">{user.email.slice(0, 1).toUpperCase()}</span><div><strong>{user.name || user.email}</strong><small>{user.email}</small></div></div><Button variant="outline" onClick={() => void onSignOut()}><LogOut />Sign out</Button></div></main>;
+}
+
+function ConnectionsPage({ onMenu }: { onMenu: () => void }) {
+  return <main className="simple-page" id="main-content"><header className="mobile-page-header"><Button variant="ghost" size="icon" onClick={onMenu} aria-label="Open navigation"><Menu /></Button><span className="wordmark">companions.build</span></header><div className="simple-inner"><h1>Connections</h1><p className="muted-copy">Connect the tools your Companions can use.</p><div className="quiet-empty"><Waypoints /><strong>No connections yet</strong><span>Add your first connection when the provider catalog is available.</span></div></div></main>;
 }
 
 function LoadingApp() {
@@ -462,6 +533,8 @@ function LoadingApp() {
 
 export function App() {
   const [authRequired, setAuthRequired] = useState(false);
+  const [user, setUser] = useState<AccountUser | null>(null);
+  const [currentPath, setCurrentPath] = useState(window.location.pathname);
   const [config, setConfig] = useState<AppConfig | null>(null);
   const [companions, setCompanions] = useState<Companion[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(selectedIdFromPath);
@@ -503,12 +576,14 @@ export function App() {
     setLoading(true);
     setPageError("");
     try {
+      const me = await api.getMe();
       const [nextConfig, list] = await Promise.all([api.getConfig(), api.getCompanions()]);
+      setUser(me.user);
       setConfig(nextConfig);
       setCompanions(list.companions);
       setAuthRequired(false);
       const pathId = selectedIdFromPath();
-      const nextId = pathId || list.companions[0]?.id || null;
+      const nextId = pathId;
       setSelectedId(nextId);
       if (nextId) setDetail(await api.getCompanion(nextId));
     } catch (cause) {
@@ -521,7 +596,7 @@ export function App() {
   useEffect(() => { void bootstrap(); }, [bootstrap]);
 
   useEffect(() => {
-    const onPopState = () => setSelectedId(selectedIdFromPath());
+    const onPopState = () => { setCurrentPath(window.location.pathname); setSelectedId(selectedIdFromPath()); };
     window.addEventListener("popstate", onPopState);
     return () => window.removeEventListener("popstate", onPopState);
   }, []);
@@ -550,6 +625,21 @@ export function App() {
     setCreateOpen(false);
     setSidebarOpen(false);
     window.history.pushState({}, "", `/companions/${id}`);
+    setCurrentPath(`/companions/${id}`);
+  }
+
+  function navigate(path: string) {
+    window.history.pushState({}, "", path);
+    setCurrentPath(path);
+    setSelectedId(selectedIdFromPath());
+    setCreateOpen(false);
+    setSidebarOpen(false);
+  }
+
+  async function signOut() {
+    await api.signOut();
+    setUser(null); setAuthRequired(true); setCompanions([]); setDetail(null);
+    navigate("/");
   }
 
   function handleCreated(companion: Companion) {
@@ -558,9 +648,9 @@ export function App() {
     void loadList();
   }
 
-  if (authRequired) return <AccessGate onAuthenticated={() => void bootstrap()} />;
+  if (authRequired) return <AccessGate />;
   if (loading) return <LoadingApp />;
-  if (!config) {
+  if (!config || !user) {
     return (
       <main className="load-failure">
         <CircleAlert />
@@ -579,18 +669,27 @@ export function App() {
         selectedId={selectedId}
         onSelect={selectCompanion}
         onCreate={() => { setCreateOpen(true); setSidebarOpen(false); }}
+        onNavigate={navigate}
+        currentPath={currentPath}
+        user={user}
         open={sidebarOpen}
         onClose={() => setSidebarOpen(false)}
       />
       {pageError && (
         <div className="page-error" role="alert"><CircleAlert />{pageError}<button onClick={() => void bootstrap()}>Try again</button></div>
       )}
-      {companions.length === 0 || createOpen ? (
+      {currentPath === "/account" && !createOpen ? (
+        <AccountPage user={user} onSignOut={signOut} onMenu={() => setSidebarOpen(true)} />
+      ) : currentPath === "/connections" && !createOpen ? (
+        <ConnectionsPage onMenu={() => setSidebarOpen(true)} />
+      ) : companions.length === 0 || createOpen ? (
         <main className="onboarding" id="main-content">
           <div className="onboarding-mobile-header"><Button variant="ghost" size="icon" onClick={() => setSidebarOpen(true)} aria-label="Open navigation"><Menu /></Button><span className="wordmark">companions.build</span></div>
           <CreateCompanion config={config} onCreated={handleCreated} compact={companions.length > 0} />
           <div className="model-note"><Server />Using {config.model}</div>
         </main>
+      ) : !selectedId ? (
+        <Home companions={companions} onSelect={selectCompanion} onCreate={() => setCreateOpen(true)} onMenu={() => setSidebarOpen(true)} />
       ) : detail && detail.companion.id === selectedId ? (
         <CompanionView key={detail.companion.id} detail={detail} onRefresh={loadDetail} onUnauthorized={() => setAuthRequired(true)} onMenu={() => setSidebarOpen(true)} />
       ) : (

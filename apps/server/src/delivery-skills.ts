@@ -1,7 +1,6 @@
 import { createHash } from "node:crypto";
 import { z } from "zod";
 import { db } from "./store";
-import { decrypt } from "./config";
 import { agentRequest } from "./machines";
 import { createObjectStorage, type ObjectStorage } from "./storage";
 
@@ -11,6 +10,11 @@ const manifestSchema=z.object({version:z.literal(1),skills:z.array(z.object({nam
 type Manifest=z.infer<typeof manifestSchema>;
 type RequestAgent=(endpoint:string,token:string,path:string,method?:string,body?:unknown)=>Promise<any>;
 export interface DeliverySkillDependencies {storage?:ObjectStorage;requestAgent?:RequestAgent;notifyReady?:(deliveryId:string)=>Promise<unknown>}
+export interface DeliverySkillExecution {
+ sql:any;
+ assertLeader():Promise<void>;
+ checkpoint<T>(body:(tx:any)=>Promise<T>):Promise<T>;
+}
 class BundleError extends Error{}
 const digest=(value:string|Uint8Array)=>createHash("sha256").update(value).digest("hex");
 
@@ -29,6 +33,8 @@ export async function queueDeliverySkillExports(sql:any,input:{deliveryId:string
     VALUES(${crypto.randomUUID()},${input.deliveryId},${input.ownerId},${template.sourceCompanionId},'delivery_template',${template.sourceTemplateId},${source&&!source.retired_at?'pending':'error'},${source&&!source.retired_at?null:'Template skills are no longer available for export.'},${source&&!source.retired_at?null:new Date()})`;
   }
  }
+ await sql`UPDATE companions SET prepare_requested=true,error=null WHERE owner_id=${input.ownerId} AND retired_at IS NULL AND id IN
+  (SELECT source_companion_id FROM portable_skill_exports WHERE delivery_id=${input.deliveryId} AND status='pending')`;
  await refreshDelivery(sql,input.deliveryId);
 }
 
@@ -39,6 +45,7 @@ export async function queueTemplateSkillExport(sql:any,ownerId:string,templateId
   VALUES(${crypto.randomUUID()},${ownerId},${sourceCompanionId},'template_revision',${templateId},${targetRevision})
   ON CONFLICT(source_template_id,target_revision) WHERE target_kind='template_revision' DO NOTHING
   RETURNING id,status,bundle_id AS "bundleId",error`;
+ await sql`UPDATE companions SET prepare_requested=true,error=null WHERE id=${sourceCompanionId} AND owner_id=${ownerId} AND retired_at IS NULL`;
  if(row)return row;
  const [prior]=await sql`SELECT id,status,bundle_id AS "bundleId",error,source_owner_id,source_companion_id FROM portable_skill_exports WHERE target_kind='template_revision' AND source_template_id=${templateId} AND target_revision=${targetRevision}`;
  if(!prior||prior.source_owner_id!==ownerId||prior.source_companion_id!==sourceCompanionId)throw Error("TEMPLATE_SKILL_EXPORT_CONFLICT");return prior;
@@ -48,27 +55,44 @@ export async function templateSkillExport(sql:any,ownerId:string,templateId:stri
  return row??null;
 }
 
-export async function progressDeliverySkills(sql:any=db,deps:DeliverySkillDependencies={}){
+/** Global executor scan: durable scheduling intent only. It never contacts agents, storage, or email. */
+export async function progressDeliverySkills(sql:any=db,_deps:DeliverySkillDependencies={}){
  const [lock]=await sql`SELECT EXISTS(SELECT 1 FROM pg_locks WHERE locktype='advisory' AND pid=pg_backend_pid() AND objid=721440139 AND granted) AS owned`;
  if(!lock.owned)throw Error("Executor ownership required");
- const storage=deps.storage??createObjectStorage(),request=deps.requestAgent??agentRequest;
- const jobs=await sql`SELECT e.*,c.id AS source_exists,c.endpoint_secret,c.agent_secret,c.status AS companion_status,c.retired_at,c.box_id,c.desktop_taken,c.desktop_paused_at,d.status AS delivery_status
+ const jobs=await sql`SELECT e.id,e.delivery_id,e.source_companion_id,e.source_owner_id,c.id AS source_exists,c.retired_at,d.status AS delivery_status,d.expires_at
   FROM portable_skill_exports e LEFT JOIN companions c ON c.id=e.source_companion_id AND c.owner_id=e.source_owner_id
   LEFT JOIN companion_deliveries d ON d.id=e.delivery_id
-  WHERE e.status='pending' AND (e.delivery_id IS NULL OR (d.status='pending' AND d.expires_at>now())) ORDER BY e.created_at LIMIT 20`;
+  WHERE e.status='pending' ORDER BY e.created_at LIMIT 100`;
+ let scheduled=0;
  for(const job of jobs){
   if(!job.source_exists||job.retired_at){await failJob(sql,job,"Skill source is no longer available.");continue;}
-  if(job.desktop_taken||job.desktop_paused_at)continue;
-  if(!job.endpoint_secret||job.companion_status!=="ready"){
-   await sql`UPDATE companions SET prepare_requested=true,error=null WHERE id=${job.source_companion_id} AND owner_id=${job.source_owner_id} AND retired_at IS NULL`;
-   continue;
-  }
+  if(job.delivery_id&&(job.delivery_status!=="pending"||new Date(job.expires_at)<=new Date()))continue;
+  await sql`UPDATE companions SET prepare_requested=true,error=null WHERE id=${job.source_companion_id} AND owner_id=${job.source_owner_id} AND retired_at IS NULL`;scheduled++;
+ }
+ return {processed:jobs.length,scheduled};
+}
+
+/** Execute exports for exactly one Companion from its reserved, fenced lifecycle job. */
+export async function progressDeliverySkillsForCompanion(sql:any,companionId:string,endpoint:string,token:string,deps:DeliverySkillDependencies={},execution?:DeliverySkillExecution){
+ const assertLeader=execution?.assertLeader??(async()=>{});
+ const checkpoint=execution?.checkpoint??(<T>(body:(tx:any)=>Promise<T>)=>sql.begin(body));
+ const jobs=await sql`SELECT e.*,c.id AS source_exists,c.retired_at,d.status AS delivery_status,d.expires_at
+  FROM portable_skill_exports e JOIN companions c ON c.id=e.source_companion_id AND c.owner_id=e.source_owner_id
+  LEFT JOIN companion_deliveries d ON d.id=e.delivery_id
+  WHERE e.status='pending' AND e.source_companion_id=${companionId}
+   AND (e.delivery_id IS NULL OR (d.status='pending' AND d.expires_at>now())) ORDER BY e.created_at LIMIT 20`;
+ if(!jobs.length)return {processed:0,ready:0,pending:0};
+ const storage=deps.storage??createObjectStorage(),request=deps.requestAgent??agentRequest;
+ let processed=0;
+ for(const job of jobs){
+  if(job.retired_at){await failJob(sql,job,"Skill source is no longer available.");continue;}
   let storedKey:string|null=null;
   try{
-   const manifest=validateManifest(await request(decrypt(job.endpoint_secret),decrypt(job.agent_secret),"/skills/export"));
+   await assertLeader();
+   const manifest=validateManifest(await request(endpoint,token,"/skills/export"));
    const bytes=Buffer.from(JSON.stringify(manifest));const objectSha=digest(bytes),bundle=manifestHash(manifest);
-   storedKey=`portable-skills/${job.id}/${objectSha}.json`;await storage.put(storedKey,bytes,"application/json");
-   const committed=await sql.begin(async(tx:any)=>{
+   storedKey=`portable-skills/${job.id}/${objectSha}.json`;await assertLeader();await storage.put(storedKey,bytes,"application/json");
+   const committed=await checkpoint(async(tx:any)=>{
     const [current]=await tx`SELECT status FROM portable_skill_exports WHERE id=${job.id} FOR UPDATE`;
     if(current?.status!=="pending")return false;
     if(job.delivery_id){const [delivery]=await tx`SELECT status,expires_at FROM companion_deliveries WHERE id=${job.delivery_id} FOR UPDATE`;if(delivery?.status!=="pending"||new Date(delivery.expires_at)<=new Date())return false;}
@@ -78,31 +102,37 @@ export async function progressDeliverySkills(sql:any=db,deps:DeliverySkillDepend
     if(job.delivery_id)await refreshDelivery(tx,job.delivery_id);
     return true;
    });
-   if(!committed)await deleteIfUnreferenced(sql,storage,storedKey);
+   if(!committed){await assertLeader();await deleteIfUnreferenced(sql,storage,storedKey);}
+   processed++;
   }catch(error){
-   if(storedKey)await deleteIfUnreferenced(sql,storage,storedKey);
-   if(error instanceof BundleError||error instanceof z.ZodError)await failJob(sql,job,"Exported skills failed validation.");
+   if(storedKey){await assertLeader();await deleteIfUnreferenced(sql,storage,storedKey);}
+   if(error instanceof BundleError||error instanceof z.ZodError)await checkpoint(async(tx:any)=>failJobTx(tx,job,"Exported skills failed validation."));
   }
  }
- const ready=await sql`SELECT id FROM companion_deliveries WHERE status='pending' AND expires_at>now() AND skills_status='ready' AND email_status='pending' ORDER BY created_at LIMIT 20`;
+ const ready=await sql`SELECT DISTINCT d.id FROM companion_deliveries d JOIN portable_skill_exports e ON e.delivery_id=d.id
+  WHERE e.source_companion_id=${companionId} AND d.status='pending' AND d.expires_at>now() AND d.skills_status='ready' AND d.email_status='pending' ORDER BY d.id LIMIT 20`;
  const notify=deps.notifyReady??(async(id:string)=>{const module=await import("./delivery");await module.sendDeliveryReadyInvite(id);});
- for(const row of ready)await notify(row.id).catch(()=>{});
- return {processed:jobs.length,ready:ready.length};
+ for(const row of ready)try{await assertLeader();await notify(row.id);}catch{}
+ const [{count:pending}]=await sql`SELECT count(*)::int AS count FROM portable_skill_exports e LEFT JOIN companion_deliveries d ON d.id=e.delivery_id
+  WHERE e.source_companion_id=${companionId} AND e.status='pending' AND (e.delivery_id IS NULL OR (d.status='pending' AND d.expires_at>now()))`;
+ return {processed,ready:ready.length,pending};
 }
 
-export async function stageDeliverySkills(companionId:string,endpoint:string,token:string,deps:Pick<DeliverySkillDependencies,"storage"|"requestAgent">={}){
- const [row]=await db`SELECT c.box_id,c.skills_staged_hash,c.skills_staged_box_id,b.id AS bundle_id,b.bundle_hash,b.object_sha256,b.byte_size,b.storage_key
+export async function stageDeliverySkills(companionId:string,endpoint:string,token:string,deps:Pick<DeliverySkillDependencies,"storage"|"requestAgent">={},execution?:DeliverySkillExecution){
+ const sql=execution?.sql??db,assertLeader=execution?.assertLeader??(async()=>{});
+ const checkpoint=execution?.checkpoint??(<T>(body:(tx:any)=>Promise<T>)=>sql.begin(body));
+ const [row]=await sql`SELECT c.box_id,c.skills_staged_hash,c.skills_staged_box_id,b.id AS bundle_id,b.bundle_hash,b.object_sha256,b.byte_size,b.storage_key
   FROM companions c LEFT JOIN template_revisions r ON r.template_id=c.template_id AND r.revision=c.template_revision
   JOIN portable_skill_bundles b ON b.id=COALESCE(r.skill_bundle_id,c.skill_bundle_id) WHERE c.id=${companionId} AND c.retired_at IS NULL`;
  if(!row)return {staged:false};
  if(row.skills_staged_hash===row.bundle_hash&&row.skills_staged_box_id===row.box_id)return {staged:false,bundleHash:row.bundle_hash};
- const blob=await (deps.storage??createObjectStorage()).get(row.storage_key);const bytes=Buffer.from(await blob.arrayBuffer());
+ await assertLeader();const blob=await (deps.storage??createObjectStorage()).get(row.storage_key);const bytes=Buffer.from(await blob.arrayBuffer());
  if(bytes.length!==row.byte_size||digest(bytes)!==row.object_sha256)throw Error("DELIVERY_SKILL_STORAGE_INTEGRITY_FAILED");
  const manifest=validateManifest(JSON.parse(bytes.toString("utf8")));
  if(manifestHash(manifest)!==row.bundle_hash)throw Error("DELIVERY_SKILL_BUNDLE_INTEGRITY_FAILED");
- const result=await (deps.requestAgent??agentRequest)(endpoint,token,"/skills/import","PUT",manifest);
+ await assertLeader();const result=await (deps.requestAgent??agentRequest)(endpoint,token,"/skills/import","PUT",manifest);
  if(result?.bundleHash!==row.bundle_hash)throw Error("DELIVERY_SKILL_IMPORT_FAILED");
- await db`UPDATE companions SET skills_staged_hash=${row.bundle_hash},skills_staged_box_id=box_id WHERE id=${companionId} AND box_id IS NOT DISTINCT FROM ${row.box_id} AND COALESCE((SELECT skill_bundle_id FROM template_revisions WHERE template_id=companions.template_id AND revision=companions.template_revision),skill_bundle_id)=${row.bundle_id}`;
+ await checkpoint(async(tx:any)=>{await tx`UPDATE companions SET skills_staged_hash=${row.bundle_hash},skills_staged_box_id=box_id WHERE id=${companionId} AND box_id IS NOT DISTINCT FROM ${row.box_id} AND COALESCE((SELECT skill_bundle_id FROM template_revisions WHERE template_id=companions.template_id AND revision=companions.template_revision),skill_bundle_id)=${row.bundle_id}`;});
  return {staged:true,bundleHash:row.bundle_hash};
 }
 
@@ -111,6 +141,7 @@ async function refreshDelivery(sql:any,deliveryId:string){
  await sql`UPDATE companion_deliveries SET skills_status=${summary.errors?'error':summary.pending?'pending':'ready'},skills_error=${summary.errors?'Portable skills could not be prepared.':null} WHERE id=${deliveryId}`;
 }
 async function failJob(sql:any,job:any,message:string){await sql.begin(async(tx:any)=>{await tx`UPDATE portable_skill_exports SET status='error',error=${message},finished_at=now() WHERE id=${job.id} AND status='pending'`;if(job.delivery_id)await refreshDelivery(tx,job.delivery_id);});}
+async function failJobTx(tx:any,job:any,message:string){await tx`UPDATE portable_skill_exports SET status='error',error=${message},finished_at=now() WHERE id=${job.id} AND status='pending'`;if(job.delivery_id)await refreshDelivery(tx,job.delivery_id);}
 async function deleteIfUnreferenced(sql:any,storage:ObjectStorage,key:string){try{if(!(await sql`SELECT id FROM portable_skill_bundles WHERE storage_key=${key} LIMIT 1`).length)await storage.delete(key);}catch{/* Preserve bytes when reference state is uncertain. */}}
 function validateManifest(raw:unknown):Manifest{
  const value=manifestSchema.parse(raw);let total=0,count=0;const names=new Set<string>();

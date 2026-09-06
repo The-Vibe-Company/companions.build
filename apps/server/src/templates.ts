@@ -1,13 +1,14 @@
 import { z } from 'zod';
 import { db } from './store';
 import { avatarSchema } from './control';
+import { queueTemplateSkillExport } from './delivery-skills';
 export class LifecycleConflict extends Error {}
 export const templateInput=z.object({name:z.string().trim().min(1).max(80),instructions:z.string().max(20_000).default(''),avatar:avatarSchema.default({shape:0,color:0,face:0})});
 export async function listTemplates(ownerId:string,sql:any=db) {
  return sql`SELECT id,name,instructions,avatar,revision,source_companion_id AS "sourceCompanionId",snapshot_name IS NOT NULL AS "hasSnapshot" FROM agent_templates WHERE owner_id=${ownerId} ORDER BY created_at,id`;
 }
 export async function listTemplateRevisions(ownerId:string,templateId:string,sql:any=db) {
- return sql`SELECT r.revision,r.name,r.instructions,r.avatar,r.snapshot_name AS "snapshotName",
+ return sql`SELECT r.revision,r.name,r.instructions,r.avatar,r.snapshot_name AS "snapshotName",r.skill_bundle_id AS "skillBundleId",
   r.source_companion_id AS "sourceCompanionId",r.created_at AS "createdAt"
   FROM template_revisions r JOIN agent_templates t ON t.id=r.template_id
   WHERE r.template_id=${templateId} AND r.owner_id=${ownerId} AND t.owner_id=${ownerId}
@@ -15,8 +16,8 @@ export async function listTemplateRevisions(ownerId:string,templateId:string,sql
 }
 /** Record the template's current committed state inside the caller's transaction. */
 export async function recordTemplateRevision(sql:any,templateId:string) {
- const [row]=await sql`INSERT INTO template_revisions(template_id,revision,owner_id,name,instructions,avatar,snapshot_name,source_companion_id)
-  SELECT id,revision,owner_id,name,instructions,avatar,snapshot_name,source_companion_id
+ const [row]=await sql`INSERT INTO template_revisions(template_id,revision,owner_id,name,instructions,avatar,snapshot_name,source_companion_id,skill_bundle_id)
+  SELECT id,revision,owner_id,name,instructions,avatar,snapshot_name,source_companion_id,skill_bundle_id
   FROM agent_templates WHERE id=${templateId}
   ON CONFLICT(template_id,revision) DO NOTHING RETURNING template_id AS id,revision`;
  return row??null;
@@ -27,30 +28,30 @@ export async function saveTemplate(ownerId:string,input:unknown,sql:any=db) {
   const id=crypto.randomUUID();
   const [row]=await sql`WITH saved AS (
    INSERT INTO agent_templates(id,owner_id,name,instructions,avatar) VALUES(${id},${ownerId},${value.name},${value.instructions},${value.avatar}) RETURNING *
-  ) INSERT INTO template_revisions(template_id,revision,owner_id,name,instructions,avatar,snapshot_name,source_companion_id)
-   SELECT id,revision,owner_id,name,instructions,avatar,snapshot_name,source_companion_id FROM saved RETURNING template_id AS id,revision`;
+  ) INSERT INTO template_revisions(template_id,revision,owner_id,name,instructions,avatar,snapshot_name,source_companion_id,skill_bundle_id)
+   SELECT id,revision,owner_id,name,instructions,avatar,snapshot_name,source_companion_id,skill_bundle_id FROM saved RETURNING template_id AS id,revision`;
   return row;
  }
  if(!value.expectedRevision)throw new LifecycleConflict('Read the current template revision before editing.');
  const [row]=await sql`WITH saved AS (
   UPDATE agent_templates SET name=${value.name},instructions=${value.instructions},avatar=${value.avatar},revision=revision+1,updated_at=now()
   WHERE id=${value.id} AND owner_id=${ownerId} AND revision=${value.expectedRevision} RETURNING *
- ) INSERT INTO template_revisions(template_id,revision,owner_id,name,instructions,avatar,snapshot_name,source_companion_id)
-  SELECT id,revision,owner_id,name,instructions,avatar,snapshot_name,source_companion_id FROM saved RETURNING template_id AS id,revision`;
+ ) INSERT INTO template_revisions(template_id,revision,owner_id,name,instructions,avatar,snapshot_name,source_companion_id,skill_bundle_id)
+  SELECT id,revision,owner_id,name,instructions,avatar,snapshot_name,source_companion_id,skill_bundle_id FROM saved RETURNING template_id AS id,revision`;
  if(!row)throw new LifecycleConflict('Template missing or changed.');return row;
 }
 export async function rollbackTemplate(ownerId:string,templateId:string,input:unknown,sql:any=db) {
  const value=z.object({targetRevision:z.number().int().positive(),expectedRevision:z.number().int().positive()}).parse(input);
  const [row]=await sql`WITH restored AS (
   UPDATE agent_templates current SET name=historical.name,instructions=historical.instructions,avatar=historical.avatar,
-   snapshot_name=historical.snapshot_name,source_companion_id=historical.source_companion_id,
+   snapshot_name=historical.snapshot_name,source_companion_id=historical.source_companion_id,skill_bundle_id=historical.skill_bundle_id,
    revision=current.revision+1,updated_at=now()
   FROM template_revisions historical
   WHERE current.id=${templateId} AND current.owner_id=${ownerId} AND current.revision=${value.expectedRevision}
    AND historical.template_id=current.id AND historical.owner_id=current.owner_id AND historical.revision=${value.targetRevision}
   RETURNING current.*
- ) INSERT INTO template_revisions(template_id,revision,owner_id,name,instructions,avatar,snapshot_name,source_companion_id)
-  SELECT id,revision,owner_id,name,instructions,avatar,snapshot_name,source_companion_id FROM restored RETURNING template_id AS id,revision`;
+ ) INSERT INTO template_revisions(template_id,revision,owner_id,name,instructions,avatar,snapshot_name,source_companion_id,skill_bundle_id)
+  SELECT id,revision,owner_id,name,instructions,avatar,snapshot_name,source_companion_id,skill_bundle_id FROM restored RETURNING template_id AS id,revision`;
  if(!row)throw new LifecycleConflict('Template missing, changed, or revision unavailable.');
  return row;
 }
@@ -75,6 +76,7 @@ export async function adoptTemplate(ownerId:string,parentId:string,commandId:str
   const [template]=await tx`SELECT t.id FROM agent_templates t JOIN template_permissions p ON p.template_id=t.id WHERE t.id=${value.templateId} AND t.owner_id=${ownerId} AND p.parent_id=${parentId} AND t.revision=${value.expectedRevision} FOR UPDATE OF t`;
   if(!parent||!child||!template)throw new LifecycleConflict('Child or template unavailable or changed.');
   await tx`INSERT INTO template_candidates(id,template_id,source_companion_id,expected_revision,snapshot_name) VALUES(${commandId},${value.templateId},${value.childId},${value.expectedRevision},${'companions-'+commandId})`;
+  await queueTemplateSkillExport(tx,ownerId,value.templateId,value.childId,value.expectedRevision+1);
   return {candidateId:commandId};
  });
 }

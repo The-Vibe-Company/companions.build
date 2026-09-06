@@ -2,8 +2,9 @@ import { beforeAll, expect, test } from "bun:test";
 import { db, migrate } from "../src/store";
 import { migrateLifecycle } from "../src/lifecycle";
 import { LifecycleConflict, listTemplateRevisions, recordTemplateRevision, rollbackTemplate, saveTemplate } from "../src/templates";
+import { migrateDeliverySkills } from "../src/delivery-skills";
 
-beforeAll(async () => { await migrate(); await migrateLifecycle(); });
+beforeAll(async () => { await migrate(); await migrateLifecycle(); await migrateDeliverySkills(); });
 async function owner() {
   const id = crypto.randomUUID();
   await db`INSERT INTO "user"(id,name,email,"emailVerified") VALUES(${id},'Template owner',${`${id}@example.test`},true)`;
@@ -35,16 +36,19 @@ test("snapshot activation records a restorable revision without contacting a mac
   const sourceId = crypto.randomUUID();
   await db`INSERT INTO companions(id,owner_id,name,instructions,provider,create_key,agent_secret,prepare_requested) VALUES(${sourceId},${ownerId},'Source','Built tools','local',${crypto.randomUUID()},'secret',false)`;
   const template = await saveTemplate(ownerId, { name: "Builder", instructions: "Build", avatar: { shape: 0, color: 0, face: 0 } });
+  const bundleId=crypto.randomUUID();
+  await db`INSERT INTO portable_skill_bundles(id,source_owner_id,source_companion_id,manifest_version,bundle_hash,object_sha256,byte_size,storage_key)
+   VALUES(${bundleId},${ownerId},${sourceId},1,${"a".repeat(64)},${"b".repeat(64)},25,${`test/${bundleId}`})`;
   await db.begin(async sql => {
-    await sql`UPDATE agent_templates SET snapshot_name='snapshot-v2',source_companion_id=${sourceId},revision=revision+1 WHERE id=${template.id}`;
+    await sql`UPDATE agent_templates SET snapshot_name='snapshot-v2',source_companion_id=${sourceId},skill_bundle_id=${bundleId},revision=revision+1 WHERE id=${template.id}`;
     expect(await recordTemplateRevision(sql, template.id)).toEqual({ id: template.id, revision: 2 });
   });
   await saveTemplate(ownerId, { id: template.id, expectedRevision: 2, name: "Builder", instructions: "Changed profile", avatar: { shape: 0, color: 0, face: 1 } });
 
   expect(await rollbackTemplate(ownerId, template.id, { targetRevision: 1, expectedRevision: 3 })).toEqual({ id: template.id, revision: 4 });
-  expect((await db`SELECT snapshot_name,source_companion_id FROM agent_templates WHERE id=${template.id}`)[0]).toMatchObject({ snapshot_name: null, source_companion_id: null });
+  expect((await db`SELECT snapshot_name,source_companion_id,skill_bundle_id FROM agent_templates WHERE id=${template.id}`)[0]).toMatchObject({ snapshot_name: null, source_companion_id: null,skill_bundle_id:null });
   expect(await rollbackTemplate(ownerId, template.id, { targetRevision: 2, expectedRevision: 4 })).toEqual({ id: template.id, revision: 5 });
-  expect((await db`SELECT snapshot_name,source_companion_id,revision FROM agent_templates WHERE id=${template.id}`)[0]).toMatchObject({ snapshot_name: "snapshot-v2", source_companion_id: sourceId, revision: 5 });
+  expect((await db`SELECT snapshot_name,source_companion_id,skill_bundle_id,revision FROM agent_templates WHERE id=${template.id}`)[0]).toMatchObject({ snapshot_name: "snapshot-v2", source_companion_id: sourceId,skill_bundle_id:bundleId, revision: 5 });
 });
 
 test("migration backfills the current revision of an existing template", async () => {

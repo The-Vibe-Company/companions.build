@@ -7,6 +7,7 @@ import { adoptTemplate, allowTemplate, listTemplates, saveTemplate, recordTempla
 import { spawnChild, delegateTask } from './delegation';
 import type { ControlHandler } from './control';
 import {billingConfiguration,productActivation} from './billing';
+import { progressDeliverySkillsForCompanion, stageDeliverySkills, templateSkillExport, type DeliverySkillDependencies } from './delivery-skills';
 export const SUBSCRIPTION_REQUIRED='subscription_required: An active subscription is required to start new work.';
 /** Unconfigured local development remains usable; hosted execution fails closed. */
 export async function ownerMayStartWork(ownerId:string){
@@ -22,6 +23,7 @@ export interface LifecycleHooks {
  /** Called only by the executor. Persist all declared output bytes and return true after verification. */
  filesDurable?(run:any):Promise<boolean>;
  recordUsage?(event:UsageEvent):Promise<void>;
+ deliverySkills?:DeliverySkillDependencies;
 }
 export interface LifecycleMachines {
  prepare(companion:any,checkpoint:(id:string)=>Promise<void>,configured:()=>Promise<void>):Promise<string|null>;
@@ -114,25 +116,29 @@ export async function progressLifecycle(sql:any=db,hooks:LifecycleHooks={},machi
     if(!companion.desktop_taken){await assertLeader();await machine.pause(companion,false);await checkpoint(async(tx:any)=>{await tx`UPDATE companions SET desktop_paused_at=null,error=null WHERE id=${companion.id}`;});}
     return;
    }
-   if(companion.prepare_requested&&!companion.archive_requested_at&&!await (hooks.canStartWork??ownerMayStartWork)(companion.owner_id)){
+   const digest=environmentDigest(companion.agent_secret,companion.provider);
+   const reusable=companion.status==='ready'&&companion.endpoint_secret&&companion.box_id&&companion.config_digest===digest;
+   if(companion.prepare_requested&&!companion.archive_requested_at&&!reusable&&!await (hooks.canStartWork??ownerMayStartWork)(companion.owner_id)){
     await checkpoint(async(tx:any)=>{await tx`UPDATE companions SET prepare_requested=false,preparation_started_at=null,status=CASE WHEN status='ready' THEN status ELSE 'error' END,error=${SUBSCRIPTION_REQUIRED} WHERE id=${companion.id}`;});
     companion.prepare_requested=false;
    }
    if(companion.prepare_requested&&!companion.archive_requested_at){
     if(!companion.preparation_started_at){
-     await checkpoint(async(tx:any)=>{await tx`UPDATE companions SET preparation_started_at=now(),create_started_at=COALESCE(create_started_at,now()),status='preparing',error=null WHERE id=${companion.id}`;await usage(tx,companion,'starting');});
+     await checkpoint(async(tx:any)=>{await tx`UPDATE companions SET preparation_started_at=now(),create_started_at=COALESCE(create_started_at,now()),status=CASE WHEN ${reusable} THEN status ELSE 'preparing' END,error=null WHERE id=${companion.id}`;if(!reusable)await usage(tx,companion,'starting');});
      companion.preparation_started_at=new Date();
     }
     if(Date.now()-new Date(companion.preparation_started_at).getTime()>5*60_000){await checkpoint(async(tx:any)=>{await tx`UPDATE companions SET prepare_requested=false,preparation_started_at=null,status='error',error='Machine preparation timed out. Request preparation to retry.' WHERE id=${companion.id}`;});return;}
-    const digest=environmentDigest(companion.agent_secret,companion.provider);
     await checkpoint(async()=>{}); // Fence each provider attempt, including subsequent readiness polls.
-    const endpoint=await machine.prepare(companion,async id=>{await checkpoint(async(tx:any)=>{await tx`UPDATE companions SET box_id=${id} WHERE id=${companion.id}`;});companion.box_id=id;},async()=>{await checkpoint(async(tx:any)=>{await tx`UPDATE companions SET config_digest=${digest} WHERE id=${companion.id}`;});});
+    const endpoint=reusable?decrypt(companion.endpoint_secret):await machine.prepare(companion,async id=>{await checkpoint(async(tx:any)=>{await tx`UPDATE companions SET box_id=${id} WHERE id=${companion.id}`;});companion.box_id=id;},async()=>{await checkpoint(async(tx:any)=>{await tx`UPDATE companions SET config_digest=${digest} WHERE id=${companion.id}`;});});
     if(!endpoint)return;
     try{await assertLeader();if(!(await machine.health(endpoint,decrypt(companion.agent_secret)))?.ready)throw Error('agent_not_ready');}
     catch{await checkpoint(async(tx:any)=>{await tx`UPDATE companions SET endpoint_secret=null WHERE id=${companion.id}`;});return;}
+    const execution={sql,assertLeader,checkpoint};
+    await stageDeliverySkills(companion.id,endpoint,decrypt(companion.agent_secret),hooks.deliverySkills,execution);
+    const portable=await progressDeliverySkillsForCompanion(sql,companion.id,endpoint,decrypt(companion.agent_secret),hooks.deliverySkills,execution);
     await checkpoint(async(tx:any)=>{
-     await tx`UPDATE companions SET prepare_requested=false,preparation_started_at=null,status='ready',error=null,endpoint_secret=${encrypt(endpoint)},config_digest=${digest},ready_at=now(),archived_at=null WHERE id=${companion.id}`;
-     await usage(tx,companion,'ready');
+     await tx`UPDATE companions SET prepare_requested=${portable.pending>0},preparation_started_at=${portable.pending>0?companion.preparation_started_at:null},status='ready',error=${portable.pending>0?'Portable skills are waiting to be exported.':null},endpoint_secret=${encrypt(endpoint)},config_digest=${digest},ready_at=now(),archived_at=null WHERE id=${companion.id}`;
+     if(!reusable)await usage(tx,companion,'ready');
     });
     companion.endpoint_secret=encrypt(endpoint);companion.status='ready';
    }
@@ -161,9 +167,14 @@ export async function progressLifecycle(sql:any=db,hooks:LifecycleHooks={},machi
     await checkpoint(async(tx:any)=>{await tx`UPDATE template_candidates SET status='failed',error='Snapshot could not be confirmed. Request a new capture.' WHERE id=${candidate.id}`;});continue;
    }
    if(state!=='ready')continue;
+   const portable=await templateSkillExport(sql,candidate.owner_id,candidate.template_id,candidate.expected_revision+1);
+   if(!portable||portable.status==='pending')continue;
+   if(portable.status==='error'){
+    await checkpoint(async(tx:any)=>{await tx`UPDATE template_candidates SET status='failed',error='Portable skills could not be captured; the existing template was preserved.' WHERE id=${candidate.id}`;});continue;
+   }
    await checkpoint(async(tx:any)=>{
     await tx`UPDATE template_candidates SET status='ready',ready_at=COALESCE(ready_at,now()) WHERE id=${candidate.id}`;
-    const [activated]=await tx`UPDATE agent_templates SET snapshot_name=${candidate.snapshot_name},source_companion_id=${candidate.source_companion_id},revision=revision+1,updated_at=now() WHERE id=${candidate.template_id} AND owner_id=${candidate.owner_id} AND revision=${candidate.expected_revision} RETURNING id`;
+    const [activated]=await tx`UPDATE agent_templates SET snapshot_name=${candidate.snapshot_name},source_companion_id=${candidate.source_companion_id},skill_bundle_id=${portable.bundleId},revision=revision+1,updated_at=now() WHERE id=${candidate.template_id} AND owner_id=${candidate.owner_id} AND revision=${candidate.expected_revision} RETURNING id`;
     if(activated)await recordTemplateRevision(tx,candidate.template_id);
     await tx`UPDATE template_candidates SET status=${activated?'activated':'failed'},error=${activated?null:'Template changed during capture; the existing template was preserved.'} WHERE id=${candidate.id}`;
    });

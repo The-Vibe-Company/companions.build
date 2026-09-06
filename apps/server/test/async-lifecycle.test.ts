@@ -29,6 +29,21 @@ test('a stalled cold machine never holds warm chat dispatch or terminal reconcil
  }finally{blocked.release();await coordinator.close();await lock.close();daemon.stop(true);}
 });
 
+test('a stalled portable-skill export cannot hold another Companion chat',async()=>{
+ const source=await companion('Skill source'),warm=await companion('Warm chat'),blocked=gate(),lock=await leader(),coordinator=new LifecycleCoordinator();let exportStarted=false,puts=0;
+ const daemon=Bun.serve({hostname:'127.0.0.1',port:0,fetch(req){if(req.method==='PUT')puts++;return Response.json({ready:true});}});
+ const storage={async put(){},async get(){throw Error('unused');},async delete(){}};
+ const hooks={lifecycle:{deliverySkills:{storage,async requestAgent(){exportStarted=true;await blocked.promise;return {version:1,skills:[]};},async notifyReady(){}}},lifecycleMachines:machine(async()=>`http://127.0.0.1:${daemon.port}`)};
+ try{
+  await db`INSERT INTO portable_skill_exports(id,source_owner_id,source_companion_id,target_kind,source_template_id,target_revision) VALUES(${crypto.randomUUID()},${owner},${source},'template_revision',${crypto.randomUUID()},2)`;
+  await db`UPDATE companions SET prepare_requested=true WHERE id=${source}`;
+  await db`UPDATE companions SET status='ready',endpoint_secret=${encrypt(`http://127.0.0.1:${daemon.port}`)},box_id='warm-skill-box',ready_at=now() WHERE id=${warm}`;
+  await acceptMessage(owner,warm,crypto.randomUUID(),'Do not wait');
+  await tick(lock.sql,hooks,coordinator);await until(()=>exportStarted);
+  expect(puts).toBe(1);expect(coordinator.activeCount).toBe(1);
+ }finally{blocked.release();await coordinator.close();await lock.close();daemon.stop(true);}
+});
+
 test('an asynchronous lifecycle checkpoint cannot mutate machine identity after the captured leader loses its lock',async()=>{
  const id=await companion('Fenced machine'),blocked=gate(),lock=await leader(),coordinator=new LifecycleCoordinator();let started=false;
  const hooks={lifecycleMachines:machine(async(_c,checkpoint)=>{started=true;await blocked.promise;await checkpoint('late-provider-result');return 'http://late';})};

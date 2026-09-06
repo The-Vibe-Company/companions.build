@@ -7,9 +7,11 @@ import {spawnChild,delegateTask,delegationStatus} from '../src/delegation';
 import {dataDir} from '../src/config';
 import {prepareLocal,pauseMachine} from '../src/machines';
 import {join} from 'node:path';
+import {migrateDeliverySkills,type DeliverySkillDependencies} from '../src/delivery-skills';
+import {createHash} from 'node:crypto';
 const owner='00000000-0000-4000-8000-000000000001',other='lifecycle-other-owner';
 const owned:string[]=[];
-beforeAll(async()=>{await migrate();await migrateLifecycle();await db`INSERT INTO "user"(id,name,email,"emailVerified") VALUES(${other},'Other','lifecycle-other@example.test',true) ON CONFLICT DO NOTHING`;});
+beforeAll(async()=>{await migrate();await migrateLifecycle();await migrateDeliverySkills();await db`INSERT INTO "user"(id,name,email,"emailVerified") VALUES(${other},'Other','lifecycle-other@example.test',true) ON CONFLICT DO NOTHING`;});
 afterEach(async()=>{for(const id of owned.splice(0)){await db`UPDATE delegations SET finished_at=now() WHERE parent_id=${id}`;await db`UPDATE template_candidates SET status='failed' WHERE source_companion_id IN (SELECT id FROM companions WHERE parent_id=${id}) AND status IN ('queued','capturing','ready')`;await db`UPDATE runs SET status='cancelled',finished_at=now() WHERE companion_id=${id} AND status IN ('queued','preparing','running','needs_input')`;await db`UPDATE companions SET retired_at=now(),prepare_requested=false,desktop_taken=false,desktop_paused_at=null WHERE id=${id} OR parent_id=${id}`;}});
 async function parent(ownerId=owner,provider:'local'|'box'='box'){const value=await createCompanion(ownerId,{name:'Parent',instructions:'',provider});owned.push(value.id);await db`UPDATE companions SET prepare_requested=false WHERE id=${value.id}`;return value.id as string;}
 async function setup(){const id=await parent();const template=await saveTemplate(owner,{name:'Developer',instructions:'Use the supplied brief.'});await allowTemplate(owner,id,{templateId:template.id,maxChildren:2});return {id,template};}
@@ -17,7 +19,15 @@ async function leader(){const sql=await acquireExecutor();if(!sql)throw Error('T
 function fake(){
  const calls:string[]=[];let snapshot:'missing'|'pending'|'ready'|'failed'='missing';
  const machine:LifecycleMachines={async prepare(c,checkpoint){calls.push('prepare '+c.id);await checkpoint('box-'+c.id);return 'http://fake.local';},async health(){calls.push('health');return {ready:true};},async pause(_c,value){calls.push('pause '+value);},async archive(c){calls.push('archive '+c.id);return true;},async snapshot(_c,name){calls.push('snapshot '+name);snapshot='pending';},async snapshotStatus(){calls.push('snapshot GET');return snapshot;}};
- return {machine,calls,setSnapshot(value:typeof snapshot){snapshot=value;}};
+ const objects=new Map<string,Blob>();
+ const deliverySkills:DeliverySkillDependencies={storage:{async put(key:string,bytes:Uint8Array,type:string){objects.set(key,new Blob([bytes.slice().buffer as ArrayBuffer],{type}));},async get(key:string){const value=objects.get(key);if(!value)throw Error('missing');return value;},async delete(key:string){objects.delete(key);}},async requestAgent(){calls.push('skills export');return {version:1,skills:[]};},async notifyReady(){}};
+ return {machine,calls,deliverySkills,setSnapshot(value:typeof snapshot){snapshot=value;}};
+}
+async function portableBundle(ownerId:string,companionId:string){
+ const id=crypto.randomUUID(),bytes=Buffer.from(JSON.stringify({version:1,skills:[]}));
+ await db`INSERT INTO portable_skill_bundles(id,source_owner_id,source_companion_id,manifest_version,bundle_hash,object_sha256,byte_size,storage_key)
+  VALUES(${id},${ownerId},${companionId},1,${createHash('sha256').update('skills-v1\0').digest('hex')},${createHash('sha256').update(bytes).digest('hex')},${bytes.length},${`test/${id}`})`;
+ await db`UPDATE companions SET skill_bundle_id=${id} WHERE id=${companionId}`;return {id,bytes};
 }
 
 test('two-owner template, child and delegation authorization fail closed',async()=>{
@@ -73,6 +83,28 @@ test('failed physical freeze is never projected as a confirmed takeover',async()
  }finally{await lock.close();}
 });
 
+test('portable skills are imported before a cold Companion becomes ready',async()=>{
+ const id=await parent(),bundle=await portableBundle(owner,id),f=fake(),lock=await leader();let statusAtImport='';
+ f.deliverySkills.storage!.put=async()=>{};f.deliverySkills.storage!.get=async()=>new Blob([bundle.bytes]);
+ f.deliverySkills.requestAgent=async(_endpoint,_token,path,method,body)=>{expect([path,method]).toEqual(['/skills/import','PUT']);statusAtImport=(await db`SELECT status FROM companions WHERE id=${id}`)[0].status;return {bundleHash:createHash('sha256').update('skills-v1\0').digest('hex')};};
+ try{
+  await db`UPDATE companions SET prepare_requested=true WHERE id=${id}`;
+  await progressLifecycle(lock.sql,{deliverySkills:f.deliverySkills},f.machine);
+  expect(statusAtImport).toBe('preparing');expect((await db`SELECT status,prepare_requested,skills_staged_hash FROM companions WHERE id=${id}`)[0]).toMatchObject({status:'ready',prepare_requested:false,skills_staged_hash:createHash('sha256').update('skills-v1\0').digest('hex')});
+ }finally{await lock.close();}
+});
+
+test('a failed portable-skill import stays visible and eventually stops retrying',async()=>{
+ const id=await parent(),bundle=await portableBundle(owner,id),f=fake(),lock=await leader();let imports=0;
+ f.deliverySkills.storage!.get=async()=>new Blob([bundle.bytes]);f.deliverySkills.requestAgent=async()=>{imports++;throw Error('private provider failure');};
+ try{
+  await db`UPDATE companions SET prepare_requested=true WHERE id=${id}`;await progressLifecycle(lock.sql,{deliverySkills:f.deliverySkills},f.machine);
+  expect((await db`SELECT error,prepare_requested FROM companions WHERE id=${id}`)[0]).toMatchObject({error:'Machine preparation is temporarily unavailable.',prepare_requested:true});
+  await db`UPDATE companions SET preparation_started_at=now()-interval '6 minutes' WHERE id=${id}`;await progressLifecycle(lock.sql,{deliverySkills:f.deliverySkills},f.machine);
+  expect((await db`SELECT error,prepare_requested FROM companions WHERE id=${id}`)[0]).toMatchObject({error:'Machine preparation timed out. Request preparation to retry.',prepare_requested:false});expect(imports).toBe(1);
+ }finally{await lock.close();}
+});
+
 test('snapshot recovery observes its durable name and activates only after ready',async()=>{
  const {id,template}=await setup(),child=await spawnChild(owner,id,null,crypto.randomUUID(),{templateId:template.id,prompt:'Install software'});
  await db`UPDATE companions SET box_id='snapshot-source',prepare_requested=false WHERE id=${child.companionId}`;
@@ -82,15 +114,15 @@ test('snapshot recovery observes its durable name and activates only after ready
  try{
   f.machine.snapshot=async(_c,name)=>{f.calls.push('snapshot '+name);f.setSnapshot('pending');throw Error('Lost response after provider accepted snapshot');};
   await db`UPDATE companions SET desktop_taken=true,desktop_paused_at=now() WHERE id=${child.companionId}`;
-  await progressLifecycle(lock.sql,{},f.machine);expect(f.calls).toEqual([]);
+  await progressLifecycle(lock.sql,{deliverySkills:f.deliverySkills},f.machine);expect(f.calls).toEqual([]);
   await db`UPDATE companions SET desktop_taken=false,desktop_paused_at=null WHERE id=${child.companionId}`;
-  await progressLifecycle(lock.sql,{},f.machine);await progressLifecycle(lock.sql,{},f.machine);
+  await progressLifecycle(lock.sql,{deliverySkills:f.deliverySkills},f.machine);await progressLifecycle(lock.sql,{deliverySkills:f.deliverySkills},f.machine);
   expect(f.calls.filter(call=>call.startsWith('snapshot companions-'))).toHaveLength(1);
   expect((await db`SELECT snapshot_name FROM agent_templates WHERE id=${template.id}`)[0].snapshot_name).toBeNull();
   expect((await db`SELECT retired_at FROM companions WHERE id=${child.companionId}`)[0].retired_at).toBeNull();
-  f.setSnapshot('ready');await progressLifecycle(lock.sql,{},f.machine);
+  f.setSnapshot('ready');await progressLifecycle(lock.sql,{deliverySkills:f.deliverySkills},f.machine);
   expect((await db`SELECT snapshot_name,revision FROM agent_templates WHERE id=${template.id}`)[0]).toMatchObject({snapshot_name:'companions-'+command,revision:2});
-  await progressLifecycle(lock.sql,{},f.machine);expect((await db`SELECT revision FROM agent_templates WHERE id=${template.id}`)[0].revision).toBe(2);
+  await progressLifecycle(lock.sql,{deliverySkills:f.deliverySkills},f.machine);expect((await db`SELECT revision FROM agent_templates WHERE id=${template.id}`)[0].revision).toBe(2);
  }finally{await lock.close();}
 });
 
@@ -100,11 +132,11 @@ test('snapshot failure at activation checkpoint recovers without repeating captu
  const command=crypto.randomUUID();await adoptTemplate(owner,id,command,{templateId:template.id,childId:child.companionId,expectedRevision:1});
  const f=fake(),lock=await leader();
  try{
-  await progressLifecycle(lock.sql,{},f.machine);f.setSnapshot('ready');
+  await progressLifecycle(lock.sql,{deliverySkills:f.deliverySkills},f.machine);f.setSnapshot('ready');
   await db.unsafe(`CREATE FUNCTION lifecycle_reject_activation() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'injected checkpoint failure'; END $$; CREATE TRIGGER lifecycle_reject_activation BEFORE UPDATE ON agent_templates FOR EACH ROW EXECUTE FUNCTION lifecycle_reject_activation()`);
-  try{await progressLifecycle(lock.sql,{},f.machine);}finally{await db.unsafe('DROP TRIGGER lifecycle_reject_activation ON agent_templates; DROP FUNCTION lifecycle_reject_activation()');}
+  try{await progressLifecycle(lock.sql,{deliverySkills:f.deliverySkills},f.machine);}finally{await db.unsafe('DROP TRIGGER lifecycle_reject_activation ON agent_templates; DROP FUNCTION lifecycle_reject_activation()');}
   expect((await db`SELECT status FROM template_candidates WHERE id=${command}`)[0].status).toBe('capturing');
-  await progressLifecycle(lock.sql,{},f.machine);
+  await progressLifecycle(lock.sql,{deliverySkills:f.deliverySkills},f.machine);
   expect((await db`SELECT status FROM template_candidates WHERE id=${command}`)[0].status).toBe('activated');
   expect(f.calls.filter(call=>call.startsWith('snapshot companions-'))).toHaveLength(1);
  }finally{await lock.close();}

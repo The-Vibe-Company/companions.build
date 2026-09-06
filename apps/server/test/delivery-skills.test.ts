@@ -10,7 +10,7 @@ import { acceptDelivery, createDelivery, migrateDelivery, sendDeliveryReadyInvit
 import { migrateLifecycle } from "../src/lifecycle";
 import { allowTemplate, saveTemplate } from "../src/templates";
 import { spawnChild } from "../src/delegation";
-import { migrateDeliverySkills, progressDeliverySkills, stageDeliverySkills } from "../src/delivery-skills";
+import { migrateDeliverySkills, progressDeliverySkills, progressDeliverySkillsForCompanion, stageDeliverySkills } from "../src/delivery-skills";
 import { encrypt } from "../src/config";
 import { createObjectStorage } from "../src/storage";
 import { acquireExecutor } from "../src/executor";
@@ -46,7 +46,8 @@ test("a ready immutable S3 bundle is imported into the client and its delivered 
  expect(delivery?.skillsStatus).toBe("pending");expect(mails).toBe(0);
  await expect(acceptDelivery(recipient,delivery!.id,false)).rejects.toThrow("still being prepared");
  const requestAgent=async(endpoint:string,_token:string,path:string,method?:string,body?:unknown)=>call(endpoint==="main"?main.handler:specialist.handler,path,method,body);
- await progressDeliverySkills(executor,{storage,requestAgent,notifyReady:sendDeliveryReadyInvite});
+ await progressDeliverySkillsForCompanion(executor,source.id,"main","token",{storage,requestAgent,notifyReady:sendDeliveryReadyInvite});
+ await progressDeliverySkillsForCompanion(executor,specialistSource.id,"specialist","token",{storage,requestAgent,notifyReady:sendDeliveryReadyInvite});
  expect(mails).toBe(1);expect((await db`SELECT skills_status FROM companion_deliveries WHERE id=${delivery!.id}`)[0].skills_status).toBe("ready");
  const accepted=await acceptDelivery(recipient,delivery!.id,false);const parentId=accepted!.companionId;
  let imports=0;const importMain=async(_e:string,_t:string,path:string,method?:string,body?:unknown)=>{imports++;return call(receivedMain.handler,path,method,body);};
@@ -69,9 +70,9 @@ test("revoked, invalid, cross-owner, and empty exports fail closed",async()=>{
  await db`UPDATE companion_deliveries SET status='revoked' WHERE id=${revoked!.id}`;
  let calls=0;await progressDeliverySkills(executor,{storage,requestAgent:async()=>{calls++;return {version:1,skills:[]}},notifyReady:async()=>{}});expect(calls).toBe(0);
  const invalid=await createDelivery(sender,{clientDeliveryId:crypto.randomUUID(),companionId:source.id,clientEmail:`${recipient}@example.test`});
- await progressDeliverySkills(executor,{storage,requestAgent:async()=>({version:1,skills:[{name:"bad",files:[{path:"SKILL.md",data:"eA==",sha256:"0".repeat(64)}]}]}),notifyReady:async()=>{}});
+ await progressDeliverySkillsForCompanion(executor,source.id,"source","token",{storage,requestAgent:async()=>({version:1,skills:[{name:"bad",files:[{path:"SKILL.md",data:"eA==",sha256:"0".repeat(64)}]}]}),notifyReady:async()=>{}});
  expect((await db`SELECT skills_status FROM companion_deliveries WHERE id=${invalid!.id}`)[0].skills_status).toBe("error");await expect(acceptDelivery(recipient,invalid!.id,false)).rejects.toThrow("could not be prepared");
  const empty=await createDelivery(sender,{clientDeliveryId:crypto.randomUUID(),companionId:source.id,clientEmail:`${recipient}@example.test`});
- await progressDeliverySkills(executor,{storage,requestAgent:async()=>({version:1,skills:[]}),notifyReady:sendDeliveryReadyInvite});
+ await progressDeliverySkillsForCompanion(executor,source.id,"source","token",{storage,requestAgent:async()=>({version:1,skills:[]}),notifyReady:sendDeliveryReadyInvite});
  expect((await db`SELECT skills_status FROM companion_deliveries WHERE id=${empty!.id}`)[0].skills_status).toBe("ready");expect(mail).toEqual([`${recipient}@example.test`]);
 });

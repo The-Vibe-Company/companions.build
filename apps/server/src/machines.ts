@@ -3,6 +3,8 @@ import { join, resolve } from "node:path";
 import { createHash } from "node:crypto";
 import { config, dataDir, decrypt } from "./config";
 import { BoxClient } from "../../../packages/box/client";
+import { userSystemctl } from "../../../packages/box/layout";
+import { fetchAgent } from "../../../packages/box/transport";
 
 const box = config.boxKey ? new BoxClient(config.boxKey) : null;
 const workspace = createHash("sha256").update(dataDir).digest("hex").slice(0, 10);
@@ -79,21 +81,20 @@ export async function prepareBox(companion: any, checkpoint: (boxId: string) => 
   if (!["ready", "idle"].includes(machine.state)) return null;
   if (machine.setupStatus === "failed") throw new MachineError("box_setup_failed");
   if (machine.setupStatus && machine.setupStatus !== "done") return null;
+  if (companion.endpoint_secret && companion.config_digest === environmentDigest(companion.agent_secret)) return decrypt(companion.endpoint_secret);
   const values = { ...modelEnvironment(decrypt(companion.agent_secret)), AGENT_STATE_DIR: "/home/user/.companions" };
   // systemd EnvironmentFile uses double quoted values, not shell expansion.
   const envText = Object.entries(values).map(([key, value]) => `${key}="${value.replace(/\\/g, "\\\\").replace(/"/g, '\\"').replace(/\n/g, "\\n")}"`).join("\n");
   await box.writeFile(id, "/home/user/.companions.env", envText);
   const action = companion.config_digest === environmentDigest(companion.agent_secret) ? "start" : "restart";
-  await box.command(id, `chmod 600 /home/user/.companions.env && systemctl --user ${action} companions-agent.service`);
+  await box.command(id, `chmod 600 /home/user/.companions.env && ${userSystemctl(`${action} companions-agent.service`)}`);
   await configured();
   return box.host(id, 8787);
 }
 export async function agentRequest(endpoint: string, token: string, path: string, method = "GET", body?: unknown) {
-  const url = new URL(endpoint);
-  url.pathname = path;
-  const result = await fetch(url, { method, headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-    body: body === undefined ? undefined : JSON.stringify(body), signal: AbortSignal.timeout(10_000) });
+  const result = await fetchAgent(endpoint, token, path, method, body, path === "/health" ? 2_000 : 10_000);
   if (result.status === 404) return null;
+  if (result.status === 401 || result.status === 403) throw new MachineError("agent_auth_expired");
   if (!result.ok) throw new MachineError("agent_unavailable");
   return result.json() as Promise<any>;
 }

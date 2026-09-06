@@ -60,10 +60,10 @@ that same Box when archived. The executable, Pi dependencies and Photon WASM are
 there is no runtime package installation at wake. The template script archives its build Box
 after a successful snapshot and saves a resumable preparation journal in `.local`.
 
-The Box adapter and template path are implemented against the official API. **Live Box create,
-snapshot and resume have not yet been verified in this environment because no Box key is configured.**
-Docker timings do not predict provider provisioning latency. A Box desktop link is available once
-ready; coordinated GUI takeover/release remains a later feature.
+Live Box snapshot, creation, real GLM tool execution and resume of the same computer with its files
+passed on 6 September 2026. Cold creation and wake still take tens of seconds; the few-second cold
+startup target is not achieved. See [measured validation](docs/validation-v0.md). A Box desktop link
+is available once ready; coordinated GUI takeover/release remains a later feature.
 
 ## Verify and reproduce
 
@@ -77,6 +77,11 @@ python3 experiments/pi-bun/verify.py --scenario 'crash after'
 
 # Optional: one paid request to your configured model, inside Linux
 AGENT_TEST_MODE=0 python3 scripts/bun.py scripts/live-model-canary.ts
+
+# Optional: paid Box creation, real tools, archive/resume and desktop endpoint
+python3 scripts/bun.py scripts/live-box-canary.ts
+# Intentionally repeat the wake test on the same retained computer
+python3 scripts/bun.py scripts/live-box-canary.ts --wake-only
 ```
 
 Evidence is retained in `.artifacts/verification`, `.artifacts/system-tests` and `.artifacts/pi-bun`.

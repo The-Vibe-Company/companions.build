@@ -2,6 +2,7 @@ import { BoxClient } from "../packages/box/client";
 import { config } from "../apps/server/src/config";
 import { createHash } from "node:crypto";
 import { mkdirSync } from "node:fs";
+import { agentService, userSystemctl } from "../packages/box/layout";
 
 if (!config.boxKey) throw new Error("Configure BOX_API_KEY in .env before preparing the template.");
 const name = process.argv[2] ?? "companions-agent-v0";
@@ -36,8 +37,8 @@ for (let start = 0, index = 0; start < archive.length; start += 3 * 1024 * 1024,
   await box.writeFile(state.boxId, `${directory}/part-${String(index).padStart(5, "0")}`, archive.subarray(start, start + 3 * 1024 * 1024).toString("base64"), "base64");
 }
 await box.command(state.boxId, `cat ${directory}/part-* > ${directory}/agent.tar.gz && echo '${digest}  ${directory}/agent.tar.gz' | sha256sum -c - && mkdir -p /home/user/.companions-dist /home/user/.config/systemd/user && tar -xzf ${directory}/agent.tar.gz -C /home/user/.companions-dist`, 60);
-await box.writeFile(state.boxId, "/home/user/.config/systemd/user/companions-agent.service", `[Unit]\nDescription=Companions Pi agent\n[Service]\nEnvironmentFile=/home/user/.companions.env\nExecStart=/home/user/.companions-dist/companion-agent\nRestart=on-failure\nRestartSec=2\n[Install]\nWantedBy=default.target\n`);
-await box.command(state.boxId, "systemctl --user daemon-reload && systemctl --user enable companions-agent.service");
+await box.writeFile(state.boxId, "/home/user/.config/systemd/user/companions-agent.service", agentService);
+await box.command(state.boxId, `sudo -n loginctl enable-linger $(id -u) && ${userSystemctl("daemon-reload")} && ${userSystemctl("enable companions-agent.service")}`);
 await box.snapshot(state.boxId, name);
 await wait(async () => { const result = await box.getSnapshot(name); return (result.snapshot?.status ?? result.namedSnapshot?.status ?? result.status) === "ready"; });
 state.completedAt = new Date().toISOString(); state.sha256 = digest;

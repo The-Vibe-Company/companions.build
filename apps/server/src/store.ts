@@ -9,7 +9,7 @@ export async function migrate(sql = db) {
     await tx.unsafe(schema);
   });
 }
-export const companionColumns = `id,name,instructions,provider,status,error,created_at AS "createdAt"`;
+export const companionColumns = `id,name,instructions,provider,status,error,box_id AS "boxId",created_at AS "createdAt"`;
 export async function listCompanions() { return db.unsafe(`SELECT ${companionColumns} FROM companions ORDER BY created_at,id`); }
 export async function createCompanion(input: { name: string; instructions: string; provider: "local" | "box" }) {
   const id = crypto.randomUUID();
@@ -22,7 +22,7 @@ export async function detail(id: string) {
   if (!companion) return null;
   const [messages, runs] = await Promise.all([
     db`SELECT id,role,content,created_at AS "createdAt",run_id AS "runId" FROM messages WHERE companion_id=${id} ORDER BY created_at,id`,
-    db`SELECT id,status,error,created_at AS "createdAt" FROM runs WHERE companion_id=${id} ORDER BY created_at,id`,
+    db`SELECT id,status,error,created_at AS "createdAt",prepared_at AS "preparedAt",finished_at AS "finishedAt" FROM runs WHERE companion_id=${id} ORDER BY created_at,id`,
   ]);
   return { companion, messages, runs, activity: [] };
 }

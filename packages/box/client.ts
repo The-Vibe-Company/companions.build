@@ -31,8 +31,7 @@ export class BoxClient {
   }
   async writeFile(id: string, path: string, content: string, encoding = "utf8") { await this.request(`/boxes/${encodeURIComponent(id)}/files`, "PUT", { path, content, encoding }); }
   async host(id: string, port: number) {
-    await this.command(id, `host ${port} --private --title companions`);
-    const output = await this.command(id, `host url ${port}`);
+    const output = await this.command(id, `host ${port} --private --title companions >/dev/null && host url ${port}`);
     const raw = output.match(/https:\/\/[^\s"'<>]+/)?.[0];
     if (!raw) throw new BoxError("box_host_unavailable");
     const url = new URL(raw);

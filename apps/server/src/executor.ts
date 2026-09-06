@@ -43,7 +43,9 @@ export async function tick(sql: ReservedSQL) {
           if (age > 5 * 60_000) { await settle(sql, run, "failed", null, "Preparation timed out. Send a new message to retry."); await sql`UPDATE companions SET status='error',error='Preparation timed out.' WHERE id=${run.companion_id}`; return; }
           await sql`UPDATE companions SET status='preparing',error=null,create_started_at=COALESCE(create_started_at,now()) WHERE id=${run.companion_id}`;
           const companion = { ...run, id: run.companion_id };
-          if (!endpoint) {
+          // Observe Box lifecycle before testing a cached endpoint: an archived machine
+          // cannot answer health and must not cost a full network timeout before resume.
+          if (!endpoint || run.provider === "box") {
             endpoint = run.provider === "local" ? await prepareLocal(companion) : await prepareBox(companion,
               async id => { await sql`UPDATE companions SET box_id=${id} WHERE id=${run.companion_id}`; },
               async () => { await sql`UPDATE companions SET config_digest=${digest} WHERE id=${run.companion_id}`; });
@@ -52,19 +54,23 @@ export async function tick(sql: ReservedSQL) {
           }
           try {
             const health = await agentRequest(endpoint, token, "/health");
-            if (!health?.ready) return;
+            if (!health?.ready) throw new Error("agent_not_ready");
             if (health.activeRunId) {
               const [prior] = await sql`SELECT status FROM runs WHERE id=${health.activeRunId} AND companion_id=${run.companion_id}`;
               if (!prior || ["interrupted", "cancelled", "failed"].includes(prior.status)) await agentRequest(endpoint, token, `/runs/${health.activeRunId}/cancel`, "POST");
               return;
             }
-          } catch {
+          } catch (error) {
+            // Provider readiness precedes the user service after resume. Give its
+            // existing endpoint a bounded startup grace instead of reconfiguring
+            // the machine on the first transient connection failure.
+            if (run.provider === "box" && age < 45_000 && !(error instanceof Error && error.message === "agent_auth_expired")) return;
             // Re-resolve/restart the existing machine on the next pass, never replace it.
             await sql`UPDATE companions SET endpoint_secret=null WHERE id=${run.companion_id}`;
             return;
           }
           // Persist intent before the network side effect. Recovery only observes this id.
-          const [dispatch] = await sql`UPDATE runs SET status='running',dispatched=true WHERE id=${run.id}
+          const [dispatch] = await sql`UPDATE runs SET status='running',dispatched=true,prepared_at=now() WHERE id=${run.id}
             AND EXISTS(SELECT 1 FROM pg_locks WHERE locktype='advisory' AND pid=pg_backend_pid() AND objid=721440139 AND granted)
             RETURNING id`;
           if (!dispatch) throw new Error("Executor ownership lost before dispatch");

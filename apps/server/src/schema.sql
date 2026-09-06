@@ -27,6 +27,7 @@ CREATE TABLE IF NOT EXISTS runs (
   UNIQUE(companion_id, client_message_id)
 );
 ALTER TABLE companions ADD COLUMN IF NOT EXISTS config_digest text;
+ALTER TABLE runs ADD COLUMN IF NOT EXISTS prepared_at timestamptz;
 CREATE UNIQUE INDEX IF NOT EXISTS one_active_run ON runs(companion_id) WHERE status IN ('preparing','running');
 CREATE INDEX IF NOT EXISTS pending_runs ON runs(created_at,id) WHERE status IN ('queued','preparing','running');
 CREATE TABLE IF NOT EXISTS messages (

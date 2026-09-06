@@ -1,6 +1,6 @@
 # V0 validation — 6 September 2026
 
-`python3 scripts/verify.py` runs 25 checks: 11 daemon/initialization/environment tests, 8 API,
+`python3 scripts/verify.py` runs 29 checks: 11 daemon/initialization/environment tests, 12 API,
 PostgreSQL and Linux integration tests, and 6 frontend behavior tests. It also typechecks and builds
 the Linux distribution and production web bundle. The cached run takes about 13 seconds on the
 development Mac; see [the measured run](measurements/v0-local-2026-09-06.json).
@@ -27,11 +27,35 @@ The initial live-model attempt lacked a configured key; the daemon now reports
 After the owner configured Z.AI Coding Plan, **GLM-5.3-Flash passed the real-model canary** in 6.55 s,
 including Linux startup. The tool variant passed in 5.53 s: create `canary.sh`, execute it through
 Pi, verify the actual file and exact model result. The web chat also returned a persisted French
-response using this model. No Box credential was available, so create/snapshot/resume and desktop
-behavior against the real Box service remain unverified. They stay open in Linear.
+response using this model. After configuring Box, the live canary also passed snapshot creation,
+a new machine from that snapshot, real file/shell tools, archive/resume of the same machine,
+file persistence and retrieval of the desktop URL. Cold/wake performance remains open in THE-562.
+
+## Live Box latency
+
+These are individual real-service observations, not latency percentiles. The first task created and
+executed a shell file; later READY probes intentionally requested no tools. Model work differs.
+
+| Observation | Preparation | Agent execution/result | Total until persisted response |
+| --- | ---: | ---: | ---: |
+| First creation + tool task | 42.9 s until Pi prompt | 4.7 s Pi | 48.0 s |
+| Initial wake + existing-file tool task | 57.5 s until Pi prompt | 11.3 s Pi | 69.2 s |
+| Already-running READY probe | 0.55 s | 5.0 s | 5.6 s |
+| First optimized wake READY probe | 28.8 s | 25.2 s | 54.0 s |
+| Later wake READY probe with startup grace | 87.3 s | 1.2 s | 88.9 s |
+
+The later provider observation did not reach ready until 57.4 s, compared with 19.0 s in the prior
+wake. Preparation also includes service startup, private preview and controller work; it cannot all
+be attributed to Box. The few-second cold/wake goal is **not achieved**, and these samples do not
+prove a reliable speedup. Admission remained under 22 ms in these live tests. No runtime dependency
+installation occurred. [Sanitized measurements](measurements/v0-box-2026-09-06.json).
 
 ## Defects found and corrected during this slice
 
+- Box remote commands lacked the user service bus: explicitly set XDG/DBus and enable linger in the template.
+- Private preview redirects lost their authentication cookie: bounded same-origin, same-path cookie exchange.
+- An archived endpoint consumed a health timeout before resume: observe lifecycle first and reuse prepared configuration.
+- Provider readiness preceded daemon readiness: bounded health/startup grace before reconfiguration.
 - Simultaneous fresh API/executor startup raced PostgreSQL schema creation: transactional migration lock.
 - Docker changed the host port after restart: reconnect to the same journal, never redispatch.
 - Rebuilding removed files mounted by live agents: immutable release directories and atomic alias changes.

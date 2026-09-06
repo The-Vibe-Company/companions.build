@@ -1,0 +1,43 @@
+{
+  "date": "2026-09-06",
+  "provider": "Box small (2 vCPU, 4 GB, Hetzner)",
+  "model": "zai/glm-5.3-flash",
+  "sampleWarning": "Individual observations, not percentiles. READY probes and tool prompts differ. Provider readiness and model latency vary.",
+  "first": {
+    "admissionMs": 6.21725,
+    "totalSeconds": 47.998362541999995
+  },
+  "firstBreakdown": {
+    "beforePiPromptSeconds": 42.864,
+    "piSeconds": 4.748
+  },
+  "wakeBeforeOptimizations": {
+    "admissionMs": 21.244082999997772,
+    "totalSeconds": 69.24709229199999
+  },
+  "warmReadyProbe": {
+    "totalSeconds": 5.576,
+    "preparationSeconds": 0.548,
+    "executionSeconds": 4.998
+  },
+  "firstOptimizedWakeReadyProbe": {
+    "totalSeconds": 53.979,
+    "preparationSeconds": 28.781,
+    "executionSeconds": 25.163
+  },
+  "latestWakeReadyProbe": {
+    "status": "passed",
+    "admissionMs": 20.70066700000001,
+    "totalSeconds": 88.850781709,
+    "preparationSeconds": 87.309,
+    "executionSeconds": 1.212
+  },
+  "functionalChecks": [
+    "prepared snapshot",
+    "create from snapshot",
+    "real Pi file and shell tools",
+    "same Box identity after resume",
+    "file persistence",
+    "desktop URL issued"
+  ]
+}

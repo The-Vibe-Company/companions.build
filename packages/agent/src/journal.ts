@@ -2,10 +2,11 @@ import { Database } from "bun:sqlite";
 import { createHash } from "node:crypto";
 import { dirname } from "node:path";
 import { mkdirSync } from "node:fs";
-import type { RunInput, RunRecord, TerminalRunStatus } from "./types";
+import type { RunInput, RunRecord, TerminalRunStatus, RunProgress } from "./types";
 
 interface StoredRun extends RunRecord {
   request_hash: string;
+  usage_json?:string;
 }
 
 export class RunJournal {
@@ -33,6 +34,8 @@ export class RunJournal {
       );
     `);
     const columns = new Set((this.db.query("PRAGMA table_info(runs)").all() as Array<{ name: string }>).map(row => row.name));
+    if (!columns.has("preview_text")) this.db.exec("ALTER TABLE runs ADD COLUMN preview_text TEXT");
+    if (!columns.has("usage_json")) this.db.exec("ALTER TABLE runs ADD COLUMN usage_json TEXT");
     if (!columns.has("lane")) this.db.exec("ALTER TABLE runs ADD COLUMN lane TEXT NOT NULL DEFAULT 'main'");
     if (!columns.has("response_root_id")) this.db.exec("ALTER TABLE runs ADD COLUMN response_root_id TEXT");
     if (!columns.has("publish_to_chat")) this.db.exec("ALTER TABLE runs ADD COLUMN publish_to_chat INTEGER NOT NULL DEFAULT 0");
@@ -83,6 +86,11 @@ export class RunJournal {
       .run(status, rootId, text, error, rootId, publishToChat ? 1 : 0, new Date().toISOString(), rootId);
   }
 
+  progress(rootId:string,value:RunProgress):void {
+    this.db.query("UPDATE runs SET preview_text=?,usage_json=?,updated_at=? WHERE id=? AND status='running'")
+      .run(value.previewText,JSON.stringify(value.usage),new Date().toISOString(),rootId);
+  }
+
   parkGroup(rootId: string, parked: boolean): void {
     this.db.query("UPDATE runs SET parked=?,updated_at=? WHERE response_root_id=? AND status='running'")
       .run(parked ? 1 : 0, new Date().toISOString(), rootId);
@@ -94,7 +102,7 @@ export class RunJournal {
 
   private getStored(id: string): StoredRun | null {
     return this.db.query(`SELECT id, request_hash, CASE WHEN status='running' AND parked=1 THEN 'needs_input' ELSE status END AS status, text, error, lane,
-      response_root_id AS responseRootId, publish_to_chat AS publishToChat FROM runs WHERE id = ?`).get(id) as StoredRun | null;
+      response_root_id AS responseRootId, publish_to_chat AS publishToChat,preview_text AS previewText,usage_json FROM runs WHERE id = ?`).get(id) as StoredRun | null;
   }
 }
 
@@ -106,5 +114,6 @@ function requestHash(input: RunInput): string {
 
 function publicRun(run: StoredRun): RunRecord {
   return { id: run.id, status: run.status, text: run.text, error: run.error,
-    lane: run.lane, responseRootId: run.responseRootId, publishToChat: !!run.publishToChat };
+    lane: run.lane, responseRootId: run.responseRootId, publishToChat: !!run.publishToChat,
+    ...(run.previewText!=null?{previewText:run.previewText}:{}),...(run.usage_json?{usage:JSON.parse(run.usage_json)}:{}) };
 }

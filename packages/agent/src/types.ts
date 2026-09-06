@@ -4,6 +4,9 @@ export type RunStatus = (typeof RUN_STATUSES)[number];
 export type RunLane = "main" | "background";
 export type TerminalRunStatus = Exclude<RunStatus, "running" | "needs_input">;
 
+export interface RunUsage {input:number;output:number;cacheRead:number;cacheWrite:number;totalTokens:number;costUsd:number}
+export interface RunProgress {previewText:string;usage:RunUsage}
+
 export interface RunRecord {
   id: string;
   status: RunStatus;
@@ -12,6 +15,8 @@ export interface RunRecord {
   lane: RunLane;
   responseRootId: string;
   publishToChat: boolean;
+  previewText?:string;
+  usage?:RunUsage;
 }
 
 export interface RunInput {
@@ -21,7 +26,7 @@ export interface RunInput {
 }
 
 export interface RunExecutor {
-  execute(id: string, input: RunInput): Promise<{ text: string; publishToChat?: boolean }>;
+  execute(id: string, input: RunInput, onProgress?:(progress:RunProgress)=>void): Promise<{ text: string; publishToChat?: boolean }>;
   /** Native Pi steering joins an existing response; it never starts a second main session. */
   steer?(rootId: string, id: string, input: RunInput): Promise<void>;
   acceptingRoot?(lane: RunLane): string | null;

@@ -196,7 +196,7 @@ describe("agent daemon protocol", () => {
     const app = daemon();
     for (const body of [
       { content: "", instructions: "" },
-      { content: "x".repeat(50_001), instructions: "" },
+      { content: "x".repeat(55_001), instructions: "" },
       { content: "valid", instructions: "x".repeat(20_001) },
     ]) {
       expect((await app.daemon.fetch(request(`/runs/${id}`, { method: "PUT", body: JSON.stringify(body) }))).status).toBe(400);
@@ -204,4 +204,17 @@ describe("agent daemon protocol", () => {
     expect((await app.daemon.fetch(request(`/runs/${id}`))).status).toBe(404);
     expect(app.executor.calls).toHaveLength(0);
   });
+});
+
+test('streamed preview and usage survive daemon restart without re-executing the prompt',async()=>{
+ const state=mkdtempSync(join(tmpdir(),'companion-progress-'));
+ let calls=0;
+ const executor:RunExecutor={async execute(_id,_input,progress){calls++;progress?.({previewText:'Partial answer',usage:{input:10,output:2,cacheRead:0,cacheWrite:0,totalTokens:12,costUsd:0.001}});return new Promise(()=>{});},async cancel(){}};
+ const first=new AgentDaemon(state,token,executor);
+ await first.fetch(request(`/runs/${id}`,{method:'PUT',body:JSON.stringify({content:'hello',instructions:''})}));
+ expect(await (await first.fetch(request(`/runs/${id}`))).json()).toMatchObject({status:'running',previewText:'Partial answer',usage:{totalTokens:12}});
+ first.close();const restarted=new AgentDaemon(state,token,executor);open.push(restarted);
+ expect(await (await restarted.fetch(request(`/runs/${id}`))).json()).toMatchObject({status:'interrupted',previewText:'Partial answer',usage:{totalTokens:12}});
+ await restarted.fetch(request(`/runs/${id}`,{method:'PUT',body:JSON.stringify({content:'hello',instructions:''})}));
+ expect(calls).toBe(1);
 });

@@ -64,7 +64,7 @@ test("usage recorded before Checkout remains pending and can be flushed", async 
   const owner = await user(`pending-${crypto.randomUUID()}@example.com`);
   const operationId = `box:${crypto.randomUUID()}`; const delivered: string[] = [];
   setBillingProviderForTests({ async createCheckout() { throw new Error("unused"); }, async createPortal() { throw new Error("unused"); }, async sendMeterEvent(input) { delivered.push(input.operationId); } });
-  expect(await recordUsage({ operationId, ownerId: owner, category: "box_lifecycle", quantity: 1, unit: "event" })).toEqual({ recorded: true, delivery: "pending" });
+  expect(await recordUsage({ operationId, ownerId: owner, category: "box_seconds", quantity: 60, unit: "second" })).toEqual({ recorded: true, delivery: "pending" });
   await db`INSERT INTO billing_accounts (owner_id,stripe_customer_id) VALUES (${owner},${`cus_${crypto.randomUUID()}`})`;
   expect(await flushPendingUsage(owner)).toEqual({ sent: 1, pending: 0 });
   expect(delivered).toEqual([operationId]);

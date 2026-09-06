@@ -12,7 +12,9 @@ values={}
 for line in (ROOT/'.env').read_text().splitlines() if (ROOT/'.env').exists() else []:
  key,sep,value=line.partition('=')
  if sep: values[key.strip()]=value.strip().strip('\"\'')
-port=int(os.environ.get('WEB_PORT',values.get('WEB_PORT',4310)))
+endpoints=ROOT/'.local/dev-endpoints.json'
+local=json.loads(endpoints.read_text()) if endpoints.exists() else {}
+port=int(os.environ.get('WEB_PORT',values.get('WEB_PORT',local.get('webPort',4310))))
 base=f'http://127.0.0.1:{port}'
 email=os.environ.get('LOCAL_DEV_EMAIL',values.get('LOCAL_DEV_EMAIL','developer@companions.build'))
 request=urllib.request.Request(base+'/api/auth/sign-in/magic-link',data=json.dumps({'email':email,'callbackURL':'/'}).encode(),headers={'content-type':'application/json','origin':base})

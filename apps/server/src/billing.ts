@@ -41,7 +41,7 @@ class StripeHttpProvider implements BillingProvider {
   private async post(path: string, form: URLSearchParams, idempotencyKey?: string) {
     const secret = this.env.STRIPE_SECRET_KEY!;
     const response = await fetch(`https://api.stripe.com${path}`, {
-      method: "POST",
+      method: "POST", signal:AbortSignal.timeout(10_000),
       headers: {
         authorization: `Basic ${Buffer.from(`${secret}:`).toString("base64")}`,
         "content-type": "application/x-www-form-urlencoded",
@@ -74,8 +74,10 @@ class StripeHttpProvider implements BillingProvider {
     return result.url;
   }
   async sendMeterEvent(input: { customerId: string; operationId: string; quantity: number; occurredAt: Date; category: string; unit: string }) {
+    const eventName=input.category==='model_tokens'?this.env.STRIPE_METER_EVENT_NAME:input.category==='box_seconds'?this.env.STRIPE_BOX_METER_EVENT_NAME:undefined;
+    if(!eventName)throw Error('Usage meter is not configured for this category');
     await this.post("/v1/billing/meter_events", new URLSearchParams({
-      event_name: this.env.STRIPE_METER_EVENT_NAME!, identifier: input.operationId,
+      event_name: eventName, identifier: input.operationId,
       timestamp: String(Math.floor(input.occurredAt.getTime() / 1000)),
       "payload[stripe_customer_id]": input.customerId, "payload[value]": String(input.quantity),
       "payload[category]": input.category, "payload[unit]": input.unit,
@@ -122,7 +124,7 @@ export async function recordUsage(raw: UsageInput) {
   if (!row) return { recorded: false, delivery: "duplicate" as const };
   const mode = billingConfiguration().mode;
   const [account] = await db`SELECT stripe_customer_id FROM billing_accounts WHERE owner_id=${input.ownerId}`;
-  if (mode !== "stripe") {
+  if (mode !== "stripe" || input.category === "box_lifecycle") {
     await db`UPDATE usage_ledger SET stripe_delivery_status='skipped' WHERE id=${row.id}`;
     return { recorded: true, delivery: "skipped" as const };
   }

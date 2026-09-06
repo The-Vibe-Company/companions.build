@@ -29,3 +29,17 @@ Maintenance is a separate explicit grant. The sender may request it, but access 
 - [Stripe webhook delivery](https://docs.stripe.com/webhooks?lang=node) requires the raw request body, describes the five-minute signature tolerance, duplicate delivery, retries, and unordered events.
 - [Stripe signature troubleshooting](https://docs.stripe.com/webhooks/signature) documents the `Stripe-Signature` timestamp and `v1` signature format.
 - [Record usage with the Meter Events API](https://docs.stripe.com/billing/subscriptions/usage-based/recording-usage-api) documents whole-number quantities, unique identifiers, timestamps, and asynchronous meter processing.
+
+## Runtime metering
+
+The worker records terminal Pi usage once per shared response root, including failed and
+interrupted tasks for which Pi reported usage. Native steering does not multiply the count.
+Box time is measured between confirmed `ready` and `archived` lifecycle events, in seconds;
+completed minutes are checkpointed during operation and the final partial minute after archive.
+Provisioning time before confirmed readiness is not charged by this ledger.
+
+`STRIPE_METER_EVENT_NAME` is the model-token meter. `STRIPE_BOX_METER_EVENT_NAME` is a separate
+Box-second meter: different units are never added into one meter. Internal `box_lifecycle`
+events are audit records and are never sent as billable consumption. A missing Box meter
+leaves its usage pending. Configure the corresponding usage prices on the Stripe subscription;
+the application cannot infer commercial rates or create prices without that configuration.

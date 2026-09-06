@@ -29,6 +29,8 @@ test('a repeated control request cannot repeat its effect or target another run'
  const command={id:crypto.randomUUID(),runId,operation:'identity',input:{}};
  expect(await applyControl(c.id,command)).toEqual({counter:1});
  expect(await applyControl(c.id,command)).toEqual({counter:1});expect(effects).toBe(1);
+ const [persisted]=await db`SELECT result,result_secret FROM control_commands WHERE id=${command.id}`;
+ expect(persisted.result).toBeNull();expect(persisted.result_secret).not.toContain('counter');
  expect(await applyControl(crypto.randomUUID(),command)).toHaveProperty('error');expect(effects).toBe(1);
  await db`UPDATE runs SET status='succeeded' WHERE id=${runId}`;controlHandlers.identity=original;
 });

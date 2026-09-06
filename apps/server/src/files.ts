@@ -195,7 +195,7 @@ async function storeAttachment(
   )) {
     throw new FileRequestError("This task is not waiting for that file.", 409);
   }
-  if (kind === "agent_output" && (!run.dispatched || run.status !== "running")) {
+  if (kind === "agent_output" && (!run.dispatched || !["preparing","running","needs_input","succeeded","failed","interrupted","cancelled"].includes(run.status))) {
     throw new FileRequestError("This task is not accepting agent files.", 409);
   }
 
@@ -352,7 +352,7 @@ export async function handleFiles(
       try { blob = await storage.get(attachment.storageKey); }
       catch { throw new FileRequestError("File not found.", 404); }
       const disposition = INLINE_TYPES.has(attachment.contentType) ? "inline" : "attachment";
-      return new Response(blob, { headers: {
+      return new Response(blob.stream(), { headers: {
         "Content-Type": attachment.contentType,
         "Content-Length": String(attachment.byteSize),
         "Content-Disposition": `${disposition}; filename="${attachment.filename}"`,

@@ -4,7 +4,7 @@ import { InMemoryCredentialStore, Type } from "@earendil-works/pi-ai";
 import { createAgentSession, DefaultResourceLoader, ModelRuntime, SessionManager, SettingsManager } from "@earendil-works/pi-coding-agent";
 import { scriptedModel, scriptedHumanTool } from "./scripted-model";
 import { takeProviderApiKey } from "./environment";
-import type { RunExecutor, RunInput, RunLane } from "./types";
+import type { RunExecutor, RunInput, RunLane, RunProgress } from "./types";
 
 type Session = Awaited<ReturnType<typeof createAgentSession>>["session"];
 type ActiveExecution = {
@@ -13,6 +13,8 @@ type ActiveExecution = {
   preflight: Promise<void>; preflightDone(): void;
   parked: boolean;
   publishText?: string;
+  progress:RunProgress;
+  onProgress?:(progress:RunProgress)=>void;
 };
 
 export interface PiSessionTools {
@@ -66,7 +68,7 @@ export class PiExecutor implements RunExecutor {
     return new PiExecutor(stateDir, modelRuntime, provider, modelId);
   }
 
-  async execute(id: string, input: RunInput): Promise<{ text: string; publishToChat: boolean }> {
+  async execute(id: string, input: RunInput, onProgress?:(progress:RunProgress)=>void): Promise<{ text: string; publishToChat: boolean }> {
     const lane = input.lane ?? "main";
     if ([...this.active.values()].some(run => run.lane === lane && run.accepting && (lane === "main" || !run.parked))) throw new Error("EXECUTOR_BUSY");
     let preflightDone!: () => void;
@@ -74,7 +76,8 @@ export class PiExecutor implements RunExecutor {
     const execution: ActiveExecution = {
       id, lane, controller: new AbortController(), session: null, submissions: new Set(),
       accepting: true, ready: undefined!,
-      preflight, preflightDone, parked: false,
+      preflight, preflightDone, parked: false, onProgress,
+      progress:{previewText:"",usage:{input:0,output:0,cacheRead:0,cacheWrite:0,totalTokens:0,costUsd:0}},
     };
     this.active.set(id, execution);
     if (this.cancelled.has(id)) execution.controller.abort();
@@ -179,7 +182,7 @@ export class PiExecutor implements RunExecutor {
     const sessionDir = execution.lane === "main" ? this.sessionsDir : join(this.sessionsDir, "background", execution.id);
     const testTools = this.provider === "companion-test" ? [scriptedHumanTool(execution.id, this.cwd)] : [];
     mkdirSync(sessionDir, { recursive: true });
-    return (await createAgentSession({
+    const session = (await createAgentSession({
       cwd: this.cwd, agentDir: this.agentDir, modelRuntime: this.modelRuntime, model,
       settingsManager, resourceLoader, tools: ["read", "write", "edit", "bash", ...(extra?.tools.map(tool => tool.name) ?? []),
         ...testTools.map(tool => tool.name), ...(execution.lane === "background" ? ["publish_to_chat"] : [])],
@@ -193,6 +196,24 @@ export class PiExecutor implements RunExecutor {
       }] : [])],
       sessionManager: execution.lane === "main" ? SessionManager.continueRecent(this.cwd, sessionDir) : SessionManager.create(this.cwd, sessionDir),
     })).session;
+    // Subscribe before the first prompt. Historical transcript messages are never counted.
+    let lastPreviewAt=0;
+    session.subscribe(event=>{
+      if(event.type==='message_update' && event.message.role==='assistant'){
+        execution.progress.previewText=event.message.content.filter(part=>part.type==='text').map(part=>part.text).join('').slice(0,50_000);
+        if(Date.now()-lastPreviewAt>=150){lastPreviewAt=Date.now();execution.onProgress?.(execution.progress);}
+      }
+      if(event.type==='message_end' && event.message.role==='assistant'){
+        const usage=event.message.usage;
+        for(const key of ['input','output','cacheRead','cacheWrite','totalTokens'] as const){
+          const value=usage[key];if(Number.isFinite(value)&&value>=0)execution.progress.usage[key]+=value;
+        }
+        if(Number.isFinite(usage.cost.total)&&usage.cost.total>=0)execution.progress.usage.costUsd+=usage.cost.total;
+        execution.progress.previewText=event.message.content.filter(part=>part.type==='text').map(part=>part.text).join('').slice(0,50_000);
+        execution.onProgress?.(execution.progress);
+      }
+    });
+    return session;
   }
 
 }

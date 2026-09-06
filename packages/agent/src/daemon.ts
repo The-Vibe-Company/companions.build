@@ -51,7 +51,7 @@ export class AgentDaemon {
       if (!value || typeof value !== "object" || typeof value.content !== "string" || typeof value.instructions !== "string") {
         return json({ error: "INVALID_REQUEST" }, 400);
       }
-      if (value.content.length < 1 || value.content.length > 50_000 || value.instructions.length > 20_000) {
+      if (value.content.length < 1 || value.content.length > 55_000 || value.instructions.length > 20_000) {
         return json({ error: "INVALID_REQUEST" }, 400);
       }
       if (value.lane !== undefined && value.lane !== "main" && value.lane !== "background") return json({ error: "INVALID_REQUEST" }, 400);
@@ -141,7 +141,7 @@ export class AgentDaemon {
       return;
     }
     try {
-      const result = await this.executor.execute(id, input);
+      const result = await this.executor.execute(id, input, progress=>this.journal.progress(id,progress));
       this.journal.settleGroup(id, this.cancelling.has(id) ? "cancelled" : "succeeded", result.text, null, result.publishToChat);
     } catch {
       this.journal.settleGroup(id, this.cancelling.has(id) ? "cancelled" : "failed", null, this.cancelling.has(id) ? null : "PI_RUN_FAILED");

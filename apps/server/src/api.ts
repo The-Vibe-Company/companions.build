@@ -1,3 +1,7 @@
+import { handleBilling, handleStripeWebhook, requireProductActivation, billingConfiguration, ProductActivationRequired } from "./billing";
+import { handleDelivery } from "./delivery";
+import { handleLifecycle } from "./lifecycle";
+import { LifecycleConflict } from "./templates";
 import { z } from "zod";
 import { config } from "./config";
 import { db, migrate, listCompanions, createCompanion, detail, acceptMessage, cancel, Conflict } from "./store";
@@ -12,8 +16,42 @@ import { avatarSchema, configureCompanion } from "./control";
 
 const idSchema = z.string().uuid();
 const json = (body: unknown, status = 200, headers: Record<string, string> = {}) => Response.json(body, { status, headers: { "Cache-Control": "no-store", ...headers } });
+async function lifecycleRoute(request:Request,ownerId:string):Promise<Response|null> {
+ const path=new URL(request.url).pathname;
+ if(path==='/api/templates') {
+  if(request.method==='GET')return json({templates:await handleLifecycle({operation:'templates'},ownerId)});
+  if(request.method==='POST')return json(await handleLifecycle({operation:'template_save',input:await request.json()},ownerId),201);
+ }
+ const template=path.match(/^\/api\/templates\/([^/]+)$/);
+ if(template&&request.method==='PATCH')return json(await handleLifecycle({operation:'template_save',input:{...await request.json() as object,id:idSchema.parse(template[1])}},ownerId));
+ const permission=path.match(/^\/api\/companions\/([^/]+)\/templates(?:\/([^/]+))?$/);
+ if(permission){
+  const id=idSchema.parse(permission[1]);
+  const [owned]=await db`SELECT id FROM companions WHERE id=${id} AND owner_id=${ownerId} AND retired_at IS NULL`;
+  if(!owned)return json({error:'Companion not found.'},404);
+  if(request.method==='GET'&&!permission[2])return json({templates:await db`SELECT p.template_id AS "templateId",p.max_children AS "maxChildren",t.name,t.revision FROM template_permissions p JOIN agent_templates t ON t.id=p.template_id WHERE p.parent_id=${id} AND t.owner_id=${ownerId}`});
+  if(request.method==='PUT'&&permission[2])return json(await handleLifecycle({operation:'template_permission',companionId:id,input:{...await request.json() as object,templateId:idSchema.parse(permission[2])}},ownerId));
+ }
+ const replicas=path.match(/^\/api\/companions\/([^/]+)\/replicas$/);
+ if(replicas){
+  const id=idSchema.parse(replicas[1]);
+  const [owned]=await db`SELECT id FROM companions WHERE id=${id} AND owner_id=${ownerId} AND retired_at IS NULL`;
+  if(!owned)return json({error:'Companion not found.'},404);
+  if(request.method==='GET')return json({replicas:await db`SELECT id,name,avatar,status,error,template_id AS "templateId",template_revision AS "templateRevision",retired_at AS "retiredAt" FROM companions WHERE parent_id=${id} AND owner_id=${ownerId} AND retired_at IS NULL ORDER BY created_at`});
+  if(request.method==='POST'){const {clientCommandId,...input}=await request.json() as any;return json(await handleLifecycle({operation:'spawn',companionId:id,commandId:clientCommandId,input},ownerId),202);}
+ }
+ const desktop=path.match(/^\/api\/companions\/([^/]+)\/desktop\/(takeover|release)$/);
+ if(desktop&&request.method==='POST')return json(await handleLifecycle({operation:'desktop_'+desktop[2],companionId:idSchema.parse(desktop[1])},ownerId),202);
+ const match=path.match(/^\/api\/companions\/([^/]+)\/(prepare|desktop-takeover|desktop-release|template-permission|spawn|adopt-template)$/);
+ if(!match||request.method!=='POST')return null;
+ const companionId=idSchema.parse(match[1]);
+ const body=await request.text();const input=body?JSON.parse(body):{};
+ const {commandId,runId,...value}=input;
+ return json(await handleLifecycle({operation:match[2].replaceAll('-','_'),companionId,commandId,runId,input:value},ownerId),202);
+}
 export async function handler(request: Request): Promise<Response> {
   const url = new URL(request.url);
+  if(url.pathname === "/api/stripe/webhook") return handleStripeWebhook(request);
   const webhookResponse = await handleWebhook(request);
   if(webhookResponse) return webhookResponse;
   if (url.pathname === "/health") return json({ ok: true });
@@ -28,6 +66,12 @@ export async function handler(request: Request): Promise<Response> {
       return user ? json({ user: { id: user.id, email: user.email, name: user.name } }) : json({ error: "Authentication required." }, 401);
     }
     const ownerId = await requireUser(request);
+    const billingResponse = await handleBilling(request,ownerId);
+    if(billingResponse) return billingResponse;
+    const deliveryResponse = await handleDelivery(request,ownerId);
+    if(deliveryResponse) return deliveryResponse;
+    const lifecycleResponse = await lifecycleRoute(request,ownerId);
+    if(lifecycleResponse) return lifecycleResponse;
     const triggerResponse = await handleTriggers(request,ownerId);
     if(triggerResponse) return triggerResponse;
     const fileResponse = await handleFiles(request,ownerId);
@@ -40,6 +84,7 @@ export async function handler(request: Request): Promise<Response> {
     if (url.pathname === "/api/companions") {
       if (request.method === "GET") return json({ companions: await listCompanions(ownerId) });
       if (request.method === "POST") {
+        if(billingConfiguration().mode === "stripe" || process.env.NODE_ENV === "production") await requireProductActivation(ownerId);
         const input = z.object({ name: z.string().trim().min(1).max(80), instructions: z.string().max(20_000).default(""), provider: z.enum(["local", "box"]), avatar: avatarSchema.optional() }).parse(await request.json());
         if (input.provider === "box" && (!config.boxKey || !config.boxTemplate)) return json({ error: "Box needs an API key and a prepared template." }, 409);
         if (input.provider === "local" && !config.localAvailable) return json({ error: "Local runtime is disabled." }, 409);
@@ -63,8 +108,8 @@ export async function handler(request: Request): Promise<Response> {
       if (match[2] === "cancel" && request.method === "POST") return await cancel(ownerId, id) ? json({ ok: true }) : json({ error: "Companion not found." }, 404);
       if (match[2] === "desktop" && request.method === "POST") {
         const [row] = await db`SELECT box_id,status FROM companions WHERE id=${id} AND owner_id=${ownerId} AND provider='box'`;
-        if (!row || row.status !== "ready" || !config.boxKey) return json({ error: "Send a message first to prepare this Box." }, 409);
-        // V0 desktop viewing only; explicit GUI takeover is a later ticket.
+        if (!row) return json({error:"Companion not found."},404);
+        if(row.status !== "ready" || !config.boxKey) {await handleLifecycle({operation:"open_desktop",companionId:id},ownerId);return json({preparing:true},202);}
         return json({ url: await new BoxClient(config.boxKey).desktop(row.box_id) });
       }
     }
@@ -73,6 +118,8 @@ export async function handler(request: Request): Promise<Response> {
     if (error instanceof AuthenticationRequired) return json({ error: "Authentication required." }, 401);
     if (error instanceof z.ZodError || error instanceof SyntaxError) return json({ error: "Invalid request." }, 400);
     if (error instanceof PluginError) return json({error:error.message},400);
+    if (error instanceof ProductActivationRequired) return json({error:error.message},402);
+    if (error instanceof LifecycleConflict) return json({error:error.message},409);
     if (error instanceof Conflict) return json({ error: error.message }, 409);
     console.error(error instanceof BoxError ? `api_request_failed:${error.code}:${error.status}` : "api_request_failed");
     return json({ error: "The request could not be completed. Please try again." }, 500);

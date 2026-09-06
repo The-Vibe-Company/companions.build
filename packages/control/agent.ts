@@ -10,7 +10,7 @@ import { z } from 'zod';
 import { pluginTools } from '../plugins/tools';
 import type { MachinePlugin } from '../plugins/catalog';
 
-const operations=['identity','configure','companions','routines','routine_save','routine_delete','plugins','plugin_select','triggers','trigger_save','trigger_delete','delegate','task_status','templates','template_save','spawn','adopt_template','ask_user','desktop_takeover','desktop_release'] as const;
+const operations=['identity','configure','companions','routines','routine_save','routine_delete','plugins','plugin_select','triggers','trigger_save','trigger_delete','delegate','task_status','templates','template_permission','prepare','template_save','spawn','adopt_template','ask_user','desktop_takeover','desktop_release'] as const;
 export type ControlOperation=typeof operations[number];
 /** Durable local MCP outbox. The executor visits Box; Box need not reach a local web server. */
 export class AgentControl {

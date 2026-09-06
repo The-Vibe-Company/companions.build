@@ -189,8 +189,9 @@ svg { width: 1rem; height: 1rem; stroke-width: 1.8; }
 .working-dots i { width: 4px; height: 4px; border-radius: 50%; background: currentColor; animation: pulse 1.2s ease-in-out infinite; }
 .working-dots i:nth-child(2) { animation-delay: 140ms; }
 .working-dots i:nth-child(3) { animation-delay: 280ms; }
-.composer-wrap { width: 100%; max-width: 780px; margin: auto auto 0; padding: 12px 28px max(22px, env(safe-area-inset-bottom)); }
+.composer-wrap { position: relative; width: 100%; max-width: 780px; margin: auto auto 0; padding: 12px 28px max(22px, env(safe-area-inset-bottom)); }
 .composer {
+  position: relative;
   border: 1px solid var(--input);
   border-radius: 13px;
   background: var(--card);
@@ -198,6 +199,8 @@ svg { width: 1rem; height: 1rem; stroke-width: 1.8; }
   transition: border-color 160ms ease-out, box-shadow 160ms ease-out;
 }
 .composer:focus-within { border-color: var(--ring); box-shadow: 0 0 0 3px color-mix(in oklch, var(--ring) 15%, transparent); }
+.composer-wrap--drop .composer { border-color: var(--ring); box-shadow: 0 0 0 3px color-mix(in oklch, var(--ring) 16%, transparent); }
+.drop-indicator { position: absolute; z-index: 2; inset: 0; display: flex; align-items: center; justify-content: center; gap: 8px; border: 1px dashed var(--ring); border-radius: 13px; background: color-mix(in oklab, var(--card) 94%, transparent); color: var(--foreground); font-size: .78rem; font-weight: 650; pointer-events: none; }
 .composer textarea { min-height: 56px; max-height: 180px; resize: none; border: 0; box-shadow: none; background: transparent; padding: 13px 14px 4px; }
 .composer textarea:focus-visible { outline: none; box-shadow: none; }
 .composer-actions { display: flex; min-height: 43px; align-items: center; justify-content: space-between; gap: 10px; padding: 3px 7px 7px 14px; }

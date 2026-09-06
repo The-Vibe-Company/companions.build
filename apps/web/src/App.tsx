@@ -23,7 +23,7 @@ import {
   Waypoints,
   X,
 } from "lucide-react";
-import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { DragEvent, FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Conversation,
   ConversationContent,
@@ -57,6 +57,8 @@ import { RoutineSettings, TriggerSettings } from "@/components/AutomationPanels"
 const ACTIVE_DETAIL_INTERVAL = 1_000;
 const IDLE_DETAIL_INTERVAL = 5_000;
 const LIST_INTERVAL = 8_000;
+const MAX_CHAT_FILES = 5;
+const MAX_CHAT_FILE_BYTES = 10 * 1024 * 1024;
 
 function selectedIdFromPath() {
   return window.location.pathname.match(/^\/companions\/([^/]+)$/)?.[1] ?? null;
@@ -354,7 +356,10 @@ function Chat({ detail, onRefresh, onUnauthorized }: { detail: CompanionDetail; 
   const [files, setFiles] = useState<File[]>([]);
   const [sending, setSending] = useState(false);
   const [actionError, setActionError] = useState("");
+  const [fileNotice, setFileNotice] = useState("");
+  const [dragActive, setDragActive] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const dragDepth = useRef(0);
   const activeRun = detail.runs.find((run) => run.lane !== "background" && isActiveRun(run.status));
   const activePreview = activeRun
     && (activeRun.status === "running" || activeRun.status === "needs_input")
@@ -373,6 +378,7 @@ function Chat({ detail, onRefresh, onUnauthorized }: { detail: CompanionDetail; 
       await api.sendMessage(detail.companion.id, content, files);
       setDraft("");
       setFiles([]);
+      setFileNotice("");
       await onRefresh();
       textareaRef.current?.focus();
     } catch (cause) {
@@ -382,6 +388,24 @@ function Chat({ detail, onRefresh, onUnauthorized }: { detail: CompanionDetail; 
       setSending(false);
     }
   }
+
+  function addFiles(incoming: File[]) {
+    if (!incoming.length) return;
+    if (files.length + incoming.length > MAX_CHAT_FILES) {
+      setActionError(`A message accepts at most ${MAX_CHAT_FILES} files.`); setFileNotice(""); return;
+    }
+    if (incoming.some(file => file.size < 1 || file.size > MAX_CHAT_FILE_BYTES)) {
+      setActionError("Each file must be between 1 byte and 10 MB."); setFileNotice(""); return;
+    }
+    setFiles(current => [...current, ...incoming]); setActionError("");
+    setFileNotice(`${incoming.length} ${incoming.length === 1 ? "file" : "files"} attached.`);
+  }
+
+  function carriesFiles(event: DragEvent) { return Array.from(event.dataTransfer.types).includes("Files"); }
+  function dragEnter(event: DragEvent<HTMLFormElement>) { if (!carriesFiles(event)) return; event.preventDefault(); dragDepth.current += 1; setDragActive(true); setFileNotice(`Drop up to ${MAX_CHAT_FILES} files here.`); }
+  function dragOver(event: DragEvent<HTMLFormElement>) { if (!carriesFiles(event)) return; event.preventDefault(); event.dataTransfer.dropEffect = "copy"; }
+  function dragLeave(event: DragEvent<HTMLFormElement>) { if (!dragDepth.current) return; event.preventDefault(); dragDepth.current = Math.max(0, dragDepth.current - 1); if (!dragDepth.current) { setDragActive(false); setFileNotice(""); } }
+  function drop(event: DragEvent<HTMLFormElement>) { if (!carriesFiles(event)) return; event.preventDefault(); dragDepth.current = 0; setDragActive(false); addFiles(Array.from(event.dataTransfer.files)); }
 
   async function cancel() {
     setActionError("");
@@ -439,10 +463,12 @@ function Chat({ detail, onRefresh, onUnauthorized }: { detail: CompanionDetail; 
         <ConversationScrollButton aria-label="Scroll to latest message" />
       </Conversation>
       {(detail.questions??[]).map(question=><Question key={question.id} companionId={detail.companion.id} question={question} onAnswered={onRefresh}/>)}
-      <form className="composer-wrap" onSubmit={send}>
+      <form className={cn("composer-wrap", dragActive && "composer-wrap--drop")} onSubmit={send} onDragEnter={dragEnter} onDragOver={dragOver} onDragLeave={dragLeave} onDrop={drop}>
+        <span className="sr-only" aria-live="polite">{fileNotice}</span>
         {actionError && <p className="composer-error" role="alert">{actionError}</p>}
         {files.length > 0 && <div className="pending-files">{files.map((file, index) => <span key={`${file.name}-${file.lastModified}`}><FileText />{file.name}<button type="button" onClick={() => setFiles((current) => current.filter((_, item) => item !== index))} aria-label={`Remove ${file.name}`}><X /></button></span>)}</div>}
         <div className="composer">
+          {dragActive && <div className="drop-indicator" aria-hidden="true"><Paperclip />Drop files here</div>}
           <Textarea
             ref={textareaRef}
             value={draft}
@@ -460,7 +486,7 @@ function Chat({ detail, onRefresh, onUnauthorized }: { detail: CompanionDetail; 
           <div className="composer-actions">
             <span className="composer-hint">Enter to send · Shift + Enter for a new line</span>
             <div className="composer-buttons">
-              <label className="attach-button" aria-label="Attach files"><Paperclip /><input type="file" multiple onChange={(event) => setFiles(Array.from(event.target.files ?? []).slice(0, 5))} /></label>
+              <label className="attach-button" aria-label="Attach files"><Paperclip /><input type="file" multiple accept="image/png,image/jpeg,image/webp,image/gif,application/pdf,text/plain,text/csv,text/markdown,application/json,.md,.markdown,.txt,.csv,.json" onChange={(event) => { addFiles(Array.from(event.target.files ?? [])); event.currentTarget.value = ""; }} /></label>
               {activeRun && (
                 <Button type="button" variant="outline" size="sm" onClick={cancel}><CircleStop />Cancel</Button>
               )}

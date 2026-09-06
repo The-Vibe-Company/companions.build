@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "./App";
@@ -155,6 +155,69 @@ describe("first Companion flow", () => {
     await user.click(screen.getByRole("button", { name: /Browser Ready/ }));
     const browserComposer = await screen.findByRole("textbox", { name: "Message Browser" });
     expect(browserComposer).toHaveValue("");
+  });
+
+  it("drops files through the durable upload path and preserves the draft for an exact retry", async () => {
+    window.history.replaceState({}, "", "/companions/ada");
+    const ready = { ...companion, status: "ready" as const };
+    const admissions: Array<{ clientMessageId: string }> = [];
+    const fileIds: string[] = []; let uploadAttempts = 0;
+    const fetchMock = vi.fn((input: RequestInfo | URL, options?: RequestInit) => {
+      const path = String(input);
+      if (path === "/api/me") return response(me);
+      if (path === "/api/config") return response(config);
+      if (path === "/api/templates") return response({ templates: [] });
+      if (path === "/api/companions") return response({ companions: [ready] });
+      if (path === "/api/companions/ada" && !options?.method) return response({ companion: ready, messages: [], runs: [], activity: [] });
+      if (path === "/api/companions/ada/messages") { admissions.push(JSON.parse(String(options?.body))); return response({ runId: "run-files" }, 202); }
+      if (path === "/api/companions/ada/runs/run-files/files") {
+        uploadAttempts++; const form = options?.body as FormData; fileIds.push(String(form.get("clientFileId")));
+        return uploadAttempts === 1 ? response({ error: "File storage is temporarily unavailable." }, 503) : response({ file: { id: "file-1" } }, 201);
+      }
+      throw new Error(`Unexpected request: ${path}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup(); render(<App />);
+    const composer = await screen.findByRole("textbox", { name: "Message Ada" });
+    await user.type(composer, "Review the brief");
+    const form = composer.closest("form")!;
+    const file = new File(["brief"], "brief.txt", { type: "text/plain", lastModified: 7 });
+    fireEvent.dragEnter(form, { dataTransfer: { files: [file], types: ["Files"] } });
+    expect(screen.getByText("Drop files here")).toBeInTheDocument();
+    fireEvent.drop(form, { dataTransfer: { files: [file], types: ["Files"] } });
+    expect(screen.queryByText("Drop files here")).not.toBeInTheDocument();
+    expect(screen.getByText("brief.txt")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Send message" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("File storage is temporarily unavailable.");
+    expect(composer).toHaveValue("Review the brief");
+    expect(screen.getByText("brief.txt")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Send message" }));
+    await waitFor(() => expect(composer).toHaveValue(""));
+    expect(admissions).toHaveLength(2);
+    expect(admissions[1].clientMessageId).toBe(admissions[0].clientMessageId);
+    expect(fileIds[1]).toBe(fileIds[0]);
+  });
+
+  it("rejects an oversized drop without changing the draft or attachments", async () => {
+    window.history.replaceState({}, "", "/companions/ada");
+    const ready = { ...companion, status: "ready" as const };
+    vi.stubGlobal("fetch", vi.fn((input: RequestInfo | URL) => {
+      const path = String(input);
+      if (path === "/api/me") return response(me);
+      if (path === "/api/config") return response(config);
+      if (path === "/api/templates") return response({ templates: [] });
+      if (path === "/api/companions") return response({ companions: [ready] });
+      if (path === "/api/companions/ada") return response({ companion: ready, messages: [], runs: [], activity: [] });
+      throw new Error(`Unexpected request: ${path}`);
+    }));
+    const user = userEvent.setup(); render(<App />);
+    const composer = await screen.findByRole("textbox", { name: "Message Ada" }); await user.type(composer, "Keep this draft");
+    const oversized = new File([new Uint8Array(10 * 1024 * 1024 + 1)], "large.pdf", { type: "application/pdf" });
+    fireEvent.drop(composer.closest("form")!, { dataTransfer: { files: [oversized], types: ["Files"] } });
+    expect(screen.getByRole("alert")).toHaveTextContent("Each file must be between 1 byte and 10 MB.");
+    expect(composer).toHaveValue("Keep this draft");
+    expect(screen.queryByText("large.pdf")).not.toBeInTheDocument();
   });
 
   it("requests a Better Auth magic link and offers the local Mailpit inbox", async () => {

@@ -48,6 +48,18 @@ export async function configureCompanion(ownerId:string,id:string,input:unknown,
   return row??null;
 }
 registerControl({
+  history_search:async(context,input)=>{
+    const value=z.object({query:z.string().trim().min(2).max(200),limit:z.number().int().min(1).max(10).default(5)}).parse(input);
+    const matches=await db`SELECT r.id AS "runId",r.lane,r.status,r.created_at AS "createdAt",
+      left(ts_headline('simple',r.content || E'\\n' || COALESCE(r.result_text,''),websearch_to_tsquery('simple',${value.query}),
+        'StartSel=[, StopSel=], MaxWords=60, MinWords=15, MaxFragments=2'),1200) AS excerpt
+      FROM runs r JOIN companions c ON c.id=r.companion_id
+      WHERE c.id=${context.companionId} AND c.owner_id=${context.ownerId} AND c.retired_at IS NULL
+        AND r.id<>${context.runId} AND r.status IN ('succeeded','failed','interrupted','cancelled')
+        AND to_tsvector('simple',r.content || E'\\n' || COALESCE(r.result_text,'')) @@ websearch_to_tsquery('simple',${value.query})
+      ORDER BY r.created_at DESC,r.id DESC LIMIT ${value.limit}`;
+    return {matches};
+  },
   models:async()=>({models:await availableModels()}),
   identity:async context=>{
     const [companion]=await db`SELECT id,name,instructions,avatar,model_id AS "modelId",desktop_taken AS "desktopTaken",desktop_paused_at AS "desktopPausedAt",status FROM companions WHERE id=${context.companionId} AND owner_id=${context.ownerId}`;

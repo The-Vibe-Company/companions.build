@@ -51,3 +51,6 @@ CREATE TABLE IF NOT EXISTS routine_missed_windows (
   PRIMARY KEY (routine_id,first_scheduled_for),
   CHECK (last_scheduled_for >= first_scheduled_for)
 );
+
+-- Search only task prompts/results; never index staged instructions or provider credentials.
+CREATE INDEX IF NOT EXISTS runs_history_search_idx ON runs USING gin(to_tsvector('simple',content || E'\n' || COALESCE(result_text,'')));

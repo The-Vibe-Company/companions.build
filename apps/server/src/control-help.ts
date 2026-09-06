@@ -1,5 +1,6 @@
 /** Compact examples for the same owner-scoped services used by the web app. */
 export const controlHelp={
+ history_search:{query:'Words or an exact quoted phrase from earlier work',limit:5},
  identity:{},models:{},configure:{name:'Optional name',instructions:'Optional full instructions',modelId:'ID returned by models',avatar:{shape:'0..7',color:'0..10',face:'0..4'}},
  companion_create:{name:'Name',instructions:'Mission'},companions:{},
  routines:{},routine_save:{id:'Omit to create',name:'Daily review',prompt:'Review the repository',cron:'0 9 * * 1-5',timezone:'Europe/Paris',enabled:true},routine_delete:{id:'Routine ID'},routine_history:{id:'Routine ID'},routine_test:{id:'Routine ID'},

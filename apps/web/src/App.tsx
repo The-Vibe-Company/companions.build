@@ -70,6 +70,7 @@ function readableDate(value: string) {
 }
 
 function statusLabel(status: Companion["status"] | RunStatus) {
+  if (status === "archived") return "Sleeping";
   return status.replace("_", " ").replace(/^./, (letter) => letter.toUpperCase());
 }
 

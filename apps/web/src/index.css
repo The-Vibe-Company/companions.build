@@ -147,6 +147,7 @@ svg { width: 1rem; height: 1rem; stroke-width: 1.8; }
 .status-dot { width: 6px; height: 6px; flex: 0 0 6px; border-radius: 999px; background: oklch(0.58 0.02 75); }
 .status-dot--ready { background: oklch(0.6 0.14 148); }
 .status-dot--preparing { background: oklch(0.7 0.14 76); box-shadow: 0 0 0 3px oklch(0.85 0.07 76 / .4); }
+.status-dot--archived { background: oklch(0.58 0.02 75); }
 .status-dot--error { background: var(--destructive); }
 .new-companion { width: 100%; justify-content: flex-start; margin-top: 10px; background: transparent; }
 .sidebar-footer { padding: 20px 9px 0; color: var(--muted-foreground); font-size: .68rem; }
@@ -561,6 +562,9 @@ svg { width: 1rem; height: 1rem; stroke-width: 1.8; }
 .template-checks label { display: grid; min-height: 46px; grid-template-columns: 18px 28px minmax(0, 1fr); align-items: center; gap: 9px; border-bottom: 1px solid var(--border); font-size: .8rem; }
 .delivery-form > button { width: max-content; margin-top: 12px; }
 .success-copy { color: oklch(.39 .12 145); font-size: .8rem; }
+.pending-copy { color: var(--muted-foreground); font-size: .8rem; }
+.template-restore { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: 8px; }
+.template-restore > .field { margin: 0; }
 
 .desktop-sheet { position: absolute; top: 0; right: 0; display: flex; width: min(100%, 420px); height: 100%; flex-direction: column; background: var(--card); box-shadow: -22px 0 60px oklch(.2 .02 255 / .12); }
 .desktop-content { display: flex; min-height: 0; flex: 1; flex-direction: column; padding: 34px 28px; }

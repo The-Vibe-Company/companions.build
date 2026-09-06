@@ -1,7 +1,7 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { AccountProduct, DeliverySettings, DesktopSheet } from "./ProductPanels";
+import { AccountProduct, DeliverySettings, DesktopSheet, SpecialistsSettings } from "./ProductPanels";
 import type { Companion } from "@/api";
 
 const response = (body: unknown, status = 200) => Promise.resolve(new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } }));
@@ -15,7 +15,7 @@ describe("account delivery", () => {
     const fetchMock = vi.fn((input: RequestInfo | URL, options?: RequestInit) => {
       const path = String(input);
       if (path === "/api/billing") return response({ configured: true, mode: "stripe", plan: "inactive", active: false, status: null, currentPeriodEnd: null, cancelAtPeriodEnd: false, portalAvailable: false, usage: [] });
-      if (path === "/api/deliveries" && !options?.method) return response({ sent: [], received: accepted ? [] : [{ id: "d1", name: "Scout", status: "pending", maintenanceRequested: true, expiresAt: new Date().toISOString(), acceptedAt: null, companionId: null }] });
+      if (path === "/api/deliveries" && !options?.method) return response({ sent: [], received: accepted ? [] : [{ id: "d1", name: "Scout", status: "pending", skillsStatus: "ready", skillsError: null, maintenanceRequested: true, expiresAt: new Date().toISOString(), acceptedAt: null, companionId: null }] });
       if (path === "/api/deliveries/d1/accept") { accepted = true; return response({ companionId: "copy", accepted: true }); }
       throw new Error(`Unexpected ${path}`);
     });
@@ -26,6 +26,26 @@ describe("account delivery", () => {
     await user.click(screen.getByRole("checkbox", { name: "Allow maintenance" }));
     await user.click(screen.getByRole("button", { name: "Accept" }));
     await waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/api/deliveries/d1/accept", expect.objectContaining({ body: JSON.stringify({ grantMaintenance: true }) })));
+  });
+
+  it("shows preparing, failed, and ready delivery states without claiming an email was sent", async () => {
+    const base = { status: "pending", maintenanceRequested: false, expiresAt: new Date().toISOString(), acceptedAt: null, companionId: null };
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      const path = String(input);
+      if (path === "/api/billing") return response({ configured: false, mode: "unconfigured", plan: "inactive", active: false, status: null, currentPeriodEnd: null, cancelAtPeriodEnd: false, portalAvailable: false, usage: [] });
+      if (path === "/api/deliveries") return response({ received: [], sent: [
+        { ...base, id: "d1", clientEmail: "preparing@example.com", skillsStatus: "pending", skillsError: null },
+        { ...base, id: "d2", clientEmail: "failed@example.com", skillsStatus: "error", skillsError: "Skill export failed safely" },
+        { ...base, id: "d3", clientEmail: "ready@example.com", skillsStatus: "ready", skillsError: null },
+      ] });
+      throw new Error(`Unexpected ${path}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<AccountProduct user={{ id: "u1", name: "Alex", email: "alex@example.com" }} onSignOut={vi.fn()} />);
+    expect(await screen.findByText("Preparing skills…")).toBeInTheDocument();
+    expect(screen.getByText("Skill export failed safely")).toBeInTheDocument();
+    expect(screen.getByText("Ready for client")).toBeInTheDocument();
+    expect(screen.queryByText(/invitation sent/i)).not.toBeInTheDocument();
   });
 
   it("keeps granted maintenance bounded to configuration, diagnostics, and tasks", async () => {
@@ -58,7 +78,7 @@ describe("account delivery", () => {
       if (String(input) === "/api/templates") return response({ templates: [] });
       if (String(input) === "/api/deliveries") {
         bodies.push(JSON.parse(String(options?.body)) as { clientDeliveryId: string });
-        return bodies.length === 1 ? response({ error: "Try again" }, 503) : response({ delivery: {} });
+        return bodies.length === 1 ? response({ error: "Try again" }, 503) : response({ delivery: { skillsStatus: "ready", skillsError: null } });
       }
       throw new Error(`Unexpected ${String(input)}`);
     });
@@ -69,9 +89,24 @@ describe("account delivery", () => {
     await user.click(screen.getByRole("button", { name: "Send invitation" }));
     expect(await screen.findByText("Try again")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Send invitation" }));
-    await screen.findByText("Invitation sent.");
+    await screen.findByText("Invitation ready.");
     expect(bodies).toHaveLength(2);
     expect(bodies[1].clientDeliveryId).toBe(bodies[0].clientDeliveryId);
+  });
+
+  it("reports skill preparation after creating a delivery", async () => {
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      if (String(input) === "/api/templates") return response({ templates: [] });
+      if (String(input) === "/api/deliveries") return response({ delivery: { skillsStatus: "pending", skillsError: null } }, 201);
+      throw new Error(`Unexpected ${String(input)}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+    render(<DeliverySettings companionId="c1" />);
+    await user.type(screen.getByRole("textbox", { name: "Client email" }), "client@example.com");
+    await user.click(screen.getByRole("button", { name: "Send invitation" }));
+    expect(await screen.findByText("Preparing skills… Follow progress in Account.")).toBeInTheDocument();
+    expect(screen.queryByText(/invitation sent/i)).not.toBeInTheDocument();
   });
 });
 
@@ -107,5 +142,27 @@ describe("desktop control", () => {
     expect(replace).toHaveBeenCalledWith("https://desktop.example/session");
     view.unmount();
     expect(close).not.toHaveBeenCalled();
+  });
+});
+
+describe("specialist profile history", () => {
+  it("restores a selected immutable revision and shows a concurrent-change conflict", async () => {
+    const fetchMock = vi.fn((input: RequestInfo | URL, options?: RequestInit) => {
+      const path = String(input);
+      if (path === "/api/templates") return response({ templates: [{ id: "t1", name: "Researcher", instructions: "Current", avatar: { shape: 0, color: 0, face: 0 }, revision: 2, sourceCompanionId: null, hasSnapshot: false }] });
+      if (path === "/api/companions/c1/replicas") return response({ replicas: [] });
+      if (path === "/api/templates/t1/revisions") return response({ revisions: [
+        { revision: 2, name: "Researcher", instructions: "Current", avatar: { shape: 0, color: 0, face: 0 }, snapshotName: null, sourceCompanionId: null, createdAt: new Date().toISOString() },
+        { revision: 1, name: "Researcher", instructions: "Earlier", avatar: { shape: 0, color: 0, face: 0 }, snapshotName: null, sourceCompanionId: null, createdAt: new Date().toISOString() },
+      ] });
+      if (path === "/api/templates/t1/rollback" && options?.method === "POST") return response({ error: "Template missing, changed, or revision unavailable." }, 409);
+      throw new Error(`Unexpected ${path}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+    render(<SpecialistsSettings companionId="c1" />);
+    await user.click(await screen.findByRole("button", { name: "Restore" }));
+    expect(await screen.findByText("Template missing, changed, or revision unavailable.")).toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledWith("/api/templates/t1/rollback", expect.objectContaining({ method: "POST", body: JSON.stringify({ targetRevision: 1, expectedRevision: 2 }) }));
   });
 });

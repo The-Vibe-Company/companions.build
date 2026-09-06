@@ -91,6 +91,20 @@ describe("first Companion flow", () => {
     expect(await screen.findByRole("heading", { name: "Create your first Companion" })).toBeInTheDocument();
   });
 
+  it("presents an archived persistent Companion as sleeping", async () => {
+    const sleeping = { ...companion, status: "archived" as const };
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      const path = String(input);
+      if (path === "/api/me") return response(me);
+      if (path === "/api/config") return response(config);
+      if (path === "/api/companions") return response({ companions: [sleeping] });
+      throw new Error(`Unexpected request: ${path}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<App />);
+    expect(await screen.findByRole("button", { name: /Ada, Companion Ada Sleeping/ })).toBeInTheDocument();
+  });
+
   it("keeps send available during active work and clears drafts when switching Companions", async () => {
     window.history.replaceState({}, "", "/companions/ada");
     const browserCompanion = {

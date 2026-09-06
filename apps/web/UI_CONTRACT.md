@@ -35,11 +35,11 @@ The web client uses same-origin cookie sessions. A `401` from any authenticated 
 
 - `GET /api/billing` returns `{ configured, mode, plan, active, status, currentPeriodEnd, cancelAtPeriodEnd, portalAvailable, usage }` without projecting an active subscription when none exists.
 - `POST /api/billing/checkout` and `POST /api/billing/portal` return `{ url }` for their hosted Stripe surface.
-- `GET /api/deliveries` returns `{ sent, received }`. Creation accepts `{ clientDeliveryId, companionId, clientEmail, templateIds, maintenanceRequested }`; `clientDeliveryId` remains stable across a retry of the same form intent. Acceptance sends the recipient's explicit `{ grantMaintenance }` choice.
+- `GET /api/deliveries` returns `{ sent, received }`; each row includes `skillsStatus: "pending" | "ready" | "error"` and nullable `skillsError`. Creation accepts `{ clientDeliveryId, companionId, clientEmail, templateIds, maintenanceRequested, includeSkills? }`; `includeSkills` defaults to true and `clientDeliveryId` remains stable across a retry of the same form intent. The UI reports skill preparation until the API says the delivery is ready and never infers that an invitation was sent. Acceptance sends the recipient's explicit `{ grantMaintenance }` choice and is offered only when skills are ready.
 
 ## Specialists and desktop
 
-- `GET/POST /api/templates` lists and creates portable specialist profiles. `PATCH /api/templates/:id` includes `expectedRevision`.
+- `GET/POST /api/templates` lists and creates portable specialist profiles. `PATCH /api/templates/:id` includes `expectedRevision`. `GET /api/templates/:id/revisions` returns immutable history; `POST /api/templates/:id/rollback` accepts `{ targetRevision, expectedRevision }` and appends the restored state as a new revision.
 - `GET/POST /api/companions/:id/replicas` lists active or retained children and launches one with `{ clientCommandId, templateId, prompt }`.
 - `PUT /api/companions/:id/templates/:templateId` sets `{ maxChildren }` before launch.
 - `POST /api/companions/:id/desktop/takeover` requests physical pause; `POST .../release` requests thaw. The UI polls Companion detail and says control is held only after `desktopPausedAt` is present.

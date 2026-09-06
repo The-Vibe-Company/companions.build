@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { db } from './store';
 import { config, decrypt, encrypt } from './config';
-import { prepareBox, prepareLocal, agentRequest, environmentDigest, pauseMachine, archiveMachine } from './machines';
+import { prepareBox, prepareLocal, agentRequest, environmentDigest, pauseMachine, archiveMachine, ExecutionStopped, type EffectGuard } from './machines';
 import { BoxClient, BoxError } from '../../../packages/box/client';
 import { adoptTemplate, allowTemplate, listTemplates, saveTemplate, recordTemplateRevision, LifecycleConflict } from './templates';
 import { spawnChild, delegateTask } from './delegation';
@@ -26,15 +26,15 @@ export interface LifecycleHooks {
  deliverySkills?:DeliverySkillDependencies;
 }
 export interface LifecycleMachines {
- prepare(companion:any,checkpoint:(id:string)=>Promise<void>,configured:()=>Promise<void>):Promise<string|null>;
+ prepare(companion:any,checkpoint:(id:string)=>Promise<void>,configured:()=>Promise<void>,beforeEffect?:EffectGuard):Promise<string|null>;
  health(endpoint:string,token:string):Promise<any>;
- pause(companion:any,paused:boolean):Promise<void>;
- archive(companion:any):Promise<boolean>;
+ pause(companion:any,paused:boolean,beforeEffect?:EffectGuard):Promise<void>;
+ archive(companion:any,beforeEffect?:EffectGuard):Promise<boolean>;
  snapshot(companion:any,name:string):Promise<void>;
  snapshotStatus(name:string):Promise<'missing'|'pending'|'ready'|'failed'>;
 }
 const machines:LifecycleMachines={
- prepare:(companion,checkpoint,configured)=>companion.provider==='local'?prepareLocal(companion):prepareBox(companion,checkpoint,configured),
+ prepare:(companion,checkpoint,configured,beforeEffect)=>companion.provider==='local'?prepareLocal(companion,true,beforeEffect):prepareBox(companion,checkpoint,configured,beforeEffect),
  health:(endpoint,token)=>agentRequest(endpoint,token,'/health'),pause:pauseMachine,archive:archiveMachine,
  async snapshot(companion,name){if(!provider)throw Error('box_not_configured');await provider.snapshot(companion.box_id,name);},
  async snapshotStatus(name){
@@ -111,9 +111,16 @@ export async function progressLifecycle(sql:any=db,hooks:LifecycleHooks={},machi
  }));
  const failed=preparation.find(result=>result.status==='rejected');if(failed?.status==='rejected')throw failed.reason;
  async function prepare(companion:any){
+  async function beforePrepareEffect(){
+   await assertLeader();
+   const [latest]=await sql`SELECT owner_id,box_id,desktop_paused_at,retired_at,archive_requested_at FROM companions WHERE id=${companion.id}`;
+   if(!latest||latest.owner_id!==companion.owner_id||latest.box_id!==companion.box_id||latest.desktop_paused_at||latest.retired_at||latest.archive_requested_at)throw new ExecutionStopped('Machine preparation authority changed');
+   if(!await (hooks.canStartWork??ownerMayStartWork)(companion.owner_id))throw new ExecutionStopped(SUBSCRIPTION_REQUIRED);
+   await assertLeader();
+  }
   try {
    if(companion.desktop_paused_at){
-    if(!companion.desktop_taken){await assertLeader();await machine.pause(companion,false);await checkpoint(async(tx:any)=>{await tx`UPDATE companions SET desktop_paused_at=null,error=null WHERE id=${companion.id}`;});}
+    if(!companion.desktop_taken){await assertLeader();await machine.pause(companion,false,assertLeader);await checkpoint(async(tx:any)=>{await tx`UPDATE companions SET desktop_paused_at=null,error=null WHERE id=${companion.id}`;});}
     return;
    }
    const digest=environmentDigest(companion.agent_secret,companion.provider);
@@ -129,7 +136,7 @@ export async function progressLifecycle(sql:any=db,hooks:LifecycleHooks={},machi
     }
     if(Date.now()-new Date(companion.preparation_started_at).getTime()>5*60_000){await checkpoint(async(tx:any)=>{await tx`UPDATE companions SET prepare_requested=false,preparation_started_at=null,status='error',error='Machine preparation timed out. Request preparation to retry.' WHERE id=${companion.id}`;});return;}
     await checkpoint(async()=>{}); // Fence each provider attempt, including subsequent readiness polls.
-    const endpoint=reusable?decrypt(companion.endpoint_secret):await machine.prepare(companion,async id=>{await checkpoint(async(tx:any)=>{await tx`UPDATE companions SET box_id=${id} WHERE id=${companion.id}`;});companion.box_id=id;},async()=>{await checkpoint(async(tx:any)=>{await tx`UPDATE companions SET config_digest=${digest} WHERE id=${companion.id}`;});});
+    const endpoint=reusable?decrypt(companion.endpoint_secret):await machine.prepare(companion,async id=>{await checkpoint(async(tx:any)=>{await tx`UPDATE companions SET box_id=${id} WHERE id=${companion.id}`;});companion.box_id=id;},async()=>{await checkpoint(async(tx:any)=>{await tx`UPDATE companions SET config_digest=${digest} WHERE id=${companion.id}`;});},beforePrepareEffect);
     if(!endpoint)return;
     try{await assertLeader();if(!(await machine.health(endpoint,decrypt(companion.agent_secret)))?.ready)throw Error('agent_not_ready');}
     catch{await checkpoint(async(tx:any)=>{await tx`UPDATE companions SET endpoint_secret=null WHERE id=${companion.id}`;});return;}
@@ -143,7 +150,7 @@ export async function progressLifecycle(sql:any=db,hooks:LifecycleHooks={},machi
     companion.endpoint_secret=encrypt(endpoint);companion.status='ready';
    }
    if(companion.desktop_taken&&companion.endpoint_secret&&companion.status==='ready'){
-    await assertLeader();await machine.pause(companion,true);
+    await assertLeader();await machine.pause(companion,true,assertLeader);
     await checkpoint(async(tx:any)=>{await tx`UPDATE companions SET desktop_paused_at=now(),error=null WHERE id=${companion.id}`;});
    }
   }catch{await checkpoint(async(tx:any)=>{await tx`UPDATE companions SET error=${companion.desktop_taken?'Desktop takeover could not be confirmed. The agent may still be running.':'Machine preparation is temporarily unavailable.'} WHERE id=${companion.id}`;});}
@@ -215,7 +222,7 @@ export async function progressLifecycle(sql:any=db,hooks:LifecycleHooks={},machi
   if((await sql`SELECT id FROM runs WHERE companion_id=${companion.id} AND status IN ('queued','preparing','running','needs_input') LIMIT 1`).length)continue;
   if((await sql`SELECT id FROM template_candidates WHERE source_companion_id=${companion.id} AND status IN ('queued','capturing','ready')`).length)continue;
   try{
-   await assertLeader();if(!await machine.archive(companion))continue;
+   await assertLeader();if(!await machine.archive(companion,assertLeader))continue;
    await checkpoint(async(tx:any)=>{await tx`UPDATE companions SET archived_at=now(),retired_at=now(),endpoint_secret=null,desktop_paused_at=null WHERE id=${companion.id}`;await usage(tx,companion,'archived');});
   }catch{await checkpoint(async(tx:any)=>{await tx`UPDATE companions SET error='Child archive is awaiting provider confirmation.' WHERE id=${companion.id}`;});}
  }

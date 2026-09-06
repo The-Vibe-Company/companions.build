@@ -9,6 +9,9 @@ import { fetchAgent } from "../../../packages/box/transport";
 const box = config.boxKey ? new BoxClient(config.boxKey) : null;
 const workspace = createHash("sha256").update(dataDir).digest("hex").slice(0, 10);
 export class MachineError extends Error {}
+export class ExecutionStopped extends Error {}
+export type EffectGuard=()=>Promise<void>;
+const unguarded:EffectGuard=async()=>{};
 async function docker(args: string[]) {
   const child = Bun.spawn(["docker", ...args], { stdout: "pipe", stderr: "pipe" });
   const timer = setTimeout(() => child.kill(), 30_000);
@@ -32,17 +35,20 @@ export const environmentDigest = (secret: string, provider = "box") => createHas
   .update(JSON.stringify(modelEnvironment(decrypt(secret))))
   .update(provider === "local" ? realpathSync(resolve("dist/agent")) : config.boxTemplate ?? "")
   .digest("hex");
-export async function prepareLocal(companion: any, refreshConfig = true) {
+export async function prepareLocal(companion: any, refreshConfig = true, beforeEffect:EffectGuard=unguarded) {
+  const runDocker=async(args:string[])=>{await beforeEffect();return docker(args);};
+  await beforeEffect();
   const name = `companions-${workspace}-${companion.id}`;
   const state = join(dataDir, "agents", companion.id);
   mkdirSync(state, { recursive: true, mode: 0o700 });
   let existing: any;
-  try { existing = JSON.parse(await docker(["inspect", name]))[0]; } catch {}
+  try { existing = JSON.parse(await runDocker(["inspect", name]))[0]; } catch {}
+  await beforeEffect();
   const env = modelEnvironment(decrypt(companion.agent_secret));
   const digest = environmentDigest(companion.agent_secret, "local");
   if (existing && existing.Config?.Labels?.["companions.build.workspace"] !== workspace) throw new MachineError("local_machine_ownership_mismatch");
   if (existing && refreshConfig && existing.Config?.Labels?.["companions.build.config"] !== digest) {
-    await docker(["rm", "-f", name]);
+    await runDocker(["rm", "-f", name]);
     existing = null;
   }
   if (!existing) {
@@ -51,7 +57,7 @@ export async function prepareLocal(companion: any, refreshConfig = true) {
     const envPath = join(envDir, `${companion.id}.env`);
     if (Object.values(env).some(value => /[\r\n]/.test(value))) throw new MachineError("invalid_environment");
     writeFileSync(envPath, Object.entries(env).map(([key, value]) => `${key}=${value}`).join("\n"), { mode: 0o600 });
-    try { await docker(["run", "--detach", "--init", "--platform", "linux/amd64", "--name", name,
+    try { await runDocker(["run", "--detach", "--init", "--platform", "linux/amd64", "--name", name,
       "--label", `companions.build.workspace=${workspace}`, "--label", `companions.build.config=${digest}`,
       "--label", `companions.build.verification=${process.env.COMPANIONS_VERIFY_RUN ?? "development"}`, "--read-only", "--cap-drop=ALL", "--security-opt=no-new-privileges",
       "--tmpfs", "/tmp", "--env-file", envPath, "--publish", "127.0.0.1::8787",
@@ -61,23 +67,27 @@ export async function prepareLocal(companion: any, refreshConfig = true) {
     finally { unlinkSync(envPath); }
   } else {
     if (existing.Config?.Labels?.["companions.build.workspace"] !== workspace) throw new MachineError("local_machine_ownership_mismatch");
-    if (!existing.State.Running) await docker(["start", name]);
+    if (!existing.State.Running) await runDocker(["start", name]);
   }
-  const port = await docker(["port", name, "8787/tcp"]);
+  const port = await runDocker(["port", name, "8787/tcp"]);
   if (!/^127\.0\.0\.1:\d+$/.test(port)) throw new MachineError("local_endpoint_invalid");
   return `http://${port}`;
 }
-export async function prepareBox(companion: any, checkpoint: (boxId: string) => Promise<void>, configured: () => Promise<void>): Promise<string | null> {
+export async function prepareBox(companion: any, checkpoint: (boxId: string) => Promise<void>, configured: () => Promise<void>, beforeEffect:EffectGuard=unguarded, client:BoxClient|null=box): Promise<string | null> {
+  const box=client;
+  await beforeEffect();
   if (!box || !config.boxTemplate) throw new MachineError("box_not_configured");
   let id = companion.box_id;
   if (!id) {
     if (companion.create_started_at && Date.now() - new Date(companion.create_started_at).getTime() > 23 * 3600_000) throw new MachineError("box_creation_needs_reconciliation");
+    await beforeEffect();
     const created = await box.create(companion.create_key, companion.snapshot_name ?? config.boxTemplate);
     id = created.id;
     await checkpoint(id);
   }
+  await beforeEffect();
   const machine = await box.get(id);
-  if (machine.state === "archived") { await box.resume(id); return null; }
+  if (machine.state === "archived") { await beforeEffect(); await box.resume(id); return null; }
   if (!["ready", "idle"].includes(machine.state)) return null;
   if (machine.setupStatus === "failed") throw new MachineError("box_setup_failed");
   if (machine.setupStatus && machine.setupStatus !== "done") return null;
@@ -85,10 +95,13 @@ export async function prepareBox(companion: any, checkpoint: (boxId: string) => 
   const values = { ...modelEnvironment(decrypt(companion.agent_secret)), AGENT_STATE_DIR: companion.template_id ? `/home/user/.companions/agents/${companion.id}` : "/home/user/.companions" };
   // systemd EnvironmentFile uses double quoted values, not shell expansion.
   const envText = Object.entries(values).map(([key, value]) => `${key}="${value.replace(/\\/g, "\\\\").replace(/"/g, '\\"').replace(/\n/g, "\\n")}"`).join("\n");
+  await beforeEffect();
   await box.writeFile(id, "/home/user/.companions.env", envText);
   const action = companion.config_digest === environmentDigest(companion.agent_secret) ? "start" : "restart";
+  await beforeEffect();
   await box.command(id, `chmod 600 /home/user/.companions.env && ${userSystemctl(`${action} companions-agent.service`)}`);
   await configured();
+  await beforeEffect();
   return box.host(id, 8787);
 }
 export async function agentRequest(endpoint: string, token: string, path: string, method = "GET", body?: unknown) {
@@ -100,31 +113,35 @@ export async function agentRequest(endpoint: string, token: string, path: string
 }
 
 /** Only the executor calls these after persisting desired lifecycle state. */
-export async function pauseMachine(companion: any, paused: boolean) {
+export async function pauseMachine(companion: any, paused: boolean, beforeEffect:EffectGuard=unguarded) {
+  const runDocker=async(args:string[])=>{await beforeEffect();return docker(args);};
+  await beforeEffect();
   if (companion.provider === "box") {
     if (!box || !companion.box_id) throw new MachineError("box_not_configured");
     await box.command(companion.box_id, userSystemctl(`${paused ? "freeze" : "thaw"} companions-agent.service`));
     return;
   }
   const name = `companions-${workspace}-${companion.id}`;
-  const current = JSON.parse(await docker(["inspect", name]))[0];
+  const current = JSON.parse(await runDocker(["inspect", name]))[0];
   if (current.Config?.Labels?.["companions.build.workspace"] !== workspace) throw new MachineError("local_machine_ownership_mismatch");
-  if (!!current.State.Paused !== paused) await docker([paused ? "pause" : "unpause", name]);
+  if (!!current.State.Paused !== paused) await runDocker([paused ? "pause" : "unpause", name]);
 }
-export async function archiveMachine(companion: any) {
+export async function archiveMachine(companion: any, beforeEffect:EffectGuard=unguarded) {
+  const runDocker=async(args:string[])=>{await beforeEffect();return docker(args);};
+  await beforeEffect();
   if (companion.provider === "box") {
     if (!companion.box_id && !companion.create_started_at) return true;
     if (!box || !companion.box_id) throw new MachineError("box_not_configured");
     const machine = await box.get(companion.box_id);
     if (machine.state === "archived") return true;
-    if (["ready", "idle"].includes(machine.state)) await box.stop(companion.box_id);
+    if (["ready", "idle"].includes(machine.state)) { await beforeEffect(); await box.stop(companion.box_id); }
     return false;
   }
   const name = `companions-${workspace}-${companion.id}`;
   let current: any;
-  try { current = JSON.parse(await docker(["inspect", name]))[0]; } catch { return false; }
+  try { current = JSON.parse(await runDocker(["inspect", name]))[0]; } catch { return false; }
   if (current.Config?.Labels?.["companions.build.workspace"] !== workspace) throw new MachineError("local_machine_ownership_mismatch");
-  if (current.State.Paused) await docker(["unpause", name]);
-  if (current.State.Running) await docker(["stop", "--time", "10", name]);
+  if (current.State.Paused) await runDocker(["unpause", name]);
+  if (current.State.Running) await runDocker(["stop", "--time", "10", name]);
   return true;
 }

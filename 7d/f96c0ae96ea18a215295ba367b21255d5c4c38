@@ -1,0 +1,48 @@
+packages/agent/src/daemon.ts
+  s_f946242dcf6ba9::t_5e0537c0e7980c 12,27,31,39-41,93,108-114,116-117,123,126-136,150
+  s_f946242dcf6ba9::t_126ed483020c71 124-125
+  s_f946242dcf6ba9::t_9a8bdb6799df00 13,67,115,118-122
+packages/agent/test/daemon.test.ts
+  s_f946242dcf6ba9::t_55cb7c13fd9c6a 19-20,125-155,157
+  s_f946242dcf6ba9::t_210aec00bd4de5 156,158
+packages/agent/src/types.ts
+  s_f946242dcf6ba9::t_5e0537c0e7980c 1,5,28-30
+packages/agent/src/scripted-model.ts
+  s_f946242dcf6ba9::t_e84afd0aedfa6d 2-22,60-62
+packages/agent/src/journal.ts
+  s_f946242dcf6ba9::t_9a8bdb6799df00 58-61
+  s_f946242dcf6ba9::t_5e0537c0e7980c 5,30,39,72,79,86-90,96
+packages/agent/test/linux-acceptance.test.ts
+  s_f946242dcf6ba9::t_e84afd0aedfa6d 14,25,78-111,129
+apps/server/test/automations.test.ts
+  s_f946242dcf6ba9::t_55cb7c13fd9c6a 5,13,136-180
+packages/agent/README.md
+  s_f946242dcf6ba9::t_126ed483020c71 11,22-25,38-39
+apps/server/src/automations.ts
+  s_f946242dcf6ba9::t_55cb7c13fd9c6a 107
+  s_f946242dcf6ba9::t_9a8bdb6799df00 103-106,108-110
+apps/server/src/executor.ts
+  s_f946242dcf6ba9::t_9a8bdb6799df00 21,42
+  s_f946242dcf6ba9::t_245e693aacbc64 43,46,55,77-104,174-176,180,189
+packages/agent/src/pi-executor.ts
+  s_f946242dcf6ba9::t_e84afd0aedfa6d 5,180,185-186
+  s_f946242dcf6ba9::t_5e0537c0e7980c 14,71,77,119-134
+apps/server/src/automations.sql
+  s_f946242dcf6ba9::t_9a8bdb6799df00 9-11
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "7df96c0ae96ea18a215295ba367b21255d5c4c38",
+  "prompts": {},
+  "sessions": {
+    "s_f946242dcf6ba9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a06de4-a8a5-7cd3-b713-2a8d451f7200",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "StanGirard <stan@quivr.app>"
+    }
+  }
+}

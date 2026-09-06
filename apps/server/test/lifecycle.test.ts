@@ -81,6 +81,9 @@ test('snapshot recovery observes its durable name and activates only after ready
  const f=fake(),lock=await leader();
  try{
   f.machine.snapshot=async(_c,name)=>{f.calls.push('snapshot '+name);f.setSnapshot('pending');throw Error('Lost response after provider accepted snapshot');};
+  await db`UPDATE companions SET desktop_taken=true,desktop_paused_at=now() WHERE id=${child.companionId}`;
+  await progressLifecycle(lock.sql,{},f.machine);expect(f.calls).toEqual([]);
+  await db`UPDATE companions SET desktop_taken=false,desktop_paused_at=null WHERE id=${child.companionId}`;
   await progressLifecycle(lock.sql,{},f.machine);await progressLifecycle(lock.sql,{},f.machine);
   expect(f.calls.filter(call=>call.startsWith('snapshot companions-'))).toHaveLength(1);
   expect((await db`SELECT snapshot_name FROM agent_templates WHERE id=${template.id}`)[0].snapshot_name).toBeNull();

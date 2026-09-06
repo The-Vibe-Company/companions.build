@@ -108,7 +108,7 @@ export async function progressLifecycle(sql:any=db,hooks:LifecycleHooks={},machi
   }catch{await sql`UPDATE companions SET error=${companion.desktop_taken?'Desktop takeover could not be confirmed. The agent may still be running.':'Machine preparation is temporarily unavailable.'} WHERE id=${companion.id}`;}
  }
  // A submitted snapshot name is only observed on recovery; an ambiguous POST is never repeated.
- for(const candidate of await sql`SELECT k.*,c.box_id,c.provider,c.owner_id FROM template_candidates k JOIN companions c ON c.id=k.source_companion_id WHERE k.status IN ('queued','capturing','ready') ORDER BY k.requested_at LIMIT 50`){
+ for(const candidate of await sql`SELECT k.*,c.box_id,c.provider,c.owner_id FROM template_candidates k JOIN companions c ON c.id=k.source_companion_id WHERE k.status IN ('queued','capturing','ready') AND NOT c.desktop_taken AND c.desktop_paused_at IS NULL ORDER BY k.requested_at LIMIT 50`){
   try{
    if(candidate.status==='queued'){
     if(!candidate.box_id)continue;
@@ -158,7 +158,7 @@ export async function progressLifecycle(sql:any=db,hooks:LifecycleHooks={},machi
    if(child.temporary)await tx`UPDATE companions SET archive_requested_at=COALESCE(archive_requested_at,now()),prepare_requested=false WHERE id=${child.id}`;
   });
  }
- for(const companion of await sql`SELECT * FROM companions WHERE temporary AND archive_requested_at IS NOT NULL AND retired_at IS NULL ORDER BY archive_requested_at LIMIT 50`){
+ for(const companion of await sql`SELECT * FROM companions WHERE temporary AND archive_requested_at IS NOT NULL AND retired_at IS NULL AND NOT desktop_taken AND desktop_paused_at IS NULL ORDER BY archive_requested_at LIMIT 50`){
   if((await sql`SELECT id FROM runs WHERE companion_id=${companion.id} AND status IN ('queued','preparing','running','needs_input') LIMIT 1`).length)continue;
   if((await sql`SELECT id FROM template_candidates WHERE source_companion_id=${companion.id} AND status IN ('queued','capturing','ready')`).length)continue;
   try{

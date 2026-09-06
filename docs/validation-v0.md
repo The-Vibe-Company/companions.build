@@ -124,3 +124,19 @@ discovery, and a fresh SHA-256 challenge at the next turn. The PostgreSQL result
 journal. The first canary attempt incorrectly expected internal hash fields in the public upload
 response; the corrected probe uses the documented size/download contract and resumed the same
 accepted task IDs. No runtime import endpoint was used to install the skill.
+
+## OAuth connection acceptance
+
+The connection callback now returns to `/connections`, consumes only its owner's pending flow,
+and distinguishes completion, cancellation, and errors without exposing provider payloads. Mobile
+browser checks verified popup opening and closure, account refresh, and disabled unavailable
+providers without horizontal overflow. Integrated verification `aa12c2311457` passed after these
+changes; it predates the desktop broker integration.
+
+Live discovery verified all six applicable resource metadata endpoints. Linear, Notion, Conductor,
+and Sentry each accepted an OAuth start with PKCE and state. An existing consented Linear account
+then passed tool discovery and a read-only team lookup through a real V5 Box/Pi task; its result
+was checked independently. See [sanitized provider evidence](measurements/plugins-2026-09-07.json).
+OAuth starts alone do not prove consent or tool access. Notion, Conductor, and Sentry still need
+personal consent for their real-tool checks; GitHub, Slack, and Gmail need deployment OAuth client
+configuration. Those paths are not marked accepted.

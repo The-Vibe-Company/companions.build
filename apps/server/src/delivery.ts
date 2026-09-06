@@ -4,13 +4,14 @@ import { z } from "zod";
 import { config, encrypt } from "./config";
 import { db } from "./store";
 import { ProductActivationRequired, requireProductActivation } from "./billing";
+import { queueDeliverySkillExports } from "./delivery-skills";
 
 const json = (body: unknown, status = 200) => Response.json(body, { status, headers: { "Cache-Control": "no-store" } });
 const idSchema = z.string().uuid();
 const createSchema = z.object({ clientDeliveryId: idSchema, companionId: idSchema,
   clientEmail: z.string().trim().email().max(320).transform(value => value.toLowerCase()),
   templateIds: z.array(idSchema).max(20).refine(ids => new Set(ids).size === ids.length, "Template IDs must be unique").default([]),
-  maintenanceRequested: z.boolean().default(false) });
+  maintenanceRequested: z.boolean().default(false), includeSkills: z.boolean().default(true) });
 
 type Mail = { to: string; subject: string; text: string };
 let mailOverride: ((mail: Mail) => Promise<void>) | null = null;
@@ -27,14 +28,14 @@ export async function migrateDelivery(sql = db) {
   await sql.begin(async tx => { await tx`SELECT pg_advisory_xact_lock(721440141)`; await tx.unsafe(schema); });
 }
 
-async function portableTemplates(ownerId: string, companionId: string, ids: string[]) {
+async function portableTemplates(ownerId: string, companionId: string, ids: string[], sql:any=db) {
   const [{ exists }] = await db`SELECT to_regclass('public.agent_templates') IS NOT NULL AS exists`;
   if (!exists || ids.length === 0) return [];
-  const templates: Array<{ name: string; instructions: string; avatar: unknown; maxChildren: number }> = [];
+  const templates: Array<{ sourceTemplateId:string;sourceCompanionId:string|null;skillBundleId:string|null;name: string; instructions: string; avatar: unknown; maxChildren: number }> = [];
   for (const id of ids) {
-    const [row] = await db`SELECT t.name,t.instructions,t.avatar,p.max_children FROM agent_templates t JOIN template_permissions p ON p.template_id=t.id AND p.parent_id=${companionId} WHERE t.id=${id} AND t.owner_id=${ownerId}`;
+    const [row] = await sql`SELECT t.id,t.name,t.instructions,t.avatar,t.source_companion_id,t.skill_bundle_id,p.max_children FROM agent_templates t JOIN template_permissions p ON p.template_id=t.id AND p.parent_id=${companionId} WHERE t.id=${id} AND t.owner_id=${ownerId}`;
     if (!row) throw new DeliveryConflict("A selected template is unavailable.");
-    templates.push({ name: row.name, instructions: row.instructions, avatar: row.avatar ?? null, maxChildren: row.max_children });
+    templates.push({ sourceTemplateId:row.id,sourceCompanionId:row.source_companion_id,skillBundleId:row.skill_bundle_id,name: row.name, instructions: row.instructions, avatar: row.avatar ?? null, maxChildren: row.max_children });
   }
   return templates;
 }
@@ -43,12 +44,12 @@ export class DeliveryConflict extends Error {}
 export async function createDelivery(ownerId: string, raw: unknown) {
   const input = createSchema.parse(raw);
   const fingerprint = createHash("sha256").update(JSON.stringify({ companionId: input.companionId,
-    clientEmail: input.clientEmail, templateIds: input.templateIds, maintenanceRequested: input.maintenanceRequested })).digest("hex");
-  const [prior] = await db`SELECT id,recipient_email,expires_at,maintenance_requested,request_fingerprint
+    clientEmail: input.clientEmail, templateIds: input.templateIds, maintenanceRequested: input.maintenanceRequested,includeSkills:input.includeSkills })).digest("hex");
+  const [prior] = await db`SELECT id,recipient_email,expires_at,maintenance_requested,request_fingerprint,skills_status,skills_error
     FROM companion_deliveries WHERE source_owner_id=${ownerId} AND client_delivery_id=${input.clientDeliveryId}`;
   if (prior) {
     if (prior.request_fingerprint !== fingerprint) throw new DeliveryConflict("This delivery identifier was already used with different details.");
-    return { id: prior.id, clientEmail: prior.recipient_email, expiresAt: prior.expires_at, maintenanceRequested: prior.maintenance_requested };
+    return deliveryResult(prior);
   }
   const [companion] = await db`SELECT to_jsonb(companions) AS value FROM companions WHERE id=${input.companionId} AND owner_id=${ownerId}`;
   if (!companion) return null;
@@ -57,32 +58,40 @@ export async function createDelivery(ownerId: string, raw: unknown) {
   const profile = { name: source.name, instructions: source.instructions, avatar: source.avatar ?? null };
   const id = crypto.randomUUID();
   const expiresAt = new Date(Date.now() + 14 * 86_400_000);
-  const inserted = await db`INSERT INTO companion_deliveries (id,client_delivery_id,request_fingerprint,source_owner_id,source_companion_id,recipient_email,profile_snapshot,template_profiles,maintenance_requested,expires_at)
-    VALUES (${id},${input.clientDeliveryId},${fingerprint},${ownerId},${input.companionId},${input.clientEmail},${profile},${templates},${input.maintenanceRequested},${expiresAt})
+  const inserted = await db.begin(async tx=>{
+   const rows=await tx`INSERT INTO companion_deliveries (id,client_delivery_id,request_fingerprint,source_owner_id,source_companion_id,recipient_email,profile_snapshot,template_profiles,maintenance_requested,expires_at,include_skills,skills_status)
+    VALUES (${id},${input.clientDeliveryId},${fingerprint},${ownerId},${input.companionId},${input.clientEmail},${profile},${templates},${input.maintenanceRequested},${expiresAt},${input.includeSkills},${input.includeSkills?'pending':'ready'})
     ON CONFLICT(source_owner_id,client_delivery_id) DO NOTHING RETURNING id`;
+   if(rows[0]&&input.includeSkills)await queueDeliverySkillExports(tx,{deliveryId:id,ownerId,companionId:input.companionId,templates});
+   return rows;
+  });
   if (!inserted[0]) {
-    const [winner] = await db`SELECT id,recipient_email,expires_at,maintenance_requested,request_fingerprint
+    const [winner] = await db`SELECT id,recipient_email,expires_at,maintenance_requested,request_fingerprint,skills_status,skills_error
       FROM companion_deliveries WHERE source_owner_id=${ownerId} AND client_delivery_id=${input.clientDeliveryId}`;
     if (!winner || winner.request_fingerprint !== fingerprint) throw new DeliveryConflict("This delivery identifier was already used with different details.");
-    return { id: winner.id, clientEmail: winner.recipient_email, expiresAt: winner.expires_at, maintenanceRequested: winner.maintenance_requested };
+    return deliveryResult(winner);
   }
-  const link = `${config.authUrl.replace(/\/$/, "")}/deliveries/${id}`;
-  try {
-    await sendInvite({ to: input.clientEmail, subject: `${String(source.name)} is ready for you`, text: `Sign in with ${input.clientEmail} to review and activate your independent Companion copy:\n\n${link}\n\nThe invitation expires in 14 days.` });
-    await db`UPDATE companion_deliveries SET email_status=${config.smtpHost || mailOverride ? "sent" : "skipped"} WHERE id=${id}`;
-  } catch {
-    // The durable invitation remains pending for a later delivery retry.
-  }
-  return { id, clientEmail: input.clientEmail, expiresAt, maintenanceRequested: input.maintenanceRequested };
+  if(!input.includeSkills)await sendDeliveryReadyInvite(id);
+  return { id, clientEmail: input.clientEmail, expiresAt, maintenanceRequested: input.maintenanceRequested,skillsStatus:input.includeSkills?'pending':'ready',skillsError:null };
 }
 
-async function copyPortableTemplates(sql: any, ownerId: string, companionId: string, templates: unknown) {
+function deliveryResult(row:any){return{id:row.id,clientEmail:row.recipient_email,expiresAt:row.expires_at,maintenanceRequested:row.maintenance_requested,skillsStatus:row.skills_status,skillsError:row.skills_error};}
+export async function sendDeliveryReadyInvite(deliveryId:string){
+ const [delivery]=await db`SELECT id,recipient_email,profile_snapshot,expires_at FROM companion_deliveries WHERE id=${deliveryId} AND status='pending' AND skills_status='ready' AND email_status='pending'`;
+ if(!delivery)return false;const link=`${config.authUrl.replace(/\/$/,"")}/deliveries/${delivery.id}`;
+ await sendInvite({to:delivery.recipient_email,subject:`${String(delivery.profile_snapshot.name)} is ready for you`,text:`Sign in with ${delivery.recipient_email} to review and activate your independent Companion copy:\n\n${link}\n\nThe invitation expires in 14 days.`});
+ await db`UPDATE companion_deliveries SET email_status=${config.smtpHost||mailOverride?'sent':'skipped'} WHERE id=${delivery.id} AND email_status='pending'`;return true;
+}
+
+async function copyPortableTemplates(sql: any, ownerId: string, companionId: string, deliveryId:string,templates: unknown) {
   const [{ exists }] = await sql`SELECT to_regclass('public.agent_templates') IS NOT NULL AS exists`;
   if (!exists || !Array.isArray(templates)) return;
   for (const raw of templates) {
-    const profile = z.object({ name: z.string().min(1).max(80), instructions: z.string().max(20_000), avatar: z.unknown().nullable(), maxChildren: z.number().int().min(1).max(20) }).parse(raw);
+    const profile = z.object({ sourceTemplateId:z.string().uuid(),name: z.string().min(1).max(80), instructions: z.string().max(20_000), avatar: z.unknown().nullable(), maxChildren: z.number().int().min(1).max(20) }).parse(raw);
+    const [exported]=await sql`SELECT bundle_id FROM portable_skill_exports WHERE delivery_id=${deliveryId} AND target_kind='delivery_template' AND source_template_id=${profile.sourceTemplateId} AND status='ready'`;
     const templateId = crypto.randomUUID();
-    await sql`INSERT INTO agent_templates (id,owner_id,name,instructions,avatar,snapshot_name,source_companion_id) VALUES (${templateId},${ownerId},${profile.name},${profile.instructions},${profile.avatar},NULL,NULL)`;
+    await sql`INSERT INTO agent_templates (id,owner_id,name,instructions,avatar,snapshot_name,source_companion_id,skill_bundle_id) VALUES (${templateId},${ownerId},${profile.name},${profile.instructions},${profile.avatar},NULL,NULL,${exported?.bundle_id??null})`;
+    await sql`INSERT INTO template_revisions(template_id,revision,owner_id,name,instructions,avatar,snapshot_name,source_companion_id,skill_bundle_id) VALUES(${templateId},1,${ownerId},${profile.name},${profile.instructions},${profile.avatar},NULL,NULL,${exported?.bundle_id??null}) ON CONFLICT DO NOTHING`;
     await sql`INSERT INTO template_permissions (parent_id,template_id,max_children) VALUES (${companionId},${templateId},${profile.maxChildren})`;
   }
 }
@@ -96,14 +105,17 @@ export async function acceptDelivery(ownerId: string, deliveryId: string, grantM
     if (!delivery || delivery.recipient_email !== user.email) return null;
     if (delivery.status === "accepted") return { companionId: delivery.delivered_companion_id, accepted: false };
     if (delivery.status !== "pending" || new Date(delivery.expires_at) <= new Date()) throw new DeliveryConflict("This invitation is no longer available.");
+    if(delivery.skills_status==='pending')throw new DeliveryConflict('Portable skills are still being prepared.');
+    if(delivery.skills_status==='error')throw new DeliveryConflict(delivery.skills_error??'Portable skills could not be prepared.');
     const profile = z.object({ name: z.string().min(1).max(80), instructions: z.string().max(20_000), avatar: z.unknown().nullable() }).parse(delivery.profile_snapshot);
     const companionId = crypto.randomUUID();
     const testMode = process.env.NODE_ENV !== "production" && process.env.BILLING_TEST_MODE === "1";
     if (!testMode && !config.boxTemplate) throw new DeliveryConflict("The fresh Box base template is not configured.");
-    await sql`INSERT INTO companions (id,owner_id,name,instructions,provider,create_key,agent_secret) VALUES (${companionId},${ownerId},${profile.name},${profile.instructions},${testMode ? "local" : "box"},${crypto.randomUUID()},${encrypt(randomBytes(32).toString("hex"))})`;
+    const [mainBundle]=await sql`SELECT bundle_id FROM portable_skill_exports WHERE delivery_id=${deliveryId} AND target_kind='delivery_main' AND status='ready'`;
+    await sql`INSERT INTO companions (id,owner_id,name,instructions,provider,create_key,agent_secret,prepare_requested,skill_bundle_id) VALUES (${companionId},${ownerId},${profile.name},${profile.instructions},${testMode ? "local" : "box"},${crypto.randomUUID()},${encrypt(randomBytes(32).toString("hex"))},true,${mainBundle?.bundle_id??null})`;
     const [{ avatar_column }] = await sql`SELECT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='companions' AND column_name='avatar') AS avatar_column`;
     if (avatar_column && profile.avatar !== null) await sql.unsafe("UPDATE companions SET avatar=$1::jsonb WHERE id=$2", [JSON.stringify(profile.avatar), companionId]);
-    await copyPortableTemplates(sql, ownerId, companionId, delivery.template_profiles);
+    await copyPortableTemplates(sql, ownerId, companionId,deliveryId,delivery.template_profiles);
     if (grantMaintenance && delivery.maintenance_requested) {
       await sql`INSERT INTO companion_maintenance_grants (delivery_id,companion_id,client_owner_id,maintainer_id) VALUES (${deliveryId},${companionId},${ownerId},${delivery.source_owner_id})`;
     }
@@ -122,8 +134,8 @@ export async function handleDelivery(request: Request, ownerId: string) {
   if (url.pathname === "/api/deliveries" && request.method === "GET") {
     const [user] = await db`SELECT lower(email) AS email FROM "user" WHERE id=${ownerId}`;
     const [sent, received] = await Promise.all([
-      db`SELECT id,recipient_email AS "clientEmail",status,maintenance_requested AS "maintenanceRequested",expires_at AS "expiresAt",accepted_at AS "acceptedAt",delivered_companion_id AS "companionId" FROM companion_deliveries WHERE source_owner_id=${ownerId} ORDER BY created_at DESC`,
-      db`SELECT id,profile_snapshot->>'name' AS name,status,maintenance_requested AS "maintenanceRequested",expires_at AS "expiresAt",accepted_at AS "acceptedAt",delivered_companion_id AS "companionId" FROM companion_deliveries WHERE recipient_email=${user.email} ORDER BY created_at DESC`,
+      db`SELECT id,recipient_email AS "clientEmail",status,skills_status AS "skillsStatus",skills_error AS "skillsError",maintenance_requested AS "maintenanceRequested",expires_at AS "expiresAt",accepted_at AS "acceptedAt",delivered_companion_id AS "companionId" FROM companion_deliveries WHERE source_owner_id=${ownerId} ORDER BY created_at DESC`,
+      db`SELECT id,profile_snapshot->>'name' AS name,status,skills_status AS "skillsStatus",skills_error AS "skillsError",maintenance_requested AS "maintenanceRequested",expires_at AS "expiresAt",accepted_at AS "acceptedAt",delivered_companion_id AS "companionId" FROM companion_deliveries WHERE recipient_email=${user.email} ORDER BY created_at DESC`,
     ]);
     return json({ sent, received });
   }

@@ -2,8 +2,9 @@ import { afterEach, beforeAll, expect, test } from "bun:test";
 import { migrate, createCompanion, db } from "../src/store";
 import { migrateBilling } from "../src/billing";
 import { acceptDelivery, canMaintainCompanion, createDelivery, handleDelivery, migrateDelivery, setDeliveryMailerForTests } from "../src/delivery";
+import { migrateDeliverySkills } from "../src/delivery-skills";
 
-beforeAll(async () => { await migrate(); await migrateBilling(); await migrateDelivery(); });
+beforeAll(async () => { await migrate(); await migrateBilling(); await migrateDelivery(); await migrateDeliverySkills(); });
 afterEach(() => {
   setDeliveryMailerForTests(null);
   for (const key of ["BILLING_TEST_MODE", "STRIPE_SECRET_KEY", "STRIPE_PRICE_ID", "STRIPE_WEBHOOK_SECRET", "STRIPE_METER_EVENT_NAME", "STRIPE_BOX_METER_EVENT_NAME", "APP_URL"]) delete process.env[key];
@@ -23,7 +24,7 @@ test("a verified matching client receives an independent copy with explicit revo
   const source = await createCompanion(sender, { name: "Scout", instructions: "Watch the market", provider: "local" });
   const mails: Array<{ to: string; text: string }> = [];
   setDeliveryMailerForTests(async mail => { mails.push(mail); });
-  const delivery = await createDelivery(sender, { clientDeliveryId: crypto.randomUUID(), companionId: source.id, clientEmail: recipientEmail.toUpperCase(), maintenanceRequested: true });
+  const delivery = await createDelivery(sender, { clientDeliveryId: crypto.randomUUID(), companionId: source.id, clientEmail: recipientEmail.toUpperCase(), maintenanceRequested: true, includeSkills: false });
   expect(delivery?.clientEmail).toBe(recipientEmail);
   expect(mails[0].to).toBe(recipientEmail);
   expect(await acceptDelivery(stranger, delivery!.id, true)).toBeNull();
@@ -45,7 +46,7 @@ test("maintenance is never granted unless the client explicitly accepts it", asy
   const recipientEmail = `client-${crypto.randomUUID()}@example.com`; const recipient = await user(recipientEmail);
   const source = await createCompanion(sender, { name: "Private", instructions: "No access", provider: "local" });
   setDeliveryMailerForTests(async () => {});
-  const delivery = await createDelivery(sender, { clientDeliveryId: crypto.randomUUID(), companionId: source.id, clientEmail: recipientEmail, maintenanceRequested: true });
+  const delivery = await createDelivery(sender, { clientDeliveryId: crypto.randomUUID(), companionId: source.id, clientEmail: recipientEmail, maintenanceRequested: true, includeSkills: false });
   const accepted = await acceptDelivery(recipient, delivery!.id, false);
   expect(await canMaintainCompanion(sender, accepted!.companionId)).toBe(false);
 });
@@ -56,7 +57,7 @@ test("sender and recipient listings do not leak deliveries across accounts", asy
   const stranger = await user(`stranger-${crypto.randomUUID()}@example.com`);
   const source = await createCompanion(sender, { name: "Ledger", instructions: "Reconcile", provider: "local" });
   setDeliveryMailerForTests(async () => {});
-  const delivery = await createDelivery(sender, { clientDeliveryId: crypto.randomUUID(), companionId: source.id, clientEmail: recipientEmail });
+  const delivery = await createDelivery(sender, { clientDeliveryId: crypto.randomUUID(), companionId: source.id, clientEmail: recipientEmail, includeSkills: false });
   const sent = await (await handleDelivery(new Request("http://localhost/api/deliveries"), sender))!.json() as any;
   const received = await (await handleDelivery(new Request("http://localhost/api/deliveries"), recipient))!.json() as any;
   const unrelated = await (await handleDelivery(new Request("http://localhost/api/deliveries"), stranger))!.json() as any;
@@ -72,7 +73,7 @@ test("delivery creation retries one immutable request without another email or c
   const source = await createCompanion(sender, { name: "Retry safe", instructions: "Portable", provider: "local" });
   const clientDeliveryId = crypto.randomUUID(); let mails = 0;
   setDeliveryMailerForTests(async () => { mails++; });
-  const input = { clientDeliveryId, companionId: source.id, clientEmail: recipientEmail, maintenanceRequested: false };
+  const input = { clientDeliveryId, companionId: source.id, clientEmail: recipientEmail, maintenanceRequested: false, includeSkills: false };
   const [first, retry] = await Promise.all([createDelivery(sender, input), createDelivery(sender, input)]);
   expect(retry).toEqual(first);
   expect(mails).toBe(1);
@@ -95,7 +96,7 @@ test("a delivery stays pending when the recipient has no active subscription", a
   const recipientEmail = `client-${crypto.randomUUID()}@example.com`; const recipient = await user(recipientEmail);
   const source = await createCompanion(sender, { name: "Awaiting plan", instructions: "Remain pending", provider: "local" });
   setDeliveryMailerForTests(async () => {});
-  const delivery = await createDelivery(sender, { clientDeliveryId: crypto.randomUUID(), companionId: source.id, clientEmail: recipientEmail });
+  const delivery = await createDelivery(sender, { clientDeliveryId: crypto.randomUUID(), companionId: source.id, clientEmail: recipientEmail, includeSkills: false });
   await expect(acceptDelivery(recipient, delivery!.id, false)).rejects.toThrow("active subscription");
   const [persisted] = await db`SELECT status,accepted_by,delivered_companion_id FROM companion_deliveries WHERE id=${delivery!.id}`;
   expect(persisted).toMatchObject({ status: "pending", accepted_by: null, delivered_companion_id: null });

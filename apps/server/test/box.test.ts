@@ -56,3 +56,11 @@ test("private preview transport preserves request query parameters alongside its
  await fetchAgent('https://test.on.ascii.dev?_token=synthetic','daemon-secret','/files/outbox?runId=example','GET',undefined,1000,(async(url:any)=>{observed=new URL(url);return Response.json({files:[]});}) as any);
  expect(observed!.pathname).toBe('/files/outbox');expect(observed!.searchParams.get('runId')).toBe('example');expect(observed!.searchParams.get('_token')).toBe('synthetic');
 });
+
+
+test("snapshot refusals expose only the known recoverable codes",async()=>{
+ for(const [code,expected] of [["named_snapshot_limit","box_snapshot_limit"],["save_in_progress","box_snapshot_saving"],["unknown-provider-secret","box_request_failed"]]){
+  const client=new BoxClient("test-only",(async()=>Response.json({code,message:"provider-private-payload"},{status:409})) as unknown as typeof fetch);
+  await expect(client.snapshot("owned-build","immutable-release")).rejects.toThrow(expected);
+ }
+});

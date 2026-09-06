@@ -1,0 +1,21 @@
+{
+  "observedOn": "2026-09-07",
+  "distribution": "companions-agent-v3-final-20260907",
+  "status": "passed",
+  "first": {
+    "admissionMs": 8.507791999999998,
+    "totalSeconds": 33.578405125,
+    "preparationSeconds": 19.149,
+    "executionSeconds": 14.15
+  },
+  "wake": {
+    "admissionMs": 22.744290999995428,
+    "totalSeconds": 35.31057791600001,
+    "preparationSeconds": 22.23,
+    "executionSeconds": 12.871
+  },
+  "archiveSeconds": 32.14763695800001,
+  "sameBoxAndFileRetained": true,
+  "desktopVerified": true,
+  "interpretation": "Individual samples, not percentiles. Preparation includes provider and controller work. Few-second cold startup is not achieved."
+}

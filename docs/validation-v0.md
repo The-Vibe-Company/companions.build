@@ -2,11 +2,9 @@
 
 `python3 scripts/verify.py` runs the agent unit suites, every isolated server/PostgreSQL suite, the
 compiled Linux acceptance path, frontend behavior tests, typechecking, and both production builds.
-The last full integrated run before the latest UI patch passed at
-`.artifacts/verification/838726ab125a`. The focused UI suite, typecheck, build, and browser delivery
-flow then passed separately. Artifact paths are local evidence and are not committed. The older timed run remains in
-[the measured run](measurements/v0-local-2026-09-06.json); its test counts predate activation,
-maintenance, template-history, asynchronous lifecycle, and portable-skill coverage.
+The final full integrated run passed at `.artifacts/verification/61566c4f5586`, including 22
+frontend tests and the runtime fault suites. Artifact paths are local evidence and are not committed.
+Earlier measured runs remain under `docs/measurements`; their counts predate the final integration.
 
 The integrated Linux scenario exercises real Pi read/write/bash tools through the controller:
 two independent Companions, cancellation during a shell command, process death after a filesystem
@@ -31,13 +29,13 @@ returned a persisted French response using this model.
 
 After Box configuration, canaries passed snapshot lookup, creation, real file/shell tools,
 archive/resume of the same machine, file persistence, desktop URL retrieval, and physical takeover.
-The latest immutable snapshot was `companions-agent-v2-20260907`; re-running its preparation
+The latest immutable snapshot was `companions-agent-v3-final-20260907`; re-running its preparation
 observed it through GET and performed no reinstall.
 
-The live portable-skills canary on that V2 Box passed. It verified exported hashes, idempotent
+The live portable-skills canary on the final V3 Box passed. It verified exported hashes, idempotent
 import, discovery through the daemon skills endpoint, and a real Pi tool task that could only
 succeed by reading the imported fixture. The persisted PostgreSQL result and private daemon journal
-agreed. The artifact is local and private; this document intentionally omits its unique fixture,
+agreed. The daemon also rejected a forged bundle containing a credentials file. The artifact is local and private; this document intentionally omits its unique fixture,
 endpoint, and credentials.
 
 ## Live Box latency
@@ -47,16 +45,16 @@ executed a shell file; the wake task verified that file after archive. Model wor
 
 | Observation | Admission | Preparation | Pi execution/result | Total |
 | --- | ---: | ---: | ---: | ---: |
-| First creation + tool task | 8.405 ms | 12.782 s | 13.266 s | 26.0599 s |
-| Archive | — | — | — | 18.1129 s |
-| Wake + existing-file tool task | 12.987 ms | 28.989 s | 20.444 s | 49.5130 s |
+| First creation + tool task | 8.508 ms | 19.149 s | 14.150 s | 33.5784 s |
+| Archive | — | — | — | 32.1476 s |
+| Wake + existing-file tool task | 22.744 ms | 22.230 s | 12.871 s | 35.3106 s |
 
 The wake reused the same Box and observed the file created before archive. Preparation includes
 provider transition, service startup, private preview, and controller work; it cannot all be
 attributed to Box. The few-second cold/wake goal is **not achieved**, and these single samples do
 not establish percentiles or a reliable speedup. No runtime dependency installation occurred. The
-committed [sanitized measurements](measurements/v0-box-2026-09-06.json) contain earlier samples and
-must not be mistaken for this latest observation.
+committed [final sanitized measurements](measurements/v0-box-2026-09-07.json) contain this observation;
+the previous dated file retains the earlier samples.
 
 ## Live desktop takeover
 
@@ -89,6 +87,9 @@ does not prove every GUI application, failure mode, browser session, or provider
 The V0 has working local and targeted live paths, but it is not a launch proof. There is no live
 Stripe charge/meter acceptance, complete launch-provider OAuth canary matrix, hosted multi-user
 load evidence, or demonstrated few-second cold start. The portable-skill lifecycle has deterministic
-coverage and a passing real-Box canary. Two P1 runtime concurrency findings for warm-work blocking
-and executor-leadership fencing are under fix
-and must be retested before the runtime boundary is described as complete.
+coverage and a passing real-Box canary. The runtime concurrency findings for warm-work blocking and executor-leadership fencing are
+fixed and covered by twelve focused fault tests. The fully integrated verification
+`61566c4f5586` also passes with the invitation claim, shared credential-transfer guards, model
+default preservation, and canonical migration ordering. Known credential files and recognizable
+secret material are rejected during skill transfer; this is not universal secret detection for
+arbitrary package content.

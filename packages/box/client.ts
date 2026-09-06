@@ -12,7 +12,18 @@ export class BoxClient {
         headers: { Authorization: `Bearer ${this.key}`, "Content-Type": "application/json", ...headers },
         body: body === undefined ? undefined : JSON.stringify(body), signal: AbortSignal.timeout(45_000) });
     } catch { throw new BoxError("box_unreachable"); }
-    if (!response.ok) throw new BoxError(response.status === 404 ? "box_not_found" : "box_request_failed", response.status);
+    if (!response.ok) {
+      let code = response.status === 404 ? "box_not_found" : "box_request_failed";
+      if (response.status === 409 && path === "/named-snapshots") {
+        try {
+          const body = await response.json() as any;
+          const providerCode = body.code ?? body.error?.code;
+          if (providerCode === "named_snapshot_limit") code = "box_snapshot_limit";
+          if (providerCode === "save_in_progress") code = "box_snapshot_saving";
+        } catch { /* Never expose an unrecognized provider payload. */ }
+      }
+      throw new BoxError(code, response.status);
+    }
     try { return await response.json(); } catch { throw new BoxError("box_invalid_response"); }
   }
   private parseBox(value: any): Box {

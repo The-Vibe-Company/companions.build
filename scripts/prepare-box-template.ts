@@ -18,7 +18,9 @@ const wait = async (ready: () => Promise<boolean>) => {
 };
 const snapshotReady = async () => {
   const result = await box.getSnapshot(name);
-  return (result.snapshot?.status ?? result.namedSnapshot?.status ?? result.status) === "ready";
+  const status = result.snapshot?.status ?? result.namedSnapshot?.status ?? result.status;
+  if (status === "failed") throw new Error("The named snapshot capture failed. Inspect this distribution before creating another name.");
+  return status === "ready";
 };
 // A named distribution is immutable. A timed-out POST is reconciled, never resubmitted.
 if (state.snapshotRequestedAt || state.completedAt) {
@@ -71,7 +73,16 @@ await box.writeFile(state.boxId, "/home/user/.config/systemd/user/companions-age
 await box.command(state.boxId, `sudo -n loginctl enable-linger $(id -u) && ${userSystemctl("daemon-reload")} && ${userSystemctl("enable companions-agent.service")}`);
 state.snapshotRequestedAt = new Date().toISOString(); state.sha256 = digest;
 await Bun.write(journal, JSON.stringify(state, null, 2));
-await box.snapshot(state.boxId, name);
+try { await box.snapshot(state.boxId, name); }
+catch (error) {
+  if (error instanceof BoxError && error.code === "box_snapshot_limit") {
+    state.snapshotRejectedAt = new Date().toISOString(); state.snapshotRejectedCode = error.code;
+    delete state.snapshotRequestedAt;
+    await Bun.write(journal, JSON.stringify(state, null, 2));
+    throw new Error("Box rejected the save because the named snapshot quota is full. Reconcile obsolete owned distributions, then rerun; no snapshot was accepted.");
+  }
+  throw error;
+}
 await wait(snapshotReady);
 state.completedAt = new Date().toISOString(); state.sha256 = digest;
 await Bun.write(journal, JSON.stringify(state, null, 2));

@@ -50,18 +50,19 @@ Prepare the frozen runtime once, then create Box-backed Companions from it:
 
 ```sh
 # Set BOX_API_KEY in .env first. Never commit credentials.
-python3 scripts/bun.py scripts/prepare-box-template.ts companions-agent-v1-20260906
-# Add BOX_TEMPLATE=companions-agent-v1-20260906 to .env, then restart scripts/dev.py.
+python3 scripts/bun.py scripts/prepare-box-template.ts companions-agent-v3-final-20260907
+# Add BOX_TEMPLATE=companions-agent-v3-final-20260907 to .env, then restart scripts/dev.py.
 ```
 
-The executor is the only process that contacts Box or Pi. It creates or resumes the same Box,
+The executor creates or resumes the same Box and owns every Pi run. It
 stages the selected model, plugins, files, trigger context, and control MCP, and persists intent
 before each external effect. Opening the desktop wakes the Box when necessary. Human takeover is
-shown as complete only after the runtime confirms the agent is paused.
+shown as complete only after the runtime confirms the agent is paused. The authorized API route
+retrieves the provider desktop URL after readiness; it never dispatches a Pi run.
 
 Live Box creation, tools, archive/resume, desktop access, and physical takeover have targeted
-canaries against `companions-agent-v1-20260906`. The latest observations measured 21.0 seconds for
-first creation and 34.3 seconds for wake, so the desired few-second cold path has not been achieved.
+canaries against `companions-agent-v3-final-20260907`. The latest observations measured 33.6 seconds for
+first creation and 35.3 seconds for wake, so the desired few-second cold path has not been achieved.
 See [measured validation](docs/validation-v0.md).
 
 ## Product surfaces

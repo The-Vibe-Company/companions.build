@@ -4,6 +4,7 @@ import { chmodSync, mkdirSync, renameSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { z } from "zod";
 import { config, decrypt } from "../apps/server/src/config";
+import { fetchAgent } from "../packages/box/transport";
 import { agentRequest } from "../apps/server/src/machines";
 import { db } from "../apps/server/src/store";
 
@@ -55,6 +56,10 @@ try{
   {path:"SKILL.md",data:Buffer.from(skillText).toString("base64"),sha256:sha(skillText)},
   {path:"fixture/marker.txt",data:Buffer.from(fixtureText).toString("base64"),sha256:sha(fixtureText)},
  ]}]};
+ const rejectedFile=JSON.stringify({fixture:"not-a-real-credential"});
+ const rejected=await fetchAgent(endpoint,token,"/skills/import","PUT",{version:1,skills:[{name:`${state.skillName}-rejected`,files:[manifest.skills[0].files[0],{path:"credentials.json",data:Buffer.from(rejectedFile).toString("base64"),sha256:sha(rejectedFile)}]}]});
+ const refusal=await rejected.json() as any;
+ if(rejected.status!==400||!["UNSAFE_SKILL_PATH","SKILL_CREDENTIAL_RISK"].includes(refusal.error))throw Error("SKILLS_CANARY_CREDENTIAL_GUARD_FAILED");
  const first=z.object({bundleHash:z.string().regex(/^[a-f0-9]{64}$/),imported:z.array(z.string()),unchanged:z.array(z.string())}).parse(await agentRequest(endpoint,token,"/skills/import","PUT",manifest));
  const second=z.object({bundleHash:z.string().regex(/^[a-f0-9]{64}$/),imported:z.array(z.string()),unchanged:z.array(z.string())}).parse(await agentRequest(endpoint,token,"/skills/import","PUT",manifest));
  if(first.bundleHash!==second.bundleHash||!second.unchanged.includes(state.skillName))throw Error("SKILLS_CANARY_IMPORT_NOT_IDEMPOTENT");
@@ -78,5 +83,5 @@ try{
  const daemonRun=await agentRequest(decrypt(current.endpoint_secret),decrypt(current.agent_secret),`/runs/${state.runId}`);
  if(daemonRun?.status!=="succeeded"||daemonRun.text?.trim()!==state.marker)throw Error("SKILLS_CANARY_JOURNAL_MISMATCH");
  state.passedAt=new Date().toISOString();save();
- console.log(JSON.stringify({status:"passed",companionId:state.companionId,skill:state.skillName,idempotent:true,exported:true,listed:true,piReadFixture:true,journalVerified:true}));
+ console.log(JSON.stringify({status:"passed",companionId:state.companionId,skill:state.skillName,idempotent:true,exported:true,listed:true,piReadFixture:true,journalVerified:true,credentialFileRejected:true}));
 }finally{await db.close();}

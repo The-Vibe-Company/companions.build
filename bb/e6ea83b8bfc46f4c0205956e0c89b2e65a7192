@@ -1,0 +1,25 @@
+apps/server/src/executor.ts
+  s_f946242dcf6ba9::t_8fa841fb88bde1 7,46,75-81,87,89-90,145,170-171,176
+apps/server/src/lifecycle.ts
+  s_f946242dcf6ba9::t_cbebbfc07b48da 9-15,21,65,90-100,102-108,111-116,120,123,125-130,138,140,146,151-154,175,181
+apps/server/src/runtime-product.ts
+  s_f946242dcf6ba9::t_ae3570232eb0b1 8,26,69
+apps/server/test/activation-runtime.test.ts
+  s_f946242dcf6ba9::t_6e589afc2bf5a2 1-126
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "bbe6ea83b8bfc46f4c0205956e0c89b2e65a7192",
+  "prompts": {},
+  "sessions": {
+    "s_f946242dcf6ba9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a06de4-a8a5-7cd3-b713-2a8d451f7200",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "StanGirard <stan@quivr.app>"
+    }
+  }
+}

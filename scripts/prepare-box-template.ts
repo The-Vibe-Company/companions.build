@@ -1,7 +1,7 @@
 import { BoxClient, BoxError } from "../packages/box/client";
 import { config } from "../apps/server/src/config";
 import { createHash } from "node:crypto";
-import { mkdirSync } from "node:fs";
+import { mkdirSync, readdirSync } from "node:fs";
 import { agentService, userSystemctl } from "../packages/box/layout";
 
 if (!config.boxKey) throw new Error("Configure BOX_API_KEY in .env before preparing the template.");
@@ -57,6 +57,16 @@ for (let start = 0, index = 0; start < archive.length; start += 3 * 1024 * 1024,
   await box.writeFile(state.boxId, `${directory}/part-${String(index).padStart(5, "0")}`, archive.subarray(start, start + 3 * 1024 * 1024).toString("base64"), "base64");
 }
 await box.command(state.boxId, `cat ${directory}/part-* > ${directory}/agent.tar.gz && echo '${digest}  ${directory}/agent.tar.gz' | sha256sum -c - && mkdir -p /home/user/.companions-dist /home/user/.config/systemd/user && tar -xzf ${directory}/agent.tar.gz -C /home/user/.companions-dist`, 60);
+// Remove only upload directories recorded for this owned build Box. Staging archives must
+// not accumulate inside every future snapshot and make cold copies progressively heavier.
+const stagingDirectories = new Set([directory]);
+for (const file of readdirSync(".local").filter(file => /^template-[a-z0-9-]+\.json$/.test(file))) {
+  const previous = await Bun.file(`.local/${file}`).json();
+  if (previous.boxId === state.boxId && typeof previous.sha256 === "string" && /^[a-f0-9]{64}$/.test(previous.sha256)) {
+    stagingDirectories.add(`/tmp/companions-${previous.sha256.slice(0,16)}`);
+  }
+}
+await box.command(state.boxId, `rm -rf -- ${[...stagingDirectories].join(" ")}`);
 await box.writeFile(state.boxId, "/home/user/.config/systemd/user/companions-agent.service", agentService);
 await box.command(state.boxId, `sudo -n loginctl enable-linger $(id -u) && ${userSystemctl("daemon-reload")} && ${userSystemctl("enable companions-agent.service")}`);
 state.snapshotRequestedAt = new Date().toISOString(); state.sha256 = digest;

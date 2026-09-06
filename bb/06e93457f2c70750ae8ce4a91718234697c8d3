@@ -1,0 +1,47 @@
+apps/server/src/api.ts
+  s_f946242dcf6ba9::t_99f6d0e58dca5b 1,84,92
+apps/server/src/automation-routes.ts
+  s_f946242dcf6ba9::t_f0687fda267298 23
+apps/server/src/control-product.ts
+  s_f946242dcf6ba9::t_d21418bbdd89c5 1-47
+apps/server/src/control.ts
+  s_f946242dcf6ba9::t_05a6dac1c918cc 1,34,37-38,42
+apps/server/src/models.ts
+  s_f946242dcf6ba9::t_5059ebe294e909 1-11
+apps/server/src/product.sql
+  s_f946242dcf6ba9::t_1c2672d236dcc3 22
+apps/server/src/store.ts
+  s_f946242dcf6ba9::t_b58eac8646dcdb 29,31,34
+apps/server/src/trigger-control.ts
+  s_f946242dcf6ba9::t_e6ca39633c255b 1
+apps/server/test/product-acceptance.test.ts
+  s_f946242dcf6ba9::t_99329bb8ea5a40 62-63
+packages/agent/src/daemon.ts
+  s_f946242dcf6ba9::t_fb33e44674648d 58-59
+packages/agent/src/journal.ts
+  s_f946242dcf6ba9::t_4333a760072db5 112
+packages/agent/src/pi-executor.ts
+  s_f946242dcf6ba9::t_9874cf5aeded85 180
+packages/agent/src/types.ts
+  s_f946242dcf6ba9::t_725082b79aa028 25
+packages/control/agent.ts
+  s_f946242dcf6ba9::t_7b6a7664c38e73 13
+scripts/test-server.ts
+  s_f946242dcf6ba9::t_8d4bc66d4e9249 5,7-12,14-18
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "bb06e93457f2c70750ae8ce4a91718234697c8d3",
+  "prompts": {},
+  "sessions": {
+    "s_f946242dcf6ba9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a06de4-a8a5-7cd3-b713-2a8d451f7200",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "StanGirard <stan@quivr.app>"
+    }
+  }
+}

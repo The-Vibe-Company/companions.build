@@ -3,8 +3,10 @@ import json
 import os
 from pathlib import Path
 import signal
+import secrets
 import subprocess
 import time
+import urllib.request
 import uuid
 from bun import ROOT, module
 
@@ -13,7 +15,9 @@ bun = module.toolchain()
 run_id = uuid.uuid4().hex[:12]
 artifacts = ROOT / ".artifacts/verification" / run_id
 artifacts.mkdir(parents=True)
-name = f"companions-verify-{run_id}"
+database_name = f"companions-verify-postgres-{run_id}"
+storage_name = f"companions-verify-minio-{run_id}"
+verification_label = f"companions.build.verification={run_id}"
 env = {**os.environ, "AGENT_TEST_MODE": "1", "COMPANIONS_VERIFY_RUN": run_id}
 steps = []
 started = time.monotonic()
@@ -36,14 +40,39 @@ def run(label, args, cwd=ROOT, timeout=180):
 
 status = "failed"
 try:
-    run("database", ["docker", "run", "--detach", "--name", name, "--publish", "127.0.0.1::5432",
+    run("database", ["docker", "run", "--detach", "--name", database_name, "--label", verification_label,
+        "--publish", "127.0.0.1::5432",
         "--env", "POSTGRES_USER=companions", "--env", "POSTGRES_PASSWORD=companions", "--env", "POSTGRES_DB=companions", "postgres:17.6-alpine@sha256:ef257d85f76e48da1c64832459b59fcaba1a4dac97bf5d7450c77753542eee94"])
-    mapping = subprocess.check_output(["docker", "port", name, "5432/tcp"], text=True).strip()
+    mapping = subprocess.check_output(["docker", "port", database_name, "5432/tcp"], text=True).strip()
     env["DATABASE_URL"] = f"postgres://companions:companions@{mapping}/companions"
     for attempt in range(60):
-        if subprocess.run(["docker", "exec", name, "pg_isready", "-U", "companions"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode == 0: break
+        if subprocess.run(["docker", "exec", database_name, "pg_isready", "-U", "companions"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode == 0: break
         time.sleep(.5)
     else: raise RuntimeError("PostgreSQL readiness timed out")
+    storage_access_key = f"verify-{run_id}"
+    storage_secret_key = secrets.token_hex(24)
+    run("storage", ["docker", "run", "--detach", "--name", storage_name, "--label", verification_label,
+        "--publish", "127.0.0.1::9000", "--env", f"MINIO_ROOT_USER={storage_access_key}",
+        "--env", f"MINIO_ROOT_PASSWORD={storage_secret_key}",
+        "minio/minio:RELEASE.2025-04-22T22-12-26Z@sha256:a1ea29fa28355559ef137d71fc570e508a214ec84ff8083e39bc5428980b015e",
+        "server", "/data"])
+    storage_mapping = subprocess.check_output(["docker", "port", storage_name, "9000/tcp"], text=True).strip()
+    storage_port = storage_mapping.rsplit(":", 1)[-1]
+    storage_endpoint = f"http://127.0.0.1:{storage_port}"
+    for attempt in range(60):
+        try:
+            with urllib.request.urlopen(f"{storage_endpoint}/minio/health/live", timeout=.5) as response:
+                if response.status == 200: break
+        except Exception: pass
+        time.sleep(.5)
+    else: raise RuntimeError("MinIO readiness timed out")
+    run("storage-bucket", ["docker", "run", "--rm", "--label", verification_label,
+        "--network", f"container:{storage_name}",
+        "--env", f"MC_HOST_verify=http://{storage_access_key}:{storage_secret_key}@127.0.0.1:9000",
+        "minio/mc:RELEASE.2025-04-16T18-13-26Z@sha256:aead63c77f9db9107f1696fb08ecb0faeda23729cde94b0f663edf4fe09728e3",
+        "mb", "--ignore-existing", "verify/companions-files"])
+    env.update({"S3_ENDPOINT": storage_endpoint, "S3_ACCESS_KEY_ID": storage_access_key,
+        "S3_SECRET_ACCESS_KEY": storage_secret_key, "S3_BUCKET_FILES": "companions-files", "S3_REGION": "us-east-1"})
     run("install", [bun, "install", "--frozen-lockfile"])
     run("web-install", [bun, "install", "--frozen-lockfile"], ROOT / "apps/web")
     run("typecheck", [bun, "node_modules/typescript/bin/tsc"])
@@ -58,7 +87,6 @@ finally:
     if owned.returncode == 0 and owned.stdout.split():
         cleanup = subprocess.run(["docker", "rm", "-f", *owned.stdout.split()], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         if cleanup.returncode: status = "failed"
-    subprocess.run(["docker", "rm", "-f", name], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     report = {"status": status, "run": run_id, "seconds": round(time.monotonic()-started, 3), "steps": steps}
     (artifacts / "summary.json").write_text(json.dumps(report, indent=2))
     print(f"{status.upper()}: {artifacts.relative_to(ROOT)}", flush=True)

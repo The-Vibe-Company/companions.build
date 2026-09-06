@@ -54,8 +54,13 @@ Hosted deployments provide `S3_ENDPOINT`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_
 
 When object storage is not configured, `scripts/dev.py` starts workspace-scoped MinIO and Mailpit containers from digest-pinned images. Ports are derived from the web port: PostgreSQL `+2`, MinIO API `+3`, MinIO console `+4`, SMTP `+5`, and Mailpit UI `+6`. MinIO credentials are generated into the private workspace data directory and are never printed. The launcher exposes `SMTP_HOST=127.0.0.1`, `SMTP_PORT=<base+5>`, and `SMTP_FROM=companions.build <auth@companions.build>` to application processes. Ctrl-C stops only the exact workspace containers and retains their named volumes.
 
-The real MinIO acceptance test is opt-in so ordinary tests remain isolated:
+The real MinIO acceptance test remains opt-in for a direct test invocation:
 
 ```sh
 RUN_STORAGE_ACCEPTANCE=1 bun test apps/server/test/files.test.ts
 ```
+
+`python3 scripts/verify.py` enables it automatically against a fresh, digest-pinned MinIO
+container and private bucket owned by that verification run. The verifier labels PostgreSQL,
+MinIO, agent, and short-lived setup containers with its random run identity, then removes only
+containers carrying that exact label even when a check fails.

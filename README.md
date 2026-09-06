@@ -68,7 +68,7 @@ is available once ready; coordinated GUI takeover/release remains a later featur
 ## Verify and reproduce
 
 ```sh
-# Fresh isolated PostgreSQL, real Pi/Linux, crash/cancel scenarios, frontend tests/build
+# Fresh isolated PostgreSQL and MinIO, full product Pi/Linux acceptance, frontend tests/build
 python3 scripts/verify.py
 
 # Wider packaging proof: MCP transports, skills, images, native steering, independent lanes
@@ -86,7 +86,8 @@ python3 scripts/bun.py scripts/live-box-canary.ts --wake-only
 
 Evidence is retained in `.artifacts/verification`, `.artifacts/system-tests` and `.artifacts/pi-bun`.
 The system suite kills an agent after an actual shell effect, restarts it, verifies no repeated
-effect and checks that the next task succeeds. Verification uses its own temporary database.
+effect and checks that the next task succeeds. Verification uses its own temporary database,
+private object bucket, and verification-labeled containers.
 
 ## Product and architecture
 

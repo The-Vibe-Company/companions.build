@@ -1,0 +1,42 @@
+apps/server/src/executor.ts
+  s_f946242dcf6ba9::t_413d98c1aa8d87 58,86,107,113,120,177,198,205,209,300
+apps/server/src/lifecycle.ts
+  s_f946242dcf6ba9::t_416be414ec9561 173
+  s_f946242dcf6ba9::t_f63c9d3831d25e 5,20,32,51-57,61,76-77,90,112-114,116-117,127,147,153,158-171
+  s_f946242dcf6ba9::t_413d98c1aa8d87 115
+apps/server/test/desktop-runtime.test.ts
+  s_f946242dcf6ba9::t_30a3e926e9d816 1-17,19-71
+  s_f946242dcf6ba9::t_09a4b9194109a9 18
+apps/server/src/desktop.sql
+  s_f946242dcf6ba9::t_a2294fca34c4bf 1-5
+apps/server/src/machines.ts
+  s_f946242dcf6ba9::t_791b6ab9319e0d 118-119
+  s_f946242dcf6ba9::t_174c3cf8a8fc65 14,103-104,121-126,128-135
+packages/agent/src/daemon.ts
+  s_f946242dcf6ba9::t_0b9e8cc666383e 16,27
+apps/server/test/lifecycle.test.ts
+  s_f946242dcf6ba9::t_791b6ab9319e0d 19,21,64,78,82,214,222-223
+  s_f946242dcf6ba9::t_416be414ec9561 117
+apps/server/src/runtime-product.ts
+  s_f946242dcf6ba9::t_6a8f2b226e5d38 85
+apps/server/test/run-concurrency.test.ts
+  s_f946242dcf6ba9::t_d18f496e16a7a6 48,58
+apps/server/test/runtime-lifecycle.test.ts
+  s_f946242dcf6ba9::t_f856b21a2c7397 4,12,14,22,24-26,31,36,57
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "f2917caa83ceef3c8f08a494a2c15042c66ce256",
+  "prompts": {},
+  "sessions": {
+    "s_f946242dcf6ba9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a06de4-a8a5-7cd3-b713-2a8d451f7200",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "StanGirard <stan@quivr.app>"
+    }
+  }
+}

@@ -1,0 +1,23 @@
+docs/testing.md
+  s_f946242dcf6ba9::t_de83cb38693a7a 98,111-120
+  s_f946242dcf6ba9::t_f3f2f659bc5f1b 121
+scripts/live-skill-install-canary.ts
+  s_f946242dcf6ba9::t_5f5ff28f8f1d9b 94-103
+  s_f946242dcf6ba9::t_de83cb38693a7a 1-93,104-162
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "363e05bed1b2d4a7a9779195986764dd5df1d009",
+  "prompts": {},
+  "sessions": {
+    "s_f946242dcf6ba9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a06de4-a8a5-7cd3-b713-2a8d451f7200",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "StanGirard <stan@quivr.app>"
+    }
+  }
+}

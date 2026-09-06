@@ -74,6 +74,8 @@ export async function adoptTemplate(ownerId:string,parentId:string,commandId:str
   if(prior){if(!parent||prior.template_id!==value.templateId||prior.source_companion_id!==value.childId||prior.expected_revision!==value.expectedRevision)throw new LifecycleConflict('Request identifier changed.');return {candidateId:prior.id};}
   const [child]=await tx`SELECT id FROM companions WHERE id=${value.childId} AND parent_id=${parentId} AND owner_id=${ownerId} AND temporary AND retired_at IS NULL AND archive_requested_at IS NULL AND provider='box' FOR UPDATE`;
   const [template]=await tx`SELECT t.id FROM agent_templates t JOIN template_permissions p ON p.template_id=t.id WHERE t.id=${value.templateId} AND t.owner_id=${ownerId} AND p.parent_id=${parentId} AND t.revision=${value.expectedRevision} FOR UPDATE OF t`;
+  const active=template?await tx`SELECT id FROM template_candidates WHERE template_id=${value.templateId} AND status IN ('queued','capturing','ready') LIMIT 1`:[];
+  if(active.length)throw new LifecycleConflict('A template capture is already in progress.');
   if(!parent||!child||!template)throw new LifecycleConflict('Child or template unavailable or changed.');
   await tx`INSERT INTO template_candidates(id,template_id,source_companion_id,expected_revision,snapshot_name) VALUES(${commandId},${value.templateId},${value.childId},${value.expectedRevision},${'companions-'+commandId})`;
   await queueTemplateSkillExport(tx,ownerId,value.templateId,value.childId,value.expectedRevision+1);

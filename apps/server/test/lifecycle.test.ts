@@ -126,6 +126,47 @@ test('snapshot recovery observes its durable name and activates only after ready
  }finally{await lock.close();}
 });
 
+test('concurrent promotion publishes once and its revision survives source retirement for a fresh child',async()=>{
+ const {id,template}=await setup();
+ const sources=await Promise.all([
+  spawnChild(owner,id,null,crypto.randomUUID(),{templateId:template.id,prompt:'Prepare variant A'}),
+  spawnChild(owner,id,null,crypto.randomUUID(),{templateId:template.id,prompt:'Prepare variant B'}),
+ ]);
+ await db`UPDATE companions SET prepare_requested=false WHERE id IN (${sources[0].companionId},${sources[1].companionId})`;
+ await db`UPDATE runs SET status='succeeded',finished_at=now() WHERE id IN (${sources[0].runId},${sources[1].runId})`;
+ const commands=[crypto.randomUUID(),crypto.randomUUID()];
+ const attempts=await Promise.allSettled(sources.map((source,index)=>adoptTemplate(owner,id,commands[index],{templateId:template.id,childId:source.companionId,expectedRevision:1})));
+ expect(attempts.filter(result=>result.status==='fulfilled')).toHaveLength(1);
+ const rejected=attempts.find(result=>result.status==='rejected') as PromiseRejectedResult;
+ expect(rejected.reason).toBeInstanceOf(LifecycleConflict);
+ const winnerIndex=attempts.findIndex(result=>result.status==='fulfilled'),winner=sources[winnerIndex];
+ expect(await db`SELECT id FROM template_candidates WHERE template_id=${template.id}`).toHaveLength(1);
+ expect(await db`SELECT id FROM portable_skill_exports WHERE source_template_id=${template.id} AND target_revision=2`).toHaveLength(1);
+
+ const f=fake(),lock=await leader();
+ try{
+  await progressLifecycle(lock.sql,{deliverySkills:f.deliverySkills},f.machine);
+  f.setSnapshot('ready');await progressLifecycle(lock.sql,{deliverySkills:f.deliverySkills},f.machine);
+  expect(f.calls.filter(call=>call.startsWith('snapshot companions-'))).toHaveLength(1);
+  expect((await db`SELECT revision,snapshot_name,source_companion_id FROM agent_templates WHERE id=${template.id}`)[0]).toMatchObject({revision:2,snapshot_name:'companions-'+commands[winnerIndex],source_companion_id:winner.companionId});
+  expect(await db`SELECT revision FROM template_revisions WHERE template_id=${template.id} AND revision=2`).toHaveLength(1);
+  expect((await db`SELECT status FROM template_candidates WHERE template_id=${template.id}`)[0].status).toBe('activated');
+
+  await db`UPDATE delegations SET finished_at=now() WHERE run_id=${winner.runId}`;
+  await db`UPDATE companions SET archive_requested_at=now(),prepare_requested=false WHERE id=${winner.companionId}`;
+  await progressLifecycle(lock.sql,{deliverySkills:f.deliverySkills},f.machine);
+  const [retired]=await db`SELECT id,retired_at,create_key,agent_secret FROM companions WHERE id=${winner.companionId}`;
+  expect(retired.retired_at).not.toBeNull();
+
+  const replica=await spawnChild(owner,id,null,crypto.randomUUID(),{templateId:template.id,prompt:'Use promoted environment'});
+  const [fresh]=await db`SELECT id,template_revision,snapshot_name,create_key,agent_secret,box_id,endpoint_secret,skills_staged_hash FROM companions WHERE id=${replica.companionId}`;
+  expect(fresh).toMatchObject({template_revision:2,snapshot_name:'companions-'+commands[winnerIndex],box_id:null,endpoint_secret:null,skills_staged_hash:null});
+  expect(fresh.id).not.toBe(retired.id);expect(fresh.create_key).not.toBe(retired.create_key);expect(fresh.agent_secret).not.toBe(retired.agent_secret);
+  const [promoted]=await db`SELECT source_companion_id FROM template_revisions WHERE template_id=${template.id} AND revision=2`;
+  expect(promoted.source_companion_id).toBe(winner.companionId);
+ }finally{await lock.close();}
+});
+
 test('snapshot failure at activation checkpoint recovers without repeating capture',async()=>{
  const {id,template}=await setup(),child=await spawnChild(owner,id,null,crypto.randomUUID(),{templateId:template.id,prompt:'Prepare'});
  await db`UPDATE companions SET box_id='source',prepare_requested=false WHERE id=${child.companionId}`;await db`UPDATE runs SET status='succeeded',finished_at=now() WHERE id=${child.runId}`;

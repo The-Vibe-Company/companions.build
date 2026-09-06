@@ -38,8 +38,10 @@ import {
   ApiError,
   type AppConfig,
   type AccountUser,
+  type AgentTemplate,
   type Companion,
   type CompanionDetail,
+  type CustomPluginInput,
   isActiveRun,
   type RunStatus,
   workspaceApi,
@@ -140,8 +142,25 @@ function CreateCompanion({
   const [instructions, setInstructions] = useState("");
   const [provider, setProvider] = useState<"local" | "box">(firstProvider);
   const [avatar, setAvatar] = useState<CompanionAvatarValue>(DEFAULT_AVATAR);
+  const [templates, setTemplates] = useState<AgentTemplate[]>([]);
+  const [templateId, setTemplateId] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
+
+  useEffect(() => {
+    let current = true;
+    void workspaceApi.templates().then(result => { if (current) setTemplates(result.templates); }).catch(() => {});
+    return () => { current = false; };
+  }, []);
+
+  const selectedTemplate = templates.find(template => template.id === templateId);
+  function chooseTemplate(id: string) {
+    setTemplateId(id);
+    const template = templates.find(item => item.id === id);
+    if (!template) return;
+    setName(template.name); setInstructions(template.instructions); setAvatar(template.avatar);
+    if (template.hasSnapshot && config.boxAvailable) setProvider("box");
+  }
 
   async function submit(event: FormEvent) {
     event.preventDefault();
@@ -154,6 +173,7 @@ function CreateCompanion({
         instructions: instructions.trim(),
         provider,
         avatar,
+        ...(selectedTemplate ? { templateId: selectedTemplate.id, templateRevision: selectedTemplate.revision } : {}),
       });
       onCreated(result.companion);
     } catch (cause) {
@@ -172,6 +192,8 @@ function CreateCompanion({
         </div>
       )}
       {compact && <h2>New Companion</h2>}
+
+      {templates.length > 0 && <div className="field template-source"><label htmlFor={compact ? "template-compact" : "template"}>Start from</label><select id={compact ? "template-compact" : "template"} value={templateId} onChange={event => chooseTemplate(event.target.value)}><option value="">Blank Companion</option>{templates.map(template => <option key={template.id} value={template.id} disabled={template.hasSnapshot && !config.boxAvailable}>{template.name} · v{template.revision}{template.hasSnapshot && !config.boxAvailable ? " · cloud unavailable" : ""}</option>)}</select><span className="field-hint">Templates prefill the mission and pin this Companion to the version shown.</span></div>}
 
       <AvatarPicker value={avatar} onChange={setAvatar} />
 
@@ -199,14 +221,14 @@ function CreateCompanion({
 
       <fieldset className="provider-picker">
         <legend>Computer</legend>
-        <label className={cn("provider-option", provider === "local" && "provider-option--selected", !config.localAvailable && "provider-option--disabled")}>
+        <label className={cn("provider-option", provider === "local" && "provider-option--selected", (!config.localAvailable || selectedTemplate?.hasSnapshot) && "provider-option--disabled")}>
           <input
             type="radio"
             name="provider"
             value="local"
             checked={provider === "local"}
             onChange={() => setProvider("local")}
-            disabled={!config.localAvailable}
+            disabled={!config.localAvailable || !!selectedTemplate?.hasSnapshot}
           />
           <Computer />
           <span><strong>Local</strong><small>Runs on this machine</small></span>
@@ -547,7 +569,7 @@ function AccountPage({ user, onSignOut, onMenu }: { user: AccountUser; onSignOut
 }
 
 function ConnectionsPage({ onMenu }: { onMenu: () => void }) {
-  const [catalog, setCatalog] = useState<PluginServer[]>([]); const [accounts, setAccounts] = useState<PluginAccount[]>([]); const [error, setError] = useState(""); const [notice, setNotice] = useState(""); const [busy, setBusy] = useState(""); const [customOpen, setCustomOpen] = useState(false); const [label, setLabel] = useState(""); const [url, setUrl] = useState(""); const oauthPopup = useRef<Window | null>(null); const oauthWatch=useRef<number|null>(null);
+  const [catalog, setCatalog] = useState<PluginServer[]>([]); const [accounts, setAccounts] = useState<PluginAccount[]>([]); const [error, setError] = useState(""); const [notice, setNotice] = useState(""); const [busy, setBusy] = useState(""); const [customOpen, setCustomOpen] = useState(false); const [label, setLabel] = useState(""); const [transport, setTransport] = useState<"http" | "stdio">("http"); const [url, setUrl] = useState(""); const [command, setCommand] = useState(""); const [args, setArgs] = useState(""); const [secrets, setSecrets] = useState<Array<{ key: string; value: string }>>([]); const oauthPopup = useRef<Window | null>(null); const oauthWatch=useRef<number|null>(null);
   const load = useCallback(() => workspaceApi.plugins().then((result) => { setCatalog(result.catalog); setAccounts(result.accounts); }).catch((cause) => setError(cause instanceof Error ? cause.message : "Could not load connections")), []);
   useEffect(() => { void load(); }, [load]);
   useEffect(() => {
@@ -569,10 +591,23 @@ function ConnectionsPage({ onMenu }: { onMenu: () => void }) {
   },[load]);
   async function connect(server: PluginServer) { if(!server.available)return;setError("");setNotice("");setBusy(server.id);const popup=window.open("about:blank","companions-plugin-oauth","popup,width=620,height=760");oauthPopup.current=popup;if(popup)oauthWatch.current=window.setInterval(()=>{if(!popup.closed)return;if(oauthWatch.current!==null)window.clearInterval(oauthWatch.current);oauthWatch.current=null;oauthPopup.current=null;setBusy("");setNotice("Connection window closed.");},500);try { const result = await workspaceApi.connectPlugin(server.id, server.name); if (result.url) {if(popup&&!popup.closed)popup.location.href=result.url;else window.location.assign(result.url);} else {if(oauthWatch.current!==null)window.clearInterval(oauthWatch.current);oauthWatch.current=null;popup?.close();oauthPopup.current=null;setBusy("");await load();} } catch (cause) { if(oauthWatch.current!==null)window.clearInterval(oauthWatch.current);oauthWatch.current=null;popup?.close();oauthPopup.current=null;setBusy("");setError(cause instanceof Error ? cause.message : "Could not connect account"); } }
   async function disconnect(account:PluginAccount){setError("");setNotice("");setBusy(account.id);try{await workspaceApi.deletePlugin(account.id);await load();setNotice("Connection removed.");}catch(cause){setError(cause instanceof Error?cause.message:"Could not remove connection");}finally{setBusy("");}}
-  async function addCustom(event: FormEvent) { event.preventDefault(); setError(""); try { await workspaceApi.addCustomPlugin({ label: label.trim(), url: url.trim() }); setLabel(""); setUrl(""); setCustomOpen(false); await load(); } catch (cause) { setError(cause instanceof Error ? cause.message : "Could not add MCP server"); } }
+  function updateSecret(index: number, field: "key" | "value", value: string) { setSecrets(current => current.map((item, itemIndex) => itemIndex === index ? { ...item, [field]: value } : item)); }
+  async function addCustom(event: FormEvent) {
+    event.preventDefault(); setError("");
+    const values = Object.fromEntries(secrets.filter(item => item.key.trim()).map(item => [item.key.trim(), item.value]));
+    const input: CustomPluginInput = transport === "http"
+      ? { label: label.trim(), transport, url: url.trim(), headers: values }
+      : { label: label.trim(), transport, command: command.trim(), args: args.split("\n").map(value => value.trim()).filter(Boolean), env: values };
+    try { await workspaceApi.addCustomPlugin(input); setLabel(""); setUrl(""); setCommand(""); setArgs(""); setSecrets([]); setTransport("http"); setCustomOpen(false); await load(); }
+    catch (cause) { setError(cause instanceof Error ? cause.message : "Could not add MCP server"); }
+  }
   return <main className="simple-page" id="main-content"><header className="mobile-page-header"><Button variant="ghost" size="icon" onClick={onMenu} aria-label="Open navigation"><Menu /></Button><span className="wordmark">companions.build</span></header><div className="simple-inner connections-inner"><div className="page-title-row"><div><h1>Connections</h1><p className="muted-copy">Accounts your Companions can use.</p></div><Button variant="outline" onClick={() => setCustomOpen((value) => !value)}><Plus />Custom MCP</Button></div>
     {error && <p className="field-error" role="alert">{error}</p>}{notice&&<p className="connection-notice" role="status">{notice}</p>}
-    {customOpen && <form className="custom-connection" onSubmit={addCustom}><div className="field"><label htmlFor="custom-label">Name</label><input id="custom-label" value={label} onChange={(event) => setLabel(event.target.value)} placeholder="Internal tools" /></div><div className="field"><label htmlFor="custom-url">Server URL</label><input id="custom-url" type="url" value={url} onChange={(event) => setUrl(event.target.value)} placeholder="https://example.com/mcp" /></div><Button type="submit" disabled={!label.trim() || !url.trim()}>Add server</Button></form>}
+    {customOpen && <form className="custom-connection" onSubmit={addCustom}>
+      <div className="custom-connection-main"><div className="field"><label htmlFor="custom-label">Name</label><input id="custom-label" value={label} onChange={(event) => setLabel(event.target.value)} placeholder="Internal tools" /></div><div className="field"><label htmlFor="custom-transport">Transport</label><select id="custom-transport" value={transport} onChange={event => { setTransport(event.target.value as "http" | "stdio"); setSecrets([]); }}><option value="http">Remote HTTP</option><option value="stdio">Local stdio</option></select></div>{transport === "http" ? <div className="field custom-endpoint"><label htmlFor="custom-url">Server URL</label><input id="custom-url" type="url" value={url} onChange={(event) => setUrl(event.target.value)} placeholder="https://example.com/mcp" /></div> : <><div className="field custom-endpoint"><label htmlFor="custom-command">Command</label><input id="custom-command" value={command} onChange={event => setCommand(event.target.value)} placeholder="/usr/local/bin/my-mcp" /></div><div className="field custom-args"><label htmlFor="custom-args">Arguments <span>one per line</span></label><Textarea id="custom-args" rows={2} value={args} onChange={event => setArgs(event.target.value)} placeholder={"--workspace\n/home/agent/workspace"} /></div></>}</div>
+      <details className="advanced-panel custom-advanced"><summary>{transport === "http" ? "Request headers" : "Environment variables"}</summary><p>Values are encrypted and cannot be viewed again.</p><div className="custom-secrets">{secrets.map((item, index) => <div className="custom-secret-row" key={index}><input aria-label={`${transport === "http" ? "Header" : "Variable"} ${index + 1} name`} value={item.key} onChange={event => updateSecret(index, "key", event.target.value)} placeholder={transport === "http" ? "Authorization" : "API_TOKEN"} autoCapitalize="none" autoComplete="off" /><input aria-label={`${transport === "http" ? "Header" : "Variable"} ${index + 1} secret value`} type="password" value={item.value} onChange={event => updateSecret(index, "value", event.target.value)} placeholder="Secret value" autoComplete="new-password" /><button type="button" className="icon-action" onClick={() => setSecrets(current => current.filter((_, itemIndex) => itemIndex !== index))} aria-label={`Remove ${transport === "http" ? "header" : "variable"} ${index + 1}`}><Trash2 /></button></div>)}</div><Button type="button" variant="ghost" size="sm" onClick={() => setSecrets(current => [...current, { key: "", value: "" }])}><Plus />Add {transport === "http" ? "header" : "variable"}</Button></details>
+      <div className="custom-submit"><Button type="submit" disabled={!label.trim() || (transport === "http" ? !url.trim() : !command.trim())}>Add server</Button></div>
+    </form>}
     {accounts.length > 0 && <section className="connection-section"><h2>Connected</h2>{accounts.map((account) => <div className="connected-row" key={account.id}><span className="provider-dot">{(account.provider ?? account.label)[0]?.toUpperCase()}</span><div><strong>{account.label}</strong><small>{account.provider ?? account.serverId}</small></div><button className="icon-action" disabled={busy===account.id} onClick={() => void disconnect(account)} aria-label={`Disconnect ${account.label}`}>{busy===account.id?<LoaderCircle className="spin"/>:<Trash2 />}</button></div>)}</section>}
     <section className="connection-section"><h2>Add a connection</h2><div className="provider-list">{catalog.map((server) => <div className="provider-row" key={server.id}><span className="provider-dot">{(server.provider ?? server.name)[0]?.toUpperCase()}</span><div><strong>{server.name}</strong><small>{server.available?(server.description ?? "Tools and events"):"Unavailable in this deployment"}</small></div><Button variant="outline" size="sm" disabled={!server.available||!!busy} onClick={() => void connect(server)}>{busy===server.id?<LoaderCircle className="spin"/>:server.available?"Connect":"Unavailable"}{server.available&&<ExternalLink />}</Button></div>)}</div>{catalog.length === 0 && <div className="quiet-empty"><Waypoints /><strong>No providers available</strong><span>Add a custom MCP server or try again shortly.</span></div>}</section>
   </div></main>;

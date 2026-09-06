@@ -473,12 +473,22 @@ svg { width: 1rem; height: 1rem; stroke-width: 1.8; }
 .connected-row, .provider-row { display: grid; min-height: 68px; grid-template-columns: 38px minmax(0, 1fr) auto; align-items: center; gap: 12px; border-bottom: 1px solid var(--border); }
 .connected-row strong, .connected-row small, .provider-row strong, .provider-row small { display: block; }
 .connected-row small, .provider-row small { overflow: hidden; margin-top: 3px; color: var(--muted-foreground); font-size: .72rem; text-overflow: ellipsis; white-space: nowrap; }
-.custom-connection { display: grid; grid-template-columns: 1fr 1.4fr auto; align-items: end; gap: 10px; margin-top: 24px; padding: 16px; border-radius: 12px; background: var(--secondary); }
+.custom-connection { display: grid; gap: 12px; margin-top: 24px; padding: 16px; border-radius: 12px; background: var(--secondary); }
 .custom-connection .field { margin: 0; }
-.custom-connection button { margin-bottom: 2px; }
+.custom-connection-main { display: grid; grid-template-columns: 1fr .8fr 1.4fr; align-items: end; gap: 10px; }
+.custom-connection label span { color: var(--muted-foreground); font-size: .68rem; font-weight: 400; }
+.custom-args { grid-column: 1 / -1; }
+.custom-advanced { margin: 0; }
+.custom-advanced > p { margin: -4px 0 10px; color: var(--muted-foreground); font-size: .72rem; }
+.custom-secrets { display: grid; gap: 7px; }
+.custom-secret-row { display: grid; grid-template-columns: minmax(0, .8fr) minmax(0, 1.2fr) 34px; gap: 7px; }
+.custom-secret-row input { min-width: 0; }
+.custom-secret-row .icon-action { height: 36px; }
+.custom-submit { display: flex; justify-content: flex-end; }
 .onboarding { display: flex; flex-direction: column; align-items: center; justify-content: flex-start; padding-top: 38px; }
 .create-form { width: min(100%, 560px); }
 .create-form .create-intro { margin-bottom: 22px; }
+.create-form .template-source { margin-bottom: 20px; }
 .create-form .avatar-picker { gap: 11px; }
 .create-form .avatar-preview { min-height: 94px; }
 .create-form .avatar-options button { width: 44px; height: 44px; flex-basis: 44px; }
@@ -497,7 +507,8 @@ svg { width: 1rem; height: 1rem; stroke-width: 1.8; }
   .settings-sheet { width: 100%; top: 7vh; height: 93vh; border-radius: 20px 20px 0 0; }
   .activity-layer .activity-panel { top: 14vh; width: 100%; height: 86vh; border-radius: 20px 20px 0 0; }
   .access-form { padding: 28px 22px; }
-  .custom-connection { grid-template-columns: 1fr; }
+  .custom-connection-main { grid-template-columns: 1fr; }
+  .custom-args { grid-column: auto; }
 }
 
 .question-panel { width: min(100% - 2rem, 46rem); margin: .5rem auto; padding: 1rem; border: 1px solid var(--border); border-radius: 1rem; background: var(--background); }

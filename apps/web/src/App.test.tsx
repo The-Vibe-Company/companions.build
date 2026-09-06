@@ -206,6 +206,78 @@ describe("first Companion flow", () => {
     await waitFor(()=>expect(screen.queryByRole("button",{name:"Disconnect Linear"})).not.toBeInTheDocument());
   });
 
+  it("adds HTTP and stdio MCP servers with write-only secret values", async () => {
+    window.history.replaceState({}, "", "/connections");
+    const bodies: unknown[] = [];
+    const fetchMock = vi.fn((input: RequestInfo | URL, options?: RequestInit) => {
+      const path = String(input);
+      if (path === "/api/me") return response(me);
+      if (path === "/api/config") return response(config);
+      if (path === "/api/companions") return response({ companions: [] });
+      if (path === "/api/plugins") return response({ catalog: [], accounts: [] });
+      if (path === "/api/templates") return response({ templates: [] });
+      if (path === "/api/plugins/custom" && options?.method === "POST") { bodies.push(JSON.parse(String(options.body))); return response({ id: crypto.randomUUID() }, 201); }
+      throw new Error(`Unexpected request: ${path}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup(); render(<App />);
+
+    await user.click(await screen.findByRole("button", { name: "Custom MCP" }));
+    await user.type(screen.getByLabelText("Name"), "Private API");
+    await user.type(screen.getByLabelText("Server URL"), "https://mcp.example/tools");
+    await user.click(screen.getByText("Request headers"));
+    await user.click(screen.getByRole("button", { name: "Add header" }));
+    await user.type(screen.getByLabelText("Header 1 name"), "Authorization");
+    const headerSecret = screen.getByLabelText("Header 1 secret value");
+    expect(headerSecret).toHaveAttribute("type", "password");
+    await user.type(headerSecret, "Bearer private-value");
+    await user.click(screen.getByRole("button", { name: "Add server" }));
+
+    await user.click(await screen.findByRole("button", { name: "Custom MCP" }));
+    await user.type(screen.getByLabelText("Name"), "Local tools");
+    await user.selectOptions(screen.getByLabelText("Transport"), "stdio");
+    await user.type(screen.getByLabelText("Command"), "/usr/local/bin/tools-mcp");
+    await user.type(screen.getByLabelText(/Arguments/), "--workspace{enter}/home/agent/workspace");
+    await user.click(screen.getByText("Environment variables"));
+    await user.click(screen.getByRole("button", { name: "Add variable" }));
+    await user.type(screen.getByLabelText("Variable 1 name"), "API_TOKEN");
+    await user.type(screen.getByLabelText("Variable 1 secret value"), "stdio-private-value");
+    await user.click(screen.getByRole("button", { name: "Add server" }));
+
+    expect(bodies).toEqual([
+      { label: "Private API", transport: "http", url: "https://mcp.example/tools", headers: { Authorization: "Bearer private-value" } },
+      { label: "Local tools", transport: "stdio", command: "/usr/local/bin/tools-mcp", args: ["--workspace", "/home/agent/workspace"], env: { API_TOKEN: "stdio-private-value" } },
+    ]);
+    expect(screen.queryByDisplayValue("Bearer private-value")).not.toBeInTheDocument();
+    expect(screen.queryByDisplayValue("stdio-private-value")).not.toBeInTheDocument();
+  });
+
+  it("prefills and pins a selected template when creating a Companion", async () => {
+    const template = { id: "template-1", name: "Research lead", instructions: "Investigate the market", avatar: { shape: 3, color: 4, face: 2 }, revision: 7, sourceCompanionId: null, hasSnapshot: true };
+    let body: Record<string, unknown> | null = null;
+    const fetchMock = vi.fn((input: RequestInfo | URL, options?: RequestInit) => {
+      const path = String(input);
+      if (path === "/api/me") return response(me);
+      if (path === "/api/config") return response(config);
+      if (path === "/api/templates") return response({ templates: [template] });
+      if (path === "/api/companions" && options?.method === "POST") { body = JSON.parse(String(options.body)); return response({ companion }); }
+      if (path === "/api/companions") return response({ companions: [] });
+      if (path === "/api/companions/ada") return response({ companion, messages: [], runs: [], activity: [] });
+      throw new Error(`Unexpected request: ${path}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup(); render(<App />);
+    await user.selectOptions(await screen.findByLabelText("Start from"), "template-1");
+    expect(screen.getByLabelText("Name")).toHaveValue("Research lead");
+    expect(screen.getByLabelText("Mission")).toHaveValue("Investigate the market");
+    expect(screen.getByRole("radio", { name: /Local/ })).toBeDisabled();
+    expect(screen.getByRole("radio", { name: /Persistent cloud computer/ })).toBeChecked();
+    await user.clear(screen.getByLabelText("Name")); await user.type(screen.getByLabelText("Name"), "Client researcher");
+    await user.click(screen.getByRole("button", { name: "Create Companion" }));
+    await waitFor(() => expect(body).not.toBeNull());
+    expect(body).toMatchObject({ name: "Client researcher", instructions: "Investigate the market", provider: "box", templateId: "template-1", templateRevision: 7, avatar: template.avatar });
+  });
+
   it.each([
     ["cancelled","Connection cancelled."],
     ["error","Connection could not be completed. Try again."],

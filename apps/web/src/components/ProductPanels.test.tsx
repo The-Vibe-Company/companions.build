@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AccountProduct, DeliverySettings, DesktopSheet, SpecialistsSettings } from "./ProductPanels";
@@ -6,7 +6,7 @@ import type { Companion } from "@/api";
 
 const response = (body: unknown, status = 200) => Promise.resolve(new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } }));
 
-beforeEach(() => vi.unstubAllGlobals());
+beforeEach(() => { vi.unstubAllGlobals(); window.history.replaceState({}, "", "/"); });
 afterEach(() => vi.useRealTimers());
 
 describe("account delivery", () => {
@@ -46,6 +46,41 @@ describe("account delivery", () => {
     expect(screen.getByText("Skill export failed safely")).toBeInTheDocument();
     expect(screen.getByText("Ready for client")).toBeInTheDocument();
     expect(screen.queryByText(/invitation sent/i)).not.toBeInTheDocument();
+  });
+
+  it("polls only while a delivery is preparing", async () => {
+    vi.useFakeTimers(); let deliveryCalls = 0;
+    const billing = { configured: false, mode: "unconfigured", plan: "inactive", active: false, status: null, currentPeriodEnd: null, cancelAtPeriodEnd: false, portalAvailable: false, usage: [] };
+    vi.stubGlobal("fetch", vi.fn((input: RequestInfo | URL) => {
+      if (String(input) === "/api/billing") return response(billing);
+      if (String(input) === "/api/maintenance") return response({ companions: [] });
+      if (String(input) === "/api/deliveries") { deliveryCalls++; return response({ received: [], sent: [{ id: "d1", clientEmail: "client@example.com", status: "pending", skillsStatus: deliveryCalls === 1 ? "pending" : "ready", skillsError: null, maintenanceRequested: false, expiresAt: new Date().toISOString(), acceptedAt: null, companionId: null }] }); }
+      throw new Error(`Unexpected ${String(input)}`);
+    }));
+    render(<AccountProduct user={{ id: "u1", name: "Alex", email: "alex@example.com" }} onSignOut={vi.fn()} />);
+    await act(() => vi.advanceTimersByTimeAsync(1));
+    expect(screen.getByText("Preparing skills…")).toBeInTheDocument();
+    await act(() => vi.advanceTimersByTimeAsync(2_000));
+    expect(screen.getByText("Ready for client")).toBeInTheDocument();
+    await act(() => vi.advanceTimersByTimeAsync(4_000));
+    expect(deliveryCalls).toBe(2);
+  });
+
+  it("rechecks account state after returning from Checkout and stops once active", async () => {
+    vi.useFakeTimers(); window.history.replaceState({}, "", "/account?checkout=complete"); let billingCalls = 0;
+    vi.stubGlobal("fetch", vi.fn((input: RequestInfo | URL) => {
+      if (String(input) === "/api/billing") { billingCalls++; return response({ configured: true, mode: "stripe", plan: billingCalls === 1 ? "inactive" : "subscription", active: billingCalls > 1, status: billingCalls === 1 ? null : "active", currentPeriodEnd: null, cancelAtPeriodEnd: false, portalAvailable: billingCalls > 1, usage: [] }); }
+      if (String(input) === "/api/deliveries") return response({ received: [], sent: [] });
+      if (String(input) === "/api/maintenance") return response({ companions: [] });
+      throw new Error(`Unexpected ${String(input)}`);
+    }));
+    render(<AccountProduct user={{ id: "u1", name: "Alex", email: "alex@example.com" }} onSignOut={vi.fn()} />);
+    await act(() => vi.advanceTimersByTimeAsync(1));
+    await act(() => vi.advanceTimersByTimeAsync(2_000));
+    expect(screen.getByText("Subscription active")).toBeInTheDocument();
+    expect(window.location.search).toBe("");
+    await act(() => vi.advanceTimersByTimeAsync(4_000));
+    expect(billingCalls).toBe(2);
   });
 
   it("keeps granted maintenance bounded to configuration, diagnostics, and tasks", async () => {

@@ -16,6 +16,8 @@ export function AccountProduct({ user, onSignOut }: { user: AccountUser; onSignO
   const [maintaining, setMaintaining] = useState<MaintenanceCompanion | null>(null);
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
+  const [checkoutPolling, setCheckoutPolling] = useState(() => new URLSearchParams(window.location.search).get("checkout") === "complete");
+  const checkoutStartedAt = useRef(Date.now());
   const load = useCallback(async () => {
     try {
       const [nextBilling, deliveries] = await Promise.all([workspaceApi.billing(), workspaceApi.deliveries()]);
@@ -23,6 +25,20 @@ export function AccountProduct({ user, onSignOut }: { user: AccountUser; onSignO
     } catch (cause) { setError(errorText(cause)); }
   }, []);
   useEffect(() => { void load(); void workspaceApi.maintenance().then(result => setMaintenance(result.companions)).catch(() => setMaintenance([])); }, [load]);
+  const hasPendingDelivery = [...sent, ...received].some(item => item.status === "pending" && item.skillsStatus === "pending");
+  useEffect(() => {
+    if (checkoutPolling && billing?.active) {
+      setCheckoutPolling(false);
+      const next = new URL(window.location.href); next.searchParams.delete("checkout"); window.history.replaceState({}, "", `${next.pathname}${next.search}${next.hash}`);
+      return;
+    }
+    if (!hasPendingDelivery && !checkoutPolling) return;
+    const timer = window.setInterval(() => {
+      if (checkoutPolling && Date.now() - checkoutStartedAt.current >= 60_000) { setCheckoutPolling(false); return; }
+      void load();
+    }, 2_000);
+    return () => window.clearInterval(timer);
+  }, [billing?.active, checkoutPolling, hasPendingDelivery, load]);
   async function billingAction(kind: "checkout" | "portal") {
     setBusy(kind); setError("");
     try { const result = kind === "checkout" ? await workspaceApi.checkout() : await workspaceApi.billingPortal(); window.location.assign(result.url); }

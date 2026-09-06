@@ -154,7 +154,7 @@ export const api = {
   getConfig: () => request<AppConfig>("/api/config"),
   getCompanions: () => request<{ companions: Companion[] }>("/api/companions"),
   getCompanion: (id: string) => request<CompanionDetail>(`/api/companions/${id}`),
-  createCompanion: (input: Pick<Companion, "name" | "instructions" | "provider" | "avatar">) =>
+  createCompanion: (input: Pick<Companion, "name" | "instructions" | "provider" | "avatar"> & { templateId?: string; templateRevision?: number }) =>
     request<{ companion: Companion }>("/api/companions", {
       method: "POST",
       body: JSON.stringify(input),
@@ -195,6 +195,9 @@ export const api = {
 export interface PluginServer { id: string; name: string; description?: string; provider?: string; kind?: "oauth" | "remote" | "custom"; available: boolean }
 export interface PluginAccount { id: string; serverId: string; label: string; provider?: string }
 export interface PluginsResponse { catalog: PluginServer[]; accounts: PluginAccount[] }
+export type CustomPluginInput =
+  | { label: string; transport: "http"; url: string; headers: Record<string, string> }
+  | { label: string; transport: "stdio"; command: string; args: string[]; env: Record<string, string> };
 export interface Routine { id: string; name: string; prompt: string; cron: string; timezone: string; enabled: boolean; nextFireAt?: string | null; createdAt?: string; updatedAt?: string }
 export interface RoutineHistory { runs: Array<{ id: string; status: RunStatus; resultText: string | null; error: string | null; scheduledFor: string; acceptedAt: string }>; missed: Array<{ firstScheduledFor: string; lastScheduledFor: string; cron: string; timezone: string }> }
 export interface TriggerFilterRequest { key: string; provider: "github" | "sentry"; connectionId?: string; path: string }
@@ -215,7 +218,7 @@ export interface MaintenanceAction { id: string; operation: string; createdAt: s
 export const workspaceApi = {
   plugins: () => request<PluginsResponse>("/api/plugins"),
   connectPlugin: (serverId: string, label: string) => request<{ url?: string; account?: PluginAccount }>("/api/plugins/connect", { method: "POST", body: JSON.stringify({ serverId, label }) }),
-  addCustomPlugin: (input: { label: string; url: string }) => request<{ account: PluginAccount }>("/api/plugins/custom", { method: "POST", body: JSON.stringify(input) }),
+  addCustomPlugin: (input: CustomPluginInput) => request<{ id: string }>("/api/plugins/custom", { method: "POST", body: JSON.stringify(input) }),
   deletePlugin: (id: string) => request<{ ok: true }>(`/api/plugins/${id}`, { method: "DELETE" }),
   companionPlugins: (id: string) => request<{ accounts: PluginAccount[] }>(`/api/companions/${id}/plugins`),
   selectPlugin: (id: string, accountId: string) => request<{ ok: true }>(`/api/companions/${id}/plugins/${accountId}`, { method: "PUT" }),

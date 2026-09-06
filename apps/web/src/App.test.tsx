@@ -64,4 +64,65 @@ describe("first Companion flow", () => {
       expect.objectContaining({ credentials: "same-origin" }),
     ));
   });
+
+  it("shows a recoverable error when initial configuration fails", async () => {
+    let unavailable = true;
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      const path = String(input);
+      if (path === "/api/config" && unavailable) return Promise.reject(new Error("Service unavailable"));
+      if (path === "/api/config") return response(config);
+      if (path === "/api/companions") return response({ companions: [] });
+      throw new Error(`Unexpected request: ${path}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+
+    render(<App />);
+    expect(await screen.findByRole("heading", { name: "Couldn’t load companions.build" })).toBeInTheDocument();
+    expect(screen.getByText("Service unavailable")).toBeInTheDocument();
+
+    unavailable = false;
+    await user.click(screen.getByRole("button", { name: "Try again" }));
+    expect(await screen.findByRole("heading", { name: "Create your first Companion" })).toBeInTheDocument();
+  });
+
+  it("keeps send available during active work and clears drafts when switching Companions", async () => {
+    const browserCompanion = {
+      ...companion,
+      id: "browser",
+      name: "Browser",
+      provider: "local" as const,
+      status: "ready" as const,
+    };
+    const adaReady = { ...companion, status: "ready" as const };
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      const path = String(input);
+      if (path === "/api/config") return response(config);
+      if (path === "/api/companions") return response({ companions: [adaReady, browserCompanion] });
+      if (path === "/api/companions/ada") {
+        return response({
+          companion: adaReady,
+          messages: [],
+          runs: [{ id: "run-active", status: "running", error: null, createdAt: companion.createdAt }],
+          activity: [],
+        });
+      }
+      if (path === "/api/companions/browser") {
+        return response({ companion: browserCompanion, messages: [], runs: [], activity: [] });
+      }
+      throw new Error(`Unexpected request: ${path}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+
+    render(<App />);
+    const adaComposer = await screen.findByRole("textbox", { name: "Message Ada" });
+    await user.type(adaComposer, "Queue this next");
+    expect(screen.getByRole("button", { name: "Cancel" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Send message" })).toBeEnabled();
+
+    await user.click(screen.getByRole("button", { name: /Browser Ready/ }));
+    const browserComposer = await screen.findByRole("textbox", { name: "Message Browser" });
+    expect(browserComposer).toHaveValue("");
+  });
 });

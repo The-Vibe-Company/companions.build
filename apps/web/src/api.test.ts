@@ -23,6 +23,27 @@ describe("Companion API client", () => {
     expect(body.clientMessageId).toMatch(/^[0-9a-f-]{36}$/);
   });
 
+  it("reuses the same client message id after a lost response", async () => {
+    const fetchMock = vi.fn()
+      .mockRejectedValueOnce(new TypeError("network connection lost"))
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ runId: "run-recovered" }), {
+          status: 202,
+          headers: { "Content-Type": "application/json" },
+        }),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(api.sendMessage("retry-companion", "Keep this id")).rejects.toThrow("network connection lost");
+    await expect(api.sendMessage("retry-companion", "Keep this id")).resolves.toEqual({ runId: "run-recovered" });
+
+    const bodies = fetchMock.mock.calls.map(([, options]) =>
+      JSON.parse((options as RequestInit).body as string) as { clientMessageId: string },
+    );
+    expect(bodies[1].clientMessageId).toBe(bodies[0].clientMessageId);
+    expect(sessionStorage.getItem("companions.build:pending-message:retry-companion")).toBeNull();
+  });
+
   it("preserves an API error message and status", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(
       new Response(JSON.stringify({ error: "Desktop is still starting" }), {

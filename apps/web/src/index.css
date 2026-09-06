@@ -180,6 +180,7 @@ svg { width: 1rem; height: 1rem; stroke-width: 1.8; }
 .composer textarea:focus-visible { outline: none; box-shadow: none; }
 .composer-actions { display: flex; min-height: 43px; align-items: center; justify-content: space-between; gap: 10px; padding: 3px 7px 7px 14px; }
 .composer-hint { color: var(--muted-foreground); font-size: .66rem; }
+.composer-buttons { display: flex; align-items: center; gap: 7px; }
 .composer-error { margin: 0 0 7px; color: var(--destructive); font-size: .75rem; }
 
 .state-banner { display: flex; align-items: center; gap: 11px; margin: 14px 24px 0; border-radius: 8px; padding: 10px 12px; font-size: .78rem; }
@@ -262,6 +263,10 @@ svg { width: 1rem; height: 1rem; stroke-width: 1.8; }
 .page-error { position: fixed; z-index: 80; top: 12px; left: 50%; display: flex; align-items: center; gap: 9px; transform: translateX(-50%); border: 1px solid oklch(0.8 0.08 29); border-radius: 8px; padding: 9px 11px; background: oklch(0.98 0.015 29); color: oklch(0.42 0.15 29); box-shadow: 0 6px 22px oklch(0.2 0.02 70 / .1); font-size: .75rem; }
 .page-error button { border: 0; padding: 0; background: none; color: inherit; font-weight: 650; text-decoration: underline; cursor: pointer; }
 .detail-loading { display: flex; min-width: 0; flex: 1; align-items: center; justify-content: center; gap: 8px; color: var(--muted-foreground); }
+.load-failure { display: flex; min-height: 100%; align-items: center; justify-content: center; flex-direction: column; padding: 24px; background: var(--background); text-align: center; }
+.load-failure > svg { width: 24px; height: 24px; color: var(--destructive); }
+.load-failure h1 { margin: 18px 0 0; font-size: 1.3rem; font-weight: 650; letter-spacing: -.025em; }
+.load-failure p { max-width: 440px; margin: 8px 0 20px; color: var(--muted-foreground); line-height: 1.5; }
 .app-loading { display: flex; height: 100%; }
 .loading-sidebar { width: 260px; padding: 22px 18px; background: var(--sidebar); }
 .loading-main { display: flex; flex: 1; flex-direction: column; gap: 22px; padding: 24px; background: var(--card); }

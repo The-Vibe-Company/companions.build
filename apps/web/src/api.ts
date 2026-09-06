@@ -73,6 +73,50 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
   return response.json() as Promise<T>;
 }
 
+interface PendingMessage {
+  id: string;
+  content: string;
+}
+
+const pendingMessages = new Map<string, PendingMessage>();
+const pendingMessageKey = (companionId: string) => `companions.build:pending-message:${companionId}`;
+
+function readPendingMessage(companionId: string): PendingMessage | null {
+  const memoryValue = pendingMessages.get(companionId);
+  if (memoryValue) return memoryValue;
+
+  try {
+    const stored = sessionStorage.getItem(pendingMessageKey(companionId));
+    if (!stored) return null;
+    const value = JSON.parse(stored) as Partial<PendingMessage>;
+    if (typeof value.id !== "string" || typeof value.content !== "string") return null;
+    const pending = { id: value.id, content: value.content };
+    pendingMessages.set(companionId, pending);
+    return pending;
+  } catch {
+    return null;
+  }
+}
+
+function writePendingMessage(companionId: string, pending: PendingMessage) {
+  pendingMessages.set(companionId, pending);
+  try {
+    sessionStorage.setItem(pendingMessageKey(companionId), JSON.stringify(pending));
+  } catch {
+    // The in-memory copy still protects retries while this page is open.
+  }
+}
+
+function clearPendingMessage(companionId: string, acknowledgedId: string) {
+  if (readPendingMessage(companionId)?.id !== acknowledgedId) return;
+  pendingMessages.delete(companionId);
+  try {
+    sessionStorage.removeItem(pendingMessageKey(companionId));
+  } catch {
+    // Storage may be unavailable in privacy-restricted browser contexts.
+  }
+}
+
 export const api = {
   getConfig: () => request<AppConfig>("/api/config"),
   getCompanions: () => request<{ companions: Companion[] }>("/api/companions"),
@@ -82,11 +126,20 @@ export const api = {
       method: "POST",
       body: JSON.stringify(input),
     }),
-  sendMessage: (id: string, content: string) =>
-    request<{ runId: string }>(`/api/companions/${id}/messages`, {
+  sendMessage: async (id: string, content: string) => {
+    const previous = readPendingMessage(id);
+    const pending = previous?.content === content
+      ? previous
+      : { id: crypto.randomUUID(), content };
+    writePendingMessage(id, pending);
+
+    const result = await request<{ runId: string }>(`/api/companions/${id}/messages`, {
       method: "POST",
-      body: JSON.stringify({ clientMessageId: crypto.randomUUID(), content }),
-    }),
+      body: JSON.stringify({ clientMessageId: pending.id, content: pending.content }),
+    });
+    clearPendingMessage(id, pending.id);
+    return result;
+  },
   cancel: (id: string) =>
     request<{ ok: true }>(`/api/companions/${id}/cancel`, { method: "POST" }),
   openDesktop: (id: string) =>

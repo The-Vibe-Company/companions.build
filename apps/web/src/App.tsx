@@ -175,7 +175,7 @@ function CreateCompanion({
           placeholder="Research customer questions and turn the findings into clear briefs."
           rows={compact ? 3 : 4}
         />
-        <span className="field-hint">You can refine this together later.</span>
+        <span className="field-hint">Set the mission this Companion will start with.</span>
       </div>
 
       <fieldset className="provider-picker">
@@ -352,7 +352,7 @@ function Chat({ detail, onRefresh, onUnauthorized }: { detail: CompanionDetail; 
             <ConversationEmptyState className="chat-empty">
               <div className="companion-glyph companion-glyph--small">{detail.companion.name.slice(0, 1).toUpperCase()}</div>
               <h2>What should {detail.companion.name} work on?</h2>
-              <p>Send a task, ask a question, or start by refining the mission together.</p>
+              <p>Send a task or ask a question to begin.</p>
             </ConversationEmptyState>
           ) : detail.messages.map((message) => (
             <Message from={message.role} key={message.id}>
@@ -389,13 +389,14 @@ function Chat({ detail, onRefresh, onUnauthorized }: { detail: CompanionDetail; 
           />
           <div className="composer-actions">
             <span className="composer-hint">Enter to send · Shift + Enter for a new line</span>
-            {activeRun ? (
-              <Button type="button" variant="outline" size="sm" onClick={cancel}><CircleStop />Cancel</Button>
-            ) : (
+            <div className="composer-buttons">
+              {activeRun && (
+                <Button type="button" variant="outline" size="sm" onClick={cancel}><CircleStop />Cancel</Button>
+              )}
               <Button type="submit" size="icon" disabled={!draft.trim() || sending} aria-label="Send message">
                 {sending ? <LoaderCircle className="spin" /> : <Send />}
               </Button>
-            )}
+            </div>
           </div>
         </div>
       </form>
@@ -500,6 +501,7 @@ export function App() {
 
   const bootstrap = useCallback(async () => {
     setLoading(true);
+    setPageError("");
     try {
       const [nextConfig, list] = await Promise.all([api.getConfig(), api.getCompanions()]);
       setConfig(nextConfig);
@@ -557,7 +559,17 @@ export function App() {
   }
 
   if (authRequired) return <AccessGate onAuthenticated={() => void bootstrap()} />;
-  if (loading || !config) return <LoadingApp />;
+  if (loading) return <LoadingApp />;
+  if (!config) {
+    return (
+      <main className="load-failure">
+        <CircleAlert />
+        <h1>Couldn’t load companions.build</h1>
+        <p>{pageError || "The service did not return its configuration."}</p>
+        <Button onClick={() => void bootstrap()}>Try again</Button>
+      </main>
+    );
+  }
 
   return (
     <div className="app-shell">
@@ -580,7 +592,7 @@ export function App() {
           <div className="model-note"><Server />Using {config.model}</div>
         </main>
       ) : detail && detail.companion.id === selectedId ? (
-        <CompanionView detail={detail} onRefresh={loadDetail} onUnauthorized={() => setAuthRequired(true)} onMenu={() => setSidebarOpen(true)} />
+        <CompanionView key={detail.companion.id} detail={detail} onRefresh={loadDetail} onUnauthorized={() => setAuthRequired(true)} onMenu={() => setSidebarOpen(true)} />
       ) : (
         <main className="detail-loading" id="main-content"><LoaderCircle className="spin" /><span>Opening Companion…</span></main>
       )}

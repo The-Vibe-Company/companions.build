@@ -1,7 +1,7 @@
 import {listTemplateRevisions,rollbackTemplate} from './templates';
 import {z} from 'zod';
 import {registerControl} from './control';
-import {startPluginConnection,addCustomPlugin,disconnectPlugin,listPluginCatalog} from './plugins';
+import {startPluginConnection,addCustomPlugin,disconnectPlugin,listPluginCatalog,checkPluginAccount} from './plugins';
 import {routineHistory,enqueueBackground} from './automations';
 import {handleTriggers} from './triggers';
 import {handleDelivery} from './delivery';
@@ -30,6 +30,7 @@ registerControl({
  plugin_catalog:async()=>({plugins:listPluginCatalog()}),
  plugin_connect:async(context,raw)=>{const input=z.object({serverId:z.string(),label:z.string().max(80).default('')}).parse(raw);return startPluginConnection(context.ownerId,input.serverId,input.label);},
  plugin_custom:async(context,raw)=>addCustomPlugin(context.ownerId,raw),
+ plugin_check:async(context,raw)=>({account:await checkPluginAccount(context.ownerId,z.object({accountId:uuid}).parse(raw).accountId)}),
  plugin_disconnect:async(context,raw)=>{await disconnectPlugin(context.ownerId,z.object({accountId:uuid}).parse(raw).accountId);return {ok:true};},
  routine_history:async(context,raw)=>routineHistory(context.companionId,z.object({id:uuid}).parse(raw).id),
  routine_test:async(context,raw)=>{

@@ -1,0 +1,37 @@
+apps/web/src/components/ProductPanels.tsx
+  s_f946242dcf6ba9::t_d5943fda8f6df2 19-20,28-41
+apps/web/src/components/ProductPanels.test.tsx
+  s_f946242dcf6ba9::t_b7f77c6629da07 1,9,51-84
+  s_f946242dcf6ba9::t_5b3f4a55a0e6a6 85
+apps/web/src/api.ts
+  s_f946242dcf6ba9::t_d5943fda8f6df2 198-200,221
+  s_f946242dcf6ba9::t_2decd685b8b2f2 157
+apps/web/src/App.test.tsx
+  s_f946242dcf6ba9::t_e633f61b74ac6b 240
+  s_f946242dcf6ba9::t_a5bb5ed3fd4c58 256,273-274,278
+  s_f946242dcf6ba9::t_b7f77c6629da07 209-239,241-255,257-272,275-277,279-280
+apps/web/src/App.tsx
+  s_f946242dcf6ba9::t_2decd685b8b2f2 41,145-146,150-164,176,196,231
+  s_f946242dcf6ba9::t_d5943fda8f6df2 44,572,594-603,606-610
+  s_f946242dcf6ba9::t_c10294ca2b1aaa 224
+  s_f946242dcf6ba9::t_3ef3ac73bdfc81 197
+apps/web/src/index.css
+  s_f946242dcf6ba9::t_d5943fda8f6df2 476,478-487,510-511
+  s_f946242dcf6ba9::t_2decd685b8b2f2 491
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "340183b5a76d47ca9112e352422cd45f9f001254",
+  "prompts": {},
+  "sessions": {
+    "s_f946242dcf6ba9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a06de4-a8a5-7cd3-b713-2a8d451f7200",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "StanGirard <stan@quivr.app>"
+    }
+  }
+}

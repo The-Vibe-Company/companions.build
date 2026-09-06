@@ -1,13 +1,24 @@
-import { mkdirSync } from "node:fs";
+import { mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { InMemoryCredentialStore } from "@earendil-works/pi-ai";
+import { InMemoryCredentialStore, Type } from "@earendil-works/pi-ai";
 import { createAgentSession, DefaultResourceLoader, ModelRuntime, SessionManager, SettingsManager } from "@earendil-works/pi-coding-agent";
 import { scriptedModel } from "./scripted-model";
 import { takeProviderApiKey } from "./environment";
-import type { RunExecutor, RunInput } from "./types";
+import type { RunExecutor, RunInput, RunLane } from "./types";
 
 type Session = Awaited<ReturnType<typeof createAgentSession>>["session"];
-type ActiveExecution = { id: string; controller: AbortController; session: Session | null };
+type ActiveExecution = {
+  id: string; lane: RunLane; controller: AbortController; session: Session | null;
+  ready: Promise<Session>; submissions: Set<Promise<void>>; accepting: boolean;
+  preflight: Promise<void>; preflightDone(): void;
+  publishText?: string;
+};
+
+export interface PiSessionTools {
+  tools: import("@earendil-works/pi-coding-agent").ToolDefinition[];
+  close?(): Promise<void>;
+}
+export type PiToolsFactory = (context: { runId: string; lane: RunLane; cwd: string }) => Promise<PiSessionTools>;
 const INITIALIZATION_TIMEOUT_MS = 30_000;
 
 export class PiExecutor implements RunExecutor {
@@ -17,7 +28,8 @@ export class PiExecutor implements RunExecutor {
   private readonly modelRuntime: ModelRuntime;
   private readonly provider: string;
   private readonly modelId: string;
-  private active: ActiveExecution | null = null;
+  private readonly active = new Map<string, ActiveExecution>();
+  toolsFactory?: PiToolsFactory;
   private readonly cancelled = new Set<string>();
 
   private constructor(stateDir: string, modelRuntime: ModelRuntime, provider: string, modelId: string) {
@@ -53,60 +65,119 @@ export class PiExecutor implements RunExecutor {
     return new PiExecutor(stateDir, modelRuntime, provider, modelId);
   }
 
-  async execute(id: string, input: RunInput): Promise<{ text: string }> {
-    if (this.active) throw new Error("EXECUTOR_BUSY");
-    const execution: ActiveExecution = { id, controller: new AbortController(), session: null };
-    this.active = execution;
+  async execute(id: string, input: RunInput): Promise<{ text: string; publishToChat: boolean }> {
+    const lane = input.lane ?? "main";
+    if ([...this.active.values()].some(run => run.lane === lane && run.accepting)) throw new Error("EXECUTOR_BUSY");
+    let preflightDone!: () => void;
+    const preflight = new Promise<void>(resolve => { preflightDone = resolve; });
+    const execution: ActiveExecution = {
+      id, lane, controller: new AbortController(), session: null, submissions: new Set(),
+      accepting: true, ready: undefined!,
+      preflight, preflightDone,
+    };
+    this.active.set(id, execution);
     if (this.cancelled.has(id)) execution.controller.abort();
+    let externalTools: PiSessionTools | undefined;
     try {
-      const session = await guardedInitialization(this.initialize(input), execution.controller.signal, INITIALIZATION_TIMEOUT_MS);
-      execution.session = session;
-      let settled!: () => void;
-      const settledPromise = new Promise<void>(resolve => { settled = resolve; });
-      const unsubscribe = session.subscribe(event => { if (event.type === "agent_settled") settled(); });
-      try {
-        if (execution.controller.signal.aborted) throw new Error("RUN_CANCELLED");
-        const promptPromise = session.prompt(input.content, { streamingBehavior: "steer" });
-        // A preflight failure rejects prompt without guaranteeing a settled event.
-        await Promise.race([settledPromise, promptPromise]);
-        await settledPromise;
-        await promptPromise;
-        const last = session.messages.findLast(message => message.role === "assistant");
-        if (last?.role === "assistant" && last.stopReason === "error") throw new Error("MODEL_RESPONSE_FAILED");
-        return { text: session.getLastAssistantText() ?? "" };
-      } finally {
-        unsubscribe();
-        session.dispose();
+      execution.ready = guardedInitialization((async () => {
+        externalTools = await this.toolsFactory?.({ runId: id, lane, cwd: this.cwd });
+        return this.initialize(input, execution, externalTools);
+      })(), execution.controller.signal, INITIALIZATION_TIMEOUT_MS);
+      // Record the native prompt immediately, before initialization can yield to a steer.
+      await this.submit(execution, input.content, true);
+      const session = await execution.ready;
+      for (;;) {
+        await Promise.all([...execution.submissions]);
+        await session.waitForIdle();
+        // A steering message arriving during either await belongs to this same response root.
+        if (execution.submissions.size === 0 && session.isIdle) break;
       }
+      execution.accepting = false;
+      execution.preflightDone();
+      if (execution.controller.signal.aborted) throw new Error("RUN_CANCELLED");
+      const last = session.messages.findLast(message => message.role === "assistant");
+      if (last?.role === "assistant" && last.stopReason === "error") throw new Error("MODEL_RESPONSE_FAILED");
+      return { text: execution.publishText ?? session.getLastAssistantText() ?? "", publishToChat: execution.publishText !== undefined };
     } finally {
+      execution.accepting = false;
+      execution.preflightDone();
+      execution.session?.dispose();
+      await externalTools?.close?.();
       this.cancelled.delete(id);
-      if (this.active?.id === id) this.active = null;
+      this.active.delete(id);
     }
+  }
+
+  async steer(rootId: string, _id: string, input: RunInput): Promise<void> {
+    const execution = this.active.get(rootId);
+    if (!execution || execution.lane !== "main" || !execution.accepting) throw new Error("PI_RESPONSE_SETTLED");
+    await this.submit(execution, input.content);
+  }
+
+  acceptingRoot(lane: RunLane): string | null {
+    return [...this.active.values()].find(run => run.lane === lane && run.accepting)?.id ?? null;
+  }
+
+  private submit(execution: ActiveExecution, content: string, first = false): Promise<void> {
+    const work = (async () => {
+      const session = await execution.ready;
+      execution.session = session;
+      if (!first) await execution.preflight;
+      if (execution.controller.signal.aborted) throw new Error("RUN_CANCELLED");
+      if (!execution.accepting) throw new Error("PI_RESPONSE_SETTLED");
+      await session.prompt(content, { streamingBehavior: "steer",
+        ...(first ? { preflightResult: () => execution.preflightDone() } : {}) });
+    })();
+    execution.submissions.add(work);
+    // Both branches remove it; avoid an unhandled rejected finally promise.
+    void work.then(() => execution.submissions.delete(work), () => execution.submissions.delete(work));
+    return work;
   }
 
   async cancel(id: string): Promise<void> {
     this.cancelled.add(id);
-    if (this.active?.id === id) {
-      this.active.controller.abort();
-      if (this.active.session) await this.active.session.abort();
+    const execution = this.active.get(id);
+    if (execution) {
+      execution.accepting = false;
+      execution.controller.abort();
+      if (execution.session) await execution.session.abort();
     }
   }
 
-  private async initialize(input: RunInput): Promise<Session> {
+  private async initialize(input: RunInput, execution: ActiveExecution, extra?: PiSessionTools): Promise<Session> {
     const settingsManager = SettingsManager.inMemory({ compaction: { enabled: true }, retry: { enabled: false } });
-    const resourceLoader = new DefaultResourceLoader({
-      cwd: this.cwd, agentDir: this.agentDir, settingsManager,
-      appendSystemPrompt: input.instructions ? [input.instructions] : [],
-    });
+    const memoryPath = join(this.cwd, "MEMORY.md");
+    let memory = "";
+    try { memory = readFileSync(memoryPath, "utf8").slice(0, 30_000); } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    }
+    const instructions = [input.instructions,
+      "Your shared long-term memory is MEMORY.md in your workspace. Chat and background tasks share this file, but have separate histories. Read it before changing it; retain durable preferences and useful facts, not every message.",
+      memory ? `Current shared memory (read MEMORY.md again before editing):\n${memory}` : "",
+      execution.lane === "background" ? "This is an independent background task. Your final answer stays in this task's activity. Call publish_to_chat with a useful result only when the user should see it in the main conversation." : "",
+    ].filter(Boolean);
+    const resourceLoader = new DefaultResourceLoader({ cwd: this.cwd, agentDir: this.agentDir, settingsManager, appendSystemPrompt: instructions });
     await resourceLoader.reload();
     const model = this.modelRuntime.getModel(this.provider, this.modelId);
     if (!model) throw new Error("MODEL_NOT_FOUND");
+    const sessionDir = execution.lane === "main" ? this.sessionsDir : join(this.sessionsDir, "background", execution.id);
+    mkdirSync(sessionDir, { recursive: true });
     return (await createAgentSession({
       cwd: this.cwd, agentDir: this.agentDir, modelRuntime: this.modelRuntime, model,
-      settingsManager, resourceLoader, tools: ["read", "write", "edit", "bash"],
-      sessionManager: SessionManager.continueRecent(this.cwd, this.sessionsDir),
+      settingsManager, resourceLoader, tools: ["read", "write", "edit", "bash", ...(extra?.tools.map(tool => tool.name) ?? []),
+        ...(execution.lane === "background" ? ["publish_to_chat"] : [])],
+      customTools: [...extra?.tools ?? [], ...(execution.lane === "background" ? [{
+        name: "publish_to_chat", label: "Publish result", description: "Publish this task's useful result to the main conversation when the task finishes successfully.",
+        parameters: Type.Object({ text: Type.String({ minLength: 1, maxLength: 50_000 }) }),
+        async execute(_toolId: string, params: { text: string }) {
+          execution.publishText = params.text;
+          return { content: [{ type: "text" as const, text: "Result selected for publication when the task succeeds." }], details: {} };
+        },
+      }] : [])],
+      sessionManager: execution.lane === "main" ? SessionManager.continueRecent(this.cwd, sessionDir) : SessionManager.create(this.cwd, sessionDir),
     })).session;
   }
+
 }
 
 export async function guardedInitialization<T extends { dispose(): void }>(work: Promise<T>, signal: AbortSignal, timeoutMs: number): Promise<T> {

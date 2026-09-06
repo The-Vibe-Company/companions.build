@@ -29,6 +29,24 @@ export function scriptedModel(model: any, context: any) {
   } else if (text === "crash-after-effect") {
     if (results.length === 0) tool("bash", { command: "printf effect >> effects.txt; sleep 30" });
     else message.content = [{ type: "text", text: "Effect completed." }];
+  } else if (text === "background-hold" || text === "main-hold") {
+    const marker = text === "background-hold" ? "background-started" : "main-started";
+    const seconds = text === "background-hold" ? 30 : 1;
+    if (results.length === 0) tool("bash", { command: `printf started > ${marker}; sleep ${seconds}` });
+    else message.content = [{ type: "text", text: "Original hold finished." }];
+  } else if (text === "publish-background") {
+    if (results.length === 0) tool("publish_to_chat", { text: "Useful background result" });
+    else message.content = [{ type: "text", text: "Private execution details" }];
+  } else if (text === "remember-preference") {
+    if (results.length === 0) tool("write", { path: "MEMORY.md", content: "User prefers concise summaries." });
+    else message.content = [{ type: "text", text: "Preference saved." }];
+  } else if (text === "inspect-memory") {
+    message.content = [{ type: "text", text: String(context.systemPrompt).includes("User prefers concise summaries.") ? "Shared memory loaded" : "Memory missing" }];
+  } else if (text === "inspect-history") {
+    const users = context.messages.filter((item: any) => item.role === "user");
+    message.content = [{ type: "text", text: JSON.stringify(users) }];
+  } else if (text === "steered-result") {
+    message.content = [{ type: "text", text: "Native steering applied." }];
   }
   queueMicrotask(() => {
     stream.push({ type: "start", partial: message });

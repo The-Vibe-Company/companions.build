@@ -24,10 +24,18 @@ export class RunJournal {
         status TEXT NOT NULL CHECK (status IN ('running', 'succeeded', 'failed', 'interrupted', 'cancelled')),
         text TEXT,
         error TEXT,
+        lane TEXT NOT NULL DEFAULT 'main',
+        response_root_id TEXT,
+        publish_to_chat INTEGER NOT NULL DEFAULT 0,
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL
       );
     `);
+    const columns = new Set((this.db.query("PRAGMA table_info(runs)").all() as Array<{ name: string }>).map(row => row.name));
+    if (!columns.has("lane")) this.db.exec("ALTER TABLE runs ADD COLUMN lane TEXT NOT NULL DEFAULT 'main'");
+    if (!columns.has("response_root_id")) this.db.exec("ALTER TABLE runs ADD COLUMN response_root_id TEXT");
+    if (!columns.has("publish_to_chat")) this.db.exec("ALTER TABLE runs ADD COLUMN publish_to_chat INTEGER NOT NULL DEFAULT 0");
+    this.db.exec("UPDATE runs SET response_root_id=id WHERE response_root_id IS NULL");
   }
 
   interruptUnfinished(): number {
@@ -36,7 +44,7 @@ export class RunJournal {
       .run(now).changes;
   }
 
-  accept(id: string, input: RunInput): { kind: "accepted" | "existing" | "conflict"; run: RunRecord } {
+  accept(id: string, input: RunInput, rootId = id): { kind: "accepted" | "existing" | "conflict"; run: RunRecord } {
     const hash = requestHash(input);
     const transaction = this.db.transaction(() => {
       const existing = this.getStored(id);
@@ -45,10 +53,10 @@ export class RunJournal {
       }
       const now = new Date().toISOString();
       this.db.query(`INSERT INTO runs
-        (id, request_hash, content, instructions, status, text, error, created_at, updated_at)
-        VALUES (?, ?, ?, ?, 'running', NULL, NULL, ?, ?)`)
-        .run(id, hash, input.content, input.instructions, now, now);
-      return { kind: "accepted" as const, run: { id, status: "running" as const, text: null, error: null } };
+        (id, request_hash, content, instructions, status, text, error, created_at, updated_at, lane, response_root_id)
+        VALUES (?, ?, ?, ?, 'running', NULL, NULL, ?, ?, ?, ?)`)
+        .run(id, hash, input.content, input.instructions, now, now, input.lane ?? "main", rootId);
+      return { kind: "accepted" as const, run: this.get(id)! };
     });
     return transaction.immediate();
   }
@@ -64,19 +72,31 @@ export class RunJournal {
     return this.get(id);
   }
 
+  /** All accepted steering IDs settle atomically with one response stored on their root. */
+  settleGroup(rootId: string, status: Exclude<RunStatus, "running">, text: string | null, error: string | null, publishToChat = false): void {
+    this.db.query(`UPDATE runs SET status=?, text=CASE WHEN id=? THEN ? ELSE NULL END,
+      error=?, publish_to_chat=CASE WHEN id=? AND ? THEN 1 ELSE 0 END, updated_at=?
+      WHERE response_root_id=? AND status='running'`)
+      .run(status, rootId, text, error, rootId, publishToChat ? 1 : 0, new Date().toISOString(), rootId);
+  }
+
   close(): void {
     this.db.close(false);
   }
 
   private getStored(id: string): StoredRun | null {
-    return this.db.query("SELECT id, request_hash, status, text, error FROM runs WHERE id = ?").get(id) as StoredRun | null;
+    return this.db.query(`SELECT id, request_hash, status, text, error, lane,
+      response_root_id AS responseRootId, publish_to_chat AS publishToChat FROM runs WHERE id = ?`).get(id) as StoredRun | null;
   }
 }
 
 function requestHash(input: RunInput): string {
-  return createHash("sha256").update(JSON.stringify([input.content, input.instructions])).digest("hex");
+  // Preserve historical main request hashes across a daemon upgrade.
+  const fields = input.lane === "background" ? [input.content, input.instructions, "background"] : [input.content, input.instructions];
+  return createHash("sha256").update(JSON.stringify(fields)).digest("hex");
 }
 
 function publicRun(run: StoredRun): RunRecord {
-  return { id: run.id, status: run.status, text: run.text, error: run.error };
+  return { id: run.id, status: run.status, text: run.text, error: run.error,
+    lane: run.lane, responseRootId: run.responseRootId, publishToChat: !!run.publishToChat };
 }

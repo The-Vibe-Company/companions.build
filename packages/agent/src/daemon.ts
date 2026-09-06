@@ -44,6 +44,9 @@ export class AgentDaemon {
       if (!value || typeof value !== "object" || typeof value.content !== "string" || typeof value.instructions !== "string") {
         return json({ error: "INVALID_REQUEST" }, 400);
       }
+      if (value.content.length < 1 || value.content.length > 50_000 || value.instructions.length > 20_000) {
+        return json({ error: "INVALID_REQUEST" }, 400);
+      }
       input = { content: value.content, instructions: value.instructions };
     } catch { return json({ error: "INVALID_REQUEST" }, 400); }
 

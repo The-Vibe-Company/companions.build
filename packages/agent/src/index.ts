@@ -1,15 +1,15 @@
 import { resolve } from "node:path";
 import { AgentDaemon } from "./daemon";
+import { takeAgentToken } from "./environment";
 import { PiExecutor } from "./pi-executor";
 
 export async function startAgent() {
-  const token = process.env.AGENT_TOKEN?.trim();
-  if (!token) throw new Error("MISSING_AGENT_TOKEN");
+  const token = takeAgentToken();
   const port = parsePort(process.env.PORT);
   const stateDir = resolve(process.env.AGENT_STATE_DIR ?? "/home/user/.companions");
   const executor = await PiExecutor.create(stateDir);
   const daemon = new AgentDaemon(stateDir, token, executor);
-  const server = Bun.serve({ hostname: "0.0.0.0", port, fetch: request => daemon.fetch(request) });
+  const server = Bun.serve({ hostname: "0.0.0.0", port, maxRequestBodySize: 100_000, fetch: request => daemon.fetch(request) });
   const shutdown = () => { server.stop(true); daemon.close(); process.exit(0); };
   process.on("SIGTERM", shutdown);
   process.on("SIGINT", shutdown);

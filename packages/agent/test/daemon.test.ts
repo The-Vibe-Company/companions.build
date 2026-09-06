@@ -100,4 +100,17 @@ describe("agent daemon protocol", () => {
     expect(run).toEqual({ id, status: "failed", text: null, error: "PI_RUN_FAILED" });
     expect(JSON.stringify(run)).not.toContain("sk-secret-value");
   });
+
+  test("enforces content and instruction bounds before journal acceptance", async () => {
+    const app = daemon();
+    for (const body of [
+      { content: "", instructions: "" },
+      { content: "x".repeat(50_001), instructions: "" },
+      { content: "valid", instructions: "x".repeat(20_001) },
+    ]) {
+      expect((await app.daemon.fetch(request(`/runs/${id}`, { method: "PUT", body: JSON.stringify(body) }))).status).toBe(400);
+    }
+    expect((await app.daemon.fetch(request(`/runs/${id}`))).status).toBe(404);
+    expect(app.executor.calls).toHaveLength(0);
+  });
 });

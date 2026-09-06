@@ -1,0 +1,59 @@
+apps/server/src/activation.ts
+  s_f946242dcf6ba9::t_142078d0cfe1fd 1-10
+apps/server/src/api.ts
+  s_f946242dcf6ba9::t_2a519345e1742f 1-2,7,29-33,78-80,130
+apps/server/src/automation-routes.ts
+  s_f946242dcf6ba9::t_8f7b0f17166832 3,26,32-37
+apps/server/src/automations.ts
+  s_f946242dcf6ba9::t_1d5e767ec43173 84-90
+apps/server/src/control-help.ts
+  s_f946242dcf6ba9::t_71fe2680377e22 1-12
+apps/server/src/control-product.ts
+  s_f946242dcf6ba9::t_5e7b9d587e33f7 1,14-15,48
+apps/server/src/control.ts
+  s_f946242dcf6ba9::t_f9b04771d530e3 1-2,26,29,38,41,46-49
+apps/server/src/delivery.ts
+  s_f946242dcf6ba9::t_23250eddff4d48 153-158
+apps/server/src/maintenance.sql
+  s_f946242dcf6ba9::t_09c0ecf3b1c5c7 1-6
+apps/server/src/maintenance.ts
+  s_f946242dcf6ba9::t_296ac101a97444 1-40
+apps/server/src/store.ts
+  s_f946242dcf6ba9::t_64ea072d0edf3a 12
+apps/server/src/triggers.ts
+  s_f946242dcf6ba9::t_4cbf95a89c4728 1,118-133,146,172,280,298,348-358,408-409,443,445,480
+apps/server/test/activation-runtime.test.ts
+  s_f946242dcf6ba9::t_fa63f5bfef0b76 10,14,16,25,46
+apps/server/test/maintenance.test.ts
+  s_f946242dcf6ba9::t_db9047e9104549 1-27
+apps/server/test/triggers.test.ts
+  s_f946242dcf6ba9::t_154ce97ad058f7 4,141-175
+docs/triggers.md
+  s_f946242dcf6ba9::t_cdf71798a77ecf 53-60
+packages/agent/src/pi-executor.ts
+  s_f946242dcf6ba9::t_793db4140757ec 174
+packages/control/agent.ts
+  s_f946242dcf6ba9::t_ec311df20585d3 13
+scripts/dev.py
+  s_f946242dcf6ba9::t_2c581e69f8d203 165
+scripts/live-box-canary.ts
+  s_f946242dcf6ba9::t_e2dd42fc9e393d 17
+scripts/live-desktop-canary.ts
+  s_f946242dcf6ba9::t_97782fcc7c6fad 1-26
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "9490b0f950f24ce6d27e8c45cbdec991e9dbd3ba",
+  "prompts": {},
+  "sessions": {
+    "s_f946242dcf6ba9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a06de4-a8a5-7cd3-b713-2a8d451f7200",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "StanGirard <stan@quivr.app>"
+    }
+  }
+}

@@ -1,0 +1,57 @@
+apps/server/test/box.test.ts
+  s_f946242dcf6ba9::t_8333ad07a05cc0 23,33-51,53
+  s_f946242dcf6ba9::t_5698002eb57725 3,17-22,24-32,52
+scripts/live-box-canary.ts
+  s_f946242dcf6ba9::t_25c1f563c93a11 1-36,39-42,47-51,53-73
+  s_f946242dcf6ba9::t_b4f95f7cbe7191 37-38,43-46,52
+packages/box/transport.ts
+  s_f946242dcf6ba9::t_5698002eb57725 3-6,9-13,15-18,26-30
+  s_f946242dcf6ba9::t_8333ad07a05cc0 1-2,7-8,14,19-25
+apps/server/src/store.ts
+  s_f946242dcf6ba9::t_1d59090abbd132 12
+  s_f946242dcf6ba9::t_b4f95f7cbe7191 25
+apps/server/src/machines.ts
+  s_f946242dcf6ba9::t_fd6cea3493b412 6,90
+  s_f946242dcf6ba9::t_aac03e71221e64 84
+  s_f946242dcf6ba9::t_7d72f21338c56d 97
+  s_f946242dcf6ba9::t_28e1d50e15fc6b 95
+  s_f946242dcf6ba9::t_5698002eb57725 7
+packages/box/layout.ts
+  s_f946242dcf6ba9::t_fd6cea3493b412 1-15
+apps/server/src/executor.ts
+  s_f946242dcf6ba9::t_7d72f21338c56d 63-67
+  s_f946242dcf6ba9::t_aac03e71221e64 46-48,57
+  s_f946242dcf6ba9::t_b4f95f7cbe7191 73
+packages/box/client.ts
+  s_f946242dcf6ba9::t_aac03e71221e64 34
+apps/server/src/schema.sql
+  s_f946242dcf6ba9::t_b4f95f7cbe7191 30
+README.md
+  s_f946242dcf6ba9::t_88d0938dc28340 63-66,80-84
+docs/measurements/v0-box-2026-09-06.json
+  s_f946242dcf6ba9::t_4fe5961c5989c6 1-43
+docs/measurements/v0-local-2026-09-06.json
+  s_f946242dcf6ba9::t_dc4ff68087e257 3-4,9,14,19,24,29,34,39,44,49
+docs/v0.md
+  s_f946242dcf6ba9::t_6c474bd4d50ca4 42-51
+docs/validation-v0.md
+  s_f946242dcf6ba9::t_3bbb8ac038bd20 3,30-51,55-58
+scripts/prepare-box-template.ts
+  s_f946242dcf6ba9::t_14b4bfc8f1d04e 5,40-41
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "d3f8d1cdaab5fa2b94e0c568d29cb2321a8a61c3",
+  "prompts": {},
+  "sessions": {
+    "s_f946242dcf6ba9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a06de4-a8a5-7cd3-b713-2a8d451f7200",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "StanGirard <stan@quivr.app>"
+    }
+  }
+}

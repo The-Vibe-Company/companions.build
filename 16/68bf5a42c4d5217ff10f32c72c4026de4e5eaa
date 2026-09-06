@@ -1,0 +1,33 @@
+README.md
+  s_f946242dcf6ba9::t_1dce455e509cae 53-54,57,60-61,64-65
+apps/server/test/box.test.ts
+  s_f946242dcf6ba9::t_e0ddf654e69ece 59-66
+docs/measurements/v0-box-2026-09-07.json
+  s_f946242dcf6ba9::t_97d556ab0f8abf 1-21
+docs/v0.md
+  s_f946242dcf6ba9::t_c7bc2552b24d91 127,134-137,147
+docs/validation-v0.md
+  s_f946242dcf6ba9::t_921bb3b8422d7b 5-7,32,35,38,48-50,56-57,90-95
+packages/box/client.ts
+  s_f946242dcf6ba9::t_9eab1342c4cd75 15-26
+scripts/live-skills-canary.ts
+  s_f946242dcf6ba9::t_284c4cfbd5d9db 7,59-62,86
+scripts/prepare-box-template.ts
+  s_f946242dcf6ba9::t_d316f04b8fb71b 21-23,76-85
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "1668bf5a42c4d5217ff10f32c72c4026de4e5eaa",
+  "prompts": {},
+  "sessions": {
+    "s_f946242dcf6ba9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a06de4-a8a5-7cd3-b713-2a8d451f7200",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "StanGirard <stan@quivr.app>"
+    }
+  }
+}

@@ -1,0 +1,40 @@
+apps/server/src/billing.ts
+  s_f946242dcf6ba9::t_c3caa91dcc6280 103,105-109,114-117,121-123
+  s_f946242dcf6ba9::t_667be7fed45fd8 38
+  s_f946242dcf6ba9::t_7446f2ff8de682 213-215,233-235,238-248,251
+  s_f946242dcf6ba9::t_1b9a4a1cdaf5c6 8,15-20,28,48,81-82,84,110-113,141-148,151
+  s_f946242dcf6ba9::t_7ec60257126c66 249-250,252-253
+apps/server/src/delivery.sql
+  s_f946242dcf6ba9::t_cf6ad1c95654cd 18-24
+apps/server/src/billing.sql
+  s_f946242dcf6ba9::t_3ab6ade7c09697 60-65
+  s_f946242dcf6ba9::t_34fa39d5fbbc1e 22-39
+apps/server/test/delivery.test.ts
+  s_f946242dcf6ba9::t_c3caa91dcc6280 7-10,85-102
+  s_f946242dcf6ba9::t_556700d8db8995 26,48,59,67-84
+apps/server/src/delivery.ts
+  s_f946242dcf6ba9::t_cf6ad1c95654cd 1,10-13,45-52,60-68
+docs/billing-delivery.md
+  s_f946242dcf6ba9::t_556700d8db8995 20
+  s_f946242dcf6ba9::t_667be7fed45fd8 7,14,16
+apps/server/test/billing.test.ts
+  s_f946242dcf6ba9::t_3ab6ade7c09697 4,10,25,32-37,57,60-61,71,76-77,83-118
+  s_f946242dcf6ba9::t_667be7fed45fd8 40
+  s_f946242dcf6ba9::t_a34cb54fff44ba 119-120
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "239b100e91b109fa939649b0b3245115762e966e",
+  "prompts": {},
+  "sessions": {
+    "s_f946242dcf6ba9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a06de4-a8a5-7cd3-b713-2a8d451f7200",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "StanGirard <stan@quivr.app>"
+    }
+  }
+}

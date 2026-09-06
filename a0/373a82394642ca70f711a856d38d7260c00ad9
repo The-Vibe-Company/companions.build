@@ -1,0 +1,21 @@
+packages/agent/src/scripted-model.ts
+  s_f946242dcf6ba9::t_b241da1c1712ec 37,77-103
+packages/agent/README.md
+  s_f946242dcf6ba9::t_b241da1c1712ec 43-49
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "a0373a82394642ca70f711a856d38d7260c00ad9",
+  "prompts": {},
+  "sessions": {
+    "s_f946242dcf6ba9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a06de4-a8a5-7cd3-b713-2a8d451f7200",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "StanGirard <stan@quivr.app>"
+    }
+  }
+}

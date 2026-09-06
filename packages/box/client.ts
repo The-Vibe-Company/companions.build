@@ -1,7 +1,7 @@
 export class BoxError extends Error {
   constructor(public code: string, public status = 0) { super(code); }
 }
-export type Box = { id: string; state: string; setupStatus?: string };
+export type Box = { id: string; state: string; setupStatus?: string; archiveAfter?: string; updatedAt?: string };
 /** Only provider transport. Durable lifecycle decisions belong to the executor. */
 export class BoxClient {
   constructor(private key: string, private transport: typeof fetch = fetch, private base = "https://ascii.dev/api/box/v1") {}
@@ -17,7 +17,9 @@ export class BoxClient {
   }
   private parseBox(value: any): Box {
     if (!value?.box || typeof value.box.id !== "string" || typeof value.box.state !== "string") throw new BoxError("box_invalid_response");
-    return { id: value.box.id, state: value.box.state, setupStatus: value.box.setupStatus ?? value.setupStatus };
+    const timestamp=(raw:unknown)=>typeof raw==='string'&&/^\d{4}-\d{2}-\d{2}T/.test(raw)&&Number.isFinite(Date.parse(raw))?new Date(raw).toISOString():undefined;
+    return { id: value.box.id, state: value.box.state, setupStatus: value.box.setupStatus ?? value.setupStatus,
+      archiveAfter:timestamp(value.box.archiveAfter),updatedAt:timestamp(value.box.updatedAt) };
   }
   async create(key: string, template?: string) {
     return this.parseBox(await this.request("/boxes", "POST", { noEnv: true, type: "small", ttlSeconds: 21600, ...(template ? { from: template } : {}) }, { "Idempotency-Key": key }));

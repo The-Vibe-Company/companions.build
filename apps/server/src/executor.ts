@@ -1,3 +1,4 @@
+import {BoxObserver} from './box-observation';
 import { db, migrate } from "./store";
 import { encrypt, decrypt } from "./config";
 import { prepareLocal, agentRequest } from "./machines";
@@ -275,6 +276,7 @@ if (import.meta.main) {
   console.log("Executor ready");
   const { productHooks } = await import("./runtime-product");
   const lifecycle=new LifecycleCoordinator();
-  try { for (;;) { await tick(sql, productHooks,lifecycle); await Bun.sleep(500); } }
-  finally { await lifecycle.close(); sql.release(); await db.close(); }
+  const observations=new BoxObserver();
+  try { for (;;) { await observations.schedule(sql); await tick(sql, productHooks,lifecycle); await Bun.sleep(500); } }
+  finally { await Promise.allSettled([lifecycle.close(),observations.close()]); sql.release(); await db.close(); }
 }

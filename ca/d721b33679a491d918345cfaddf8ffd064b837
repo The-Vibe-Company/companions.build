@@ -1,0 +1,37 @@
+apps/server/test/delivery.test.ts
+  s_f946242dcf6ba9::t_f7114b20ba9397 5,7,27,49,60,76,99
+apps/server/src/delivery.ts
+  s_f946242dcf6ba9::t_3945049b63fa47 7,14,31,34,36,38,47-48,52,61-63,65-67,69,72,74-83,86,90-91,93-94,108-109,114-115,118,137-138,165-170
+apps/server/test/delivery-skills.test.ts
+  s_f946242dcf6ba9::t_83d21c56135ac9 1,16,25-26,49,70,72,75
+  s_f946242dcf6ba9::t_3fe12cabf8f119 27
+  s_f946242dcf6ba9::t_2510dccc046c8d 2-14,17-24,28-43,45-48,50-69,71,73-74,76-77
+  s_f946242dcf6ba9::t_b78c93a65ffff4 15,44
+apps/server/src/delivery-skills.ts
+  s_f946242dcf6ba9::t_83d21c56135ac9 52-53
+  s_f946242dcf6ba9::t_bf83003ee7bb48 58,74,87
+  s_f946242dcf6ba9::t_36b357a2add02f 40,42-44,55-56,60-61,124
+  s_f946242dcf6ba9::t_644f8a644fd1d3 13
+  s_f946242dcf6ba9::t_c7fdf5b2ebad2b 119-120
+  s_f946242dcf6ba9::t_3945049b63fa47 94,105
+  s_f946242dcf6ba9::t_3d4505adca31b0 81,83,114
+  s_f946242dcf6ba9::t_823fad6131a1a7 1-12,14-39,41,45-51,54,57,59,62-73,75-80,82,84-86,88-93,95-104,106-113,115-118,121-123,125-126
+apps/server/src/delivery-skills.sql
+  s_f946242dcf6ba9::t_823fad6131a1a7 1-31
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "cad721b33679a491d918345cfaddf8ffd064b837",
+  "prompts": {},
+  "sessions": {
+    "s_f946242dcf6ba9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a06de4-a8a5-7cd3-b713-2a8d451f7200",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "StanGirard <stan@quivr.app>"
+    }
+  }
+}

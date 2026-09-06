@@ -7,6 +7,11 @@ projet**, companions.build. Il constitue la référence produit pour poursuivre 
 décrit pas le fonctionnement du dépôt Companion actuel et ne vaut pas encore spécification
 d'implémentation complète. Les propositions et questions non tranchées sont signalées.
 
+Ce cadrage conserve les décisions approuvées, y compris leurs formulations historiques. Pour ne
+pas confondre décision et livraison, l'état vérifié du dépôt et l'audit des écarts sont maintenus
+dans [v0.md](v0.md). Une fonctionnalité décrite ici n'est pas réputée terminée par sa seule présence
+dans ce document.
+
 ## 1. Vision
 
 Construire un « Grok bot » open source : des collaborateurs IA faciles à créer, chacun avec un

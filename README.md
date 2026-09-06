@@ -1,16 +1,19 @@
 # companions.build
 
-Persistent AI companions with their own computer. Pi is the harness, Bun packages the runtime,
-and the web app uses shadcn/ui and AI Elements. MIT licensed.
+Persistent AI companions with their own computer. Each personal account owns an isolated set of
+Companions, conversations, connections, automations, templates, files, and billing records. Pi is
+the agent harness, Bun packages the Linux runtime, PostgreSQL is the durable control plane, and the
+web client uses React, shadcn/ui, and AI Elements.
 
-The first slice creates a Companion, launches its Linux computer on the first message, persists
-the conversation, cancels work and recovers after restart without replaying ambiguous tool actions.
-This is a single-operator development workspace, not the hosted subscription product yet.
+The repository currently implements the local product path and the hosted integration boundaries.
+It is not evidence that the hosted service, provider OAuth applications, Stripe prices, or cold
+Box performance are production ready. See [the V0 status and gaps](docs/v0.md).
 
 ## Run locally
 
-Prerequisites: Python 3, Docker running, Git. The launcher downloads a checksum-verified Bun 1.4.2
-into this checkout; it does not replace your global runtime.
+Prerequisites are Python 3, Docker, and Git. The launcher downloads checksum-verified Bun 1.4.2
+inside the checkout and starts isolated PostgreSQL, MinIO, Mailpit, API, worker, executor, and web
+processes.
 
 ```sh
 git clone https://github.com/The-Vibe-Company/companions.build.git
@@ -18,12 +21,17 @@ cd companions.build
 python3 scripts/dev.py
 ```
 
-Open the address printed by the launcher. The access token lives in `.local/operator-token`.
-Create a Companion, choose Local, and send `write-note`: real Pi writes and reads a file inside
-its Linux container. Default local mode explicitly uses a deterministic test model, not an LLM.
-`slow-write` exercises cancellation; `crash-after-effect` is a fault-injection scenario.
+Open the printed web address, enter an email, then use the link in the printed Mailpit address.
+Local mode uses a deterministic Pi test model by default. Create a Companion and send `write-note`
+to exercise a real Pi tool call inside its Linux container. `slow-write` exercises cancellation;
+`crash-after-effect` exercises recovery without repeating the tool effect.
 
-For real responses, create `.env`:
+Each checkout derives its own ports, database, object bucket, mail inbox, and labeled containers.
+Set `CONDUCTOR_PORT` to choose an explicit web port; API is `+1`, PostgreSQL `+2`, MinIO `+3`,
+Mailpit SMTP `+5`, and Mailpit web `+6`. Ctrl-C stops resources owned by that checkout while
+retaining its local data.
+
+For real model responses, create an uncommitted `.env`:
 
 ```dotenv
 AGENT_TEST_MODE=0
@@ -32,79 +40,73 @@ MODEL_ID=gemini-2.5-flash
 GEMINI_API_KEY=your-key
 ```
 
-Supported initial providers: Google, Anthropic, OpenAI, OpenRouter and Z.AI Coding Plan. Set the corresponding
-`MODEL_PROVIDER`, `MODEL_ID` and standard API key. `GOOGLE_API_KEY` is accepted as a Google alias.
-Restart the launcher after configuration changes. It refreshes a machine's configuration before
-its next task. Pi's shell and files execute inside that machine, never on the host.
-
-For Z.AI Coding Plan, use `MODEL_PROVIDER=zai`, `MODEL_ID=glm-5.3-flash` and `ZAI_API_KEY`.
-Pi uses the dedicated Coding Plan endpoint. The model is listed in the
-[official Coding Plan documentation](https://docs.z.ai/devpack/overview).
-
-Each checkout gets its own database container, ports and state. Override `WEB_PORT` or
-`CONDUCTOR_PORT` for an explicit base port; API uses base+1 and PostgreSQL base+2. Ctrl-C stops
-the application processes. Agent containers and PostgreSQL retain their state for the next start.
+Google, Anthropic, OpenAI, OpenRouter, and Z.AI Coding Plan are supported. The UI projects the
+configured model catalog and stores a validated model choice per Companion. Restart the launcher
+after changing configuration.
 
 ## Run on Box
 
-Build a frozen template once, then launch new Companions from it:
+Prepare the frozen runtime once, then create Box-backed Companions from it:
 
 ```sh
-# First set BOX_API_KEY in .env. Do not commit credentials.
+# Set BOX_API_KEY in .env first. Never commit credentials.
 python3 scripts/bun.py scripts/prepare-box-template.ts companions-agent-v0
-# Then add BOX_TEMPLATE=companions-agent-v0 to .env and restart dev.py.
+# Add BOX_TEMPLATE=companions-agent-v0 to .env, then restart scripts/dev.py.
 ```
 
-Choose Box in the creation form. The executor creates a Box from the prepared template and resumes
-that same Box when archived. The executable, Pi dependencies and Photon WASM are already present;
-there is no runtime package installation at wake. The template script archives its build Box
-after a successful snapshot and saves a resumable preparation journal in `.local`.
+The executor is the only process that contacts Box or Pi. It creates or resumes the same Box,
+stages the selected model, plugins, files, trigger context, and control MCP, and persists intent
+before each external effect. Opening the desktop wakes the Box when necessary. Human takeover is
+shown as complete only after the runtime confirms the agent is paused.
 
-Live Box snapshot, creation, real GLM tool execution and resume of the same computer with its files
-passed on 6 September 2026. Cold creation and wake still take tens of seconds; the few-second cold
-startup target is not achieved. See [measured validation](docs/validation-v0.md). A Box desktop link
-is available once ready; coordinated GUI takeover/release remains a later feature.
+Live Box creation, tools, archive/resume, and desktop access have targeted canaries. Measurements
+from 6 September 2026 still show cold creation and wake taking tens of seconds; the desired
+few-second cold path has not been achieved. See [measured validation](docs/validation-v0.md).
 
-## Verify and reproduce
+## Product surfaces
+
+- Better Auth email magic links with PostgreSQL sessions and owner-scoped data.
+- Durable main chat with native Pi steering, cancellation, questions, Markdown, and private files.
+- Background routines, signed webhooks, code filters, provider reads, grouping, shared durable
+  memory, explicit publish-to-chat, and task history.
+- OAuth and custom MCP connections selected independently for each Companion.
+- The `companion-control` MCP for identity, models, routines, triggers, tasks, delegation,
+  templates, lifecycle operations, plugins, and delivery preparation.
+- Permanent Companions, temporary specialist replicas, Box snapshot adoption, and retained results.
+- Stripe Checkout/portal/webhooks, a deduplicated usage ledger, and independent client delivery
+  with an explicit, revocable maintenance grant record.
+
+## Verify
 
 ```sh
-# Fresh isolated PostgreSQL and MinIO, full product Pi/Linux acceptance, frontend tests/build
+# Fresh PostgreSQL and MinIO, server behavior, compiled Pi/Linux product path, web tests and build
 python3 scripts/verify.py
 
-# Wider packaging proof: MCP transports, skills, images, native steering, independent lanes
+# Wider packaging matrix: tools, MCP transports, skills, images, steering, sessions, and faults
 python3 experiments/pi-bun/verify.py
 python3 experiments/pi-bun/verify.py --scenario 'crash after'
 
-# Optional: one paid request to your configured model, inside Linux
+# Credentialed canaries; these may create billable provider resources
 AGENT_TEST_MODE=0 python3 scripts/bun.py scripts/live-model-canary.ts
-
-# Optional: paid Box creation, real tools, archive/resume and desktop endpoint
 python3 scripts/bun.py scripts/live-box-canary.ts
-# Intentionally repeat the wake test on the same retained computer
 python3 scripts/bun.py scripts/live-box-canary.ts --wake-only
 ```
 
-Evidence is retained in `.artifacts/verification`, `.artifacts/system-tests` and `.artifacts/pi-bun`.
-The system suite kills an agent after an actual shell effect, restarts it, verifies no repeated
-effect and checks that the next task succeeds. Verification uses its own temporary database,
-private object bucket, and verification-labeled containers.
+Read [the testing guide](docs/testing.md) before interpreting a passing suite. Deterministic tests
+prove product behavior at controlled boundaries; they do not prove model quality, live OAuth,
+Stripe pricing, provider reliability, or hosted latency.
 
-## Product and architecture
+## Documentation
 
-- [Current V0 boundary and architecture](docs/v0.md)
+- [Current implementation, architecture, and gaps](docs/v0.md)
 - [Approved product decisions](docs/companions-build.md)
-- [Linear tickets](docs/tickets.md)
-- [Pi/Bun Linux findings and measurements](docs/research/pi-bun-feasibility-2026-09-06.md)
-- [Agent daemon protocol](packages/agent/README.md)
+- [Web/API contract](docs/UI_CONTRACT.md)
+- [Testing and evidence](docs/testing.md)
+- [Billing and client delivery](docs/billing-delivery.md)
+- [Lifecycle, templates, and replicas](docs/lifecycle.md)
+- [Triggers](docs/triggers.md)
+- [Files](docs/files.md)
+- [Pi/Bun feasibility](docs/research/pi-bun-feasibility-2026-09-06.md)
 
-The first chat currently queues messages while work is active. Native steering is proven in the
-packaging experiment but is not yet wired into the product transport. Routines, triggers, plugins,
-control MCP, delegation, templates for clients and billing remain tracked in Linear.
-
-The installation token protects the local API. Machine endpoint credentials are encrypted in
-PostgreSQL. Treat each agent's computer as a trusted execution environment for its configured
-accounts: process-environment scrubbing prevents routine shell inheritance, not a malicious
-program's access to same-user machine state. Hosted tenant isolation is a separate milestone.
-
-The live-model canary passed with Z.AI Coding Plan / GLM-5.3-Flash on 6 September 2026.
-Keep live model checks separate from the deterministic acceptance suite.
+The project is MIT licensed. Never commit `.env`, provider keys, authentication links, local state,
+or verification artifacts.

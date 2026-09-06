@@ -1,9 +1,11 @@
 import { createHash, randomBytes } from 'node:crypto';
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { z } from 'zod';
 import { db } from './store';
 import { encrypt, decrypt } from './config';
 import { pluginCatalog, type MachinePlugin } from '../../../packages/plugins/catalog';
-import { beginCompanionPluginOAuth, completeCompanionPluginOAuth, refreshCompanionPluginOAuth, COMPANION_GMAIL_MCP_ALLOWED_TOOLS, type CompanionPluginStoredOAuthCredential } from '../../../packages/plugins/oauth';
+import { beginCompanionPluginOAuth, completeCompanionPluginOAuth, refreshCompanionPluginOAuth, CompanionPluginOAuthError, CompanionPluginOAuthRevokedError, COMPANION_GMAIL_MCP_ALLOWED_TOOLS, type CompanionPluginStoredOAuthCredential } from '../../../packages/plugins/oauth';
 
 const uuid = z.string().uuid();
 const hash = (value:string) => createHash('sha256').update(value).digest('hex');
@@ -17,7 +19,7 @@ export function pluginConnectionAvailable(serverId:string,env:NodeJS.ProcessEnv=
 export const listPluginCatalog=()=>pluginCatalog.map(provider=>({...provider,available:pluginConnectionAvailable(provider.id)}));
 export async function migratePlugins(sql:any) { await sql.unsafe(await Bun.file(new URL('./plugins.sql',import.meta.url)).text()); }
 export class PluginError extends Error {}
-const publicColumns = db`id,provider,label,server_id AS "serverId",created_at AS "createdAt"`;
+const publicColumns = db`id,provider,label,server_id AS "serverId",health_status AS "healthStatus",health_code AS "healthCode",health_checked_at AS "checkedAt",created_at AS "createdAt"`;
 export async function listPluginAccounts(ownerId:string) { return db`SELECT ${publicColumns} FROM plugin_accounts WHERE owner_id=${ownerId} ORDER BY created_at`; }
 export async function startPluginConnection(ownerId:string, serverId:string, label:string,env:NodeJS.ProcessEnv=process.env) {
   const provider = pluginCatalog.find(p => p.id === serverId);
@@ -43,6 +45,11 @@ export async function completePluginConnection(ownerId:string,state:string,code:
 }
 export async function cancelPluginConnection(ownerId:string,state:string) {await consumePluginFlow(ownerId,state);}
 const customSchema=z.object({label:z.string().trim().min(1).max(80),transport:z.enum(['http','stdio']).default('http'),url:z.string().url().optional(),command:z.string().min(1).max(500).optional(),args:z.array(z.string().max(2000)).max(50).default([]),headers:z.record(z.string(),z.string().max(8000)).default({}),env:z.record(z.string(),z.string().max(8000)).default({})});
+const storedOAuthSchema=z.object({
+  kind:z.literal('oauth'),version:z.literal(1),serverName:z.string(),accessToken:z.string().min(1).refine(value=>!/[\r\n\0]/.test(value)),
+  refreshToken:z.string().nullable(),accessExpiresAt:z.string().datetime().nullable(),scope:z.string().nullable(),tokenType:z.literal('Bearer'),
+  tokenEndpoint:z.string().url(),resource:z.string(),client:z.object({clientId:z.string().min(1),clientSecret:z.string().nullable(),tokenEndpointAuthMethod:z.enum(['none','client_secret_post','client_secret_basic'])}),
+}).passthrough();
 export async function addCustomPlugin(ownerId:string,input:unknown) {
   const value=customSchema.parse(input);
   if(value.transport==='http') {
@@ -65,6 +72,73 @@ export async function attachPlugin(ownerId:string,companionId:string,accountId:s
 export async function disconnectPlugin(ownerId:string,id:string) { uuid.parse(id); await db`DELETE FROM plugin_accounts WHERE id=${id} AND owner_id=${ownerId}`; }
 export async function selectedPlugins(ownerId:string,companionId:string) {
   return db`SELECT p.id,p.provider,p.label FROM companion_plugins cp JOIN plugin_accounts p ON p.id=cp.account_id JOIN companions c ON c.id=cp.companion_id WHERE c.id=${companionId} AND c.owner_id=${ownerId} AND p.owner_id=${ownerId}`;
+}
+
+export type PluginHealthCode='authorization_required'|'connection_failed'|'configuration_invalid'|'agent_check_required';
+export type PluginHealthResult={id:string;healthStatus:'ok'|'error'|'requires_agent';healthCode:PluginHealthCode|null;checkedAt:Date};
+export interface PluginHealthDependencies {
+  check?:(plugin:MachinePlugin,signal:AbortSignal)=>Promise<void>;
+  refresh?:(input:{credential:CompanionPluginStoredOAuthCredential;signal?:AbortSignal})=>Promise<CompanionPluginStoredOAuthCredential>;
+  now?:()=>Date;
+}
+
+async function discoverPlugin(plugin:MachinePlugin,signal:AbortSignal) {
+  if(plugin.transport==='slack') {
+    const result=await fetch('https://slack.com/api/auth.test',{method:'POST',headers:plugin.headers,signal});
+    const body=await result.json().catch(()=>null) as {ok?:boolean}|null;
+    if(!result.ok||body?.ok!==true)throw Error('PLUGIN_CONNECTION_FAILED');
+    return;
+  }
+  if(plugin.transport!=='http'||!plugin.url)throw Error('PLUGIN_CONFIGURATION_INVALID');
+  const client=new Client({name:'companions.build-health',version:'0.2.0'});
+  const transport=new StreamableHTTPClientTransport(new URL(plugin.url),{requestInit:{headers:plugin.headers}});
+  try {
+    await client.connect(transport,{timeout:10_000,signal});
+    await client.listTools(undefined,{timeout:10_000,signal});
+  } finally {await client.close().catch(()=>undefined);}
+}
+
+function healthProjection(row:any):PluginHealthResult {
+  return{id:row.id,healthStatus:row.health_status,healthCode:row.health_code,checkedAt:new Date(row.health_checked_at)};
+}
+
+/** Owner-triggered, read-only connection discovery. Custom MCP definitions stay agent-computer-only. */
+export async function checkPluginAccount(ownerId:string,accountId:string,deps:PluginHealthDependencies={}):Promise<PluginHealthResult|null> {
+  uuid.parse(accountId);
+  const now=deps.now?.()??new Date();
+  let plugin:MachinePlugin|null=null;
+  let early:PluginHealthResult['healthStatus']|null=null;
+  let earlyCode:PluginHealthCode|null=null;
+  try {
+    const prepared=await db.begin(async tx=>{
+      const [row]=await tx`SELECT * FROM plugin_accounts WHERE id=${accountId} AND owner_id=${ownerId} FOR UPDATE`;
+      if(!row)return null;
+      const rawCredential=JSON.parse(decrypt(row.credential_secret));
+      if(rawCredential.kind==='custom'){customSchema.parse(rawCredential);return{custom:true as const};}
+      let credential=storedOAuthSchema.parse(rawCredential) as CompanionPluginStoredOAuthCredential;
+      if(credential.serverName!==row.server_id)throw Error('PLUGIN_CONFIGURATION_INVALID');
+      if(credential.accessExpiresAt&&Date.parse(credential.accessExpiresAt)<Date.now()+60_000){
+        credential=await (deps.refresh??refreshCompanionPluginOAuth)({credential,signal:AbortSignal.timeout(10_000)});
+        await tx`UPDATE plugin_accounts SET credential_secret=${encrypt(JSON.stringify(credential))} WHERE id=${accountId} AND owner_id=${ownerId}`;
+      }
+      const provider=pluginCatalog.find(item=>item.id===row.server_id);
+      if(!provider)throw Error('PLUGIN_CONFIGURATION_INVALID');
+      return{custom:false as const,plugin:{id:row.id,name:row.label,provider:provider.provider,transport:provider.transport as 'http'|'slack',url:provider.url,headers:{Authorization:`Bearer ${credential.accessToken}`},...(provider.provider==='gmail'?{allowedTools:[...COMPANION_GMAIL_MCP_ALLOWED_TOOLS]}:{})} satisfies MachinePlugin};
+    });
+    if(!prepared)return null;
+    if(prepared.custom){early='requires_agent';earlyCode='agent_check_required';}
+    else plugin=prepared.plugin;
+  } catch(error) {
+    early='error';
+    earlyCode=error instanceof CompanionPluginOAuthRevokedError||error instanceof CompanionPluginOAuthError&&error.code==='oauth_refresh_failed'?'authorization_required':'configuration_invalid';
+  }
+  if(plugin&&!early){
+    try{await (deps.check??discoverPlugin)(plugin,AbortSignal.timeout(10_000));}
+    catch{early='error';earlyCode='connection_failed';}
+  }
+  const healthStatus=early??'ok',healthCode=earlyCode;
+  const [saved]=await db`UPDATE plugin_accounts SET health_status=${healthStatus},health_code=${healthCode},health_checked_at=${now} WHERE id=${accountId} AND owner_id=${ownerId} RETURNING id,health_status,health_code,health_checked_at`;
+  return saved?healthProjection(saved):null;
 }
 /** Executor-only credential projection, never a browser response. Refresh is serialized by row lock. */
 export async function machinePlugins(companionId:string):Promise<MachinePlugin[]> {
@@ -95,6 +169,8 @@ export async function handlePlugins(request:Request,ownerId:string):Promise<Resp
   if(path==='/api/plugins' && request.method==='GET') return response({catalog:listPluginCatalog(),accounts:await listPluginAccounts(ownerId)});
   if(path==='/api/plugins/connect' && request.method==='POST') {const v=z.object({serverId:z.string(),label:z.string().max(80).default('')}).parse(await request.json());return response(await startPluginConnection(ownerId,v.serverId,v.label));}
   if(path==='/api/plugins/custom' && request.method==='POST') return response(await addCustomPlugin(ownerId,await request.json()),201);
+  const check=path.match(/^\/api\/plugins\/accounts\/([a-f0-9-]+)\/check$/);
+  if(check&&request.method==='POST') {const result=await checkPluginAccount(ownerId,check[1]);return result?response({account:result}):response({error:'Connection not found.'},404);}
   if(path==='/api/plugins/callback' && request.method==='GET') {
     let status:PluginCallbackStatus='error';
     try{

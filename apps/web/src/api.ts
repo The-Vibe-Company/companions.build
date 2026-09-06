@@ -20,6 +20,16 @@ export interface Companion {
   error: string | null;
   createdAt: string;
   avatar?: CompanionAvatarValue | null;
+  desktopTaken?: boolean;
+  desktopPausedAt?: string | null;
+  prepareRequested?: boolean;
+  readyAt?: string | null;
+  parentId?: string | null;
+  temporary?: boolean;
+  templateId?: string | null;
+  templateRevision?: number | null;
+  retiredAt?: string | null;
+  modelId?: string | null;
 }
 
 export interface AccountUser { id: string; email: string; name: string }
@@ -39,6 +49,7 @@ export interface Run {
   lane?: "main"|"background";
   source?: string;
   resultText?: string|null;
+  previewText?: string|null;
   id: string;
   status: RunStatus;
   error: string | null;
@@ -57,6 +68,7 @@ export interface AppConfig {
   localAvailable: boolean;
   boxAvailable: boolean;
   model: string;
+  models?: Array<{ id: string; name: string }>;
 }
 
 export class ApiError extends Error {
@@ -174,8 +186,8 @@ export const api = {
   cancel: (id: string) =>
     request<{ ok: true }>(`/api/companions/${id}/cancel`, { method: "POST" }),
   openDesktop: (id: string) =>
-    request<{ url: string }>(`/api/companions/${id}/desktop`, { method: "POST" }),
-  updateCompanion: (id: string, input: Pick<Companion, "name" | "instructions" | "avatar">) =>
+    request<{ url?: string; preparing?: true }>(`/api/companions/${id}/desktop`, { method: "POST" }),
+  updateCompanion: (id: string, input: Pick<Companion, "name" | "instructions" | "avatar"> & { modelId?: string | null }) =>
     request<{ companion: Companion }>(`/api/companions/${id}`, { method: "PATCH", body: JSON.stringify(input) }),
 };
 
@@ -184,6 +196,10 @@ export interface PluginAccount { id: string; serverId: string; label: string; pr
 export interface PluginsResponse { catalog: PluginServer[]; accounts: PluginAccount[] }
 export interface Routine { id: string; name: string; prompt: string; cron: string; timezone: string; enabled: boolean; nextFireAt?: string | null; createdAt?: string; updatedAt?: string }
 export interface Trigger { id: string; name: string; prompt: string; source: string; mode: "direct" | "filter"; filterCode?: string | null; enabled: boolean; registrationStatus?: "manual" | "registered" | "needs_connection" | "error"; url?: string | null }
+export interface BillingOverview { configured: boolean; mode: "unconfigured" | "test" | "stripe"; plan: "inactive" | "subscription"; active: boolean; status: string | null; currentPeriodEnd: string | null; cancelAtPeriodEnd: boolean; portalAvailable: boolean; usage: Array<{ category: string; unit: string; quantity: string }> }
+export interface DeliverySent { id: string; clientEmail: string; status: "pending" | "accepted" | "revoked"; maintenanceRequested: boolean; expiresAt: string; acceptedAt: string | null; companionId: string | null }
+export interface DeliveryReceived { id: string; name: string; status: "pending" | "accepted" | "revoked"; maintenanceRequested: boolean; expiresAt: string; acceptedAt: string | null; companionId: string | null }
+export interface AgentTemplate { id: string; name: string; instructions: string; avatar: CompanionAvatarValue; revision: number; sourceCompanionId: string | null; hasSnapshot: boolean }
 
 export const workspaceApi = {
   plugins: () => request<PluginsResponse>("/api/plugins"),
@@ -201,8 +217,25 @@ export const workspaceApi = {
   createTrigger: (id: string, input: Pick<Trigger, "name" | "prompt" | "source" | "mode" | "filterCode" | "enabled">) => request<{ trigger: Trigger; secret?: string }>(`/api/companions/${id}/triggers`, { method: "POST", body: JSON.stringify(input) }),
   updateTrigger: (id: string, triggerId: string, input: Partial<Omit<Trigger, "id">>) => request<{ trigger: Trigger }>(`/api/companions/${id}/triggers/${triggerId}`, { method: "PATCH", body: JSON.stringify(input) }),
   deleteTrigger: (id: string, triggerId: string) => request<{ ok: true }>(`/api/companions/${id}/triggers/${triggerId}`, { method: "DELETE" }),
+  billing: () => request<BillingOverview>("/api/billing"),
+  checkout: () => request<{ url: string }>("/api/billing/checkout", { method: "POST" }),
+  billingPortal: () => request<{ url: string }>("/api/billing/portal", { method: "POST" }),
+  deliveries: () => request<{ sent: DeliverySent[]; received: DeliveryReceived[] }>("/api/deliveries"),
+  createDelivery: (input: { clientDeliveryId: string; companionId: string; clientEmail: string; templateIds: string[]; maintenanceRequested: boolean }) => request<{ delivery: DeliverySent }>("/api/deliveries", { method: "POST", body: JSON.stringify(input) }),
+  acceptDelivery: (id: string, grantMaintenance: boolean) => request<{ companionId: string; accepted: boolean }>(`/api/deliveries/${id}/accept`, { method: "POST", body: JSON.stringify({ grantMaintenance }) }),
+  revokeDelivery: (id: string) => request<{ revoked: true }>(`/api/deliveries/${id}`, { method: "DELETE" }),
+  revokeMaintenance: (id: string) => request<{ revoked: true }>(`/api/deliveries/${id}/maintenance`, { method: "DELETE" }),
+  templates: () => request<{ templates: AgentTemplate[] }>("/api/templates"),
+  createTemplate: (input: Pick<AgentTemplate, "name" | "instructions" | "avatar">) => request<{ id: string; revision: number }>("/api/templates", { method: "POST", body: JSON.stringify(input) }),
+  updateTemplate: (id: string, input: Pick<AgentTemplate, "name" | "instructions" | "avatar" | "revision">) => request<{ id: string; revision: number }>(`/api/templates/${id}`, { method: "PATCH", body: JSON.stringify({ name: input.name, instructions: input.instructions, avatar: input.avatar, expectedRevision: input.revision }) }),
+  setTemplatePermission: (companionId: string, templateId: string, maxChildren: number) => request<{ templateId: string; maxChildren: number }>(`/api/companions/${companionId}/templates/${templateId}`, { method: "PUT", body: JSON.stringify({ maxChildren }) }),
+  replicas: (companionId: string) => request<{ replicas: Companion[] }>(`/api/companions/${companionId}/replicas`),
+  spawnReplica: (companionId: string, templateId: string, prompt: string) => request<{ companionId: string; runId: string }>(`/api/companions/${companionId}/replicas`, { method: "POST", body: JSON.stringify({ clientCommandId: crypto.randomUUID(), templateId, prompt }) }),
+  prepare: (companionId: string) => request<unknown>(`/api/companions/${companionId}/prepare`, { method: "POST" }),
+  takeDesktop: (companionId: string) => request<unknown>(`/api/companions/${companionId}/desktop/takeover`, { method: "POST" }),
+  releaseDesktop: (companionId: string) => request<unknown>(`/api/companions/${companionId}/desktop/release`, { method: "POST" }),
 };
 
 export function isActiveRun(status: RunStatus) {
-  return status === "queued" || status === "preparing" || status === "running";
+  return status === "queued" || status === "preparing" || status === "running" || status === "needs_input";
 }

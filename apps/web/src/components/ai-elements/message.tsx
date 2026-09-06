@@ -3,6 +3,8 @@
 import { cn } from "@/lib/utils";
 import type { UIMessage } from "ai";
 import type { HTMLAttributes } from "react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 
 export type MessageProps = HTMLAttributes<HTMLDivElement> & {
   from: UIMessage["role"];
@@ -32,5 +34,24 @@ export const MessageContent = ({ children, className, ...props }: MessageContent
     {...props}
   >
     {children}
+  </div>
+);
+
+export type MessageResponseProps = Omit<HTMLAttributes<HTMLDivElement>, "children"> & {
+  children: string;
+};
+
+/** Markdown response renderer with the same public shape as AI Elements MessageResponse. */
+export const MessageResponse = ({ children, className, ...props }: MessageResponseProps) => (
+  <div className={cn("markdown-body", className)} {...props}>
+    <ReactMarkdown
+      remarkPlugins={[remarkGfm]}
+      components={{
+        a: ({ href, children: label }) => <a href={href} target="_blank" rel="noreferrer">{label}</a>,
+        input: ({ checked, ...inputProps }) => <input {...inputProps} checked={checked} readOnly />,
+      }}
+    >
+      {children}
+    </ReactMarkdown>
   </div>
 );

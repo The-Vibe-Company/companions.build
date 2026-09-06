@@ -9,10 +9,8 @@ import {
   ExternalLink,
   FileText,
   LoaderCircle,
-  LogOut,
   Mail,
   Menu,
-  MonitorUp,
   PanelLeftClose,
   Paperclip,
   Plus,
@@ -33,7 +31,7 @@ import {
   ConversationEmptyState,
   ConversationScrollButton,
 } from "@/components/ai-elements/conversation";
-import { Message, MessageContent } from "@/components/ai-elements/message";
+import { Message, MessageContent, MessageResponse } from "@/components/ai-elements/message";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import {
@@ -54,6 +52,7 @@ import {
 import { Question } from "@/components/Question";
 import { cn } from "@/lib/utils";
 import { AvatarPicker, CompanionAvatar, DEFAULT_AVATAR, type CompanionAvatarValue } from "@/components/CompanionAvatar";
+import { AccountProduct, DeliverySettings, DesktopSheet, SpecialistsSettings } from "@/components/ProductPanels";
 
 const ACTIVE_DETAIL_INTERVAL = 1_000;
 const IDLE_DETAIL_INTERVAL = 5_000;
@@ -319,7 +318,7 @@ function ActivityPanel({ detail, onClose }: { detail: CompanionDetail; onClose: 
               <strong>{statusLabel(run.status)}</strong>
               <small>{readableDate(run.createdAt)}</small>
               {run.error && <p className="run-error">{run.error}</p>}
-              {run.lane === "background" && run.resultText && <p className="task-result">{run.resultText}</p>}
+              {run.lane === "background" && run.resultText && <div className="task-result"><MessageResponse>{run.resultText}</MessageResponse></div>}
             </div>
           </div>
         ))}
@@ -335,6 +334,12 @@ function Chat({ detail, onRefresh, onUnauthorized }: { detail: CompanionDetail; 
   const [actionError, setActionError] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const activeRun = detail.runs.find((run) => run.lane !== "background" && isActiveRun(run.status));
+  const activePreview = activeRun
+    && (activeRun.status === "running" || activeRun.status === "needs_input")
+    && activeRun.previewText
+    && !detail.messages.some((message) => message.role === "assistant" && message.runId === activeRun.id)
+      ? activeRun.previewText
+      : null;
 
   async function send(event: FormEvent) {
     event.preventDefault();
@@ -391,11 +396,17 @@ function Chat({ detail, onRefresh, onUnauthorized }: { detail: CompanionDetail; 
           ) : detail.messages.map((message) => (
             <Message from={message.role} key={message.id}>
               {message.role === "assistant" && <span className="message-author">{detail.companion.name}</span>}
-              <MessageContent><p className="message-text">{message.content}</p></MessageContent>
+              <MessageContent><MessageResponse>{message.content}</MessageResponse></MessageContent>
               {message.files?.length ? <div className="message-files">{message.files.map((file) => <a key={file.id} href={file.url} target="_blank" rel="noreferrer"><FileText /><span>{file.name}</span></a>)}</div> : null}
               <time className="message-time" dateTime={message.createdAt}>{readableDate(message.createdAt)}</time>
             </Message>
           ))}
+          {activePreview && (
+            <Message from="assistant" className="message-preview">
+              <span className="message-author">{detail.companion.name}</span>
+              <MessageContent><MessageResponse>{activePreview}</MessageResponse></MessageContent>
+            </Message>
+          )}
           {activeRun && (
             <div className="working-row" role="status">
               <span className="working-dots"><i /><i /><i /></span>
@@ -484,18 +495,20 @@ function CompanionConnections({ companionId }: { companionId: string }) {
   return <div className="settings-stack"><div className="settings-intro"><Waypoints /><div><h3>Connections</h3><p>Choose which connected accounts this Companion can use.</p></div></div>{all.length === 0 ? <p className="settings-empty">Connect an account from Connections first.</p> : all.map((account) => <label className="connection-choice" key={account.id}><span className="provider-dot">{(account.provider ?? account.label).slice(0, 1).toUpperCase()}</span><span><strong>{account.label}</strong><small>{account.provider ?? account.serverId}</small></span><input type="checkbox" checked={selectedIds.has(account.id)} onChange={() => void (selectedIds.has(account.id) ? workspaceApi.unselectPlugin(companionId, account.id) : workspaceApi.selectPlugin(companionId, account.id)).then(load)} /></label>)}{error && <p className="field-error">{error}</p>}</div>;
 }
 
-function SettingsSheet({ detail, onClose, onSaved }: { detail: CompanionDetail; onClose: () => void; onSaved: () => Promise<void> }) {
-  const [tab, setTab] = useState<"identity" | "routines" | "connections" | "triggers">("identity");
+function SettingsSheet({ detail, models, onClose, onSaved }: { detail: CompanionDetail; models: Array<{ id: string; name: string }>; onClose: () => void; onSaved: () => Promise<void> }) {
+  const tabs = ["identity", "routines", "connections", "triggers", "specialists", "delivery"] as const;
+  const [tab, setTab] = useState<(typeof tabs)[number]>("identity");
   const [name, setName] = useState(detail.companion.name);
   const [instructions, setInstructions] = useState(detail.companion.instructions);
   const [avatar, setAvatar] = useState(detail.companion.avatar ?? DEFAULT_AVATAR);
+  const [modelId, setModelId] = useState(detail.companion.modelId ?? models[0]?.id ?? "");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   async function save(event: FormEvent) {
     event.preventDefault();
     setSaving(true); setError("");
     try {
-      await api.updateCompanion(detail.companion.id, { name: name.trim(), instructions: instructions.trim(), avatar });
+      await api.updateCompanion(detail.companion.id, { name: name.trim(), instructions: instructions.trim(), avatar, modelId: modelId || null });
       await onSaved(); onClose();
     } catch (cause) { setError(cause instanceof Error ? cause.message : "Could not save identity"); }
     finally { setSaving(false); }
@@ -504,40 +517,23 @@ function SettingsSheet({ detail, onClose, onSaved }: { detail: CompanionDetail; 
     <button className="sheet-scrim" onClick={onClose} aria-label="Close settings" />
     <aside className="settings-sheet" role="dialog" aria-modal="true" aria-labelledby="settings-title">
       <header className="sheet-header"><div><span>{detail.companion.name}</span><h2 id="settings-title">Settings</h2></div><Button variant="ghost" size="icon" onClick={onClose} aria-label="Close settings"><X /></Button></header>
-      <nav className="settings-tabs" aria-label="Companion settings">{(["identity", "routines", "connections", "triggers"] as const).map((value) => <button key={value} aria-current={tab === value ? "page" : undefined} onClick={() => setTab(value)}>{value[0].toUpperCase() + value.slice(1)}</button>)}</nav>
+      <nav className="settings-tabs" aria-label="Companion settings">{tabs.map((value) => <button key={value} aria-current={tab === value ? "page" : undefined} onClick={() => setTab(value)}>{value === "connections" ? "Tools" : value === "specialists" ? "Team" : value[0].toUpperCase() + value.slice(1)}</button>)}</nav>
       {tab === "identity" ? <form className="sheet-content identity-form" onSubmit={save}>
         <AvatarPicker value={avatar} onChange={setAvatar} />
         <div className="field"><label htmlFor="identity-name">Name</label><input id="identity-name" value={name} onChange={(event) => setName(event.target.value)} maxLength={80} /></div>
         <div className="field"><label htmlFor="identity-mission">Mission</label><Textarea id="identity-mission" value={instructions} onChange={(event) => setInstructions(event.target.value)} rows={5} maxLength={20_000} /></div>
+        {models.length > 0 && <div className="field"><label htmlFor="identity-model">Model</label><select id="identity-model" value={modelId} onChange={(event) => setModelId(event.target.value)}>{models.map((model) => <option value={model.id} key={model.id}>{model.name}</option>)}</select></div>}
         {error && <p className="field-error" role="alert">{error}</p>}
         <div className="sheet-actions"><Button type="button" variant="ghost" onClick={onClose}>Cancel</Button><Button type="submit" disabled={saving || !name.trim()}>{saving ? <LoaderCircle className="spin" /> : <Check />}Save</Button></div>
-      </form> : <div className="sheet-content">{tab === "routines" ? <RoutineSettings companionId={detail.companion.id} /> : tab === "connections" ? <CompanionConnections companionId={detail.companion.id} /> : <TriggerSettings companionId={detail.companion.id} />}</div>}
+      </form> : <div className="sheet-content">{tab === "routines" ? <RoutineSettings companionId={detail.companion.id} /> : tab === "connections" ? <CompanionConnections companionId={detail.companion.id} /> : tab === "triggers" ? <TriggerSettings companionId={detail.companion.id} /> : tab === "specialists" ? <SpecialistsSettings companionId={detail.companion.id} /> : <DeliverySettings companionId={detail.companion.id} />}</div>}
     </aside>
   </div>;
 }
 
-function CompanionView({ detail, onRefresh, onUnauthorized, onMenu }: { detail: CompanionDetail; onRefresh: () => Promise<void>; onUnauthorized: () => void; onMenu: () => void }) {
-  const [desktopBusy, setDesktopBusy] = useState(false);
-  const [desktopError, setDesktopError] = useState("");
+function CompanionView({ detail, models, onRefresh, onUnauthorized, onMenu }: { detail: CompanionDetail; models: Array<{ id: string; name: string }>; onRefresh: () => Promise<void>; onUnauthorized: () => void; onMenu: () => void }) {
+  const [desktopOpen, setDesktopOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [activityOpen, setActivityOpen] = useState(false);
-
-  async function openDesktop() {
-    const desktopWindow = window.open("about:blank", "_blank");
-    if (desktopWindow) desktopWindow.opener = null;
-    setDesktopBusy(true);
-    setDesktopError("");
-    try {
-      const { url } = await api.openDesktop(detail.companion.id);
-      if (desktopWindow) desktopWindow.location.replace(url);
-      else setDesktopError("Allow pop-ups to open the desktop.");
-    } catch (cause) {
-      desktopWindow?.close();
-      setDesktopError(cause instanceof Error ? cause.message : "Desktop is unavailable");
-    } finally {
-      setDesktopBusy(false);
-    }
-  }
 
   return (
     <main className="workspace" id="main-content">
@@ -548,14 +544,13 @@ function CompanionView({ detail, onRefresh, onUnauthorized, onMenu }: { detail: 
           <div><h1>{detail.companion.name}</h1><span><StatusDot status={detail.companion.status} />{statusLabel(detail.companion.status)}</span></div>
         </div>
         <div className="header-actions">
-          {desktopError && <span className="desktop-error" role="alert">{desktopError}</span>}
           {detail.companion.provider === "box" && (
-            <Button variant="outline" size="sm" onClick={openDesktop} disabled={desktopBusy || detail.companion.status !== "ready"}>
-              {desktopBusy ? <LoaderCircle className="spin" /> : <MonitorUp />}
-              <span>Open desktop</span>
+            <Button variant="outline" size="sm" onClick={() => setDesktopOpen(true)}>
+              <Computer />
+              <span>Desktop</span>
             </Button>
           )}
-          <Button variant="ghost" size="sm" onClick={() => setActivityOpen(true)}><CalendarClock /><span>Activity</span></Button>
+          <Button variant="ghost" size="sm" onClick={() => setActivityOpen(true)} aria-label="Activity"><CalendarClock /><span>Activity</span></Button>
           <Button variant="ghost" size="icon" onClick={() => setSettingsOpen(true)} aria-label={`Settings for ${detail.companion.name}`}><Settings /></Button>
         </div>
       </header>
@@ -563,7 +558,8 @@ function CompanionView({ detail, onRefresh, onUnauthorized, onMenu }: { detail: 
         <Chat detail={detail} onRefresh={onRefresh} onUnauthorized={onUnauthorized} />
       </div>
       {activityOpen && <div className="activity-layer"><button className="sheet-scrim" onClick={() => setActivityOpen(false)} aria-label="Close activity" /><ActivityPanel detail={detail} onClose={() => setActivityOpen(false)} /></div>}
-      {settingsOpen && <SettingsSheet detail={detail} onClose={() => setSettingsOpen(false)} onSaved={onRefresh} />}
+      {settingsOpen && <SettingsSheet detail={detail} models={models} onClose={() => setSettingsOpen(false)} onSaved={onRefresh} />}
+      {desktopOpen && <DesktopSheet companion={detail.companion} onClose={() => setDesktopOpen(false)} onRefresh={onRefresh} />}
     </main>
   );
 }
@@ -581,7 +577,7 @@ function Home({ companions, onSelect, onCreate, onMenu }: { companions: Companio
 }
 
 function AccountPage({ user, onSignOut, onMenu }: { user: AccountUser; onSignOut: () => Promise<void>; onMenu: () => void }) {
-  return <main className="simple-page" id="main-content"><header className="mobile-page-header"><Button variant="ghost" size="icon" onClick={onMenu} aria-label="Open navigation"><Menu /></Button><span className="wordmark">companions.build</span></header><div className="simple-inner"><h1>Account</h1><div className="account-row"><span className="large-initial">{user.email.slice(0, 1).toUpperCase()}</span><div><strong>{user.name || user.email}</strong><small>{user.email}</small></div></div><Button variant="outline" onClick={() => void onSignOut()}><LogOut />Sign out</Button></div></main>;
+  return <main className="simple-page" id="main-content"><header className="mobile-page-header"><Button variant="ghost" size="icon" onClick={onMenu} aria-label="Open navigation"><Menu /></Button><span className="wordmark">companions.build</span></header><div className="simple-inner account-inner"><h1>Account</h1><AccountProduct user={user} onSignOut={onSignOut} /></div></main>;
 }
 
 function ConnectionsPage({ onMenu }: { onMenu: () => void }) {
@@ -767,7 +763,7 @@ export function App() {
       ) : !selectedId ? (
         <Home companions={companions} onSelect={selectCompanion} onCreate={() => setCreateOpen(true)} onMenu={() => setSidebarOpen(true)} />
       ) : detail && detail.companion.id === selectedId ? (
-        <CompanionView key={detail.companion.id} detail={detail} onRefresh={loadDetail} onUnauthorized={() => setAuthRequired(true)} onMenu={() => setSidebarOpen(true)} />
+        <CompanionView key={detail.companion.id} detail={detail} models={config.models ?? [{ id: config.model, name: config.model }]} onRefresh={loadDetail} onUnauthorized={() => setAuthRequired(true)} onMenu={() => setSidebarOpen(true)} />
       ) : (
         <main className="detail-loading" id="main-content"><LoaderCircle className="spin" /><span>Opening Companion…</span></main>
       )}

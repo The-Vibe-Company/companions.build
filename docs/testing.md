@@ -23,11 +23,9 @@ storage, the compiled Pi/Bun program in Linux, the deterministic model, MCP fixt
 executor, and web build. It does not contact Box, Stripe, email delivery services, OAuth providers,
 or paid models.
 
-The last full integrated run before the delivery-status UI patch passed at
-`.artifacts/verification/838726ab125a`. The subsequent focused web suite, typecheck, production
-build, and browser delivery flow passed separately. Re-run the full verifier after the outstanding
-runtime concurrency fixes land; do not combine those facts into a claim that the current runtime
-tip has already passed every gate.
+The dated [validation report](validation-v0.md) records the exact integrated runs and live
+observations. Always match an artifact to the commit it tested; focused browser or provider
+checks do not replace the standard verifier after a runtime change.
 
 ## Focused loops
 
@@ -152,3 +150,21 @@ text response. Important boundaries include:
 
 Never weaken an assertion because a simulator cannot prove it. Add a test at the lowest boundary
 that can prove the promise, and describe any remaining live-provider evidence separately.
+
+
+## Live plugin discovery and consent
+
+```sh
+# Public protected-resource/authorization metadata, no account access or provider writes
+python3 scripts/bun.py scripts/probe-plugin-oauth.ts
+
+# Start the real application OAuth flow; does not grant consent or call account tools
+API_PORT=4411 python3 scripts/bun.py scripts/probe-plugin-oauth.ts --authorize
+```
+
+The first command validates the pinned resource and authorization origins and writes a sanitized
+report under `.artifacts/plugin-oauth/`. The optional second command uses `.local/session-cookie`,
+may register OAuth clients, and stores consent links only in the private
+`.local/plugin-oauth-consent.json`. Those links expire and must never be committed. A successful
+start is not a successful connection: human consent and an authenticated provider tool call are
+separate acceptance steps. GitHub, Slack and Gmail also require deployment OAuth-client settings.

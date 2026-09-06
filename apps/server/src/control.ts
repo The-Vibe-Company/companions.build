@@ -63,7 +63,7 @@ registerControl({
   models:async()=>({models:await availableModels()}),
   identity:async context=>{
     const [companion]=await db`SELECT id,name,instructions,avatar,model_id AS "modelId",desktop_taken AS "desktopTaken",desktop_paused_at AS "desktopPausedAt",status FROM companions WHERE id=${context.companionId} AND owner_id=${context.ownerId}`;
-    return {companion,isChild:context.isChild,operations:Object.keys(controlHandlers),examples:controlHelp,instructions:'Read current state before changing it. Omit example placeholder IDs. OAuth returns a consent link for the human; never claim connection before consent succeeds. Trigger mode filter also accepts filterCode, a JavaScript function (payload,responses) returning a boolean, plus optional filterRequests. New Sentry issues use source sentry and target organization/project. Child agents ask their parent for additional agents. Local Pi skills belong under the agent skills directory; use file/shell tools to install, then verify loading. Desktop takeover pauses the whole agent process until explicit release. Long operations are requests: poll task/template state before reporting completion.'};
+    return {companion,isChild:context.isChild,operations:Object.keys(controlHandlers),examples:controlHelp,instructions:'Read current state before changing it. Omit example placeholder IDs. OAuth returns a consent link for the human; never claim connection before consent succeeds. Trigger mode filter also accepts filterCode, a JavaScript function (payload,responses) returning a boolean, plus optional filterRequests. New Sentry issues use source sentry and target organization/project. Child agents ask their parent for additional agents. Local Pi skills belong under the agent skills directory; use file/shell tools to install, then verify loading. Human desktop control persists until the human explicitly releases it. Do not attempt to restore your own desktop access; use the runtime-provided desktop tools and observe their reported state. Long operations are requests: poll task/template state before reporting completion.'};
   },
   configure:(context,input)=>configureCompanion(context.ownerId,context.companionId,input),
   companions:async context=>db`SELECT id,name,instructions,avatar,status FROM companions WHERE owner_id=${context.ownerId} AND retired_at IS NULL AND NOT temporary ORDER BY created_at`,
@@ -72,6 +72,6 @@ registerControl({
     await db`INSERT INTO task_questions(id,companion_id,run_id,question,options) VALUES(${context.commandId},${context.companionId},${context.runId},${value.question},${value.options}) ON CONFLICT DO NOTHING`;
     return {pendingQuestionId:context.commandId};
   },
-  desktop_takeover:async context=>{await db`UPDATE companions SET desktop_taken=true WHERE id=${context.companionId} AND owner_id=${context.ownerId}`;return {taken:true};},
-  desktop_release:async context=>{await db`UPDATE companions SET desktop_taken=false WHERE id=${context.companionId} AND owner_id=${context.ownerId}`;return {taken:false};},
+  // Desktop authority is registered by lifecycleControlHandlers, alongside its durable
+  // generation and explicit human-release checks. Never provide an unfenced fallback.
 });

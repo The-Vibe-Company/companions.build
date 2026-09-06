@@ -1,0 +1,86 @@
+{
+  "observedAt": "2026-09-06T23:20:31.766Z",
+  "scope": "public_discovery",
+  "providers": [
+    {
+      "id": "app.linear/linear",
+      "provider": "linear",
+      "resourceMetadata": "verified",
+      "authorizationMetadata": "verified"
+    },
+    {
+      "id": "io.github.github/github-mcp-server",
+      "provider": "github",
+      "resourceMetadata": "verified"
+    },
+    {
+      "id": "com.notion/mcp",
+      "provider": "notion",
+      "resourceMetadata": "verified",
+      "authorizationMetadata": "verified"
+    },
+    {
+      "id": "build.conductor/mcp",
+      "provider": "conductor",
+      "resourceMetadata": "verified",
+      "authorizationMetadata": "verified"
+    },
+    {
+      "id": "com.slack/mcp",
+      "provider": "slack",
+      "resourceMetadata": "not_applicable"
+    },
+    {
+      "id": "com.google.workspace/gmail",
+      "provider": "gmail",
+      "resourceMetadata": "verified",
+      "authorizationMetadata": "verified"
+    },
+    {
+      "id": "io.sentry/mcp",
+      "provider": "sentry",
+      "resourceMetadata": "verified",
+      "authorizationMetadata": "verified"
+    }
+  ],
+  "consentStarts": [
+    {
+      "id": "app.linear/linear",
+      "status": 200,
+      "authorizationOrigin": "https://mcp.linear.app",
+      "pkce": true,
+      "state": true
+    },
+    {
+      "id": "com.notion/mcp",
+      "status": 200,
+      "authorizationOrigin": "https://mcp.notion.com",
+      "pkce": true,
+      "state": true
+    },
+    {
+      "id": "build.conductor/mcp",
+      "status": 200,
+      "authorizationOrigin": "https://api.conductor.build",
+      "pkce": true,
+      "state": true
+    },
+    {
+      "id": "io.sentry/mcp",
+      "status": 200,
+      "authorizationOrigin": "https://mcp.sentry.dev",
+      "pkce": true,
+      "state": true
+    }
+  ],
+  "linearRealBox": {
+    "toolDiscovery": true,
+    "readOnlyToolSucceeded": true,
+    "independentlyVerified": true
+  },
+  "limitations": [
+    "Consent starts do not prove account authorization or provider tool access.",
+    "Linear is the only connected provider verified with a real Box tool call in this observation.",
+    "GitHub, Slack and Gmail deployment OAuth client settings are absent."
+  ]
+}

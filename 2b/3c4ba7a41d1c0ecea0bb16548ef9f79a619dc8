@@ -1,0 +1,32 @@
+packages/agent/test/environment.test.ts
+  s_f946242dcf6ba9::t_a3a47d0940217c 1-26
+packages/agent/src/environment.ts
+  s_f946242dcf6ba9::t_a3a47d0940217c 1-67
+packages/agent/src/index.ts
+  s_f946242dcf6ba9::t_a3a47d0940217c 3,7,12
+packages/agent/src/pi-executor.ts
+  s_f946242dcf6ba9::t_a3a47d0940217c 6,10-11,20,38,50,57-94,103,107,109,111-113,115-119,121-123,125-128,130-133
+  s_f946242dcf6ba9::t_3643374899a37d 114,120,124,129
+packages/agent/test/daemon.test.ts
+  s_f946242dcf6ba9::t_a3a47d0940217c 103-115
+packages/agent/test/initialization.test.ts
+  s_f946242dcf6ba9::t_a3a47d0940217c 1-25
+packages/agent/src/daemon.ts
+  s_f946242dcf6ba9::t_a3a47d0940217c 47-49
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "2b3c4ba7a41d1c0ecea0bb16548ef9f79a619dc8",
+  "prompts": {},
+  "sessions": {
+    "s_f946242dcf6ba9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a06de4-a8a5-7cd3-b713-2a8d451f7200",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "StanGirard <stan@quivr.app>"
+    }
+  }
+}

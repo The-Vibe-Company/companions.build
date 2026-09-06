@@ -62,6 +62,18 @@ test("Better Auth sessions isolate two personal accounts across every Companion 
   expect((await mine.json() as any).companions.some((row: any) => row.id === companion.id)).toBe(true);
   expect((await theirs.json() as any).companions.some((row: any) => row.id === companion.id)).toBe(false);
 });
+test("Better Auth sign-out invalidates the session cookie that was valid before logout", async () => {
+  const cookie = await signIn(`logout-${crypto.randomUUID()}@example.com`);
+  const me = () => handler(new Request("http://127.0.0.1:4310/api/me", { headers: { cookie } }));
+  expect((await me()).status).toBe(200);
+
+  const signedOut = await handler(new Request("http://127.0.0.1:4310/api/auth/sign-out", {
+    method: "POST",
+    headers: { cookie, origin: "http://127.0.0.1:4310" },
+  }));
+  expect(signedOut.status).toBe(200);
+  expect((await me()).status).toBe(401);
+});
 test("one executor owns the database and reconciles a durable final response exactly once", async () => {
   const companion = await createCompanion(owner, { name: "Lin", instructions: "", provider: "local" });
   const runId = await acceptMessage(owner, companion.id, crypto.randomUUID(), "Finish");

@@ -80,6 +80,50 @@ test("metered usage recorded before Checkout remains pending while lifecycle aud
   expect(delivered).toEqual([operationId]);
 });
 
+test("late meter delivery preserves the usage time from the subscription period where it occurred", async () => {
+  stripeMode();
+  const owner = await user(`late-usage-${crypto.randomUUID()}@example.com`);
+  const customer = `cus_${crypto.randomUUID()}`;
+  const subscription = `sub_${crypto.randomUUID()}`;
+  const operationId = `run:${crypto.randomUUID()}`;
+  const firstPeriodEnd = Math.floor(Date.now() / 1000) - 3_600;
+  const occurredAt = new Date((firstPeriodEnd - 60) * 1_000);
+  await db`INSERT INTO billing_accounts (owner_id,stripe_customer_id) VALUES (${owner},${customer})`;
+  expect((await webhook("customer.subscription.updated", {
+    id: subscription, customer, status: "active", metadata: { owner_id: owner }, current_period_end: firstPeriodEnd,
+    cancel_at_period_end: false, items: { data: [{ price: { id: "price_local" } }] },
+  }, firstPeriodEnd - 3_600)).status).toBe(200);
+
+  const delivered: Array<{ operationId: string; occurredAt: Date }> = [];
+  let providerUnavailable = true;
+  setBillingProviderForTests({
+    async createCheckout() { throw new Error("unused"); },
+    async createPortal() { throw new Error("unused"); },
+    async sendMeterEvent(input) {
+      if (providerUnavailable) throw new Error("simulated outage");
+      delivered.push({ operationId: input.operationId, occurredAt: input.occurredAt });
+    },
+  });
+  expect(await recordUsage({ operationId, ownerId: owner, category: "model_tokens", quantity: 250, unit: "token", occurredAt })).toEqual({ recorded: true, delivery: "pending" });
+
+  const nextPeriodEnd = firstPeriodEnd + 30 * 86_400;
+  expect((await webhook("customer.subscription.updated", {
+    id: subscription, customer, status: "active", metadata: { owner_id: owner }, current_period_end: nextPeriodEnd,
+    cancel_at_period_end: false, items: { data: [{ price: { id: "price_local" } }] },
+  }, firstPeriodEnd + 1)).status).toBe(200);
+  providerUnavailable = false;
+  expect(await flushPendingUsage(owner)).toEqual({ sent: 1, pending: 0 });
+  expect(delivered).toHaveLength(1);
+  expect(delivered[0].operationId).toBe(operationId);
+  expect(delivered[0].occurredAt.toISOString()).toBe(occurredAt.toISOString());
+  const [state] = await db`SELECT l.occurred_at,l.stripe_delivery_status,s.current_period_end
+    FROM usage_ledger l JOIN billing_subscriptions s ON s.owner_id=l.owner_id
+    WHERE l.owner_id=${owner} AND l.operation_id=${operationId} AND s.stripe_subscription_id=${subscription}`;
+  expect(new Date(state.occurred_at).toISOString()).toBe(occurredAt.toISOString());
+  expect(new Date(state.current_period_end).toISOString()).toBe(new Date(nextPeriodEnd * 1_000).toISOString());
+  expect(state.stripe_delivery_status).toBe("sent");
+});
+
 test("only the selected subscription and configured price grant access", async () => {
   stripeMode();
   const owner = await user(`subscriptions-${crypto.randomUUID()}@example.com`);

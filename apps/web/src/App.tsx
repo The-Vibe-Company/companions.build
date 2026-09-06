@@ -408,12 +408,16 @@ function CompanionView({ detail, onRefresh, onUnauthorized, onMenu }: { detail: 
   const [desktopError, setDesktopError] = useState("");
 
   async function openDesktop() {
+    const desktopWindow = window.open("about:blank", "_blank");
+    if (desktopWindow) desktopWindow.opener = null;
     setDesktopBusy(true);
     setDesktopError("");
     try {
       const { url } = await api.openDesktop(detail.companion.id);
-      window.open(url, "_blank", "noopener,noreferrer");
+      if (desktopWindow) desktopWindow.location.replace(url);
+      else setDesktopError("Allow pop-ups to open the desktop.");
     } catch (cause) {
+      desktopWindow?.close();
       setDesktopError(cause instanceof Error ? cause.message : "Desktop is unavailable");
     } finally {
       setDesktopBusy(false);

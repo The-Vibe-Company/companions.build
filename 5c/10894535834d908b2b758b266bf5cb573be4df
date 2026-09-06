@@ -1,0 +1,29 @@
+docs/v0.md
+  s_f946242dcf6ba9::t_17da22928b9423 65-67,78-79,81-82,95-104,120-123,133-137,139-140,142
+docs/UI_CONTRACT.md
+  s_f946242dcf6ba9::t_9c780fb033a60e 50-51,75,97-99,106-114,117-123
+  s_f946242dcf6ba9::t_8939f850df34ca 73-74
+README.md
+  s_f946242dcf6ba9::t_bf3d63ce425984 53-54,62-65,76-77,79-81
+  s_f946242dcf6ba9::t_8939f850df34ca 97
+docs/testing.md
+  s_f946242dcf6ba9::t_b1d6191418adac 40-43,90,95-96,101-102,123-125
+docs/validation-v0.md
+  s_f946242dcf6ba9::t_1240398f59ea2f 3-8,13-15,17-19,21-24,26-33,38-51,53,55-59,77-79,81-84
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "5c10894535834d908b2b758b266bf5cb573be4df",
+  "prompts": {},
+  "sessions": {
+    "s_f946242dcf6ba9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a06de4-a8a5-7cd3-b713-2a8d451f7200",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "StanGirard <stan@quivr.app>"
+    }
+  }
+}

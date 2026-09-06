@@ -17,7 +17,8 @@ import { acquireExecutor } from "../src/executor";
 
 class MemoryStorage {
   objects=new Map<string,Blob>();
-  async put(key:string,bytes:Uint8Array,type:string){this.objects.set(key,new Blob([bytes.slice().buffer as ArrayBuffer],{type}));}
+  puts=0;
+  async put(key:string,bytes:Uint8Array,type:string){this.puts++;this.objects.set(key,new Blob([bytes.slice().buffer as ArrayBuffer],{type}));}
   async get(key:string){const value=this.objects.get(key);if(!value)throw Error("missing");return value;}
   async delete(key:string){this.objects.delete(key);}
 }
@@ -29,6 +30,7 @@ afterEach(()=>{setDeliveryMailerForTests(null);process.env.BILLING_TEST_MODE="1"
 async function user(){const id=crypto.randomUUID();await db`INSERT INTO "user"(id,name,email,"emailVerified") VALUES(${id},'User',${`${id}@example.test`},true)`;return id;}
 function skills(name:string,content:string){const state=mkdtempSync(join(tmpdir(),"delivery-skills-"));directories.push(state);const root=join(state,"pi","skills",name);mkdirSync(root,{recursive:true});writeFileSync(join(root,"SKILL.md"),`---\nname: ${name}\ndescription: Portable ${name}\n---\n${content}`);return {state,handler:new AgentSkills(state)};}
 async function call(handler:AgentSkills,path:string,method="GET",body?:unknown){const response=await handler.handleRequest(new Request(`http://agent${path}`,{method,...(body===undefined?{}:{body:JSON.stringify(body)})}));if(!response?.ok)throw Error(`agent ${response?.status}`);return response.json();}
+function manifestFile(path:string,value:string){const bytes=Buffer.from(value);return {path,data:bytes.toString("base64"),sha256:createHash("sha256").update(bytes).digest("hex")};}
 
 test("a ready immutable S3 bundle is imported into the client and its delivered specialist replica",async()=>{
  process.env.BILLING_TEST_MODE="1";const sender=await user(),recipient=await user();
@@ -61,7 +63,7 @@ test("a ready immutable S3 bundle is imported into the client and its delivered 
  expect(readFileSync(join(receivedReplica.state,"pi","skills","builder","SKILL.md"),"utf8")).toContain("specialist bytes");
 });
 
-test("revoked, invalid, cross-owner, and empty exports fail closed",async()=>{
+test("revoked deliveries, crafted secret manifests, and cross-owner jobs fail closed before storage",async()=>{
  process.env.BILLING_TEST_MODE="1";const sender=await user(),recipient=await user(),other=await user();const source=await createCompanion(sender,{name:"Safe",instructions:"",provider:"local"});
  await db`UPDATE companions SET status='ready',prepare_requested=false,endpoint_secret=${encrypt("source")},agent_secret=${encrypt("token")} WHERE id=${source.id}`;
  expect(await createDelivery(other,{clientDeliveryId:crypto.randomUUID(),companionId:source.id,clientEmail:`${recipient}@example.test`})).toBeNull();
@@ -72,6 +74,11 @@ test("revoked, invalid, cross-owner, and empty exports fail closed",async()=>{
  const invalid=await createDelivery(sender,{clientDeliveryId:crypto.randomUUID(),companionId:source.id,clientEmail:`${recipient}@example.test`});
  await progressDeliverySkillsForCompanion(executor,source.id,"source","token",{storage,requestAgent:async()=>({version:1,skills:[{name:"bad",files:[{path:"SKILL.md",data:"eA==",sha256:"0".repeat(64)}]}]}),notifyReady:async()=>{}});
  expect((await db`SELECT skills_status FROM companion_deliveries WHERE id=${invalid!.id}`)[0].skills_status).toBe("error");await expect(acceptDelivery(recipient,invalid!.id,false)).rejects.toThrow("could not be prepared");
+ const secret=await createDelivery(sender,{clientDeliveryId:crypto.randomUUID(),companionId:source.id,clientEmail:`${recipient}@example.test`}),writes=storage.puts;
+ await progressDeliverySkillsForCompanion(executor,source.id,"source","token",{storage,requestAgent:async()=>({version:1,skills:[{name:"leaky",files:[manifestFile("SKILL.md","---\ndescription: Leaky\n---\n"),manifestFile("references/setup.md","-----BEGIN OPENSSH PRIVATE KEY-----\nprivate\n-----END OPENSSH PRIVATE KEY-----")]}]}),notifyReady:async()=>{}});
+ expect(storage.puts).toBe(writes);expect((await db`SELECT skills_status FROM companion_deliveries WHERE id=${secret!.id}`)[0].skills_status).toBe("error");
+ const forged=crypto.randomUUID();await db`INSERT INTO portable_skill_exports(id,source_owner_id,source_companion_id,target_kind,source_template_id,target_revision) VALUES(${forged},${other},${source.id},'template_revision',${crypto.randomUUID()},91)`;
+ await progressDeliverySkills(executor,{storage,requestAgent:async()=>{throw Error("must not contact agent")}});expect(storage.puts).toBe(writes);expect((await db`SELECT status FROM portable_skill_exports WHERE id=${forged}`)[0].status).toBe("error");
  const empty=await createDelivery(sender,{clientDeliveryId:crypto.randomUUID(),companionId:source.id,clientEmail:`${recipient}@example.test`});
  await progressDeliverySkillsForCompanion(executor,source.id,"source","token",{storage,requestAgent:async()=>({version:1,skills:[]}),notifyReady:sendDeliveryReadyInvite});
  expect((await db`SELECT skills_status FROM companion_deliveries WHERE id=${empty!.id}`)[0].skills_status).toBe("ready");expect(mail).toEqual([`${recipient}@example.test`]);

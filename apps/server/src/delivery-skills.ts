@@ -3,6 +3,7 @@ import { z } from "zod";
 import { db } from "./store";
 import { agentRequest } from "./machines";
 import { createObjectStorage, type ObjectStorage } from "./storage";
+import { portableSkillCredentialRisk } from "../../../packages/control/skills";
 
 const MAX_BYTES=10*1024*1024,MAX_FILES=500;
 const name=z.string().min(1).max(64).regex(/^[a-z0-9][a-z0-9_-]*$/);
@@ -146,12 +147,12 @@ async function deleteIfUnreferenced(sql:any,storage:ObjectStorage,key:string){tr
 function validateManifest(raw:unknown):Manifest{
  const value=manifestSchema.parse(raw);let total=0,count=0;const names=new Set<string>();
  for(const skill of value.skills){if(names.has(skill.name))throw new BundleError();names.add(skill.name);const paths=new Set<string>();
-  for(const file of skill.files){if(paths.has(file.path)||unsafe(file.path))throw new BundleError();paths.add(file.path);const bytes=decode(file.data);total+=bytes.length;count++;if(total>MAX_BYTES||count>MAX_FILES||digest(bytes)!==file.sha256)throw new BundleError();}
+  for(const file of skill.files){if(paths.has(file.path)||unsafe(file.path))throw new BundleError();paths.add(file.path);const bytes=decode(file.data);total+=bytes.length;count++;if(total>MAX_BYTES||count>MAX_FILES||digest(bytes)!==file.sha256||portableSkillCredentialRisk(file.path,bytes))throw new BundleError();}
   const skillFile=skill.files.find(file=>file.path==="SKILL.md");if(!skillFile)throw new BundleError();
   const skillBytes=decode(skillFile.data);if(!skillBytes.length)throw new BundleError();try{new TextDecoder("utf-8",{fatal:true}).decode(skillBytes);}catch{throw new BundleError();}
  }
  return {version:1,skills:value.skills.map(skill=>({name:skill.name,files:[...skill.files].sort((a,b)=>a.path.localeCompare(b.path))})).sort((a,b)=>a.name.localeCompare(b.name))};
 }
-function unsafe(path:string){const parts=path.split("/");return path.includes("\\")||path.startsWith("/")||/^[a-z]:/i.test(path)||parts.some(part=>{const value=part.toLowerCase();return !part||part==="."||part===".."||value===".env"||value.startsWith(".env.")||["auth.json","cookies","keys","node_modules",".git",".companions-skill-import.json"].includes(value);});}
+function unsafe(path:string){const parts=path.split("/");return path.includes("\\")||path.startsWith("/")||/^[a-z]:/i.test(path)||portableSkillCredentialRisk(path,new Uint8Array())||parts.some(part=>{const value=part.toLowerCase();return !part||part==="."||part===".."||value===".env"||value.startsWith(".env.")||["auth.json","cookies","keys","node_modules",".git",".companions-skill-import.json"].includes(value);});}
 function decode(value:string){if(!/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(value))throw new BundleError();const bytes=Buffer.from(value,"base64");if(bytes.toString("base64")!==value)throw new BundleError();return bytes;}
 function manifestHash(manifest:Manifest){const outer=createHash("sha256").update("skills-v1\0");for(const skill of manifest.skills){const inner=createHash("sha256").update(`skill\0${skill.name}\0`);for(const file of skill.files){const bytes=decode(file.data);inner.update(`${file.path}\0${file.sha256}\0${bytes.length}\0`);}outer.update(`${skill.name}\0${inner.digest("hex")}\0`);}return outer.digest("hex");}

@@ -177,6 +177,7 @@ function readPackage(directory: string, name: string): ValidatedSkill {
         if (!fstatSync(fd).isFile()) throw new SkillTransferError("UNSAFE_SKILL_PACKAGE");
         content = readFileSync(fd);
       } finally { closeSync(fd); }
+      if (portableSkillCredentialRisk(relative, content)) throw new SkillTransferError("SKILL_CREDENTIAL_RISK");
       bytes += content.length;
       if (bytes > MAX_BYTES || files.length >= MAX_FILES) throw new SkillTransferError("SKILL_BUNDLE_TOO_LARGE", 413);
       files.push({ path: relative, bytes: content, sha256: digest(content) });
@@ -200,6 +201,7 @@ function validateManifest(raw: unknown): ValidatedSkill[] {
       if (paths.has(file.path)) throw new SkillTransferError("DUPLICATE_SKILL_PATH");
       paths.add(file.path);
       const bytes = decodeBase64(file.data);
+      if (portableSkillCredentialRisk(file.path, bytes)) throw new SkillTransferError("SKILL_CREDENTIAL_RISK");
       totalBytes += bytes.length; totalFiles++;
       if (totalBytes > MAX_BYTES || totalFiles > MAX_FILES) throw new SkillTransferError("SKILL_BUNDLE_TOO_LARGE", 413);
       if (digest(bytes) !== file.sha256) throw new SkillTransferError("SKILL_INTEGRITY_FAILED");
@@ -212,13 +214,31 @@ function validateManifest(raw: unknown): ValidatedSkill[] {
 }
 
 function validatePath(path: string) {
-  if (path.includes("\\") || path.startsWith("/") || /^[a-z]:/i.test(path) || posix.normalize(path) !== path || path.split("/").some(part => !part || part === "." || part === ".." || denied(part))) {
+  if (path.includes("\\") || path.startsWith("/") || /^[a-z]:/i.test(path) || posix.normalize(path) !== path || path.split("/").some(part => !part || part === "." || part === ".." || denied(part)) || portableSkillCredentialRisk(path,new Uint8Array())) {
     throw new SkillTransferError("UNSAFE_SKILL_PATH");
   }
 }
 function denied(part: string) {
   const value = part.toLowerCase();
   return value === MARKER || value === ".env" || value.startsWith(".env.") || value === "auth.json" || value === "cookies" || value === "keys" || value === "node_modules" || value === ".git";
+}
+/** A deliberately conservative screen for known credential files and obvious plaintext secrets.
+ * Skill packages can contain arbitrary bytes, so this is not a universal secret detector. */
+export function portableSkillCredentialRisk(path: string, bytes: Uint8Array) {
+  const parts = path.split("/").map(part => part.toLowerCase());
+  const basename = parts.at(-1) ?? "";
+  if (parts.some(part => [".ssh", ".gnupg", ".aws", ".azure"].includes(part))) return true;
+  if (["credentials.json", ".npmrc", ".netrc", ".pypirc", ".git-credentials", "auth.json", "token.txt", "tokens.txt",
+    "id_rsa", "id_dsa", "id_ecdsa", "id_ed25519", "cookies", "cookies.sqlite", "login data", "logins.json", "key3.db", "key4.db", "web data", "local state"].includes(basename)) return true;
+  if (parts.length > 1 && parts.at(-2) === ".docker" && basename === "config.json") return true;
+  if (/^(?:private[-_.]?key|client[-_.]?secret)(?:\.[a-z0-9]+)?$/i.test(basename) || /\.(?:p12|pfx|jks|keystore)$/i.test(basename)) return true;
+  const text = Buffer.from(bytes).toString("utf8");
+  if (/-----BEGIN (?:RSA |DSA |EC |OPENSSH |PGP )?PRIVATE KEY(?: BLOCK)?-----/.test(text)) return true;
+  if (/(?:^|[^A-Za-z0-9])(?:gh[pousr]_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{40,}|(?:AKIA|ASIA)[A-Z0-9]{16}|xox[baprs]-[A-Za-z0-9-]{20,}|sk_live_[A-Za-z0-9]{20,}|sk-(?:ant-[A-Za-z0-9-]+-|proj-)?[A-Za-z0-9_-]{32,}|npm_[A-Za-z0-9]{30,}|AIza[0-9A-Za-z_-]{35})(?:$|[^A-Za-z0-9_-])/.test(text)) return true;
+  if (/(?:_authToken|authorization\s*:\s*bearer)\s*[=:]?\s*["']?[A-Za-z0-9_./+=-]{24,}/i.test(text)) return true;
+  const assignment=/(?:api[_-]?key|access[_-]?token|secret[_-]?key|client[_-]?secret|password)\s*[=:]\s*["']?([A-Za-z0-9_./+=-]{24,})/ig;
+  for(const match of text.matchAll(assignment)){const value=match[1];if(/[a-z]/i.test(value)&&/\d/.test(value)&&!/(?:example|placeholder|redacted|your[_-])/i.test(value))return true;}
+  return false;
 }
 function decodeBase64(value: string) {
   if (!/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(value)) throw new SkillTransferError("INVALID_SKILL_BUNDLE");

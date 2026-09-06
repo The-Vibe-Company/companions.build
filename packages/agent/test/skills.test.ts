@@ -50,6 +50,16 @@ test("export rejects symlinks, devices, and credential files inside a skill pack
   writeFileSync(join(root, "unsafe", ".env"), "TOKEN=secret");
   expect((await skills.handleRequest(request("/skills/export?name=unsafe")))!.status).toBe(400);
   rmSync(join(root, "unsafe", ".env"));
+  for (const [path, contents] of [
+    ["credentials.json", '{"access_token":"private"}'], [".npmrc", "//registry.npmjs.org/:_authToken=npm_abcdefghijklmnopqrstuvwxyz123456"],
+    [".netrc", "machine example.test login user password private"], [".pypirc", "password=private"], [".ssh/id_rsa", "private"], ["token.txt", "private"],
+  ]) {
+    const target=join(root,"unsafe",path);mkdirSync(join(target,".."),{recursive:true});writeFileSync(target,contents);
+    expect((await skills.handleRequest(request("/skills/export?name=unsafe")))!.status).toBe(400);rmSync(target);if(path.includes("/"))rmSync(join(target,".."),{recursive:true});
+  }
+  writeFileSync(join(root,"unsafe","notes.txt"),"-----BEGIN OPENSSH PRIVATE KEY-----\nobvious-secret\n-----END OPENSSH PRIVATE KEY-----");
+  expect((await skills.handleRequest(request("/skills/export?name=unsafe")))!.status).toBe(400);
+  writeFileSync(join(root,"unsafe","notes.txt"),"safe");
   const fifo = Bun.spawnSync(["mkfifo", join(root, "unsafe", "pipe")]);
   expect(fifo.exitCode).toBe(0);
   expect((await skills.handleRequest(request("/skills/export?name=unsafe")))!.status).toBe(400);
@@ -62,6 +72,10 @@ test("import validates the complete bundle before writing any skill", async () =
     { name: "escape", files: [file("SKILL.md", "ok"), file("../outside", "bad")] },
     { name: "absolute", files: [file("SKILL.md", "ok"), file("C:/outside", "bad")] },
     { name: "credentials", files: [file("SKILL.md", "ok"), file("keys/provider", "bad")] },
+    { name: "npm-token", files: [file("SKILL.md", "ok"), file("references/.npmrc", "bad")] },
+    { name: "private-key", files: [file("SKILL.md", "ok"), file("references/setup.md", "-----BEGIN PRIVATE KEY-----\nprivate\n-----END PRIVATE KEY-----")] },
+    { name: "plaintext-token", files: [file("SKILL.md", "ok"), file("references/setup.md", "access_token=Abcd1234Efgh5678Ijkl9012Mnop3456")] },
+    { name: "provider-token", files: [file("SKILL.md", "ok"), file("references/setup.md", `ghp_${"A1b2".repeat(10)}`)] },
     { name: "marker", files: [file("SKILL.md", "ok"), file(".companions-skill-import.json", "bad")] },
     { name: "broken", files: [{ ...file("SKILL.md", "ok"), sha256: "0".repeat(64) }] },
   ]) {

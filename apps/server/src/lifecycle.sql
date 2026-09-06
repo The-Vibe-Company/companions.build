@@ -11,6 +11,18 @@ CREATE TABLE IF NOT EXISTS agent_templates (
  snapshot_name text, source_companion_id uuid REFERENCES companions(id), revision integer NOT NULL DEFAULT 1,
  created_at timestamptz NOT NULL DEFAULT now(), updated_at timestamptz NOT NULL DEFAULT now()
 );
+CREATE TABLE IF NOT EXISTS template_revisions (
+ template_id uuid NOT NULL REFERENCES agent_templates(id) ON DELETE CASCADE,
+ revision integer NOT NULL CHECK(revision > 0), owner_id text NOT NULL REFERENCES "user"(id),
+ name text NOT NULL, instructions text NOT NULL, avatar jsonb NOT NULL,
+ snapshot_name text, source_companion_id uuid,
+ created_at timestamptz NOT NULL DEFAULT now(),
+ PRIMARY KEY(template_id,revision)
+);
+CREATE INDEX IF NOT EXISTS template_revisions_owner_idx ON template_revisions(owner_id,template_id,revision DESC);
+INSERT INTO template_revisions(template_id,revision,owner_id,name,instructions,avatar,snapshot_name,source_companion_id,created_at)
+ SELECT id,revision,owner_id,name,instructions,avatar,snapshot_name,source_companion_id,updated_at
+ FROM agent_templates ON CONFLICT(template_id,revision) DO NOTHING;
 CREATE TABLE IF NOT EXISTS template_permissions (
  parent_id uuid NOT NULL REFERENCES companions(id), template_id uuid NOT NULL REFERENCES agent_templates(id),
  max_children integer NOT NULL CHECK(max_children BETWEEN 0 AND 20), PRIMARY KEY(parent_id,template_id)

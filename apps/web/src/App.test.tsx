@@ -269,6 +269,41 @@ describe("first Companion flow", () => {
     await waitFor(()=>expect(screen.queryByRole("button",{name:"Disconnect Linear"})).not.toBeInTheDocument());
   });
 
+  it("checks connection health, shows safe persisted states, and reuses OAuth for recovery",async()=>{
+    window.history.replaceState({},"","/connections");
+    const checkedAt="2026-09-07T12:00:00.000Z";
+    const accounts=[
+      {id:"linear-account",serverId:"app.linear/linear",label:"Linear work",provider:"linear",healthStatus:"unchecked",healthCode:null,checkedAt:null},
+      {id:"github-account",serverId:"io.github.github/github-mcp-server",label:"GitHub client",provider:"github",healthStatus:"error",healthCode:"authorization_required",checkedAt},
+      {id:"custom-account",serverId:null,label:"Local tools",provider:"custom",healthStatus:"requires_agent",healthCode:"agent_check_required",checkedAt},
+    ];
+    const fetchMock=vi.fn((input:RequestInfo|URL,options?:RequestInit)=>{
+      const path=String(input);
+      if(path==="/api/me")return response(me);
+      if(path==="/api/config")return response(config);
+      if(path==="/api/companions")return response({companions:[]});
+      if(path==="/api/plugins")return response({catalog:[
+        {id:"app.linear/linear",name:"Linear",provider:"linear",available:true},
+        {id:"io.github.github/github-mcp-server",name:"GitHub",provider:"github",available:true},
+      ],accounts});
+      if(path==="/api/plugins/accounts/linear-account/check"&&options?.method==="POST")return response({account:{...accounts[0],healthStatus:"ok",checkedAt}});
+      if(path==="/api/plugins/connect"&&options?.method==="POST")return response({url:"https://oauth.example/reconnect"});
+      throw new Error(`Unexpected request: ${path}`);
+    });
+    vi.stubGlobal("fetch",fetchMock);
+    const popup={closed:false,location:{href:""},close:vi.fn()};vi.spyOn(window,"open").mockReturnValue(popup as unknown as Window);
+    const user=userEvent.setup();render(<App/>);
+    expect(await screen.findByText("Authorization needed",{exact:false})).toBeInTheDocument();
+    expect(screen.getByText("Checked inside a Companion when used")).toBeInTheDocument();
+    expect(screen.queryByRole("button",{name:"Check Local tools"})).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button",{name:"Check Linear work"}));
+    expect(await screen.findByText("Connection ready",{exact:false})).toBeInTheDocument();
+    expect(screen.getByText("Connection ready",{exact:false}).textContent).toContain(" · ");
+    await user.click(screen.getByRole("button",{name:"Reconnect"}));
+    await waitFor(()=>expect(popup.location.href).toBe("https://oauth.example/reconnect"));
+    expect(fetchMock).toHaveBeenCalledWith("/api/plugins/connect",expect.objectContaining({method:"POST",body:JSON.stringify({serverId:"io.github.github/github-mcp-server",label:"GitHub"})}));
+  });
+
   it("adds HTTP and stdio MCP servers with write-only secret values", async () => {
     window.history.replaceState({}, "", "/connections");
     const bodies: unknown[] = [];

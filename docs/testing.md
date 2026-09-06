@@ -37,11 +37,10 @@ python3 scripts/bun.py test apps/server/test
 # Agent journal, environment, and daemon behavior
 python3 scripts/bun.py test packages/agent/test
 
-# Web component/API behavior and production bundle
-cd apps/web
-python3 ../../scripts/bun.py run test
-python3 ../../scripts/bun.py run typecheck
-python3 ../../scripts/bun.py run build
+# Web component/API behavior and production bundle (run from repository root)
+python3 scripts/bun.py run --cwd apps/web test
+python3 scripts/bun.py run --cwd apps/web typecheck
+python3 scripts/bun.py run --cwd apps/web build
 ```
 
 The root verifier remains authoritative because several server behaviors require its fresh
@@ -88,17 +87,19 @@ These checks are optional, may create paid resources, and require explicitly con
 AGENT_TEST_MODE=0 python3 scripts/bun.py scripts/live-model-canary.ts
 python3 scripts/bun.py scripts/live-box-canary.ts
 python3 scripts/bun.py scripts/live-box-canary.ts --wake-only
+python3 scripts/bun.py scripts/live-desktop-canary.ts
 ```
 
 The model canary proves one configured provider/model can answer through the packaged runtime. The
 Box canary proves prepared snapshot lookup, creation, real tool execution, archive, and resume of
-the same disk; `--wake-only` intentionally reuses its retained Box. Record provider, artifact
+the same disk; `--wake-only` intentionally reuses its retained Box. The desktop canary verifies a
+runtime-confirmed freeze and release against a real subprocess on Box. Record provider, artifact
 revision, timestamps, raw phase measurements, and limitations in `docs/measurements/` without
 recording credentials or signed URLs.
 
 There is currently no automated live acceptance for every OAuth provider, managed GitHub/Sentry
-registration, Stripe subscriptions/meters, SMTP deliverability, human desktop takeover under a
-live GUI action, or concurrent hosted load. These require separate evidence before launch claims.
+registration, Stripe subscriptions/meters, SMTP deliverability, broad desktop application behavior,
+or concurrent hosted load. These require separate evidence before launch claims.
 
 ## Required behavioral evidence
 
@@ -119,7 +120,9 @@ text response. Important boundaries include:
 - a temporary child archives only after its result files and selected template capture are durable;
 - billing events and usage operation IDs deduplicate, and no unconfigured installation projects a
   paid subscription;
-- maintenance access is absent unless requested and explicitly accepted, and revocation is final.
+- maintenance access is absent unless requested and explicitly accepted, and revocation is final;
+- portable skill manifests reject traversal, links, credential-like files, invalid hashes, and
+  cross-owner bundle access; client activation waits for a ready immutable bundle.
 
 Never weaken an assertion because a simulator cannot prove it. Add a test at the lowest boundary
 that can prove the promise, and describe any remaining live-provider evidence separately.

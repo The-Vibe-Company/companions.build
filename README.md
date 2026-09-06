@@ -50,8 +50,8 @@ Prepare the frozen runtime once, then create Box-backed Companions from it:
 
 ```sh
 # Set BOX_API_KEY in .env first. Never commit credentials.
-python3 scripts/bun.py scripts/prepare-box-template.ts companions-agent-v0
-# Add BOX_TEMPLATE=companions-agent-v0 to .env, then restart scripts/dev.py.
+python3 scripts/bun.py scripts/prepare-box-template.ts companions-agent-v1-20260906
+# Add BOX_TEMPLATE=companions-agent-v1-20260906 to .env, then restart scripts/dev.py.
 ```
 
 The executor is the only process that contacts Box or Pi. It creates or resumes the same Box,
@@ -59,9 +59,10 @@ stages the selected model, plugins, files, trigger context, and control MCP, and
 before each external effect. Opening the desktop wakes the Box when necessary. Human takeover is
 shown as complete only after the runtime confirms the agent is paused.
 
-Live Box creation, tools, archive/resume, and desktop access have targeted canaries. Measurements
-from 6 September 2026 still show cold creation and wake taking tens of seconds; the desired
-few-second cold path has not been achieved. See [measured validation](docs/validation-v0.md).
+Live Box creation, tools, archive/resume, desktop access, and physical takeover have targeted
+canaries against `companions-agent-v1-20260906`. The latest observations measured 21.0 seconds for
+first creation and 34.3 seconds for wake, so the desired few-second cold path has not been achieved.
+See [measured validation](docs/validation-v0.md).
 
 ## Product surfaces
 
@@ -72,9 +73,12 @@ few-second cold path has not been achieved. See [measured validation](docs/valid
 - OAuth and custom MCP connections selected independently for each Companion.
 - The `companion-control` MCP for identity, models, routines, triggers, tasks, delegation,
   templates, lifecycle operations, plugins, and delivery preparation.
-- Permanent Companions, temporary specialist replicas, Box snapshot adoption, and retained results.
+- Permanent Companions, temporary specialist replicas, immutable template revisions and rollback,
+  Box snapshot adoption, and retained results.
 - Stripe Checkout/portal/webhooks, a deduplicated usage ledger, and independent client delivery
-  with an explicit, revocable maintenance grant record.
+  with an explicit, revocable, audited maintenance surface.
+- Portable local-skill export, validation, private object-storage transfer, and import are present;
+  their final executor/delivery wiring and complete product acceptance remain in progress.
 
 ## Verify
 
@@ -90,6 +94,7 @@ python3 experiments/pi-bun/verify.py --scenario 'crash after'
 AGENT_TEST_MODE=0 python3 scripts/bun.py scripts/live-model-canary.ts
 python3 scripts/bun.py scripts/live-box-canary.ts
 python3 scripts/bun.py scripts/live-box-canary.ts --wake-only
+python3 scripts/bun.py scripts/live-desktop-canary.ts
 ```
 
 Read [the testing guide](docs/testing.md) before interpreting a passing suite. Deterministic tests

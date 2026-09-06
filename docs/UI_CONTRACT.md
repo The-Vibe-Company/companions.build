@@ -47,6 +47,8 @@ visible rather than being converted into success states.
 - `GET|POST /api/companions/:id/routines` lists or creates a routine.
 - `GET /api/companions/:id/routines/:routineId/history` returns runs and missed windows;
   `PATCH|DELETE /api/companions/:id/routines/:routineId` changes or removes it.
+- `POST /api/companions/:id/routines/:routineId/test` accepts a retry-stable
+  `{ clientMessageId }`, enqueues the routine prompt, and returns `202 { runId }`.
 - Rows use `{ id, name, prompt, cron, timezone, enabled, nextFireAt, createdAt, updatedAt }`.
   The web form currently offers three friendly presets; the backend and control MCP accept valid
   five-field cron plus an IANA timezone.
@@ -68,6 +70,9 @@ visible rather than being converted into success states.
 
 - `GET|POST /api/templates` lists or creates declarative specialist profiles;
   `PATCH /api/templates/:id` requires `expectedRevision`.
+- `GET /api/templates/:id/revisions` returns immutable revisions.
+  `POST /api/templates/:id/rollback` accepts `{ targetRevision, expectedRevision }` and appends the
+  restored state as a new revision.
 - `GET /api/companions/:id/templates` lists permissions;
   `PUT /api/companions/:id/templates/:templateId` sets `{ maxChildren }`.
 - `GET|POST /api/companions/:id/replicas` lists active children or launches one with
@@ -89,17 +94,30 @@ visible rather than being converted into success states.
 - `POST /api/stripe/webhook` is public and verifies the signature over the untouched body before
   applying a deduplicated event.
 - `GET|POST /api/deliveries` lists sent/received invitations or creates one from
-  `{ clientDeliveryId, companionId, clientEmail, templateIds, maintenanceRequested }`. The web
+  `{ clientDeliveryId, companionId, clientEmail, templateIds, maintenanceRequested, includeSkills }`.
+  `includeSkills` defaults to true; listings expose `skillsStatus` and `skillsError`, and activation
+  remains unavailable until every requested portable bundle is ready. The web
   retains `clientDeliveryId` across an unchanged retry; the server persists its request fingerprint,
   returns the original invitation for an identical retry, and rejects changed details.
 - `POST /api/deliveries/:id/accept` accepts `{ grantMaintenance }` from the matching verified email.
   `DELETE /api/deliveries/:id` revokes a pending sent invitation;
   `DELETE /api/deliveries/:id/maintenance` revokes accepted maintenance consent.
 
+## Granted maintenance
+
+- `GET /api/maintenance` lists only Companions covered by the caller's explicit, non-revoked grant.
+- `GET|PATCH /api/maintenance/companions/:id` returns bounded runtime status and changes the client's
+  name, instructions, avatar, or model through the client's ownership scope.
+- `POST .../:id/prepare` requests preparation; `POST .../:id/tasks` accepts retry-stable
+  `{ clientMessageId, prompt }`; `GET .../:id/actions` returns the audit history.
+- These routes never expose the client's chat, files, connections, credentials, or desktop.
+
 ## Current web boundary
 
-The web app exposes Companion creation/chat, activity, identity/model, routines, selected tools,
-basic trigger definitions, specialist profiles/launch, client delivery, global connections,
-billing/account, and desktop control in compact sheets. Backend-only details such as trigger test
-and delivery inspection, routine history, template adoption/rollback, permanent delegation, and
-maintenance operations are not presented as completed UI flows. See [v0.md](v0.md).
+The web app exposes Companion creation/chat, activity, identity/model, routine test/history,
+selected tools, provider-specific triggers with filters/test/delivery inspection/recovery,
+specialist profiles/launch, client delivery, granted maintenance, global connections,
+billing/account, and desktop control in compact sheets. Template history/rollback, template
+adoption, and permanent delegation remain API/control-MCP capabilities without complete web flows.
+Portable-skill transfer has module-level UI-independent contracts, but final runtime wiring and
+product acceptance remain in progress. See [v0.md](v0.md).

@@ -1,0 +1,237 @@
+import { createHmac, timingSafeEqual } from "node:crypto";
+import { z } from "zod";
+import { db } from "./store";
+
+const json = (body: unknown, status = 200) => Response.json(body, { status, headers: { "Cache-Control": "no-store" } });
+const activeStatuses = new Set(["active", "trialing"]);
+const safeId = z.string().min(1).max(200).regex(/^[A-Za-z0-9_.:-]+$/);
+const usageInput = z.object({
+  operationId: safeId,
+  ownerId: z.string().min(1).max(200),
+  companionId: z.string().uuid().optional(),
+  category: z.string().min(1).max(80).regex(/^[a-z][a-z0-9_]*$/),
+  quantity: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
+  unit: z.string().min(1).max(40).regex(/^[a-z][a-z0-9_]*$/),
+  occurredAt: z.coerce.date().optional(),
+  metadata: z.record(z.string().max(80), z.union([z.string().max(200), z.number().finite(), z.boolean()])).optional(),
+}).superRefine((value, context) => {
+  for (const [key, item] of Object.entries(value.metadata ?? {})) {
+    if (/(secret|token|password|cookie|authorization|credential|api.?key)/i.test(key) || (typeof item === "string" && /^(sk|rk|whsec)_(live|test|[A-Za-z0-9])/i.test(item))) {
+      context.addIssue({ code: "custom", path: ["metadata", key], message: "Sensitive metadata is not allowed" });
+    }
+  }
+});
+export type UsageInput = z.input<typeof usageInput>;
+
+export interface BillingProvider {
+  createCheckout(input: { ownerId: string; email: string; customerId: string | null }): Promise<string>;
+  createPortal(customerId: string): Promise<string>;
+  sendMeterEvent(input: { customerId: string; operationId: string; quantity: number; occurredAt: Date; category: string; unit: string }): Promise<void>;
+}
+
+export function billingConfiguration(env: NodeJS.ProcessEnv = process.env) {
+  const test = env.NODE_ENV !== "production" && env.BILLING_TEST_MODE === "1";
+  const required = ["STRIPE_SECRET_KEY", "STRIPE_PRICE_ID", "STRIPE_WEBHOOK_SECRET", "STRIPE_METER_EVENT_NAME", "APP_URL"] as const;
+  const missing = required.filter(key => !env[key]);
+  return { mode: test ? "test" as const : missing.length ? "unconfigured" as const : "stripe" as const, missing };
+}
+
+class StripeHttpProvider implements BillingProvider {
+  constructor(private readonly env: NodeJS.ProcessEnv = process.env) {}
+  private async post(path: string, form: URLSearchParams, idempotencyKey?: string) {
+    const secret = this.env.STRIPE_SECRET_KEY!;
+    const response = await fetch(`https://api.stripe.com${path}`, {
+      method: "POST",
+      headers: {
+        authorization: `Basic ${Buffer.from(`${secret}:`).toString("base64")}`,
+        "content-type": "application/x-www-form-urlencoded",
+        ...(idempotencyKey ? { "Idempotency-Key": idempotencyKey } : {}),
+      },
+      body: form,
+    });
+    const body = await response.json().catch(() => null) as { id?: string; url?: string } | null;
+    if (!response.ok) throw new Error(`Billing provider request failed (${response.status})`);
+    return body;
+  }
+  async createCheckout(input: { ownerId: string; email: string; customerId: string | null }) {
+    const base = this.env.APP_URL!.replace(/\/$/, "");
+    const form = new URLSearchParams({
+      mode: "subscription", success_url: `${base}/account?checkout=complete`, cancel_url: `${base}/account`,
+      "line_items[0][price]": this.env.STRIPE_PRICE_ID!, "line_items[0][quantity]": "1",
+      client_reference_id: input.ownerId, "metadata[owner_id]": input.ownerId,
+      "subscription_data[metadata][owner_id]": input.ownerId,
+    });
+    form.set(input.customerId ? "customer" : "customer_email", input.customerId ?? input.email);
+    const bucket = Math.floor(Date.now() / 1_800_000);
+    const result = await this.post("/v1/checkout/sessions", form, `checkout:${input.ownerId}:${this.env.STRIPE_PRICE_ID}:${bucket}`);
+    if (!result?.url) throw new Error("Billing provider did not return a checkout URL");
+    return result.url;
+  }
+  async createPortal(customerId: string) {
+    const form = new URLSearchParams({ customer: customerId, return_url: `${this.env.APP_URL!.replace(/\/$/, "")}/account` });
+    const result = await this.post("/v1/billing_portal/sessions", form);
+    if (!result?.url) throw new Error("Billing provider did not return a portal URL");
+    return result.url;
+  }
+  async sendMeterEvent(input: { customerId: string; operationId: string; quantity: number; occurredAt: Date; category: string; unit: string }) {
+    await this.post("/v1/billing/meter_events", new URLSearchParams({
+      event_name: this.env.STRIPE_METER_EVENT_NAME!, identifier: input.operationId,
+      timestamp: String(Math.floor(input.occurredAt.getTime() / 1000)),
+      "payload[stripe_customer_id]": input.customerId, "payload[value]": String(input.quantity),
+      "payload[category]": input.category, "payload[unit]": input.unit,
+    }), `meter:${input.operationId}`);
+  }
+}
+
+let providerOverride: BillingProvider | null = null;
+export function setBillingProviderForTests(provider: BillingProvider | null) { providerOverride = provider; }
+function provider() { return providerOverride ?? new StripeHttpProvider(); }
+
+export async function migrateBilling(sql = db) {
+  const schema = await Bun.file(new URL("./billing.sql", import.meta.url)).text();
+  await sql.begin(async tx => { await tx`SELECT pg_advisory_xact_lock(721440140)`; await tx.unsafe(schema); });
+}
+
+export async function billingOverview(ownerId: string) {
+  const mode = billingConfiguration().mode;
+  const [account] = await db`SELECT subscription_status AS status,current_period_end AS "currentPeriodEnd",cancel_at_period_end AS "cancelAtPeriodEnd",stripe_customer_id AS "customerId" FROM billing_accounts WHERE owner_id=${ownerId}`;
+  const usage = await db`SELECT category,unit,sum(quantity)::text AS quantity FROM usage_ledger WHERE owner_id=${ownerId} GROUP BY category,unit ORDER BY category,unit`;
+  return { configured: mode !== "unconfigured", mode, plan: account && activeStatuses.has(account.status) ? "subscription" : "inactive", active: mode === "test" || (mode === "stripe" && !!account && activeStatuses.has(account.status)), status: account?.status ?? null, currentPeriodEnd: account?.currentPeriodEnd ?? null, cancelAtPeriodEnd: account?.cancelAtPeriodEnd ?? false, portalAvailable: mode === "stripe" && !!account?.customerId, usage };
+}
+
+export async function productActivation(ownerId: string) {
+  const overview = await billingOverview(ownerId);
+  return { allowed: overview.active, reason: overview.active ? null : overview.configured ? "An active subscription is required." : "Billing is not configured." };
+}
+export async function requireProductActivation(ownerId: string) {
+  const result = await productActivation(ownerId);
+  if (!result.allowed) throw new ProductActivationRequired(result.reason!);
+}
+export class ProductActivationRequired extends Error {}
+
+export async function recordUsage(raw: UsageInput) {
+  const input = usageInput.parse(raw);
+  if (input.companionId) {
+    const [owned] = await db`SELECT 1 FROM companions WHERE id=${input.companionId} AND owner_id=${input.ownerId}`;
+    if (!owned) throw new Error("Usage Companion does not belong to this account");
+  }
+  const occurredAt = input.occurredAt ?? new Date();
+  const [row] = await db`INSERT INTO usage_ledger (id,owner_id,companion_id,operation_id,category,quantity,unit,metadata,occurred_at)
+    VALUES (${crypto.randomUUID()},${input.ownerId},${input.companionId ?? null},${input.operationId},${input.category},${input.quantity},${input.unit},${input.metadata ?? {}},${occurredAt})
+    ON CONFLICT (owner_id,operation_id) DO NOTHING RETURNING id`;
+  if (!row) return { recorded: false, delivery: "duplicate" as const };
+  const mode = billingConfiguration().mode;
+  const [account] = await db`SELECT stripe_customer_id FROM billing_accounts WHERE owner_id=${input.ownerId}`;
+  if (mode !== "stripe") {
+    await db`UPDATE usage_ledger SET stripe_delivery_status='skipped' WHERE id=${row.id}`;
+    return { recorded: true, delivery: "skipped" as const };
+  }
+  if (!account?.stripe_customer_id) return { recorded: true, delivery: "pending" as const };
+  try {
+    await provider().sendMeterEvent({ customerId: account.stripe_customer_id, operationId: input.operationId, quantity: input.quantity, occurredAt, category: input.category, unit: input.unit });
+    await db`UPDATE usage_ledger SET stripe_delivery_status='sent',stripe_delivered_at=now() WHERE id=${row.id}`;
+    return { recorded: true, delivery: "sent" as const };
+  } catch {
+    return { recorded: true, delivery: "pending" as const };
+  }
+}
+
+export async function flushPendingUsage(ownerId: string, limit = 100) {
+  if (billingConfiguration().mode !== "stripe") return { sent: 0, pending: 0 };
+  const [account] = await db`SELECT stripe_customer_id FROM billing_accounts WHERE owner_id=${ownerId}`;
+  if (!account?.stripe_customer_id) return { sent: 0, pending: 0 };
+  const rows = await db`SELECT id,operation_id,quantity::text,occurred_at,category,unit FROM usage_ledger WHERE owner_id=${ownerId} AND stripe_delivery_status='pending' ORDER BY created_at,id LIMIT ${Math.max(1, Math.min(limit, 500))}`;
+  let sent = 0;
+  for (const row of rows) {
+    try {
+      await provider().sendMeterEvent({ customerId: account.stripe_customer_id, operationId: row.operation_id, quantity: Number(row.quantity), occurredAt: new Date(row.occurred_at), category: row.category, unit: row.unit });
+      await db`UPDATE usage_ledger SET stripe_delivery_status='sent',stripe_delivered_at=now() WHERE id=${row.id} AND stripe_delivery_status='pending'`;
+      sent++;
+    } catch { break; }
+  }
+  return { sent, pending: rows.length - sent };
+}
+
+export function verifyStripeSignature(rawBody: string, header: string, secret: string, now = Date.now()) {
+  const parts = header.split(",").map(value => value.split("=", 2));
+  const timestamp = Number(parts.find(([key]) => key === "t")?.[1]);
+  const signatures = parts.filter(([key]) => key === "v1").map(([, value]) => value);
+  if (!Number.isInteger(timestamp) || Math.abs(now / 1000 - timestamp) > 300 || signatures.length === 0) return false;
+  const expected = createHmac("sha256", secret).update(`${timestamp}.${rawBody}`).digest();
+  return signatures.some(value => {
+    if (!/^[0-9a-f]{64}$/i.test(value)) return false;
+    const actual = Buffer.from(value, "hex");
+    return actual.length === expected.length && timingSafeEqual(actual, expected);
+  });
+}
+
+const stripeEvent = z.object({ id: safeId, type: z.string().min(1).max(100), created: z.number().int().nonnegative(), data: z.object({ object: z.record(z.string(), z.unknown()) }) });
+function stringValue(value: unknown) { return typeof value === "string" ? value : value && typeof value === "object" && "id" in value ? String((value as any).id) : null; }
+export async function handleStripeWebhook(request: Request) {
+  if (request.method !== "POST") return json({ error: "Not found." }, 404);
+  const configuration = billingConfiguration();
+  if (configuration.mode !== "stripe") return json({ error: "Billing is not configured." }, 503);
+  const raw = await request.text();
+  const signature = request.headers.get("stripe-signature") ?? "";
+  if (!verifyStripeSignature(raw, signature, process.env.STRIPE_WEBHOOK_SECRET!)) return json({ error: "Invalid signature." }, 400);
+  let event: z.infer<typeof stripeEvent>;
+  try { event = stripeEvent.parse(JSON.parse(raw)); } catch { return json({ error: "Invalid event." }, 400); }
+  try {
+    const duplicate = await db.begin(async tx => {
+      const [claimed] = await tx`INSERT INTO stripe_webhook_events (event_id,event_type,object_id) VALUES (${event.id},${event.type},${stringValue(event.data.object.id)}) ON CONFLICT DO NOTHING RETURNING event_id`;
+      if (!claimed) return true;
+      const object = event.data.object;
+      if (event.type === "checkout.session.completed") {
+        const ownerId = stringValue((object.metadata as any)?.owner_id) ?? stringValue(object.client_reference_id);
+        const customer = stringValue(object.customer); const subscription = stringValue(object.subscription);
+        if (!ownerId || !customer) throw new Error("invalid_checkout_owner");
+        const rows = await tx`INSERT INTO billing_accounts (owner_id,stripe_customer_id,stripe_subscription_id,stripe_price_id,last_event_created)
+          VALUES (${ownerId},${customer},${subscription},${process.env.STRIPE_PRICE_ID!},${event.created})
+          ON CONFLICT (owner_id) DO UPDATE SET stripe_customer_id=excluded.stripe_customer_id,
+            stripe_subscription_id=CASE WHEN billing_accounts.last_event_created<=excluded.last_event_created THEN coalesce(excluded.stripe_subscription_id,billing_accounts.stripe_subscription_id) ELSE billing_accounts.stripe_subscription_id END,
+            stripe_price_id=CASE WHEN billing_accounts.last_event_created<=excluded.last_event_created THEN excluded.stripe_price_id ELSE billing_accounts.stripe_price_id END,
+            updated_at=now(),last_event_created=greatest(billing_accounts.last_event_created,excluded.last_event_created)
+          WHERE billing_accounts.stripe_customer_id IS NULL OR billing_accounts.stripe_customer_id=excluded.stripe_customer_id RETURNING owner_id`;
+        if (!rows.length) throw new Error("checkout_owner_conflict");
+      } else if (event.type.startsWith("customer.subscription.")) {
+        const subscription = stringValue(object.id); const customer = stringValue(object.customer);
+        const ownerId = stringValue((object.metadata as any)?.owner_id);
+        const status = String(object.status ?? "");
+        const allowed = ["incomplete","incomplete_expired","trialing","active","past_due","canceled","unpaid","paused"];
+        if (!subscription || !customer || !allowed.includes(status)) throw new Error("invalid_subscription");
+        const periodEnd = Number(object.current_period_end ?? (object.items as any)?.data?.[0]?.current_period_end ?? 0);
+        const priceId = stringValue((object.items as any)?.data?.[0]?.price);
+        const [account] = ownerId
+          ? await tx`SELECT owner_id,last_event_created FROM billing_accounts WHERE owner_id=${ownerId} AND (stripe_customer_id IS NULL OR stripe_customer_id=${customer}) FOR UPDATE`
+          : await tx`SELECT owner_id,last_event_created FROM billing_accounts WHERE stripe_customer_id=${customer} FOR UPDATE`;
+        if (!account) {
+          if (ownerId) throw new Error("subscription_owner_conflict");
+        } else if (account.last_event_created <= event.created) {
+          await tx`UPDATE billing_accounts SET stripe_customer_id=${customer},stripe_subscription_id=${subscription},stripe_price_id=${priceId},subscription_status=${status},current_period_end=${periodEnd ? new Date(periodEnd * 1000) : null},cancel_at_period_end=${object.cancel_at_period_end === true},last_event_created=${event.created},updated_at=now() WHERE owner_id=${account.owner_id}`;
+        }
+      }
+      return false;
+    });
+    return json({ received: true, duplicate });
+  } catch { return json({ error: "Event could not be applied." }, 400); }
+}
+
+export async function handleBilling(request: Request, ownerId: string) {
+  const url = new URL(request.url);
+  if (url.pathname === "/api/billing" && request.method === "GET") return json(await billingOverview(ownerId));
+  if (url.pathname === "/api/billing/checkout" && request.method === "POST") {
+    const mode = billingConfiguration().mode;
+    if (mode === "unconfigured") return json({ error: "Billing is not configured." }, 503);
+    if (mode === "test") return json({ url: `${process.env.APP_URL ?? "http://127.0.0.1:4310"}/account?billing=test` });
+    const [user] = await db`SELECT email FROM "user" WHERE id=${ownerId}`;
+    const [account] = await db`SELECT stripe_customer_id FROM billing_accounts WHERE owner_id=${ownerId}`;
+    return json({ url: await provider().createCheckout({ ownerId, email: user.email, customerId: account?.stripe_customer_id ?? null }) });
+  }
+  if (url.pathname === "/api/billing/portal" && request.method === "POST") {
+    if (billingConfiguration().mode !== "stripe") return json({ error: "Billing is not configured." }, 503);
+    const [account] = await db`SELECT stripe_customer_id FROM billing_accounts WHERE owner_id=${ownerId}`;
+    if (!account?.stripe_customer_id) return json({ error: "No billing account exists yet." }, 409);
+    return json({ url: await provider().createPortal(account.stripe_customer_id) });
+  }
+  return null;
+}

@@ -145,8 +145,8 @@ text response. Important boundaries include:
   cross-owner bundle access; client activation waits for a ready immutable bundle, lifecycle
   preparation stages it once by hash, and specialist revisions retain the selected bundle;
 - warm accepted work must progress while an unrelated machine prepares, and every provider effect
-  plus its durable checkpoint must fail closed after executor leadership loss. These two review
-  findings remain open until their focused fault tests pass.
+  plus its durable checkpoint must fail closed after executor leadership loss. The focused fault
+  tests protect both promises and run in the standard verifier.
 
 Never weaken an assertion because a simulator cannot prove it. Add a test at the lowest boundary
 that can prove the promise, and describe any remaining live-provider evidence separately.

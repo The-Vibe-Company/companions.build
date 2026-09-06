@@ -16,14 +16,16 @@ endpoints=ROOT/'.local/dev-endpoints.json'
 local=json.loads(endpoints.read_text()) if endpoints.exists() else {}
 port=int(os.environ.get('WEB_PORT',values.get('WEB_PORT',local.get('webPort',4310))))
 base=f'http://127.0.0.1:{port}'
-email=os.environ.get('LOCAL_DEV_EMAIL',values.get('LOCAL_DEV_EMAIL','developer@companions.build'))
+email=os.environ.get('LOCAL_DEV_EMAIL',values.get('LOCAL_DEV_EMAIL','developer@companions.build')).strip().lower()
+mail=f'http://127.0.0.1:{port+6}'
+with urllib.request.urlopen(mail+'/api/v1/messages') as response:
+ previous_messages={m['ID'] for m in json.load(response)['messages']}
 request=urllib.request.Request(base+'/api/auth/sign-in/magic-link',data=json.dumps({'email':email,'callbackURL':'/'}).encode(),headers={'content-type':'application/json','origin':base})
 with urllib.request.urlopen(request) as response:
  if response.status!=200:raise SystemExit('Sign-in email could not be requested')
-mail=f'http://127.0.0.1:{port+6}'
 for attempt in range(100):
  with urllib.request.urlopen(mail+'/api/v1/messages') as response: messages=json.load(response)['messages']
- matching=next((m for m in messages if any(v['Address']==email for v in m.get('To',[]))),None)
+ matching=next((m for m in messages if m['ID'] not in previous_messages and any(v['Address'].lower()==email for v in m.get('To',[]))),None)
  if matching:
   with urllib.request.urlopen(mail+'/api/v1/message/'+matching['ID']) as response: message=json.load(response)
   links=re.findall(r'https?://\S+',message.get('Text',''))
@@ -35,5 +37,5 @@ jar=http.cookiejar.CookieJar();opener=urllib.request.build_opener(urllib.request
 with opener.open(link) as response: response.read()
 cookie='; '.join(f'{c.name}={c.value}' for c in jar if c.name=='better-auth.session_token')
 if not cookie:raise SystemExit('Local email verification did not establish a session')
-path=ROOT/'.local/session-cookie';path.parent.mkdir(exist_ok=True);path.touch(mode=0o600,exist_ok=True);path.chmod(0o600);path.write_text(cookie)
+path=Path(os.environ.get('SESSION_COOKIE_FILE',str(ROOT/'.local/session-cookie')));path.parent.mkdir(exist_ok=True);path.touch(mode=0o600,exist_ok=True);path.chmod(0o600);path.write_text(cookie)
 print('Better Auth local session saved for authenticated canaries.')

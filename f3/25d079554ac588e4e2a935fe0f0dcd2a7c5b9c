@@ -1,0 +1,25 @@
+apps/server/src/control-help.ts
+  s_f946242dcf6ba9::t_452ce129787078 7
+apps/server/src/store.ts
+  s_f946242dcf6ba9::t_63a90147397249 12
+apps/server/src/trigger-control.ts
+  s_f946242dcf6ba9::t_049fbc691688d7 15-16
+scripts/prepare-box-template.ts
+  s_f946242dcf6ba9::t_365ea1bee78e15 29,68
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "f325d079554ac588e4e2a935fe0f0dcd2a7c5b9c",
+  "prompts": {},
+  "sessions": {
+    "s_f946242dcf6ba9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a06de4-a8a5-7cd3-b713-2a8d451f7200",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "StanGirard <stan@quivr.app>"
+    }
+  }
+}

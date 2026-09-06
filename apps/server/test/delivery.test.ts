@@ -10,7 +10,7 @@ import { encrypt } from "../src/config";
 beforeAll(async () => { await migrate(); await migrateBilling(); await migrateDelivery(); await migrateDeliverySkills(); });
 afterEach(() => {
   setDeliveryMailerForTests(null);
-  for (const key of ["BILLING_TEST_MODE", "STRIPE_SECRET_KEY", "STRIPE_PRICE_ID", "STRIPE_WEBHOOK_SECRET", "STRIPE_METER_EVENT_NAME", "STRIPE_BOX_METER_EVENT_NAME", "APP_URL"]) delete process.env[key];
+  for (const key of ["BILLING_TEST_MODE", "STRIPE_SECRET_KEY", "STRIPE_MODEL_PRICE_ID", "STRIPE_BOX_PRICE_ID", "STRIPE_WEBHOOK_SECRET", "STRIPE_METER_EVENT_NAME", "STRIPE_BOX_METER_EVENT_NAME", "APP_URL"]) delete process.env[key];
 });
 async function user(email: string) {
   const id = crypto.randomUUID();
@@ -25,6 +25,7 @@ test("a verified matching client receives an independent copy with explicit revo
   const recipient = await user(recipientEmail);
   const stranger = await user(`stranger-${crypto.randomUUID()}@example.com`);
   const source = await createCompanion(sender, { name: "Scout", instructions: "Watch the market", provider: "local" });
+  await db`UPDATE companions SET model_id='glm-5.3-flash' WHERE id=${source.id}`;
   const mails: Array<{ to: string; text: string }> = [];
   setDeliveryMailerForTests(async mail => { mails.push(mail); });
   const delivery = await createDelivery(sender, { clientDeliveryId: crypto.randomUUID(), companionId: source.id, clientEmail: recipientEmail.toUpperCase(), maintenanceRequested: true, includeSkills: false });
@@ -34,8 +35,8 @@ test("a verified matching client receives an independent copy with explicit revo
   const accepted = await acceptDelivery(recipient, delivery!.id, true);
   expect(accepted?.accepted).toBe(true);
   expect(accepted?.companionId).not.toBe(source.id);
-  const [copy] = await db`SELECT owner_id,name,instructions,box_id,endpoint_secret FROM companions WHERE id=${accepted!.companionId}`;
-  expect(copy).toMatchObject({ owner_id: recipient, name: "Scout", instructions: "Watch the market", box_id: null, endpoint_secret: null });
+  const [copy] = await db`SELECT owner_id,name,instructions,box_id,endpoint_secret,model_id FROM companions WHERE id=${accepted!.companionId}`;
+  expect(copy).toMatchObject({ owner_id: recipient, name: "Scout", instructions: "Watch the market", box_id: null, endpoint_secret: null, model_id: "glm-5.3-flash" });
   expect(await canMaintainCompanion(sender, accepted!.companionId)).toBe(true);
   expect(await canMaintainCompanion(stranger, accepted!.companionId)).toBe(false);
   const revoked = await handleDelivery(new Request(`http://localhost/api/deliveries/${delivery!.id}/maintenance`, { method: "DELETE" }), recipient);
@@ -199,7 +200,8 @@ test("an ambiguous mail failure becomes unknown and is never replayed", async ()
 
 test("a delivery stays pending when the recipient has no active subscription", async () => {
   process.env.STRIPE_SECRET_KEY = "sk_test_local";
-  process.env.STRIPE_PRICE_ID = "price_local";
+  process.env.STRIPE_MODEL_PRICE_ID = "price_model_local";
+  process.env.STRIPE_BOX_PRICE_ID = "price_box_local";
   process.env.STRIPE_WEBHOOK_SECRET = "whsec_local";
   process.env.STRIPE_METER_EVENT_NAME = "tokens";
   process.env.STRIPE_BOX_METER_EVENT_NAME = "box_seconds";

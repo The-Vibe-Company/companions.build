@@ -55,7 +55,7 @@ export async function createDelivery(ownerId: string, raw: unknown) {
   if (!companion) return null;
   const source = companion.value as Record<string, unknown>;
   const templates = await portableTemplates(ownerId, input.companionId, input.templateIds);
-  const profile = { name: source.name, instructions: source.instructions, avatar: source.avatar ?? null };
+  const profile = { name: source.name, instructions: source.instructions, avatar: source.avatar ?? null, modelId: source.model_id ?? null };
   const id = crypto.randomUUID();
   const expiresAt = new Date(Date.now() + 14 * 86_400_000);
   const inserted = await db.begin(async tx=>{
@@ -116,12 +116,12 @@ export async function acceptDelivery(ownerId: string, deliveryId: string, grantM
     if (delivery.status !== "pending" || new Date(delivery.expires_at) <= new Date()) throw new DeliveryConflict("This invitation is no longer available.");
     if(delivery.skills_status==='pending')throw new DeliveryConflict('Portable skills are still being prepared.');
     if(delivery.skills_status==='error')throw new DeliveryConflict(delivery.skills_error??'Portable skills could not be prepared.');
-    const profile = z.object({ name: z.string().min(1).max(80), instructions: z.string().max(20_000), avatar: z.unknown().nullable() }).parse(delivery.profile_snapshot);
+    const profile = z.object({ name: z.string().min(1).max(80), instructions: z.string().max(20_000), avatar: z.unknown().nullable(), modelId:z.string().max(200).nullable().optional() }).parse(delivery.profile_snapshot);
     const companionId = crypto.randomUUID();
     const testMode = process.env.NODE_ENV !== "production" && process.env.BILLING_TEST_MODE === "1";
     if (!testMode && !config.boxTemplate) throw new DeliveryConflict("The fresh Box base template is not configured.");
     const [mainBundle]=await sql`SELECT bundle_id FROM portable_skill_exports WHERE delivery_id=${deliveryId} AND target_kind='delivery_main' AND status='ready'`;
-    await sql`INSERT INTO companions (id,owner_id,name,instructions,provider,create_key,agent_secret,prepare_requested,skill_bundle_id) VALUES (${companionId},${ownerId},${profile.name},${profile.instructions},${testMode ? "local" : "box"},${crypto.randomUUID()},${encrypt(randomBytes(32).toString("hex"))},true,${mainBundle?.bundle_id??null})`;
+    await sql`INSERT INTO companions (id,owner_id,name,instructions,provider,create_key,agent_secret,prepare_requested,skill_bundle_id,model_id) VALUES (${companionId},${ownerId},${profile.name},${profile.instructions},${testMode ? "local" : "box"},${crypto.randomUUID()},${encrypt(randomBytes(32).toString("hex"))},true,${mainBundle?.bundle_id??null},${profile.modelId??null})`;
     const [{ avatar_column }] = await sql`SELECT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='companions' AND column_name='avatar') AS avatar_column`;
     if (avatar_column && profile.avatar !== null) await sql.unsafe("UPDATE companions SET avatar=$1::jsonb WHERE id=$2", [JSON.stringify(profile.avatar), companionId]);
     await copyPortableTemplates(sql, ownerId, companionId,deliveryId,delivery.template_profiles);

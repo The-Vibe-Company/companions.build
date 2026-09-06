@@ -9,7 +9,7 @@ export async function migrate(sql = db) {
     await tx`SELECT pg_advisory_xact_lock(721440138)`;
     await tx.unsafe(schema);
     await tx.unsafe(authSchema);
-    for (const name of ["product.sql", "plugins.sql", "storage-schema.sql", "automations.sql", "triggers.sql", "lifecycle.sql", "billing.sql", "delivery.sql", "maintenance.sql", "delivery-skills.sql"]) await tx.unsafe(await Bun.file(new URL(`./${name}`,import.meta.url)).text());
+    for (const name of ["product.sql", "plugins.sql", "storage-schema.sql", "automations.sql", "triggers.sql", "lifecycle.sql", "box-observation.sql", "billing.sql", "delivery.sql", "maintenance.sql", "delivery-skills.sql"]) await tx.unsafe(await Bun.file(new URL(`./${name}`,import.meta.url)).text());
     const localId = "00000000-0000-4000-8000-000000000001";
     if (process.env.NODE_ENV !== "production") {
       await tx`INSERT INTO "user" ("id","name","email","emailVerified","createdAt","updatedAt")

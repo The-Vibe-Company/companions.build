@@ -12,7 +12,8 @@ async function triggerRequest(context:ControlContext,method:string,suffix='',inp
 registerControl({
  triggers:context=>triggerRequest(context,'GET'),
  trigger_save:async(context,raw)=>{
-  const {id,...input}=z.object({id:z.string().uuid().optional()}).passthrough().parse(raw);
+  const {id,register,...input}=z.object({id:z.string().uuid().optional(),register:z.boolean().optional()}).passthrough().parse(raw);
+  if(register){if(!id)throw Error('TRIGGER_ID_REQUIRED');return triggerRequest(context,'POST',`/${id}/register`);}
   return triggerRequest(context,id?'PATCH':'POST',id?`/${id}`:'',input);
  },
  trigger_delete:async(context,raw)=>triggerRequest(context,'DELETE',`/${z.object({id:z.string().uuid()}).parse(raw).id}`),

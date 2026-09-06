@@ -26,7 +26,7 @@ if (state.snapshotRequestedAt || state.completedAt) {
   catch { throw new Error("Snapshot submission remains unresolved. Inspect the named snapshot before creating a new distribution name."); }
   state.completedAt ??= new Date().toISOString();
   await Bun.write(journal, JSON.stringify(state, null, 2));
-  await box.stop(state.boxId);
+  if ((await box.get(state.boxId)).state !== "archived") await box.stop(state.boxId);
   console.log(`Template ready. Set BOX_TEMPLATE=${name} in .env. Build Box archived.`);
   process.exit(0);
 }
@@ -65,5 +65,5 @@ await box.snapshot(state.boxId, name);
 await wait(snapshotReady);
 state.completedAt = new Date().toISOString(); state.sha256 = digest;
 await Bun.write(journal, JSON.stringify(state, null, 2));
-await box.stop(state.boxId);
+if ((await box.get(state.boxId)).state !== "archived") await box.stop(state.boxId);
 console.log(`Template ready. Set BOX_TEMPLATE=${name} in .env. Build Box archived.`);

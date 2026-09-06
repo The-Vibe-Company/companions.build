@@ -1,0 +1,61 @@
+.env.example
+  s_f946242dcf6ba9::t_ee690d30be8c9a 34-42
+apps/server/src/api.ts
+  s_f946242dcf6ba9::t_0f3d25e5773933 1-4,19-51,54,69-74,87,111-112,121-122
+apps/server/src/billing.ts
+  s_f946242dcf6ba9::t_44090ae6db0a94 44,77-78,80,127
+apps/server/src/files.ts
+  s_f946242dcf6ba9::t_25e3024b19f341 198,355
+apps/server/src/product.sql
+  s_f946242dcf6ba9::t_e069a7a23dee92 19-21
+apps/server/src/store.ts
+  s_f946242dcf6ba9::t_d7ec780cb44c34 12,29,33-34,42
+apps/server/src/trigger-control.ts
+  s_f946242dcf6ba9::t_412a5d5a81073b 1-27
+apps/server/src/usage.ts
+  s_f946242dcf6ba9::t_48e699213a8a70 1-30
+apps/server/src/worker.ts
+  s_f946242dcf6ba9::t_62a171b54494ee 1,7,9
+apps/server/test/billing.test.ts
+  s_f946242dcf6ba9::t_9c3591d42c00eb 67
+apps/server/test/control.test.ts
+  s_f946242dcf6ba9::t_374d6d21585b37 32-33
+apps/server/test/lifecycle.test.ts
+  s_f946242dcf6ba9::t_09171070a0326f 14
+apps/server/test/usage.test.ts
+  s_f946242dcf6ba9::t_29321187050860 1-15
+docs/billing-delivery.md
+  s_f946242dcf6ba9::t_326c0aa8860d85 32-45
+packages/agent/src/daemon.ts
+  s_f946242dcf6ba9::t_4d5c0c2f294b58 54,144
+packages/agent/src/journal.ts
+  s_f946242dcf6ba9::t_46bae8acfd23d3 5,9,37-38,89-93,105,117-118
+packages/agent/src/pi-executor.ts
+  s_f946242dcf6ba9::t_18b87595d10682 7,16-17,71,79-80,185,199-216
+packages/agent/src/types.ts
+  s_f946242dcf6ba9::t_6394f936b89d92 7-9,18-19,29
+packages/agent/test/daemon.test.ts
+  s_f946242dcf6ba9::t_83f1879d2674a1 199,208-220
+packages/control/agent.ts
+  s_f946242dcf6ba9::t_8cd39f8904b90a 13
+scripts/dev-session.py
+  s_f946242dcf6ba9::t_749a16629e941c 15-17
+scripts/live-box-canary.ts
+  s_f946242dcf6ba9::t_587115b0a66170 5-7,12
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "f4a495b7d54bfd6bf26cc7a7897131c4d6bdbdee",
+  "prompts": {},
+  "sessions": {
+    "s_f946242dcf6ba9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a06de4-a8a5-7cd3-b713-2a8d451f7200",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "StanGirard <stan@quivr.app>"
+    }
+  }
+}

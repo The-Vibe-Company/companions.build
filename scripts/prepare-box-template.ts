@@ -1,4 +1,4 @@
-import { BoxClient } from "../packages/box/client";
+import { BoxClient, BoxError } from "../packages/box/client";
 import { config } from "../apps/server/src/config";
 import { createHash } from "node:crypto";
 import { mkdirSync } from "node:fs";
@@ -12,6 +12,30 @@ mkdirSync(".local", { recursive: true, mode: 0o700 });
 const journal = Bun.file(`.local/template-${name}.json`);
 let state = await journal.exists() ? await journal.json() : { key: crypto.randomUUID(), startedAt: new Date().toISOString() };
 await Bun.write(journal, JSON.stringify(state));
+const wait = async (ready: () => Promise<boolean>) => {
+  const deadline = Date.now() + 10 * 60_000;
+  while (!await ready()) { if (Date.now() > deadline) throw new Error("Provider preparation timed out; rerun to reconcile."); await Bun.sleep(2000); }
+};
+const snapshotReady = async () => {
+  const result = await box.getSnapshot(name);
+  return (result.snapshot?.status ?? result.namedSnapshot?.status ?? result.status) === "ready";
+};
+// A named distribution is immutable. A timed-out POST is reconciled, never resubmitted.
+if (state.snapshotRequestedAt || state.completedAt) {
+  try { await wait(snapshotReady); }
+  catch { throw new Error("Snapshot submission remains unresolved. Inspect the named snapshot before creating a new distribution name."); }
+  state.completedAt ??= new Date().toISOString();
+  await Bun.write(journal, JSON.stringify(state, null, 2));
+  await box.stop(state.boxId);
+  console.log(`Template ready. Set BOX_TEMPLATE=${name} in .env. Build Box archived.`);
+  process.exit(0);
+}
+try {
+  await box.getSnapshot(name);
+  throw new Error("This snapshot name already exists. Choose a new immutable distribution name.");
+} catch (error) {
+  if (!(error instanceof BoxError && error.status === 404)) throw error;
+}
 if (!state.boxId) {
   if (Date.now() - Date.parse(state.startedAt) > 23 * 3600_000) throw new Error("Creation journal expired. Reconcile its Box before retrying.");
   const result = await box.create(state.key);
@@ -20,10 +44,6 @@ if (!state.boxId) {
 }
 console.log(`Preparing template ${name} on Box ${state.boxId}`);
 if ((await box.get(state.boxId)).state === "archived") await box.resume(state.boxId);
-const wait = async (ready: () => Promise<boolean>) => {
-  const deadline = Date.now() + 10 * 60_000;
-  while (!await ready()) { if (Date.now() > deadline) throw new Error("Provider preparation timed out; rerun to resume."); await Bun.sleep(2000); }
-};
 await wait(async () => ["ready", "idle"].includes((await box.get(state.boxId)).state));
 const build = Bun.spawn([process.execPath, "scripts/build-agent.ts"], { stdout: "inherit", stderr: "inherit" });
 if (await build.exited) throw new Error("Agent build failed");
@@ -39,8 +59,10 @@ for (let start = 0, index = 0; start < archive.length; start += 3 * 1024 * 1024,
 await box.command(state.boxId, `cat ${directory}/part-* > ${directory}/agent.tar.gz && echo '${digest}  ${directory}/agent.tar.gz' | sha256sum -c - && mkdir -p /home/user/.companions-dist /home/user/.config/systemd/user && tar -xzf ${directory}/agent.tar.gz -C /home/user/.companions-dist`, 60);
 await box.writeFile(state.boxId, "/home/user/.config/systemd/user/companions-agent.service", agentService);
 await box.command(state.boxId, `sudo -n loginctl enable-linger $(id -u) && ${userSystemctl("daemon-reload")} && ${userSystemctl("enable companions-agent.service")}`);
+state.snapshotRequestedAt = new Date().toISOString(); state.sha256 = digest;
+await Bun.write(journal, JSON.stringify(state, null, 2));
 await box.snapshot(state.boxId, name);
-await wait(async () => { const result = await box.getSnapshot(name); return (result.snapshot?.status ?? result.namedSnapshot?.status ?? result.status) === "ready"; });
+await wait(snapshotReady);
 state.completedAt = new Date().toISOString(); state.sha256 = digest;
 await Bun.write(journal, JSON.stringify(state, null, 2));
 await box.stop(state.boxId);

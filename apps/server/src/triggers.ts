@@ -196,19 +196,25 @@ async function registerProvider(row: TriggerRow, secret: string, database: Datab
 export async function reconcileTriggerRegistration(ownerId: string, companionId: string, triggerId: string,
   dependencies: { database?: Database; fetchImpl?: typeof fetch } = {}) {
   const database = dependencies.database ?? db;
-  const row = await ownedTrigger(database, ownerId, uuid.parse(companionId), uuid.parse(triggerId));
-  if (!row) throw new TriggerError("Trigger not found.", 404);
-  if (row.source === "generic") return publicTrigger(row);
-  try {
-    await registerProvider(row, decrypt(row.secretCiphertext), database, dependencies.fetchImpl ?? fetch);
-  } catch (error) {
-    const triggerError = error instanceof TriggerError ? error : new TriggerError("The provider could not register this webhook.", 502, "provider_rejected");
-    const status = triggerError.code === "needs_connection" ? "needs_connection" : "error";
-    await database.unsafe(`UPDATE triggers SET registration_status=$2,registration_error=$3,updated_at=now() WHERE id=$1`,
-      [row.id, status, triggerError.message.slice(0, 500)]);
-    throw triggerError;
-  }
-  return publicTrigger((await ownedTrigger(database, ownerId, companionId, triggerId))!);
+  const outcome = await database.begin(async tx => {
+    // Serialize provider mutations for this trigger; retries reconcile its remote URL first.
+    await tx.unsafe(`SELECT id FROM triggers WHERE id=$1 AND owner_id=$2 AND companion_id=$3 FOR UPDATE`, [triggerId, ownerId, companionId]);
+    const row = await ownedTrigger(tx as Database, ownerId, uuid.parse(companionId), uuid.parse(triggerId));
+    if (!row) return { error: new TriggerError("Trigger not found.", 404) };
+    if (row.source === "generic") return { trigger: publicTrigger(row) };
+    try {
+      await registerProvider(row, decrypt(row.secretCiphertext), tx as Database, dependencies.fetchImpl ?? fetch);
+    } catch (error) {
+      const triggerError = error instanceof TriggerError ? error : new TriggerError("The provider could not register this webhook.", 502, "provider_rejected");
+      const status = triggerError.code === "needs_connection" ? "needs_connection" : "error";
+      await tx.unsafe(`UPDATE triggers SET registration_status=$2,registration_error=$3,updated_at=now() WHERE id=$1`,
+        [row.id, status, triggerError.message.slice(0, 500)]);
+      return { error: triggerError };
+    }
+    return { trigger: publicTrigger((await ownedTrigger(tx as Database, ownerId, companionId, triggerId))!) };
+  });
+  if (outcome.error) throw outcome.error;
+  return outcome.trigger;
 }
 
 async function unregisterProvider(row: TriggerRow, database: Database, fetchImpl: typeof fetch) {
@@ -237,12 +243,8 @@ async function createTrigger(database: Database, ownerId: string, companionId: s
   if (!rows[0]) throw new TriggerError("Companion not found.", 404);
   let row = await ownedTrigger(database, ownerId, companionId, id) as TriggerRow;
   if (value.source !== "generic") {
-    try { await registerProvider(row, secret, database, fetchImpl); }
-    catch (error) {
-      const triggerError = error instanceof TriggerError ? error : new TriggerError("The provider could not register this webhook.", 502, "provider_rejected");
-      const status = triggerError.code === "needs_connection" ? "needs_connection" : "error";
-      await database.unsafe(`UPDATE triggers SET registration_status=$2,registration_error=$3,updated_at=now() WHERE id=$1`, [id, status, triggerError.message.slice(0, 500)]);
-    }
+    try { await reconcileTriggerRegistration(ownerId, companionId, id, {database,fetchImpl}); }
+    catch { /* The durable trigger already carries its bounded registration error. */ }
     row = await ownedTrigger(database, ownerId, companionId, id) as TriggerRow;
   }
   return { trigger: publicTrigger(row), ...(value.source === "generic" ? { secret } : {}) };
@@ -497,8 +499,12 @@ export async function handleTriggers(request: Request, ownerId: string, dependen
         return response({ trigger: publicTrigger((await ownedTrigger(database, ownerId, companionId, triggerId))!) });
       }
       if (!member[3] && request.method === "DELETE") {
-        await unregisterProvider(trigger, database, fetchImpl);
-        await database.unsafe(`DELETE FROM triggers WHERE id=$1 AND companion_id=$2 AND owner_id=$3`, [triggerId, companionId, ownerId]);
+        await database.begin(async tx => {
+          await tx.unsafe(`SELECT id FROM triggers WHERE id=$1 AND owner_id=$2 AND companion_id=$3 FOR UPDATE`, [triggerId, ownerId, companionId]);
+          const current=await ownedTrigger(tx as Database,ownerId,companionId,triggerId);
+          if(current)await unregisterProvider(current, tx as Database, fetchImpl);
+          await tx.unsafe(`DELETE FROM triggers WHERE id=$1 AND companion_id=$2 AND owner_id=$3`, [triggerId, companionId, ownerId]);
+        });
         return response({ ok: true });
       }
     }

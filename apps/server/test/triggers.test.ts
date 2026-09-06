@@ -1,7 +1,7 @@
 import { beforeAll, afterAll, describe, expect, test } from "bun:test";
 import { createHmac } from "node:crypto";
 import { db, migrate } from "../src/store";
-import { handleTriggers, handleWebhook, migrateTriggers, processTriggerInbox, triggerProviderAdapters } from "../src/triggers";
+import { handleTriggers, handleWebhook, migrateTriggers, processTriggerInbox, triggerProviderAdapters, reconcileTriggerRegistration } from "../src/triggers";
 import { encrypt } from "../src/config";
 
 const OWNER = `trigger-owner-${crypto.randomUUID()}`;
@@ -172,4 +172,20 @@ test('Sentry native service-hook signature admits only the first event of a new 
  expect(enqueued).toBe(1);
  const decisions=await db`SELECT decision FROM trigger_deliveries WHERE trigger_id=${trigger.id} ORDER BY received_at`;
  expect(decisions.map((row:any)=>row.decision)).toEqual(['accepted','ignored']);
+});
+
+
+test('concurrent registration retries create one remote hook and reconcile the same identity',async()=>{
+ const accountId=crypto.randomUUID();
+ const created=await createTrigger({name:'Concurrent registration',prompt:'Investigate',source:'github',mode:'direct',providerAccountId:accountId,target:{repo:'acme/concurrent'}});
+ await db.unsafe(`INSERT INTO plugin_accounts(id,owner_id,provider,label,credential_secret) VALUES($1,$2,'github','GitHub',$3)`,[accountId,OWNER,encrypt(JSON.stringify({kind:'oauth',accessToken:'test-token',accessExpiresAt:null}))]);
+ const hooks:any[]=[];let posts=0;
+ const fetchImpl=(async(_url:any,init?:RequestInit)=>{
+  if(init?.method==='GET'){await Bun.sleep(20);return Response.json(hooks);}
+  if(init?.method==='POST'){posts++;const body=JSON.parse(String(init.body));hooks.push({id:77,config:body.config});return Response.json({id:77});}
+  return Response.json({id:77});
+ }) as typeof fetch;
+ const results=await Promise.all([0,1].map(()=>reconcileTriggerRegistration(OWNER,COMPANION,created.trigger.id,{fetchImpl})));
+ expect(posts).toBe(1);expect(results.every((result:any)=>result.registrationStatus==='registered')).toBe(true);
+ expect((await db`SELECT remote_hook_id FROM triggers WHERE id=${created.trigger.id}`)[0].remote_hook_id).toBe('77');
 });

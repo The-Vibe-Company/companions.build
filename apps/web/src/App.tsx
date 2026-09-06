@@ -510,7 +510,7 @@ function CompanionView({ detail, models, onRefresh, onUnauthorized, onMenu }: { 
         </div>
         <div className="header-actions">
           {detail.companion.provider === "box" && (
-            <Button variant="outline" size="sm" onClick={() => setDesktopOpen(true)}>
+            <Button variant="outline" size="sm" onClick={() => setDesktopOpen(true)} aria-label="Desktop">
               <Computer />
               <span>Desktop</span>
             </Button>

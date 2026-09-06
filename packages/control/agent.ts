@@ -10,7 +10,7 @@ import { z } from 'zod';
 import { pluginTools } from '../plugins/tools';
 import type { MachinePlugin } from '../plugins/catalog';
 
-const operations=['identity','companion_create','models','configure','companions','routines','routine_save','routine_delete','routine_history','routine_test','plugins','plugin_select','plugin_catalog','plugin_connect','plugin_custom','plugin_disconnect','triggers','trigger_save','trigger_delete','trigger_test','trigger_history','delegate','task_status','task_cancel','deliveries','delivery_prepare','templates','template_permission','prepare','template_save','template_history','template_rollback','spawn','adopt_template','ask_user','desktop_takeover','desktop_release'] as const;
+const operations=['identity','companion_create','models','configure','companions','routines','routine_save','routine_delete','routine_history','routine_test','plugins','plugin_select','plugin_catalog','plugin_connect','plugin_custom','plugin_disconnect','triggers','trigger_save','trigger_delete','trigger_test','trigger_history','delegate','task_status','task_cancel','deliveries','delivery_prepare','maintenance','maintenance_inspect','maintenance_configure','maintenance_prepare','maintenance_task','maintenance_history','templates','template_permission','prepare','template_save','template_history','template_rollback','spawn','adopt_template','ask_user','desktop_takeover','desktop_release'] as const;
 export type ControlOperation=typeof operations[number];
 /** Durable local MCP outbox. The executor visits Box; Box need not reach a local web server. */
 export class AgentControl {

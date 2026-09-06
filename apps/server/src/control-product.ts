@@ -6,11 +6,21 @@ import {startPluginConnection,addCustomPlugin,disconnectPlugin} from './plugins'
 import {routineHistory,enqueueBackground} from './automations';
 import {handleTriggers} from './triggers';
 import {handleDelivery} from './delivery';
+import {handleMaintenance} from './maintenance';
 import {db,createCompanion} from './store';
 import {config} from './config';
 import {handleAutomations} from './automation-routes';
 const uuid=z.string().uuid();
+async function maintenanceRequest(ownerId:string,companionId:string,suffix:string,method='GET',body?:unknown){
+ return (await handleMaintenance(new Request(`http://control/api/maintenance/companions/${companionId}${suffix}`,{method,...(body===undefined?{}:{body:JSON.stringify(body)})}),ownerId))!.json();
+}
 registerControl({
+ maintenance:async context=>(await handleMaintenance(new Request('http://control/api/maintenance'),context.ownerId))!.json(),
+ maintenance_inspect:async(context,raw)=>maintenanceRequest(context.ownerId,z.object({companionId:uuid}).parse(raw).companionId,''),
+ maintenance_history:async(context,raw)=>maintenanceRequest(context.ownerId,z.object({companionId:uuid}).parse(raw).companionId,'/actions'),
+ maintenance_prepare:async(context,raw)=>maintenanceRequest(context.ownerId,z.object({companionId:uuid}).parse(raw).companionId,'/prepare','POST'),
+ maintenance_configure:async(context,raw)=>{const {companionId,configuration}=z.object({companionId:uuid,configuration:z.record(z.string(),z.unknown())}).parse(raw);return maintenanceRequest(context.ownerId,companionId,'','PATCH',configuration);},
+ maintenance_task:async(context,raw)=>{const {companionId,prompt}=z.object({companionId:uuid,prompt:z.string().min(1).max(50_000)}).parse(raw);return maintenanceRequest(context.ownerId,companionId,'/tasks','POST',{clientMessageId:context.commandId,prompt});},
  template_history:async(context,raw)=>({revisions:await listTemplateRevisions(context.ownerId,z.object({templateId:uuid}).parse(raw).templateId)}),
  template_rollback:async(context,raw)=>{const {templateId,...input}=z.object({templateId:uuid,targetRevision:z.number().int().positive(),expectedRevision:z.number().int().positive()}).parse(raw);return rollbackTemplate(context.ownerId,templateId,input);},
  companion_create:async(context,raw)=>{

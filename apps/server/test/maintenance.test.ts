@@ -2,6 +2,8 @@ import {beforeAll,afterAll,test,expect} from 'bun:test';
 import {db,migrate,createCompanion} from '../src/store';
 import {createDelivery,acceptDelivery,handleDelivery,setDeliveryMailerForTests} from '../src/delivery';
 import {handleMaintenance} from '../src/maintenance';
+import {applyControl} from '../src/control';
+import '../src/control-product';
 const prior=process.env.BILLING_TEST_MODE;
 beforeAll(async()=>{await migrate();process.env.BILLING_TEST_MODE='1';setDeliveryMailerForTests(async()=>{});});
 afterAll(()=>{if(prior===undefined)delete process.env.BILLING_TEST_MODE;else process.env.BILLING_TEST_MODE=prior;setDeliveryMailerForTests(null);});
@@ -13,6 +15,10 @@ test('maintenance is restricted to granted configuration and diagnostics; revoca
  const copy=await acceptDelivery(client,invite!.id,true);
  const endpoint=`http://control/api/maintenance/companions/${copy!.companionId}`;
  expect((await handleMaintenance(new Request(endpoint),stranger))!.status).toBe(404);
+ const sourceRun=crypto.randomUUID();
+ await db`INSERT INTO runs(id,companion_id,client_message_id,content,status) VALUES(${sourceRun},${source.id},${crypto.randomUUID()},'Maintain client','running')`;
+ const inspect=()=>applyControl(source.id,{id:crypto.randomUUID(),runId:sourceRun,operation:'maintenance_inspect',input:{companionId:copy!.companionId}});
+ expect((await inspect() as any).companion.id).toBe(copy!.companionId);
  const changed=await handleMaintenance(new Request(endpoint,{method:'PATCH',body:JSON.stringify({instructions:'Client-specific improvement'})}),sender);
  expect(changed!.status).toBe(200);
  expect((await db`SELECT instructions FROM companions WHERE id=${source.id}`)[0].instructions).toBe('Original');
@@ -23,5 +29,6 @@ test('maintenance is restricted to granted configuration and diagnostics; revoca
  expect((await handleDelivery(new Request(`http://control/api/deliveries/${invite!.id}/maintenance`,{method:'DELETE'}),client))!.status).toBe(200);
  expect((await db`SELECT status FROM runs WHERE id=${accepted.runId}`)[0].status).toBe('cancelled');
  expect((await handleMaintenance(new Request(endpoint),sender))!.status).toBe(404);
+ expect(await inspect()).toEqual({error:'Maintenance access not found.'});
  expect((await handleMaintenance(new Request(endpoint,{method:'PATCH',body:JSON.stringify({name:'Cannot change'})}),sender))!.status).toBe(404);
 });

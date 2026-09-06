@@ -1,0 +1,25 @@
+packages/desktop/README.md
+  s_f946242dcf6ba9::t_ee2d3399663524 32-36
+packages/desktop/broker.ts
+  s_f946242dcf6ba9::t_0c758611e46f2f 38,49
+packages/desktop/desktop.test.ts
+  s_f946242dcf6ba9::t_2101f3f5d19f7a 192-205
+packages/desktop/journal.ts
+  s_f946242dcf6ba9::t_6b23a63545bbed 10,20-21,42-43,71,82,95-98
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "0b29f0b20ed1495d1cdc3cc42febd343f2144350",
+  "prompts": {},
+  "sessions": {
+    "s_f946242dcf6ba9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a06de4-a8a5-7cd3-b713-2a8d451f7200",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "StanGirard <stan@quivr.app>"
+    }
+  }
+}

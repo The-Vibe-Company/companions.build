@@ -76,7 +76,7 @@ try:
     run("install", [bun, "install", "--frozen-lockfile"])
     run("web-install", [bun, "install", "--frozen-lockfile"], ROOT / "apps/web")
     run("typecheck", [bun, "node_modules/typescript/bin/tsc"])
-    run("agent-unit", [bun, "test", "packages/agent/test/daemon.test.ts", "packages/agent/test/environment.test.ts", "packages/agent/test/initialization.test.ts", "packages/agent/test/memory.test.ts", "packages/agent/test/skills.test.ts"])
+    run("agent-unit", [bun, "test", "packages/agent/test/daemon.test.ts", "packages/agent/test/environment.test.ts", "packages/agent/test/initialization.test.ts", "packages/agent/test/memory.test.ts", "packages/agent/test/skills.test.ts", "packages/desktop/desktop.test.ts"])
     run("agent-build", [bun, "scripts/build-agent.ts"])
     run("system", [bun, "scripts/test-server.ts", "--linux"])
     run("web-tests", [bun, "run", "test"], ROOT / "apps/web")

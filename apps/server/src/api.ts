@@ -50,13 +50,13 @@ async function lifecycleRoute(request:Request,ownerId:string):Promise<Response|n
   if(request.method==='POST'){const {clientCommandId,...input}=await request.json() as any;return json(await handleLifecycle({operation:'spawn',companionId:id,commandId:clientCommandId,input},ownerId),202);}
  }
  const desktop=path.match(/^\/api\/companions\/([^/]+)\/desktop\/(takeover|release)$/);
- if(desktop&&request.method==='POST')return json(await handleLifecycle({operation:'desktop_'+desktop[2],companionId:idSchema.parse(desktop[1])},ownerId),202);
+ if(desktop&&request.method==='POST')return json(await handleLifecycle({operation:'desktop_'+desktop[2],companionId:idSchema.parse(desktop[1]),source:'human'},ownerId),202);
  const match=path.match(/^\/api\/companions\/([^/]+)\/(prepare|desktop-takeover|desktop-release|template-permission|spawn|adopt-template)$/);
  if(!match||request.method!=='POST')return null;
  const companionId=idSchema.parse(match[1]);
  const body=await request.text();const input=body?JSON.parse(body):{};
  const {commandId,runId,...value}=input;
- return json(await handleLifecycle({operation:match[2].replaceAll('-','_'),companionId,commandId,runId,input:value},ownerId),202);
+ return json(await handleLifecycle({operation:match[2].replaceAll('-','_'),companionId,commandId,runId,input:value,source:'human'},ownerId),202);
 }
 export async function handler(request: Request): Promise<Response> {
   const url = new URL(request.url);
@@ -97,7 +97,7 @@ export async function handler(request: Request): Promise<Response> {
       if (request.method === "GET") return json({ companions: await listCompanions(ownerId) });
       if (request.method === "POST") {
         if(billingConfiguration().mode === "stripe" || process.env.NODE_ENV === "production") await requireProductActivation(ownerId);
-        const input = z.object({ name: z.string().trim().min(1).max(80), instructions: z.string().max(20_000).default(""), provider: z.enum(["local", "box"]), avatar: avatarSchema.optional() }).parse(await request.json());
+        const input = z.object({ name: z.string().trim().min(1).max(80), instructions: z.string().max(20_000).optional(), provider: z.enum(["local", "box"]), avatar: avatarSchema.optional(), templateId:idSchema.optional(), templateRevision:z.number().int().positive().optional() }).parse(await request.json());
         if (input.provider === "box" && (!config.boxKey || !config.boxTemplate)) return json({ error: "Box needs an API key and a prepared template." }, 409);
         if (input.provider === "local" && !config.localAvailable) return json({ error: "Local runtime is disabled." }, 409);
         return json({ companion: await createCompanion(ownerId, {...input,prepare:true}) }, 201);

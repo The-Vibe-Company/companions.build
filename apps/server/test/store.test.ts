@@ -3,6 +3,7 @@ import { db, migrate, createCompanion, acceptMessage, detail, cancel, Conflict }
 import { acquireExecutor, tick } from "../src/executor";
 import { handler } from "../src/api";
 import { encrypt } from "../src/config";
+import { lifecycleControlHandlers } from "../src/lifecycle";
 import { setMagicLinkDeliveryForTests } from "../src/auth";
 
 beforeAll(async () => { await Promise.all([migrate(), migrate()]); });
@@ -117,4 +118,35 @@ test("a former executor cannot claim work after releasing ownership", async () =
     await leader!`SELECT pg_advisory_unlock(721440139)`;
     await expect(tick(leader!)).rejects.toThrow("Executor ownership lost");
   } finally { leader!.release(); }
+});
+
+test("human desktop ownership survives forged agent release and only its owner can release", async () => {
+  const cookie = await signIn(`desktop-owner-${crypto.randomUUID()}@example.com`);
+  const foreignCookie = await signIn(`desktop-other-${crypto.randomUUID()}@example.com`);
+  const headers = { cookie, "content-type": "application/json" };
+  const me = await handler(new Request("http://127.0.0.1:4310/api/me", { headers }));
+  const ownerId = (await me.json() as any).user.id;
+  const companion = await createCompanion(ownerId, { name: "Desktop authority", instructions: "", provider: "local" });
+  const url = `http://127.0.0.1:4310/api/companions/${companion.id}`;
+  const post = (path: string, requestHeaders = headers, body = {}) => handler(new Request(url + path, {
+    method: "POST", headers: requestHeaders, body: JSON.stringify(body),
+  }));
+  expect((await post("/desktop/takeover")).status).toBe(202);
+  const state = async () => (await db`SELECT desktop_taken,desktop_generation FROM companions WHERE id=${companion.id}`)[0];
+  const taken = await state();
+  expect(taken.desktop_taken).toBe(true);
+  expect(Number(taken.desktop_generation)).toBe(1);
+  expect((await post("/desktop-takeover")).status).toBe(202);
+  expect(Number((await state()).desktop_generation)).toBe(1);
+  await expect(lifecycleControlHandlers.desktop_release({ ownerId, companionId: companion.id, runId: crypto.randomUUID(), commandId: crypto.randomUUID() } as any,
+    { source: "human", ownerId, taken: false })).rejects.toThrow("HUMAN_DESKTOP_RELEASE_REQUIRED");
+  expect((await state()).desktop_taken).toBe(true);
+  const foreign = await post("/desktop/release", { ...headers, cookie: foreignCookie });
+  expect(foreign.status).toBe(409);
+  expect((await state()).desktop_taken).toBe(true);
+  expect((await post("/desktop/release", headers, { source: "agent" })).status).toBe(202);
+  expect((await state()).desktop_taken).toBe(false);
+  expect(Number((await state()).desktop_generation)).toBe(2);
+  expect((await post("/desktop-release")).status).toBe(202);
+  expect(Number((await state()).desktop_generation)).toBe(2);
 });

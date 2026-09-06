@@ -39,7 +39,7 @@ export async function observeBox(candidate:ObservedBox,leaderPid:number,getBox:(
   const ready=new Date(candidate.ready_at);
   const lastAlive=previous.last_alive_at?new Date(previous.last_alive_at):ready;
   const archiveAfter=box.archiveAfter?new Date(box.archiveAfter):previous.archive_after;
-  const state=box.state==='ready'?'alive':box.state==='archived'?'archived':'unknown';
+  const state=['ready','idle','running'].includes(box.state)?'alive':box.state==='archived'?'archived':'unknown';
   if(state==='alive'&&started.getTime()-lastAlive.getTime()>BOX_OBSERVATION_MAX_GAP_MS){
    await tx`INSERT INTO box_observation_gaps(ready_event_id,starts_at,ends_at) VALUES(${candidate.ready_event_id},${lastAlive},${started}) ON CONFLICT DO NOTHING`;
   }

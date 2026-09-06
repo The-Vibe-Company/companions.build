@@ -48,6 +48,28 @@ test('a long controller outage never bills unknown hours even if the next GET is
  }finally{await lock.close();}
 });
 
+test('idle and running are observed as billable alive states without a wake request',async()=>{
+ const idle=await fixture(),running=await fixture(),lock=await leader(),gets:string[]=[];
+ try{
+  await observeBox(idle,lock.pid,async id=>{gets.push(id);return {id,state:'idle'};},db,()=>at(60));
+  await observeBox(running,lock.pid,async id=>{gets.push(id);return {id,state:'running'};},db,()=>at(60));
+  expect((await interval(idle)).seconds).toBe(60);expect((await interval(running)).seconds).toBe(60);
+  const observations=await db`SELECT state FROM box_observations WHERE ready_event_id IN (${idle.ready_event_id},${running.ready_event_id})`;
+  expect(observations.map((row:any)=>row.state)).toEqual(['alive','alive']);
+  expect(gets.sort()).toEqual([idle.box_id,running.box_id].sort());
+ }finally{await lock.close();}
+});
+
+test('an unknown provider state remains fail-closed and accrues no usage',async()=>{
+ const c=await fixture(),lock=await leader();let gets=0;
+ try{
+  await observeBox(c,lock.pid,async id=>{gets++;return {id,state:'suspending'};},db,()=>at(60));
+  expect((await interval(c)).seconds).toBe(0);
+  expect((await db`SELECT state,last_alive_at FROM box_observations WHERE ready_event_id=${c.ready_event_id}`)[0]).toEqual({state:'unknown',last_alive_at:null});
+  expect(gets).toBe(1);
+ }finally{await lock.close();}
+});
+
 test('known TTL caps ongoing time and a new ready generation never backfills the old gap',async()=>{
  const c=await fixture(),lock=await leader();
  try{

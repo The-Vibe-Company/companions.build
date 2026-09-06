@@ -95,6 +95,7 @@ python3 scripts/bun.py scripts/live-box-canary.ts
 python3 scripts/bun.py scripts/live-box-canary.ts --wake-only
 python3 scripts/bun.py scripts/live-desktop-canary.ts
 python3 scripts/bun.py scripts/live-skills-canary.ts
+python3 scripts/bun.py scripts/live-skill-install-canary.ts
 ```
 
 The model canary proves one configured provider/model can answer through the packaged runtime. The
@@ -106,6 +107,17 @@ subprocess on Box. The skills canary verifies hashed export, idempotent import, 
 and actual Pi use on a real Box. Record provider, artifact
 revision, timestamps, raw phase measurements, and limitations in `docs/measurements/` without
 recording credentials or signed URLs.
+
+The chat skill-install canary uploads an actual `SKILL.md` attachment through the authenticated API,
+asks Pi to install it with its file/shell tools, verifies exported bytes and resource listing, then
+checks a fresh challenge in a second turn against an independently calculated digest and the daemon
+journal. It uses an existing, otherwise idle Box Companion: set `SKILL_INSTALL_COMPANION_ID`, or
+`BOX_CANARY_STATE_FILE` pointing to a journal with `companionId` or `parentId`. Use the running stack's
+environment and authenticated `.local/session-cookie` (`SKILL_INSTALL_SESSION_FILE` overrides it).
+`SKILL_INSTALL_CANARY_STATE_FILE` defaults to `.local/live-skill-install-canary.json`; retain it to
+resume with the same message/file IDs. Failed or ambiguous runs stop the check without replay.
+The uniquely named installed skill remains on that Companion. This checks discovery and subsequent
+behavior; it does not inspect Pi's internal resource-selection trace.
 
 There is currently no automated live acceptance for every OAuth provider, managed GitHub/Sentry
 registration, Stripe subscriptions/meters, SMTP deliverability, broad desktop application behavior,

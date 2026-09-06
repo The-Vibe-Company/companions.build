@@ -29,3 +29,8 @@ termination escalates from SIGTERM to SIGKILL and waits for process exit before 
 Build `run.ts` as the separate desktop-UID executable. Agent code should use
 `desktopTools({socketPath, runId})`; it speaks only to the agent socket and returns
 `{"error":"desktop_paused"}` promptly while human takeover is active.
+
+Successful result payloads share a 64 MiB retention budget. Older payloads expire with
+`result_expired`; their durable request fingerprints remain and can never authorize replay.
+The journal does not store typed request text. Small idempotency records still accumulate with
+actions; the bound applies to retained result bytes, not total filesystem or SQLite/WAL size.

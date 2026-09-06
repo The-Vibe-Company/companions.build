@@ -7,6 +7,7 @@ export type JournalClaim =
   | { state: "claimed" }
   | { state: "succeeded"; result: DesktopResult }
   | { state: "interrupted" }
+  | { state: "expired" }
   | { state: "in_progress" }
   | { state: "conflict" };
 
@@ -16,7 +17,8 @@ const fingerprint = (value: string) => createHash("sha256").update(value).digest
 export class DesktopJournal {
   private readonly database: Database;
 
-  constructor(path: string) {
+  constructor(path: string, private readonly resultBudgetBytes=64*1024*1024) {
+    if(!Number.isSafeInteger(resultBudgetBytes)||resultBudgetBytes<1)throw Error("Invalid desktop result budget");
     this.database = new Database(path, { create: true, strict: true });
     this.database.exec(`PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL;
       CREATE TABLE IF NOT EXISTS desktop_state (
@@ -37,7 +39,8 @@ export class DesktopJournal {
         finished_at INTEGER
       );
       UPDATE desktop_actions SET status='interrupted',finished_at=unixepoch('subsec')*1000
-        WHERE status='started';`);
+        WHERE status='started';
+      UPDATE desktop_actions SET request_json='' WHERE request_json<>'';`);
   }
 
   desiredState(): { generation: number; taken: boolean } {
@@ -65,7 +68,7 @@ export class DesktopJournal {
     } | null;
     if (!row) return null;
     if (row.request_hash !== fingerprint(body)) return { state: "conflict" };
-    if (row.status === "succeeded") return { state: "succeeded", result: JSON.parse(row.result_json!) as DesktopResult };
+    if (row.status === "succeeded") return row.result_json===null?{state:"expired"}:{ state: "succeeded", result: JSON.parse(row.result_json) as DesktopResult };
     if (row.status === "interrupted") return { state: "interrupted" };
     return { state: "in_progress" };
   }
@@ -76,7 +79,7 @@ export class DesktopJournal {
     return this.database.transaction(() => {
       this.database.query(`INSERT OR IGNORE INTO desktop_actions
         (id,run_id,generation,request_hash,request_json,status,created_at)
-        VALUES(?,?,?,?,?,'pending',?)`).run(request.id, request.runId, request.generation, hash, body, Date.now());
+        VALUES(?,?,?,?,?,'pending',?)`).run(request.id, request.runId, request.generation, hash, "", Date.now());
       const previous = this.previous(request);
       if (previous && previous.state !== "in_progress") return previous;
       const row = this.database.query("SELECT status FROM desktop_actions WHERE id=?").get(request.id) as { status: ActionStatus };
@@ -89,6 +92,10 @@ export class DesktopJournal {
   succeed(id: string, result: DesktopResult) {
     this.database.query("UPDATE desktop_actions SET status='succeeded',result_json=?,finished_at=? WHERE id=? AND status='started'")
       .run(JSON.stringify(result), Date.now(), id);
+    // Keep durable fingerprints forever; evict only large result payloads, never replay an action.
+    this.database.query(`UPDATE desktop_actions SET result_json=NULL WHERE id IN (
+      SELECT id FROM (SELECT id,sum(length(CAST(result_json AS BLOB))) OVER (ORDER BY finished_at DESC,rowid DESC) AS bytes
+        FROM desktop_actions WHERE status='succeeded' AND result_json IS NOT NULL) WHERE bytes>?)`).run(this.resultBudgetBytes);
   }
 
   interrupt(id: string) {

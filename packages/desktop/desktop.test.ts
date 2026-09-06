@@ -189,3 +189,17 @@ test("Pi desktop tools reject malformed broker replies and bound an unavailable 
   expect(performance.now() - started).toBeLessThan(500);
   expect((timeoutResult.content[0] as any).text).toContain("desktop_unavailable");
 });
+
+
+test("evicting desktop result bytes retains idempotency after restart and never reclaims an old action", () => {
+  const path=journalPath();let journal=new DesktopJournal(path,200);
+  const old=action();expect(journal.claim(old)).toEqual({state:"claimed"});
+  journal.succeed(old.id,{kind:"screenshot",mimeType:"image/png",data:"a".repeat(80),width:1,height:1});
+  const fresh=action();expect(journal.claim(fresh)).toEqual({state:"claimed"});
+  journal.succeed(fresh.id,{kind:"screenshot",mimeType:"image/png",data:"b".repeat(80),width:1,height:1});
+  expect(journal.previous(old)).toEqual({state:"expired"});expect(journal.previous(fresh)?.state).toBe("succeeded");
+  journal.close();journal=new DesktopJournal(path,200);
+  expect(journal.claim(old)).toEqual({state:"expired"});
+  expect(journal.claim({...old,action:{kind:"click",x:90,y:20,button:"left"}})).toEqual({state:"conflict"});
+  journal.close();
+});

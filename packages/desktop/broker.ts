@@ -35,6 +35,7 @@ export class DesktopBroker {
     catch { return json({ error: "invalid_action" }, 400); }
     const previous = this.journal.previous(input);
     if (previous?.state === "conflict") return json({ error: "action_id_conflict" }, 409);
+    if (previous?.state === "expired") return json({ error: "result_expired" }, 409);
     if (previous?.state === "interrupted") return json({ error: "ambiguous_action" }, 409);
     if (previous?.state === "in_progress") return json({ error: "action_in_progress" }, 409);
     if (previous?.state === "succeeded") return json({ result: previous.result });
@@ -45,6 +46,7 @@ export class DesktopBroker {
       if (input.generation !== this.generation) return json({ error: "stale_generation", generation: this.generation }, 409);
       const claim = this.journal.claim(input);
       if (claim.state === "conflict") return json({ error: "action_id_conflict" }, 409);
+      if (claim.state === "expired") return json({ error: "result_expired" }, 409);
       if (claim.state === "interrupted") return json({ error: "ambiguous_action" }, 409);
       if (claim.state === "in_progress") return json({ error: "action_in_progress" }, 409);
       if (claim.state === "succeeded") return json({ result: claim.result });

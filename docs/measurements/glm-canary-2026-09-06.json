@@ -1,0 +1,16 @@
+{
+  "provider": "zai",
+  "model": "glm-5.3-flash",
+  "date": "2026-09-06",
+  "environment": "Docker Linux amd64 on macOS arm64",
+  "text": {
+    "status": "passed",
+    "seconds": 6.5496
+  },
+  "tools": {
+    "status": "passed",
+    "seconds": 5.5319,
+    "verified": "actual canary.sh content and exact model response"
+  },
+  "boxVerified": false
+}

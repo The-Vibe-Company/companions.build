@@ -723,9 +723,9 @@ leur périmètre n'est plus à redéfinir. Les scénarios locaux doivent prouver
 produit avant leur généralisation.
 
 Les discussions détaillées de gouvernance, de prix et de plafonds restent différées à la demande
-de Stan. Pi/Bun est retenu. La licence exacte du nouveau projet et les
-choix de déploiement restent à décider. Ce document ne déclenche ni création de tickets, ni
-implémentation, ni déploiement.
+de Stan. Pi/Bun est retenu. Le nouveau dépôt est sous licence MIT ; le déploiement hébergé reste
+à décider. L’implémentation autonome de la V0 a été autorisée le 6 septembre 2026 ; son périmètre
+effectif et ses limites sont suivis dans `docs/v0.md` et les tickets Linear.
 
 ## Références
 

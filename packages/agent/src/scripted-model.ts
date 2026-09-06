@@ -24,8 +24,11 @@ export function scriptedModel(model: any, context: any) {
     else message.content = [{ type: "text", text: JSON.stringify(results.at(-1)?.content).includes("written by real Pi tools")
       ? "The note was written and read back." : "Tool verification failed." }];
   } else if (text === "slow-write") {
-    if (results.length === 0) tool("bash", { command: "sleep 30; printf completed > should-not-exist" });
+    if (results.length === 0) tool("bash", { command: "printf started > slow-started; sleep 30; printf completed > should-not-exist" });
     else message.content = [{ type: "text", text: "Slow command returned." }];
+  } else if (text === "crash-after-effect") {
+    if (results.length === 0) tool("bash", { command: "printf effect >> effects.txt; sleep 30" });
+    else message.content = [{ type: "text", text: "Effect completed." }];
   }
   queueMicrotask(() => {
     stream.push({ type: "start", partial: message });

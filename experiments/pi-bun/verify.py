@@ -44,9 +44,15 @@ def toolchain():
         raise RuntimeError(f"Bun checksum mismatch; remove {archive} and rerun")
     archive.write_bytes(data)
     executable = directory / "bun"
-    # Re-extract the checked bytes; do not trust an old executable in the cache.
-    executable.write_bytes(zipfile.ZipFile(io.BytesIO(data)).read(f"{asset}/bun"))
-    executable.chmod(0o755)
+    # Never overwrite a running executable: macOS code-signing caches and existing
+    # mappings can kill both new and live processes. Verify cached bytes or replace
+    # through a fresh inode, atomically, without touching another process's mapping.
+    checked = zipfile.ZipFile(io.BytesIO(data)).read(f"{asset}/bun")
+    if not executable.exists() or hashlib.sha256(executable.read_bytes()).digest() != hashlib.sha256(checked).digest():
+        temporary = directory / f"bun-{uuid.uuid4().hex}.tmp"
+        temporary.write_bytes(checked)
+        temporary.chmod(0o755)
+        os.replace(temporary, executable)
     return str(executable)
 
 def main():

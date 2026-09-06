@@ -8,5 +8,5 @@
     "skipLibCheck": true,
     "types": ["bun"]
   },
-  "include": ["experiments/pi-bun/**/*.ts"]
+  "include": ["experiments/pi-bun/**/*.ts", "apps/server/**/*.ts", "packages/**/*.ts", "scripts/**/*.ts"]
 }

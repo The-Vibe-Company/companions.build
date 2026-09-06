@@ -36,6 +36,7 @@ export class PiExecutor implements RunExecutor {
     const provider = testMode ? "companion-test" : requiredEnvironment("MODEL_PROVIDER");
     const modelId = testMode ? "scripted" : requiredEnvironment("MODEL_ID");
     const providerApiKey = takeProviderApiKey(provider);
+    if (!testMode && !providerApiKey) throw new Error("MISSING_MODEL_API_KEY");
     const modelRuntime = await ModelRuntime.create({
       credentials: new InMemoryCredentialStore(), modelsPath: null,
       modelsStorePath: join(stateDir, "models.json"), allowModelNetwork: false, refreshOnCreate: false,

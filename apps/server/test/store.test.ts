@@ -2,36 +2,69 @@ import { beforeAll, test, expect } from "bun:test";
 import { db, migrate, createCompanion, acceptMessage, detail, cancel, Conflict } from "../src/store";
 import { acquireExecutor, tick } from "../src/executor";
 import { handler } from "../src/api";
-import { config, encrypt } from "../src/config";
+import { encrypt } from "../src/config";
+import { setMagicLinkDeliveryForTests } from "../src/auth";
 
 beforeAll(async () => { await Promise.all([migrate(), migrate()]); });
+const owner = "00000000-0000-4000-8000-000000000001";
 test("accepted messages survive reconnect and duplicate sends create one request", async () => {
-  const companion = await createCompanion({ name: "Ada", instructions: "Be clear", provider: "local" });
+  const companion = await createCompanion(owner, { name: "Ada", instructions: "Be clear", provider: "local" });
   const client = crypto.randomUUID();
-  const ids = await Promise.all(Array.from({ length: 20 }, () => acceptMessage(companion.id, client, "Hello Ada")));
+  const ids = await Promise.all(Array.from({ length: 20 }, () => acceptMessage(owner, companion.id, client, "Hello Ada")));
   expect(new Set(ids).size).toBe(1);
-  const state = await detail(companion.id);
+  const state = await detail(owner, companion.id);
   expect(state?.messages).toHaveLength(1);
   expect(state?.runs).toHaveLength(1);
-  await expect(acceptMessage(companion.id, client, "Changed")).rejects.toBeInstanceOf(Conflict);
-  await cancel(companion.id);
-  expect((await detail(companion.id))?.runs[0].status).toBe("cancelled");
+  await expect(acceptMessage(owner, companion.id, client, "Changed")).rejects.toBeInstanceOf(Conflict);
+  await cancel(owner, companion.id);
+  expect((await detail(owner, companion.id))?.runs[0].status).toBe("cancelled");
 });
-test("API authorizes before reading or accepting requests and persists before returning 202", async () => {
-  const companion = await createCompanion({ name: "Grace", instructions: "", provider: "local" });
-  const url = `http://127.0.0.1:4311/api/companions/${companion.id}/messages`;
+async function signIn(email: string) {
+  let link = "";
+  setMagicLinkDeliveryForTests(message => { link = message.url; });
+  const sent = await handler(new Request("http://127.0.0.1:4310/api/auth/sign-in/magic-link", {
+    method: "POST",
+    headers: { "content-type": "application/json", origin: "http://127.0.0.1:4310" },
+    body: JSON.stringify({ email, callbackURL: "/" }),
+  }));
+  expect(sent.status).toBe(200);
+  const verified = await handler(new Request(link, { redirect: "manual" }));
+  expect(verified.status).toBe(302);
+  const cookie = verified.headers.get("set-cookie")?.split(";")[0];
+  expect(cookie).toContain("better-auth.session_token=");
+  return cookie!;
+}
+test("Better Auth sessions isolate two personal accounts across every Companion operation", async () => {
+  const aliceCookie = await signIn("alice@example.com");
+  const bobCookie = await signIn("bob@example.com");
+  const aliceHeaders = { cookie: aliceCookie, "content-type": "application/json" };
+  const bobHeaders = { cookie: bobCookie, "content-type": "application/json" };
+  const me = await handler(new Request("http://127.0.0.1:4310/api/me", { headers: aliceHeaders }));
+  expect(me.status).toBe(200);
+  expect((await me.json() as any).user.email).toBe("alice@example.com");
+  const created = await handler(new Request("http://127.0.0.1:4310/api/companions", {
+    method: "POST", headers: aliceHeaders,
+    body: JSON.stringify({ name: "Grace", instructions: "", provider: "local" }),
+  }));
+  expect(created.status).toBe(201);
+  const companion = (await created.json() as any).companion;
+  const url = `http://127.0.0.1:4310/api/companions/${companion.id}/messages`;
   const body = JSON.stringify({ clientMessageId: crypto.randomUUID(), content: "Durable" });
   expect((await handler(new Request(url, { method: "POST", body }))).status).toBe(401);
-  expect((await detail(companion.id))?.messages).toHaveLength(0);
-  const headers = { authorization: `Bearer ${config.token}`, "Content-Type": "application/json" };
-  expect((await handler(new Request(url, { method: "POST", body, headers: { ...headers, origin: "https://evil.invalid" } }))).status).toBe(403);
-  expect((await handler(new Request(url, { method: "POST", body, headers }))).status).toBe(202);
-  expect((await detail(companion.id))?.messages[0].content).toBe("Durable");
-  await cancel(companion.id);
+  expect((await handler(new Request("http://127.0.0.1:4310/api/companions", { headers: { authorization: "Bearer former-operator-token" } }))).status).toBe(401);
+  expect((await handler(new Request(url, { method: "POST", body, headers: { ...aliceHeaders, origin: "https://evil.invalid" } }))).status).toBe(403);
+  expect((await handler(new Request(url, { method: "POST", body, headers: bobHeaders }))).status).toBe(404);
+  expect((await handler(new Request(`http://127.0.0.1:4310/api/companions/${companion.id}`, { headers: bobHeaders }))).status).toBe(404);
+  expect((await handler(new Request(`http://127.0.0.1:4310/api/companions/${companion.id}/cancel`, { method: "POST", headers: bobHeaders }))).status).toBe(404);
+  expect((await handler(new Request(url, { method: "POST", body, headers: aliceHeaders }))).status).toBe(202);
+  const mine = await handler(new Request("http://127.0.0.1:4310/api/companions", { headers: aliceHeaders }));
+  const theirs = await handler(new Request("http://127.0.0.1:4310/api/companions", { headers: bobHeaders }));
+  expect((await mine.json() as any).companions.some((row: any) => row.id === companion.id)).toBe(true);
+  expect((await theirs.json() as any).companions.some((row: any) => row.id === companion.id)).toBe(false);
 });
 test("one executor owns the database and reconciles a durable final response exactly once", async () => {
-  const companion = await createCompanion({ name: "Lin", instructions: "", provider: "local" });
-  const runId = await acceptMessage(companion.id, crypto.randomUUID(), "Finish");
+  const companion = await createCompanion(owner, { name: "Lin", instructions: "", provider: "local" });
+  const runId = await acceptMessage(owner, companion.id, crypto.randomUUID(), "Finish");
   let puts = 0;
   const daemon = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch(req) {
     if (req.method === "PUT") puts++;
@@ -45,15 +78,15 @@ test("one executor owns the database and reconciles a durable final response exa
   try {
     await tick(leader!);
     await tick(leader!);
-    const state = await detail(companion.id);
+    const state = await detail(owner, companion.id);
     expect(state?.runs[0].status).toBe("succeeded");
     expect(state?.messages.filter((m: any) => m.role === "assistant")).toHaveLength(1);
     expect(puts).toBe(0);
   } finally { await leader!`SELECT pg_advisory_unlock(721440139)`; leader!.release(); daemon.stop(true); }
 });
 test("ambiguous dispatch with no remote journal is interrupted, never resent", async () => {
-  const companion = await createCompanion({ name: "Alan", instructions: "", provider: "local" });
-  const runId = await acceptMessage(companion.id, crypto.randomUUID(), "Side effect");
+  const companion = await createCompanion(owner, { name: "Alan", instructions: "", provider: "local" });
+  const runId = await acceptMessage(owner, companion.id, crypto.randomUUID(), "Side effect");
   const methods: string[] = [];
   const daemon = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch(req) { methods.push(req.method); return new Response(null, { status: 404 }); } });
   await db`UPDATE companions SET endpoint_secret=${encrypt(`http://127.0.0.1:${daemon.port}`)} WHERE id=${companion.id}`;
@@ -61,7 +94,7 @@ test("ambiguous dispatch with no remote journal is interrupted, never resent", a
   const leader = await acquireExecutor();
   try {
     await tick(leader!);
-    expect((await detail(companion.id))?.runs[0].status).toBe("interrupted");
+    expect((await detail(owner, companion.id))?.runs[0].status).toBe("interrupted");
     expect(methods).toEqual(["GET"]);
   } finally { await leader!`SELECT pg_advisory_unlock(721440139)`; leader!.release(); daemon.stop(true); }
 });

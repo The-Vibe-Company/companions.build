@@ -14,9 +14,29 @@ function localSecret(name: string, env?: string) {
     return readFileSync(path, "utf8").trim();
   }
 }
+function authSecret() {
+  if (process.env.BETTER_AUTH_SECRET) return process.env.BETTER_AUTH_SECRET;
+  if (process.env.NODE_ENV === "production") throw new Error("BETTER_AUTH_SECRET is required in production");
+  return localSecret("auth-secret");
+}
+function authUrl() {
+  const value = process.env.BETTER_AUTH_URL ?? process.env.APP_URL;
+  if (value) return value;
+  if (process.env.NODE_ENV === "production") throw new Error("BETTER_AUTH_URL or APP_URL is required in production");
+  return `http://127.0.0.1:${process.env.WEB_PORT ?? 4310}`;
+}
 export const config = {
   databaseUrl: process.env.DATABASE_URL ?? "postgres://companions:companions@127.0.0.1:4312/companions",
   token: localSecret("operator-token", process.env.COMPANIONS_TOKEN),
+  authSecret: authSecret(),
+  authUrl: authUrl(),
+  localDevEmail: process.env.LOCAL_DEV_EMAIL ?? "developer@companions.build",
+  smtpHost: process.env.SMTP_HOST,
+  smtpPort: Number(process.env.SMTP_PORT ?? 25),
+  smtpSecure: process.env.SMTP_SECURE === "1",
+  smtpUser: process.env.SMTP_USER,
+  smtpPassword: process.env.SMTP_PASSWORD,
+  smtpFrom: process.env.SMTP_FROM ?? "companions.build <auth@companions.build>",
   encryptionKey: localSecret("encryption-key", process.env.COMPANIONS_ENCRYPTION_KEY),
   port: Number(process.env.API_PORT ?? 4311),
   boxKey: process.env.BOX_API_KEY ?? process.env.COMPANION_BOX_API_KEY,

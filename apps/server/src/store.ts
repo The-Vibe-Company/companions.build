@@ -4,21 +4,37 @@ import { config, encrypt } from "./config";
 export const db = new SQL(config.databaseUrl, { max: 8, connectionTimeout: 10 });
 export async function migrate(sql = db) {
   const schema = await Bun.file(new URL("./schema.sql", import.meta.url)).text();
+  const authSchema = await Bun.file(new URL("./auth-schema.sql", import.meta.url)).text();
   await sql.begin(async tx => {
     await tx`SELECT pg_advisory_xact_lock(721440138)`;
     await tx.unsafe(schema);
+    await tx.unsafe(authSchema);
+    const localId = "00000000-0000-4000-8000-000000000001";
+    if (process.env.NODE_ENV !== "production") {
+      await tx`INSERT INTO "user" ("id","name","email","emailVerified","createdAt","updatedAt")
+        VALUES (${localId},${"Local developer"},${config.localDevEmail},true,now(),now())
+        ON CONFLICT ("id") DO NOTHING`;
+    }
+    const [{ count }] = await tx`SELECT count(*)::int AS count FROM companions WHERE owner_id IS NULL`;
+    if (count > 0) {
+      if (process.env.NODE_ENV === "production") {
+        throw new Error("Existing Companions have no owner; assign owner_id before starting hosted mode");
+      }
+      await tx`UPDATE companions SET owner_id=${localId} WHERE owner_id IS NULL`;
+    }
+    await tx`ALTER TABLE companions ALTER COLUMN owner_id SET NOT NULL`;
   });
 }
 export const companionColumns = `id,name,instructions,provider,status,error,box_id AS "boxId",created_at AS "createdAt"`;
-export async function listCompanions() { return db.unsafe(`SELECT ${companionColumns} FROM companions ORDER BY created_at,id`); }
-export async function createCompanion(input: { name: string; instructions: string; provider: "local" | "box" }) {
+export async function listCompanions(ownerId: string) { return db.unsafe(`SELECT ${companionColumns} FROM companions WHERE owner_id=$1 ORDER BY created_at,id`, [ownerId]); }
+export async function createCompanion(ownerId: string, input: { name: string; instructions: string; provider: "local" | "box" }) {
   const id = crypto.randomUUID();
-  await db`INSERT INTO companions (id,name,instructions,provider,create_key,agent_secret)
-    VALUES (${id},${input.name},${input.instructions},${input.provider},${crypto.randomUUID()},${encrypt(randomBytes(32).toString("hex"))})`;
-  return (await db.unsafe(`SELECT ${companionColumns} FROM companions WHERE id=$1`, [id]))[0];
+  await db`INSERT INTO companions (id,owner_id,name,instructions,provider,create_key,agent_secret)
+    VALUES (${id},${ownerId},${input.name},${input.instructions},${input.provider},${crypto.randomUUID()},${encrypt(randomBytes(32).toString("hex"))})`;
+  return (await db.unsafe(`SELECT ${companionColumns} FROM companions WHERE id=$1 AND owner_id=$2`, [id, ownerId]))[0];
 }
-export async function detail(id: string) {
-  const [companion] = await db.unsafe(`SELECT ${companionColumns} FROM companions WHERE id=$1`, [id]);
+export async function detail(ownerId: string, id: string) {
+  const [companion] = await db.unsafe(`SELECT ${companionColumns} FROM companions WHERE id=$1 AND owner_id=$2`, [id, ownerId]);
   if (!companion) return null;
   const [messages, runs] = await Promise.all([
     db`SELECT id,role,content,created_at AS "createdAt",run_id AS "runId" FROM messages WHERE companion_id=${id} ORDER BY created_at,id`,
@@ -27,25 +43,25 @@ export async function detail(id: string) {
   return { companion, messages, runs, activity: [] };
 }
 export class Conflict extends Error {}
-export async function acceptMessage(companionId: string, clientMessageId: string, content: string) {
+export async function acceptMessage(ownerId: string, companionId: string, clientMessageId: string, content: string, attachmentCount = 0) {
   return db.begin(async sql => {
     // Lock companion to serialize duplicate admission with cancellation and FIFO claims.
-    const [companion] = await sql`SELECT id FROM companions WHERE id=${companionId} FOR UPDATE`;
+    const [companion] = await sql`SELECT id FROM companions WHERE id=${companionId} AND owner_id=${ownerId} FOR UPDATE`;
     if (!companion) return null;
-    const [existing] = await sql`SELECT id,content FROM runs WHERE companion_id=${companionId} AND client_message_id=${clientMessageId}`;
+    const [existing] = await sql`SELECT id,content,attachment_count FROM runs WHERE companion_id=${companionId} AND client_message_id=${clientMessageId}`;
     if (existing) {
-      if (existing.content !== content) throw new Conflict("This message identifier was already used with different content.");
+      if (existing.content !== content || existing.attachment_count !== attachmentCount) throw new Conflict("This message identifier was already used with different content or attachments.");
       return existing.id as string;
     }
     const id = crypto.randomUUID();
-    await sql`INSERT INTO runs (id,companion_id,client_message_id,content) VALUES (${id},${companionId},${clientMessageId},${content})`;
+    await sql`INSERT INTO runs (id,companion_id,client_message_id,content,attachment_count) VALUES (${id},${companionId},${clientMessageId},${content},${attachmentCount})`;
     await sql`INSERT INTO messages (id,companion_id,run_id,role,content) VALUES (${crypto.randomUUID()},${companionId},${id},'user',${content})`;
     return id;
   });
 }
-export async function cancel(companionId: string) {
+export async function cancel(ownerId: string, companionId: string) {
   return db.begin(async sql => {
-    const [companion] = await sql`SELECT id FROM companions WHERE id=${companionId} FOR UPDATE`;
+    const [companion] = await sql`SELECT id FROM companions WHERE id=${companionId} AND owner_id=${ownerId} FOR UPDATE`;
     if (!companion) return false;
     await sql`UPDATE runs SET status='cancelled',finished_at=now() WHERE companion_id=${companionId} AND status='queued'`;
     await sql`UPDATE runs SET cancel_requested=true WHERE companion_id=${companionId} AND status IN ('preparing','running')`;

@@ -22,6 +22,8 @@ visible rather than being converted into success states.
 - Detail includes `messages`, `runs`, unresolved `questions`, private message `files`, lifecycle
   fields, and `previewText` only for an active main response. The UI suppresses a preview once an
   assistant message with the same `runId` exists.
+- Companion status includes `archived`; the UI labels it “Sleeping” because its persistent disk is
+  retained and a later work request can resume it.
 - `POST /api/companions/:id/messages` accepts
   `{ clientMessageId, content, attachmentCount }` and returns `202 { runId }`.
 - `POST /api/companions/:id/cancel` cancels the current main task. A task-specific cancellation is
@@ -72,7 +74,8 @@ visible rather than being converted into success states.
   `PATCH /api/templates/:id` requires `expectedRevision`.
 - `GET /api/templates/:id/revisions` returns immutable revisions.
   `POST /api/templates/:id/rollback` accepts `{ targetRevision, expectedRevision }` and appends the
-  restored state as a new revision.
+  restored profile, snapshot reference, and portable-skill bundle as a new revision. The Team sheet
+  exposes a compact earlier-version selector and surfaces optimistic-concurrency conflicts.
 - `GET /api/companions/:id/templates` lists permissions;
   `PUT /api/companions/:id/templates/:templateId` sets `{ maxChildren }`.
 - `GET|POST /api/companions/:id/replicas` lists active children or launches one with
@@ -96,7 +99,8 @@ visible rather than being converted into success states.
 - `GET|POST /api/deliveries` lists sent/received invitations or creates one from
   `{ clientDeliveryId, companionId, clientEmail, templateIds, maintenanceRequested, includeSkills }`.
   `includeSkills` defaults to true; listings expose `skillsStatus` and `skillsError`, and activation
-  remains unavailable until every requested portable bundle is ready. The web
+  remains unavailable until every requested portable bundle is ready. The web shows “Preparing
+  skills…”, the persisted error, or “Ready for client”; it never infers that mail was sent. The web
   retains `clientDeliveryId` across an unchanged retry; the server persists its request fingerprint,
   returns the original invitation for an identical retry, and rejects changed details.
 - `POST /api/deliveries/:id/accept` accepts `{ grantMaintenance }` from the matching verified email.
@@ -117,7 +121,7 @@ visible rather than being converted into success states.
 The web app exposes Companion creation/chat, activity, identity/model, routine test/history,
 selected tools, provider-specific triggers with filters/test/delivery inspection/recovery,
 specialist profiles/launch, client delivery, granted maintenance, global connections,
-billing/account, and desktop control in compact sheets. Template history/rollback, template
-adoption, and permanent delegation remain API/control-MCP capabilities without complete web flows.
-Portable-skill transfer has module-level UI-independent contracts, but final runtime wiring and
-product acceptance remain in progress. See [v0.md](v0.md).
+billing/account, template history/rollback, and desktop control in compact sheets. Template
+adoption and permanent delegation remain API/control-MCP capabilities without complete web flows.
+Portable-skill transfer is wired into delivery and lifecycle preparation; the UI reports its
+persisted readiness without simulating progress. See [v0.md](v0.md).

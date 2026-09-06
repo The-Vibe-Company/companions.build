@@ -23,6 +23,12 @@ storage, the compiled Pi/Bun program in Linux, the deterministic model, MCP fixt
 executor, and web build. It does not contact Box, Stripe, email delivery services, OAuth providers,
 or paid models.
 
+The last full integrated run before the delivery-status UI patch passed at
+`.artifacts/verification/838726ab125a`. The subsequent focused web suite, typecheck, production
+build, and browser delivery flow passed separately. Re-run the full verifier after the outstanding
+runtime concurrency fixes land; do not combine those facts into a claim that the current runtime
+tip has already passed every gate.
+
 ## Focused loops
 
 Use the smallest suite that proves a change, then run the standard verifier before integration.
@@ -88,12 +94,16 @@ AGENT_TEST_MODE=0 python3 scripts/bun.py scripts/live-model-canary.ts
 python3 scripts/bun.py scripts/live-box-canary.ts
 python3 scripts/bun.py scripts/live-box-canary.ts --wake-only
 python3 scripts/bun.py scripts/live-desktop-canary.ts
+python3 scripts/bun.py scripts/live-skills-canary.ts
 ```
 
 The model canary proves one configured provider/model can answer through the packaged runtime. The
 Box canary proves prepared snapshot lookup, creation, real tool execution, archive, and resume of
-the same disk; `--wake-only` intentionally reuses its retained Box. The desktop canary verifies a
-runtime-confirmed freeze and release against a real subprocess on Box. Record provider, artifact
+the same disk; `--wake-only` intentionally reuses its retained Box. Template preparation must also
+verify immutable snapshot re-entry by observing the existing snapshot with GET and performing no
+reinstall. The desktop canary verifies a runtime-confirmed freeze and release against a real
+subprocess on Box. The skills canary verifies hashed export, idempotent import, daemon discovery,
+and actual Pi use on a real Box. Record provider, artifact
 revision, timestamps, raw phase measurements, and limitations in `docs/measurements/` without
 recording credentials or signed URLs.
 
@@ -122,7 +132,11 @@ text response. Important boundaries include:
   paid subscription;
 - maintenance access is absent unless requested and explicitly accepted, and revocation is final;
 - portable skill manifests reject traversal, links, credential-like files, invalid hashes, and
-  cross-owner bundle access; client activation waits for a ready immutable bundle.
+  cross-owner bundle access; client activation waits for a ready immutable bundle, lifecycle
+  preparation stages it once by hash, and specialist revisions retain the selected bundle;
+- warm accepted work must progress while an unrelated machine prepares, and every provider effect
+  plus its durable checkpoint must fail closed after executor leadership loss. These two review
+  findings remain open until their focused fault tests pass.
 
 Never weaken an assertion because a simulator cannot prove it. Add a test at the lowest boundary
 that can prove the promise, and describe any remaining live-provider evidence separately.

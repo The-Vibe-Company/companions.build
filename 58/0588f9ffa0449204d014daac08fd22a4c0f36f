@@ -1,0 +1,49 @@
+apps/server/src/api.ts
+  s_f946242dcf6ba9::t_54330a942159ed 7,17-18,31-32,53-57
+apps/server/src/automation-routes.ts
+  s_f946242dcf6ba9::t_17a5a4fbb64309 3,7-25
+apps/server/src/control.ts
+  s_f946242dcf6ba9::t_619f14d98c01b6 2,18-19,29
+apps/server/src/plugins.ts
+  s_f946242dcf6ba9::t_dccbe4e0313b2c 32
+apps/server/src/product.sql
+  s_f946242dcf6ba9::t_ca58d386bcb862 17-18
+apps/server/src/runtime-product.ts
+  s_f946242dcf6ba9::t_0db91727e69629 52,71
+apps/server/src/store.ts
+  s_f946242dcf6ba9::t_cd64cf5e223574 12,68
+apps/server/src/worker.ts
+  s_f946242dcf6ba9::t_bba82668866452 1-9
+apps/server/test/triggers.test.ts
+  s_f946242dcf6ba9::t_9de2b47101ec4e 1,13,21,24
+apps/web/src/App.tsx
+  s_f946242dcf6ba9::t_10ac0c2c85f703 54,322,337,408
+apps/web/src/api.ts
+  s_f946242dcf6ba9::t_23f620331439e3 8,39-41,49
+apps/web/src/components/Question.tsx
+  s_f946242dcf6ba9::t_9dfc37b276e039 1-16
+apps/web/src/index.css
+  s_f946242dcf6ba9::t_771f9d08752862 500-505
+packages/filters/index.ts
+  s_f946242dcf6ba9::t_05b3de8d2855a4 25
+scripts/dev-session.py
+  s_f946242dcf6ba9::t_06817565c3bad4 1-37
+scripts/dev.py
+  s_f946242dcf6ba9::t_81421565ce77ea 161-162,165
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "580588f9ffa0449204d014daac08fd22a4c0f36f",
+  "prompts": {},
+  "sessions": {
+    "s_f946242dcf6ba9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a06de4-a8a5-7cd3-b713-2a8d451f7200",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "StanGirard <stan@quivr.app>"
+    }
+  }
+}

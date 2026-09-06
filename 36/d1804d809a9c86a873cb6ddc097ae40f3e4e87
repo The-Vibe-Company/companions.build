@@ -1,0 +1,29 @@
+apps/server/src/box-observation.sql
+  s_f946242dcf6ba9::t_9d697bdb5ddb45 1-17
+apps/server/src/box-observation.ts
+  s_f946242dcf6ba9::t_5510ed30788767 1-88
+apps/server/src/executor.ts
+  s_f946242dcf6ba9::t_c4f9e9443bc80d 1,279-281
+apps/server/src/usage.ts
+  s_f946242dcf6ba9::t_e7bbe6a85f4b76 3-34,46,48,51,54-56
+apps/server/test/box-observation.test.ts
+  s_f946242dcf6ba9::t_02f0ec6faf7c0e 1-120
+packages/box/client.ts
+  s_f946242dcf6ba9::t_cadd1fdbfb72f5 4,20-22
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "36d1804d809a9c86a873cb6ddc097ae40f3e4e87",
+  "prompts": {},
+  "sessions": {
+    "s_f946242dcf6ba9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a06de4-a8a5-7cd3-b713-2a8d451f7200",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "StanGirard <stan@quivr.app>"
+    }
+  }
+}

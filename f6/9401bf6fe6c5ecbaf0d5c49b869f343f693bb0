@@ -1,0 +1,65 @@
+scripts/filter-build.py
+  s_f946242dcf6ba9::t_80f02f60ef84c6 1-5
+packages/filters/test/filter.test.ts
+  s_f946242dcf6ba9::t_854f8bfe3887b9 1-16,20-28
+  s_f946242dcf6ba9::t_5293de7019f3f8 17-19
+docs/triggers.md
+  s_f946242dcf6ba9::t_124fd8e0bf4ba2 15
+  s_f946242dcf6ba9::t_5293de7019f3f8 1-13,16,18-22,25-52
+  s_f946242dcf6ba9::t_57a231a7350a69 14
+  s_f946242dcf6ba9::t_a299e0dad92e25 23-24
+  s_f946242dcf6ba9::t_1244042b8b741b 17
+apps/server/src/triggers.ts
+  s_f946242dcf6ba9::t_84479aec6c7323 361
+  s_f946242dcf6ba9::t_644a9233a2e50d 362-363
+  s_f946242dcf6ba9::t_efdda5b318e395 340-345,351,353
+  s_f946242dcf6ba9::t_a65847906062df 38-41,43,132-133,135-138,177-178,197-200,202-206,459,472
+  s_f946242dcf6ba9::t_1c350b4108c932 42
+  s_f946242dcf6ba9::t_98f4d602fee868 34-35
+  s_f946242dcf6ba9::t_77026e33c5dc32 381-385,452-455
+  s_f946242dcf6ba9::t_76ffb535632b6d 354
+  s_f946242dcf6ba9::t_ed630eb518f05a 462
+  s_f946242dcf6ba9::t_d76a13bdf42778 31,465-466
+  s_f946242dcf6ba9::t_662a40275e9972 1-13,15-30,32-33,36-37,44-60,69-81,84-88,90-116,126-128,130,140-144,153-154,156,158-159,174-175,207-274,276-330,339,346-350,352,355-360,364-368,370-373,376-380,386-409,411-424,428-432,434-435,445-449,451,456-458,460,463-464,467-471,473-483
+  s_f946242dcf6ba9::t_1773c2c51affa3 117-125,129,131,134,139,145-152,155,157,160-173,176,201
+  s_f946242dcf6ba9::t_124fd8e0bf4ba2 425,427,436-444
+  s_f946242dcf6ba9::t_1244042b8b741b 82-83
+  s_f946242dcf6ba9::t_ad57ca9edb4ed9 14,331-338,369,461
+  s_f946242dcf6ba9::t_57a231a7350a69 179-196,426,450
+  s_f946242dcf6ba9::t_fb5a240d2267ac 61-68,89,275,374-375,410,433
+packages/filters/index.ts
+  s_f946242dcf6ba9::t_96b256f66f3f44 11-14,23,29
+  s_f946242dcf6ba9::t_9f3a129741cfd8 33-35
+  s_f946242dcf6ba9::t_a99e2926294bb1 27
+  s_f946242dcf6ba9::t_7ecc73a36c68bc 25,37
+  s_f946242dcf6ba9::t_d6e2fe638cb620 21-22,24,30
+  s_f946242dcf6ba9::t_854f8bfe3887b9 1-10,15-20,26,28,31-32,36,38-47
+packages/filters/entry.cjs
+  s_f946242dcf6ba9::t_854f8bfe3887b9 1-29,32-34
+  s_f946242dcf6ba9::t_7ecc73a36c68bc 30-31
+apps/server/src/triggers.sql
+  s_f946242dcf6ba9::t_80f02f60ef84c6 3-56,59-67
+  s_f946242dcf6ba9::t_76ffb535632b6d 57-58,68
+  s_f946242dcf6ba9::t_8227daeb9f59d2 1-2
+apps/server/test/triggers.test.ts
+  s_f946242dcf6ba9::t_de69d2f78eb5de 18
+  s_f946242dcf6ba9::t_246d48af9af91a 5,15-16,91-136
+  s_f946242dcf6ba9::t_48d12d36fe4115 1-4,6-14,17,19-80,137-138
+  s_f946242dcf6ba9::t_0f3685a7b83040 81-90
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "f69401bf6fe6c5ecbaf0d5c49b869f343f693bb0",
+  "prompts": {},
+  "sessions": {
+    "s_f946242dcf6ba9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a06de4-a8a5-7cd3-b713-2a8d451f7200",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "StanGirard <stan@quivr.app>"
+    }
+  }
+}

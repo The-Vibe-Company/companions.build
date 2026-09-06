@@ -22,7 +22,6 @@ import {
   UsersRound,
   Waypoints,
   X,
-  Zap,
 } from "lucide-react";
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -46,13 +45,12 @@ import {
   workspaceApi,
   type PluginAccount,
   type PluginServer,
-  type Routine,
-  type Trigger,
 } from "@/api";
 import { Question } from "@/components/Question";
 import { cn } from "@/lib/utils";
 import { AvatarPicker, CompanionAvatar, DEFAULT_AVATAR, type CompanionAvatarValue } from "@/components/CompanionAvatar";
 import { AccountProduct, DeliverySettings, DesktopSheet, SpecialistsSettings } from "@/components/ProductPanels";
+import { RoutineSettings, TriggerSettings } from "@/components/AutomationPanels";
 
 const ACTIVE_DETAIL_INTERVAL = 1_000;
 const IDLE_DETAIL_INTERVAL = 5_000;
@@ -451,40 +449,6 @@ function Chat({ detail, onRefresh, onUnauthorized }: { detail: CompanionDetail; 
       </form>
     </section>
   );
-}
-
-function RoutineSettings({ companionId }: { companionId: string }) {
-  const [items, setItems] = useState<Routine[]>([]);
-  const [name, setName] = useState("");
-  const [prompt, setPrompt] = useState("");
-  const [cron, setCron] = useState("0 9 * * 1-5");
-  const [error, setError] = useState("");
-  const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
-  const load = useCallback(() => workspaceApi.routines(companionId).then((result) => setItems(result.routines)).catch((cause) => setError(cause instanceof Error ? cause.message : "Could not load routines")), [companionId]);
-  useEffect(() => { void load(); }, [load]);
-  async function create(event: FormEvent) {
-    event.preventDefault(); setError("");
-    try { await workspaceApi.createRoutine(companionId, { name: name.trim(), prompt: prompt.trim(), cron, timezone, enabled: true }); setName(""); setPrompt(""); await load(); }
-    catch (cause) { setError(cause instanceof Error ? cause.message : "Could not create routine"); }
-  }
-  return <div className="settings-stack"><div className="settings-intro"><CalendarClock /><div><h3>Routines</h3><p>Give recurring work a time and a clear instruction.</p></div></div>
-    {items.map((item) => <div className="settings-item" key={item.id}><div><strong>{item.name}</strong><small>{item.cron === "0 9 * * 1-5" ? "Weekdays at 9:00" : item.cron === "0 9 * * *" ? "Daily at 9:00" : "Mondays at 9:00"}</small></div><label className="switch"><input type="checkbox" checked={item.enabled} onChange={() => void workspaceApi.updateRoutine(companionId, item.id, { enabled: !item.enabled }).then(load)} /><span /></label><button className="icon-action" onClick={() => void workspaceApi.deleteRoutine(companionId, item.id).then(load)} aria-label={`Delete ${item.name}`}><Trash2 /></button></div>)}
-    <form className="inline-create" onSubmit={create}><h3>New routine</h3><div className="field"><label htmlFor="routine-name">Name</label><input id="routine-name" value={name} onChange={(event) => setName(event.target.value)} placeholder="Morning brief" /></div><div className="field"><label htmlFor="routine-prompt">What should happen?</label><Textarea id="routine-prompt" value={prompt} onChange={(event) => setPrompt(event.target.value)} rows={3} /></div><div className="field"><label htmlFor="routine-time">When</label><select id="routine-time" value={cron} onChange={(event) => setCron(event.target.value)}><option value="0 9 * * 1-5">Weekdays at 9:00</option><option value="0 9 * * *">Every day at 9:00</option><option value="0 9 * * 1">Mondays at 9:00</option></select></div>{error && <p className="field-error">{error}</p>}<Button type="submit" disabled={!name.trim() || !prompt.trim()}><Plus />Add routine</Button></form>
-  </div>;
-}
-
-function TriggerSettings({ companionId }: { companionId: string }) {
-  const [items, setItems] = useState<Trigger[]>([]);
-  const [name, setName] = useState(""); const [prompt, setPrompt] = useState(""); const [source, setSource] = useState("generic"); const [mode, setMode] = useState<"direct" | "filter">("direct"); const [filterCode, setFilterCode] = useState(""); const [error, setError] = useState("");
-  const [newWebhook, setNewWebhook] = useState<{ url?: string | null; secret: string } | null>(null);
-  const load = useCallback(() => workspaceApi.triggers(companionId).then((result) => setItems(result.triggers)).catch((cause) => setError(cause instanceof Error ? cause.message : "Could not load triggers")), [companionId]);
-  useEffect(() => { void load(); }, [load]);
-  async function create(event: FormEvent) { event.preventDefault(); setError(""); setNewWebhook(null); try { const result = await workspaceApi.createTrigger(companionId, { name: name.trim(), prompt: prompt.trim(), source, mode, filterCode: mode === "filter" ? filterCode : undefined, enabled: true }); if (result.secret) setNewWebhook({ url: result.trigger.url, secret: result.secret }); setName(""); setPrompt(""); await load(); } catch (cause) { setError(cause instanceof Error ? cause.message : "Could not create trigger"); } }
-  return <div className="settings-stack"><div className="settings-intro"><Zap /><div><h3>Triggers</h3><p>Start work when an event arrives. Filters run before the Companion wakes.</p></div></div>
-    {newWebhook && <div className="secret-callout" role="status"><strong>Save this webhook secret</strong><p>It is shown once. Send it with requests to the webhook URL.</p>{newWebhook.url && <code>{newWebhook.url}</code>}<code>{newWebhook.secret}</code></div>}
-    {items.map((item) => <div className="settings-item" key={item.id}><div><strong>{item.name}</strong><small>{item.source} · {item.mode === "filter" ? "filtered" : "every event"}{item.registrationStatus ? ` · ${item.registrationStatus.replace("_", " ")}` : ""}</small></div><label className="switch"><input type="checkbox" checked={item.enabled} onChange={() => void workspaceApi.updateTrigger(companionId, item.id, { enabled: !item.enabled }).then(load)} /><span /></label><button className="icon-action" onClick={() => void workspaceApi.deleteTrigger(companionId, item.id).then(load)} aria-label={`Delete ${item.name}`}><Trash2 /></button></div>)}
-    <form className="inline-create" onSubmit={create}><h3>New trigger</h3><div className="field"><label htmlFor="trigger-name">Name</label><input id="trigger-name" value={name} onChange={(event) => setName(event.target.value)} placeholder="Main branch failed" /></div><div className="field"><label htmlFor="trigger-source">Source</label><select id="trigger-source" value={source} onChange={(event) => setSource(event.target.value)}><option value="generic">Webhook</option><option value="github">GitHub</option><option value="sentry">Sentry</option></select></div><div className="field"><label htmlFor="trigger-prompt">What should happen?</label><Textarea id="trigger-prompt" value={prompt} onChange={(event) => setPrompt(event.target.value)} rows={3} /></div><label className="filter-toggle"><input type="checkbox" checked={mode === "filter"} onChange={(event) => setMode(event.target.checked ? "filter" : "direct")} />Only run when a code filter accepts the event</label>{mode === "filter" && <div className="field"><label htmlFor="trigger-filter">Filter code</label><Textarea id="trigger-filter" className="code-input" value={filterCode} onChange={(event) => setFilterCode(event.target.value)} rows={4} placeholder="return payload.action === 'opened'" /></div>}{error && <p className="field-error">{error}</p>}<Button type="submit" disabled={!name.trim() || !prompt.trim() || (mode === "filter" && !filterCode.trim())}><Plus />Add trigger</Button></form>
-  </div>;
 }
 
 function CompanionConnections({ companionId }: { companionId: string }) {

@@ -26,9 +26,10 @@ The web client uses same-origin cookie sessions. A `401` from any authenticated 
 
 ## Routines and triggers
 
-- Routine CRUD uses `/api/companions/:id/routines[/:routineId]`. Rows are `{ id, name, prompt, cron, timezone, enabled, nextFireAt, createdAt, updatedAt }`.
-- Trigger CRUD uses `/api/companions/:id/triggers[/:triggerId]`. Creation sends `{ name, prompt, source, mode, filterCode?, enabled }`. The UI understands `registrationStatus` and `url` projections; generic creation may return a one-time `secret`.
-- The first UI exposes friendly routine presets. Trigger code is shown only when filtering is enabled.
+- Routine CRUD uses `/api/companions/:id/routines[/:routineId]`. Rows are `{ id, name, prompt, cron, timezone, enabled, nextFireAt, createdAt, updatedAt }`. `POST /:routineId/test` accepts a retry-stable `{ clientMessageId }` and returns `{ runId }`; `GET /:routineId/history` returns persisted runs and missed windows.
+- Trigger CRUD uses `/api/companions/:id/triggers[/:triggerId]`. Creation sends provider-specific `target`, `providerAccountId`, optional `problemPath`, and filtering as `{ mode, filter, filterRequests }`. A declared read is `{ key, provider, connectionId?, path }`.
+- `POST /:triggerId/test` evaluates a supplied JSON event without enqueueing work, `GET /:triggerId/deliveries` returns recent decisions, and `POST /:triggerId/register` retries provider registration. Generic creation may return a one-time `secret`; projections may include `url`, `registrationStatus`, and `registrationError`.
+- The UI exposes friendly routine presets and keeps filter code and declared reads collapsed until requested.
 
 ## Billing and delivery
 
@@ -42,3 +43,10 @@ The web client uses same-origin cookie sessions. A `401` from any authenticated 
 - `GET/POST /api/companions/:id/replicas` lists active or retained children and launches one with `{ clientCommandId, templateId, prompt }`.
 - `PUT /api/companions/:id/templates/:templateId` sets `{ maxChildren }` before launch.
 - `POST /api/companions/:id/desktop/takeover` requests physical pause; `POST .../release` requests thaw. The UI polls Companion detail and says control is held only after `desktopPausedAt` is present.
+- `POST /api/companions/:id/desktop` may return `202 { preparing: true }`; the UI retains the user-opened tab and retries every two seconds for up to five minutes until it receives `{ url }`.
+
+## Granted maintenance
+
+- `GET /api/maintenance` lists only Companions with an explicit, non-revoked grant. `GET/PATCH /api/maintenance/companions/:id` exposes the bounded configuration and runtime diagnosis.
+- `POST /api/maintenance/companions/:id/prepare` requests preparation. `POST /tasks` accepts retry-stable `{ clientMessageId, prompt }`; `GET /actions` returns the auditable action history.
+- The surface states that the grant covers configuration, diagnostics, and tasks. It never requests or displays client chat or files.

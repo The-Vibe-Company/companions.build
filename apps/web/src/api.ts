@@ -195,11 +195,18 @@ export interface PluginServer { id: string; name: string; description?: string; 
 export interface PluginAccount { id: string; serverId: string; label: string; provider?: string }
 export interface PluginsResponse { catalog: PluginServer[]; accounts: PluginAccount[] }
 export interface Routine { id: string; name: string; prompt: string; cron: string; timezone: string; enabled: boolean; nextFireAt?: string | null; createdAt?: string; updatedAt?: string }
-export interface Trigger { id: string; name: string; prompt: string; source: string; mode: "direct" | "filter"; filterCode?: string | null; enabled: boolean; registrationStatus?: "manual" | "registered" | "needs_connection" | "error"; url?: string | null }
+export interface RoutineHistory { runs: Array<{ id: string; status: RunStatus; resultText: string | null; error: string | null; scheduledFor: string; acceptedAt: string }>; missed: Array<{ firstScheduledFor: string; lastScheduledFor: string; cron: string; timezone: string }> }
+export interface TriggerFilterRequest { key: string; provider: "github" | "sentry"; connectionId?: string; path: string }
+export interface TriggerTarget { repo?: string; branch?: string; organization?: string; project?: string; events?: string[] }
+export interface Trigger { id: string; name: string; prompt: string; source: "generic" | "github" | "sentry"; mode: "direct" | "filter"; filter?: string | null; filterRequests?: TriggerFilterRequest[]; problemPath?: string | null; providerAccountId?: string | null; target?: TriggerTarget | null; enabled: boolean; registrationStatus?: "manual" | "registered" | "needs_connection" | "error"; registrationError?: string | null; url?: string | null; lastDeliveryAt?: string | null }
+export interface TriggerDelivery { id: string; eventName: string | null; payload: unknown; status: "received" | "evaluating" | "ignored" | "enqueued" | "error"; decision: string | null; errorCode: string | null; receivedAt: string; decidedAt: string | null; batchId: string | null; runId: string | null }
 export interface BillingOverview { configured: boolean; mode: "unconfigured" | "test" | "stripe"; plan: "inactive" | "subscription"; active: boolean; status: string | null; currentPeriodEnd: string | null; cancelAtPeriodEnd: boolean; portalAvailable: boolean; usage: Array<{ category: string; unit: string; quantity: string }> }
 export interface DeliverySent { id: string; clientEmail: string; status: "pending" | "accepted" | "revoked"; maintenanceRequested: boolean; expiresAt: string; acceptedAt: string | null; companionId: string | null }
 export interface DeliveryReceived { id: string; name: string; status: "pending" | "accepted" | "revoked"; maintenanceRequested: boolean; expiresAt: string; acceptedAt: string | null; companionId: string | null }
 export interface AgentTemplate { id: string; name: string; instructions: string; avatar: CompanionAvatarValue; revision: number; sourceCompanionId: string | null; hasSnapshot: boolean }
+export interface MaintenanceCompanion { id: string; name: string; avatar?: CompanionAvatarValue; status: string; error: string | null; grantId: string }
+export interface MaintenanceDetail { id: string; name: string; instructions: string; avatar?: CompanionAvatarValue; modelId: string | null; status: string; error: string | null; readyAt: string | null }
+export interface MaintenanceAction { id: string; operation: string; createdAt: string; status: string; error: string | null }
 
 export const workspaceApi = {
   plugins: () => request<PluginsResponse>("/api/plugins"),
@@ -213,10 +220,15 @@ export const workspaceApi = {
   createRoutine: (id: string, input: Omit<Routine, "id">) => request<{ routine: Routine }>(`/api/companions/${id}/routines`, { method: "POST", body: JSON.stringify(input) }),
   updateRoutine: (id: string, routineId: string, input: Partial<Omit<Routine, "id">>) => request<{ routine: Routine }>(`/api/companions/${id}/routines/${routineId}`, { method: "PATCH", body: JSON.stringify(input) }),
   deleteRoutine: (id: string, routineId: string) => request<{ ok: true }>(`/api/companions/${id}/routines/${routineId}`, { method: "DELETE" }),
+  routineHistory: (id: string, routineId: string) => request<RoutineHistory>(`/api/companions/${id}/routines/${routineId}/history`),
+  testRoutine: (id: string, routineId: string, clientMessageId: string) => request<{ runId: string }>(`/api/companions/${id}/routines/${routineId}/test`, { method: "POST", body: JSON.stringify({ clientMessageId }) }),
   triggers: (id: string) => request<{ triggers: Trigger[] }>(`/api/companions/${id}/triggers`),
-  createTrigger: (id: string, input: Pick<Trigger, "name" | "prompt" | "source" | "mode" | "filterCode" | "enabled">) => request<{ trigger: Trigger; secret?: string }>(`/api/companions/${id}/triggers`, { method: "POST", body: JSON.stringify(input) }),
+  createTrigger: (id: string, input: Omit<Trigger, "id" | "registrationStatus" | "registrationError" | "url" | "lastDeliveryAt">) => request<{ trigger: Trigger; secret?: string }>(`/api/companions/${id}/triggers`, { method: "POST", body: JSON.stringify(input) }),
   updateTrigger: (id: string, triggerId: string, input: Partial<Omit<Trigger, "id">>) => request<{ trigger: Trigger }>(`/api/companions/${id}/triggers/${triggerId}`, { method: "PATCH", body: JSON.stringify(input) }),
   deleteTrigger: (id: string, triggerId: string) => request<{ ok: true }>(`/api/companions/${id}/triggers/${triggerId}`, { method: "DELETE" }),
+  testTrigger: (id: string, triggerId: string, payload: unknown) => request<{ decision: "trigger" | "ignore" }>(`/api/companions/${id}/triggers/${triggerId}/test`, { method: "POST", body: JSON.stringify(payload) }),
+  registerTrigger: (id: string, triggerId: string) => request<{ trigger: Trigger }>(`/api/companions/${id}/triggers/${triggerId}/register`, { method: "POST" }),
+  triggerDeliveries: (id: string, triggerId: string) => request<{ deliveries: TriggerDelivery[] }>(`/api/companions/${id}/triggers/${triggerId}/deliveries`),
   billing: () => request<BillingOverview>("/api/billing"),
   checkout: () => request<{ url: string }>("/api/billing/checkout", { method: "POST" }),
   billingPortal: () => request<{ url: string }>("/api/billing/portal", { method: "POST" }),
@@ -234,6 +246,12 @@ export const workspaceApi = {
   prepare: (companionId: string) => request<unknown>(`/api/companions/${companionId}/prepare`, { method: "POST" }),
   takeDesktop: (companionId: string) => request<unknown>(`/api/companions/${companionId}/desktop/takeover`, { method: "POST" }),
   releaseDesktop: (companionId: string) => request<unknown>(`/api/companions/${companionId}/desktop/release`, { method: "POST" }),
+  maintenance: () => request<{ companions: MaintenanceCompanion[] }>("/api/maintenance"),
+  maintenanceDetail: (id: string) => request<{ companion: MaintenanceDetail }>(`/api/maintenance/companions/${id}`),
+  updateMaintenanceCompanion: (id: string, input: { name: string; instructions: string; modelId?: string | null }) => request<{ companion: MaintenanceDetail }>(`/api/maintenance/companions/${id}`, { method: "PATCH", body: JSON.stringify(input) }),
+  prepareMaintenanceCompanion: (id: string) => request<unknown>(`/api/maintenance/companions/${id}/prepare`, { method: "POST" }),
+  createMaintenanceTask: (id: string, clientMessageId: string, prompt: string) => request<{ runId?: string }>(`/api/maintenance/companions/${id}/tasks`, { method: "POST", body: JSON.stringify({ clientMessageId, prompt }) }),
+  maintenanceActions: (id: string) => request<{ actions: MaintenanceAction[] }>(`/api/maintenance/companions/${id}/actions`),
 };
 
 export function isActiveRun(status: RunStatus) {

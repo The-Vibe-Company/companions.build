@@ -1,8 +1,7 @@
 import {listTemplateRevisions,rollbackTemplate} from './templates';
 import {z} from 'zod';
 import {registerControl} from './control';
-import {pluginCatalog} from '../../../packages/plugins/catalog';
-import {startPluginConnection,addCustomPlugin,disconnectPlugin} from './plugins';
+import {startPluginConnection,addCustomPlugin,disconnectPlugin,listPluginCatalog} from './plugins';
 import {routineHistory,enqueueBackground} from './automations';
 import {handleTriggers} from './triggers';
 import {handleDelivery} from './delivery';
@@ -28,7 +27,7 @@ registerControl({
   const input=z.object({name:z.string().trim().min(1).max(80),instructions:z.string().max(20_000).default('')}).parse(raw);
   return createCompanion(context.ownerId,{...input,prepare:true,provider:config.boxKey&&config.boxTemplate?'box':'local'});
  },
- plugin_catalog:async()=>({plugins:pluginCatalog}),
+ plugin_catalog:async()=>({plugins:listPluginCatalog()}),
  plugin_connect:async(context,raw)=>{const input=z.object({serverId:z.string(),label:z.string().max(80).default('')}).parse(raw);return startPluginConnection(context.ownerId,input.serverId,input.label);},
  plugin_custom:async(context,raw)=>addCustomPlugin(context.ownerId,raw),
  plugin_disconnect:async(context,raw)=>{await disconnectPlugin(context.ownerId,z.object({accountId:uuid}).parse(raw).accountId);return {ok:true};},

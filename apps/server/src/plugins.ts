@@ -8,27 +8,40 @@ import { beginCompanionPluginOAuth, completeCompanionPluginOAuth, refreshCompani
 const uuid = z.string().uuid();
 const hash = (value:string) => createHash('sha256').update(value).digest('hex');
 const callback = () => new URL('/api/plugins/callback', process.env.APP_URL ?? 'http://127.0.0.1:4310').href;
+const configuredOAuth:Partial<Record<string,readonly string[]>>={
+ 'io.github.github/github-mcp-server':['COMPANION_MCP_GITHUB_CLIENT_ID','COMPANION_MCP_GITHUB_CLIENT_SECRET'],
+ 'com.slack/mcp':['COMPANION_MCP_SLACK_CLIENT_ID','COMPANION_MCP_SLACK_CLIENT_SECRET'],
+ 'com.google.workspace/gmail':['COMPANION_MCP_GMAIL_CLIENT_ID','COMPANION_MCP_GMAIL_CLIENT_SECRET'],
+};
+export function pluginConnectionAvailable(serverId:string,env:NodeJS.ProcessEnv=process.env) {return (configuredOAuth[serverId]??[]).every(key=>!!env[key]?.trim());}
+export const listPluginCatalog=()=>pluginCatalog.map(provider=>({...provider,available:pluginConnectionAvailable(provider.id)}));
 export async function migratePlugins(sql:any) { await sql.unsafe(await Bun.file(new URL('./plugins.sql',import.meta.url)).text()); }
 export class PluginError extends Error {}
 const publicColumns = db`id,provider,label,server_id AS "serverId",created_at AS "createdAt"`;
 export async function listPluginAccounts(ownerId:string) { return db`SELECT ${publicColumns} FROM plugin_accounts WHERE owner_id=${ownerId} ORDER BY created_at`; }
-export async function startPluginConnection(ownerId:string, serverId:string, label:string) {
+export async function startPluginConnection(ownerId:string, serverId:string, label:string,env:NodeJS.ProcessEnv=process.env) {
   const provider = pluginCatalog.find(p => p.id === serverId);
   if(!provider) throw new PluginError('Choose an available plugin.');
+  if(!pluginConnectionAvailable(serverId,env))throw new PluginError(`${provider.name} connection is unavailable in this deployment.`);
   const state=randomBytes(32).toString('base64url');
-  const {authorizationUrl,flow}=await beginCompanionPluginOAuth({serverName:serverId,state,redirectUri:callback()});
+  const {authorizationUrl,flow}=await beginCompanionPluginOAuth({serverName:serverId,state,redirectUri:callback(),env});
   await db`INSERT INTO plugin_oauth_flows (state_hash,owner_id,label,flow_secret,expires_at) VALUES (${hash(state)},${ownerId},${label.slice(0,80)||provider.name},${encrypt(JSON.stringify(flow))},now()+interval '10 minutes')`;
   return {url:authorizationUrl};
 }
-export async function completePluginConnection(ownerId:string,state:string,code:string) {
+async function consumePluginFlow(ownerId:string,state:string) {
   const [row]=await db`UPDATE plugin_oauth_flows SET consumed_at=now() WHERE state_hash=${hash(state)} AND owner_id=${ownerId} AND consumed_at IS NULL AND expires_at>now() RETURNING *`;
   if(!row) throw new PluginError('This connection link expired. Connect again.');
+  return row;
+}
+export async function completePluginConnection(ownerId:string,state:string,code:string) {
+  const row=await consumePluginFlow(ownerId,state);
   const flow=JSON.parse(decrypt(row.flow_secret));
   const credential=await completeCompanionPluginOAuth({flow,code,redirectUri:callback()});
   const id=crypto.randomUUID();
   await db`INSERT INTO plugin_accounts (id,owner_id,provider,label,server_id,credential_secret) VALUES (${id},${ownerId},${flow.provider},${row.label},${flow.serverName},${encrypt(JSON.stringify(credential))})`;
   return {id};
 }
+export async function cancelPluginConnection(ownerId:string,state:string) {await consumePluginFlow(ownerId,state);}
 const customSchema=z.object({label:z.string().trim().min(1).max(80),transport:z.enum(['http','stdio']).default('http'),url:z.string().url().optional(),command:z.string().min(1).max(500).optional(),args:z.array(z.string().max(2000)).max(50).default([]),headers:z.record(z.string(),z.string().max(8000)).default({}),env:z.record(z.string(),z.string().max(8000)).default({})});
 export async function addCustomPlugin(ownerId:string,input:unknown) {
   const value=customSchema.parse(input);
@@ -73,14 +86,24 @@ export async function machinePlugins(companionId:string):Promise<MachinePlugin[]
   });
 }
 const response=(body:unknown,status=200)=>Response.json(body,{status,headers:{'cache-control':'no-store'}});
+type PluginCallbackStatus='connected'|'cancelled'|'error';
+export function pluginCallbackLocation(status:PluginCallbackStatus) {
+  const target=new URL('/connections',process.env.APP_URL??'http://127.0.0.1:4310');target.searchParams.set('connection',status);return target.href;
+}
 export async function handlePlugins(request:Request,ownerId:string):Promise<Response|null> {
   const url=new URL(request.url);const path=url.pathname;
-  if(path==='/api/plugins' && request.method==='GET') return response({catalog:pluginCatalog,accounts:await listPluginAccounts(ownerId)});
+  if(path==='/api/plugins' && request.method==='GET') return response({catalog:listPluginCatalog(),accounts:await listPluginAccounts(ownerId)});
   if(path==='/api/plugins/connect' && request.method==='POST') {const v=z.object({serverId:z.string(),label:z.string().max(80).default('')}).parse(await request.json());return response(await startPluginConnection(ownerId,v.serverId,v.label));}
   if(path==='/api/plugins/custom' && request.method==='POST') return response(await addCustomPlugin(ownerId,await request.json()),201);
   if(path==='/api/plugins/callback' && request.method==='GET') {
-    await completePluginConnection(ownerId,z.string().min(20).max(200).parse(url.searchParams.get('state')),z.string().min(1).max(4000).parse(url.searchParams.get('code')));
-    return new Response(null,{status:303,headers:{location:new URL('/settings/connections',process.env.APP_URL??'http://127.0.0.1:4310').href,'cache-control':'no-store'}});
+    let status:PluginCallbackStatus='error';
+    try{
+      const state=z.string().min(20).max(200).parse(url.searchParams.get('state'));
+      const providerError=z.string().max(200).nullable().parse(url.searchParams.get('error'));
+      if(providerError){await cancelPluginConnection(ownerId,state);status=providerError==='access_denied'?'cancelled':'error';}
+      else{await completePluginConnection(ownerId,state,z.string().min(1).max(4000).parse(url.searchParams.get('code')));status='connected';}
+    }catch{/* Return a stable browser result; provider details and credentials never enter the URL. */}
+    return new Response(null,{status:303,headers:{location:pluginCallbackLocation(status),'cache-control':'no-store'}});
   }
   const account=path.match(/^\/api\/plugins\/([a-f0-9-]+)$/);
   if(account&&request.method==='DELETE') {await disconnectPlugin(ownerId,account[1]);return response({ok:true});}

@@ -192,7 +192,7 @@ export const api = {
     request<{ companion: Companion }>(`/api/companions/${id}`, { method: "PATCH", body: JSON.stringify(input) }),
 };
 
-export interface PluginServer { id: string; name: string; description?: string; provider?: string; kind?: "oauth" | "remote" | "custom" }
+export interface PluginServer { id: string; name: string; description?: string; provider?: string; kind?: "oauth" | "remote" | "custom"; available: boolean }
 export interface PluginAccount { id: string; serverId: string; label: string; provider?: string }
 export interface PluginsResponse { catalog: PluginServer[]; accounts: PluginAccount[] }
 export interface Routine { id: string; name: string; prompt: string; cron: string; timezone: string; enabled: boolean; nextFireAt?: string | null; createdAt?: string; updatedAt?: string }

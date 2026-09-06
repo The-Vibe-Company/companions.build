@@ -176,6 +176,46 @@ describe("first Companion flow", () => {
       body: JSON.stringify({ email: "alex@example.com", callbackURL: "/" }),
     }));
   });
+
+  it("completes OAuth in a popup, refreshes owned connections, and disables unavailable providers",async()=>{
+    window.history.replaceState({},"","/connections");
+    const account={id:"account-1",serverId:"app.linear/linear",label:"Linear",provider:"linear"};let completed=false;
+    const fetchMock=vi.fn((input:RequestInfo|URL,options?:RequestInit)=>{
+      const path=String(input);
+      if(path==="/api/me")return response(me);
+      if(path==="/api/config")return response(config);
+      if(path==="/api/companions")return response({companions:[]});
+      if(path==="/api/plugins/connect"&&options?.method==="POST")return response({url:"https://oauth.example/authorize"});
+      if(path==="/api/plugins/account-1"&&options?.method==="DELETE"){completed=false;return response({ok:true});}
+      if(path==="/api/plugins")return response({catalog:[
+        {id:"app.linear/linear",name:"Linear",provider:"linear",available:true},
+        {id:"io.github.github/github-mcp-server",name:"GitHub",provider:"github",available:false},
+      ],accounts:completed?[account]:[]});
+      throw new Error(`Unexpected request: ${path}`);
+    });
+    vi.stubGlobal("fetch",fetchMock);
+    const popup={closed:false,location:{href:""},close:vi.fn()};vi.spyOn(window,"open").mockReturnValue(popup as unknown as Window);
+    const user=userEvent.setup();render(<App/>);
+    await user.click(await screen.findByRole("button",{name:"Connect"}));
+    await waitFor(()=>expect(popup.location.href).toBe("https://oauth.example/authorize"));
+    expect(screen.getByRole("button",{name:"Unavailable"})).toBeDisabled();
+    completed=true;window.dispatchEvent(new MessageEvent("message",{origin:window.location.origin,source:popup as unknown as Window,data:{type:"companions:plugin-oauth",status:"connected"}}));
+    expect(await screen.findByText("Connection added.")).toBeInTheDocument();
+    await user.click(await screen.findByRole("button",{name:"Disconnect Linear"}));
+    expect(await screen.findByText("Connection removed.")).toBeInTheDocument();
+    await waitFor(()=>expect(screen.queryByRole("button",{name:"Disconnect Linear"})).not.toBeInTheDocument());
+  });
+
+  it.each([
+    ["cancelled","Connection cancelled."],
+    ["error","Connection could not be completed. Try again."],
+  ])("handles a safe %s OAuth callback result",async(status,message)=>{
+    window.history.replaceState({},"",`/connections?connection=${status}`);
+    vi.stubGlobal("fetch",vi.fn((input:RequestInfo|URL)=>{
+      const path=String(input);if(path==="/api/me")return response(me);if(path==="/api/config")return response(config);if(path==="/api/companions")return response({companions:[]});if(path==="/api/plugins")return response({catalog:[],accounts:[]});throw new Error(`Unexpected request: ${path}`);
+    }));
+    render(<App/>);expect(await screen.findByText(message)).toBeInTheDocument();expect(window.location.search).toBe("");
+  });
 });
 
 

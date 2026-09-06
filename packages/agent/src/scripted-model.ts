@@ -75,7 +75,7 @@ export function scriptedModel(model: any, context: any) {
   } else if (text === "steered-result") {
     message.content = [{ type: "text", text: "Native steering applied." }];
   } else if (text?.startsWith("attachment-roundtrip")) {
-    const path = text.match(/attachments\/0-[^\s]+/)?.[0];
+    const path = text.match(/inbox\/[a-f0-9-]+\/0-[^\s]+/)?.[0];
     if (results.length === 0 && path) tool("read", { path });
     else if (results.length === 1) tool("write", { path: "attachment-result.txt", content: lastResult().includes("MINIO_INPUT_BYTES")
       ? "MINIO_INPUT_BYTES -> agent output\n" : "attachment input missing\n" });
@@ -87,7 +87,7 @@ export function scriptedModel(model: any, context: any) {
     } });
     else message.content = [{ type: "text", text: lastResult().includes("Daily acceptance") ? "Routine created" : "Routine creation failed" }];
   } else if (text === "control-ask-background") {
-    if (results.length === 0) tool("bash", { command: "printf asked\\n >> control-question-dispatches.txt" });
+    if (results.length === 0) tool("bash", { command: "printf 'asked\\n' >> control-question-dispatches.txt" });
     else if (results.length === 1) tool("companion_control", { operation: "ask_user", input: {
       question: "Which option should the background task use?", options: ["Blue", "Green"],
     } });

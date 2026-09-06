@@ -5,6 +5,7 @@ import { PiExecutor } from "./pi-executor";
 
 import { AgentControl } from "../../control/agent";
 import { AgentFiles } from "../../control/files";
+import { AgentSkills } from "../../control/skills";
 
 export async function startAgent() {
   const token = takeAgentToken();
@@ -13,11 +14,12 @@ export async function startAgent() {
   const executor = await PiExecutor.create(stateDir);
   const control = new AgentControl(stateDir);
   const files = new AgentFiles(stateDir);
+  const skills = new AgentSkills(stateDir);
   executor.toolsFactory = async context => {
     const product = await control.toolsFactory(context);
     return {tools:[...product.tools,...files.tools(context.runId)],close:product.close};
   };
-  const daemon = new AgentDaemon(stateDir, token, executor, async request => await control.handleRequest(request) ?? await files.handleRequest(request));
+  const daemon = new AgentDaemon(stateDir, token, executor, async request => await control.handleRequest(request) ?? await files.handleRequest(request) ?? await skills.handleRequest(request));
   const server = Bun.serve({ hostname: "0.0.0.0", port, maxRequestBodySize: 15 * 1024 * 1024, fetch: request => daemon.fetch(request) });
   const shutdown = () => { server.stop(true); daemon.close(); control.close(); files.close(); process.exit(0); };
   process.on("SIGTERM", shutdown);

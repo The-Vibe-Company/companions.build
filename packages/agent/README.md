@@ -26,6 +26,11 @@ Protocol:
 
 Main history continues across sends. Every background task gets a fresh history under
 `sessions/background/<runId>`. Both lanes load the shared `workspace/MEMORY.md` at session start.
+Pi reads it with `shared_memory_read` and replaces it with `shared_memory_update`, passing the
+opaque version it read. Concurrent stale updates return `MEMORY_VERSION_CONFLICT` with the current
+content/version for merge and retry; successful writes use an atomic rename and survive restart.
+The staged brief forbids editing `MEMORY.md` through generic file or shell tools, although those
+same-user tools remain a filesystem-level bypass rather than a hard sandbox boundary.
 Background results stay in task activity unless Pi selects a summary with `publish_to_chat`;
 publication occurs only after successful settlement, without a new main-model call.
 

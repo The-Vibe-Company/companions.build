@@ -66,12 +66,38 @@ acceptance("compiled Linux daemon uses real Pi tools, persists output, rejects u
     const chatHistory = crypto.randomUUID();
     await put(chatHistory, "inspect-history");
     expect((await waitTerminal(base, token, chatHistory)).text).toContain("main-private-message");
+    const memoryMain = crypto.randomUUID(), memoryBackground = crypto.randomUUID();
+    await Promise.all([put(memoryMain, "memory-cas:main fact"), put(memoryBackground, "memory-cas:background fact", "background")]);
+    const memoryResults = await Promise.all([waitTerminal(base, token, memoryMain), waitTerminal(base, token, memoryBackground)]);
+    expect(memoryResults.filter(result => result.text.startsWith("Memory updated:"))).toHaveLength(1);
+    expect(memoryResults.filter(result => result.text.startsWith("Memory conflict:"))).toHaveLength(1);
+    const winningMemory = memoryResults.find(result => result.text.startsWith("Memory updated:"))!.text.replace("Memory updated: ", "");
+    expect(readFileSync(join(state, "workspace", "MEMORY.md"), "utf8")).toBe(winningMemory);
+    const readConcurrentMemory = crypto.randomUUID();
+    await put(readConcurrentMemory, "read-memory-content");
+    expect((await waitTerminal(base, token, readConcurrentMemory)).text).toBe(`Memory content: ${winningMemory}`);
     const memory = crypto.randomUUID();
     await put(memory, "remember-preference", "background");
-    await waitTerminal(base, token, memory);
+    expect((await waitTerminal(base, token, memory)).text).toBe("Preference saved.");
     const readMemory = crypto.randomUUID();
     await put(readMemory, "inspect-memory");
     expect((await waitTerminal(base, token, readMemory)).text).toBe("Shared memory loaded");
+    const isolatedState = mkdtempSync(join(tmpdir(), "companion-agent-memory-isolated-"));
+    const isolatedName = `companion-agent-${crypto.randomUUID()}`;
+    const isolatedBase = await startIsolatedDaemon(binary!, isolatedState, isolatedName, token, image);
+    try {
+      const isolatedRead = crypto.randomUUID();
+      expect((await fetch(`${isolatedBase}/runs/${isolatedRead}`, { method: "PUT", headers: headers(token), body: JSON.stringify({ content: "read-memory-content", instructions: "" }) })).status).toBe(202);
+      expect((await waitTerminal(isolatedBase, token, isolatedRead)).text).toBe("Memory content:");
+      const isolatedWrite = crypto.randomUUID();
+      expect((await fetch(`${isolatedBase}/runs/${isolatedWrite}`, { method: "PUT", headers: headers(token), body: JSON.stringify({ content: "memory-cas:isolated fact", instructions: "" }) })).status).toBe(202);
+      expect((await waitTerminal(isolatedBase, token, isolatedWrite)).text).toBe("Memory updated: isolated fact");
+      expect(readFileSync(join(isolatedState, "workspace", "MEMORY.md"), "utf8")).toBe("isolated fact");
+      expect(readFileSync(join(state, "workspace", "MEMORY.md"), "utf8")).toBe("User prefers concise summaries.");
+    } finally {
+      const removeIsolated = Bun.spawn(["docker", "rm", "-f", isolatedName], { stdout: "ignore", stderr: "ignore" });
+      await removeIsolated.exited;
+    }
     const publish = crypto.randomUUID();
     await put(publish, "publish-background", "background");
     expect(await waitTerminal(base, token, publish)).toMatchObject({ status: "succeeded", text: "Useful background result", publishToChat: true });
@@ -107,6 +133,9 @@ acceptance("compiled Linux daemon uses real Pi tools, persists output, rejects u
     base = `http://127.0.0.1:${restartMapping.slice(restartMapping.lastIndexOf(":") + 1)}`;
     await waitReady(base, token);
     expect(await waitTerminal(base, token, parkedCrash)).toMatchObject({ status: "interrupted", error: "DAEMON_RESTARTED" });
+    const persistedMemory = crypto.randomUUID();
+    await put(persistedMemory, "inspect-memory");
+    expect((await waitTerminal(base, token, persistedMemory)).text).toBe("Shared memory loaded");
     expect((await fetch(`${base}/runs/${parkedCrash}`, { method: "PUT", headers: headers(token), body: JSON.stringify({ content: "ask-background", instructions: "", lane: "background" }) })).status).toBe(200);
     expect(readFileSync(join(state, `workspace/question-${parkedCrash}.txt`), "utf8")).toBe("asked\n");
   } finally {
@@ -137,4 +166,19 @@ async function waitFile(path: string) {
     await Bun.sleep(25);
   }
   throw new Error("Pi shell did not reach its observable checkpoint");
+}
+
+async function startIsolatedDaemon(binary: string, state: string, name: string, token: string, image: string) {
+  const create = Bun.spawn(["docker", "create", "--init", "--platform", "linux/amd64", "--name", name, "--network", "bridge",
+    "-p", "127.0.0.1::8787/tcp", "--mount", `type=bind,source=${dirname(resolve(binary))},target=/app,readonly`,
+    "--mount", `type=bind,source=${state},target=/state`, "-e", `AGENT_TOKEN=${token}`, "-e", "AGENT_TEST_MODE=1",
+    "-e", "AGENT_STATE_DIR=/state", image, "/app/companion-agent"], { stdout: "ignore", stderr: "pipe" });
+  expect(await create.exited).toBe(0);
+  const start = Bun.spawn(["docker", "start", name], { stdout: "ignore", stderr: "pipe" });
+  expect(await start.exited).toBe(0);
+  const portProcess = Bun.spawn(["docker", "port", name, "8787/tcp"], { stdout: "pipe" });
+  const mapping = (await new Response(portProcess.stdout).text()).trim();
+  const base = `http://127.0.0.1:${mapping.slice(mapping.lastIndexOf(":") + 1)}`;
+  await waitReady(base, token);
+  return base;
 }

@@ -35,6 +35,10 @@ export function scriptedModel(model: any, context: any) {
     ?.filter((item: any) => item.type === "text").map((item: any) => item.text).join("");
   const results = context.messages.slice(userIndex + 1).filter((item: any) => item.role === "toolResult");
   const lastResult = () => JSON.stringify(results.at(-1)?.content ?? "");
+  const lastToolValue = () => {
+    const text = results.at(-1)?.content?.filter((item: any) => item.type === "text").map((item: any) => item.text).join("") ?? "{}";
+    return JSON.parse(text);
+  };
   const tool = (name: string, args: Record<string, unknown>) => {
     message.content = [{ type: "toolCall", id: `fixture-${results.length}`, name, arguments: args }];
     message.stopReason = "toolUse";
@@ -65,10 +69,19 @@ export function scriptedModel(model: any, context: any) {
     if (results.length === 0) tool("fixture_ask_user", {});
     else message.content = [{ type: "text", text: `Answer received: ${JSON.stringify(results.at(-1)?.content)}` }];
   } else if (text === "remember-preference") {
-    if (results.length === 0) tool("write", { path: "MEMORY.md", content: "User prefers concise summaries." });
-    else message.content = [{ type: "text", text: "Preference saved." }];
+    if (results.length === 0) tool("shared_memory_read", {});
+    else if (results.length === 1) tool("shared_memory_update", { expectedVersion: lastToolValue().version, content: "User prefers concise summaries." });
+    else message.content = [{ type: "text", text: lastToolValue().updated ? "Preference saved." : "Preference conflicted." }];
   } else if (text === "inspect-memory") {
-    message.content = [{ type: "text", text: String(context.systemPrompt).includes("User prefers concise summaries.") ? "Shared memory loaded" : "Memory missing" }];
+    if (results.length === 0) tool("shared_memory_read", {});
+    else message.content = [{ type: "text", text: lastToolValue().content.includes("User prefers concise summaries.") ? "Shared memory loaded" : "Memory missing" }];
+  } else if (text?.startsWith("memory-cas:")) {
+    const content = text.slice("memory-cas:".length);
+    if (results.length === 0) tool("shared_memory_update", { expectedVersion: "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855", content });
+    else message.content = [{ type: "text", text: lastToolValue().updated ? `Memory updated: ${content}` : `Memory conflict: ${lastToolValue().memory.content}` }];
+  } else if (text === "read-memory-content") {
+    if (results.length === 0) tool("shared_memory_read", {});
+    else message.content = [{ type: "text", text: `Memory content: ${lastToolValue().content}` }];
   } else if (text === "inspect-history") {
     const users = context.messages.filter((item: any) => item.role === "user");
     message.content = [{ type: "text", text: JSON.stringify(users) }];

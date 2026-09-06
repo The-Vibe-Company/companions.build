@@ -2,7 +2,7 @@ import { afterEach, beforeAll, expect, test } from "bun:test";
 import { db, migrate, createCompanion, acceptMessage } from "../src/store";
 import { acquireExecutor, claimQueuedRuns, tick } from "../src/executor";
 import { createRoutine, updateRoutine, deleteRoutine, listRoutines, routineHistory, scheduleDueRoutines,
-  migrateAutomations, enqueueBackground, nextRoutineFire, AutomationConflict } from "../src/automations";
+  migrateAutomations, enqueueBackground, nextRoutineFire, requestRunResume, AutomationConflict } from "../src/automations";
 import { encrypt } from "../src/config";
 
 const owner="00000000-0000-4000-8000-000000000001";
@@ -11,7 +11,7 @@ beforeAll(async () => { await migrate(); await migrateAutomations(); });
 afterEach(async () => {
   for (const id of companions.splice(0)) {
     await db`UPDATE routines SET enabled=false,next_fire_at=null WHERE companion_id=${id}`;
-    await db`UPDATE runs SET status='cancelled',finished_at=now() WHERE companion_id=${id} AND status IN ('queued','preparing','running')`;
+    await db`UPDATE runs SET status='cancelled',finished_at=now() WHERE companion_id=${id} AND status IN ('queued','preparing','running','needs_input')`;
   }
 });
 async function companion() {
@@ -132,5 +132,50 @@ test("background results remain in activity unless publication was explicitly se
     await tick(lock.sql); await tick(lock.sql);
     expect(Array.from(await db`SELECT content FROM messages WHERE companion_id=${id}`)).toEqual([{ content: "Publish result" }]);
     expect(puts).toBe(0);
+  } finally { await lock.close(); daemon.stop(true); }
+});
+
+test("human answers rejoin FIFO after already queued work and never replay their original prompt", async () => {
+  const id = await companion();
+  const waiting = await enqueueBackground({ companionId: id, clientMessageId: crypto.randomUUID(), content: "Need input", source: "routine" });
+  await db`UPDATE runs SET status='needs_input',dispatched=true,started_at=now() WHERE id=${waiting}`;
+  const queued = await enqueueBackground({ companionId: id, clientMessageId: crypto.randomUUID(), content: "Ahead of answer", source: "trigger" });
+  await Bun.sleep(2);
+  expect(await requestRunResume(id, waiting!)).toBe(true);
+  const lock = await leader();
+  const events: string[] = [];
+  let remoteStatus = "needs_input";
+  const daemon = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch(req) {
+    const path = new URL(req.url).pathname;
+    events.push(`${req.method} ${path}`);
+    if (path === "/health") return Response.json({ ready: true, activeRuns: { main: null, background: null } });
+    if (path.endsWith("/resume")) remoteStatus = "running";
+    return Response.json({ id: waiting, status: remoteStatus });
+  } });
+  try {
+    await claimQueuedRuns(lock.sql);
+    expect((await db`SELECT status FROM runs WHERE id=${queued}`)[0].status).toBe("preparing");
+    expect((await db`SELECT status FROM runs WHERE id=${waiting}`)[0].status).toBe("needs_input");
+    await db`UPDATE runs SET status='succeeded',finished_at=now() WHERE id=${queued}`;
+    await db`UPDATE companions SET endpoint_secret=${encrypt(`http://127.0.0.1:${daemon.port}`)} WHERE id=${id}`;
+    await tick(lock.sql, { async observeRun(run) { events.push(`answer ${run.status}`); } });
+    expect(events).toEqual([`GET /runs/${waiting}`, "GET /health", `POST /runs/${waiting}/resume`, "answer running"]);
+    expect((await db`SELECT status,resume_requested_at FROM runs WHERE id=${waiting}`)[0]).toMatchObject({ status: "running", resume_requested_at: null });
+  } finally { await lock.close(); daemon.stop(true); }
+});
+
+test("a parked run interrupted by daemon restart becomes terminal without a resume or prompt", async () => {
+  const id = await companion();
+  const waiting = await enqueueBackground({ companionId: id, clientMessageId: crypto.randomUUID(), content: "Need input", source: "routine" });
+  await db`UPDATE runs SET status='needs_input',dispatched=true,started_at=now() WHERE id=${waiting}`;
+  await requestRunResume(id, waiting!);
+  const methods: string[] = [];
+  const daemon = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch(req) { methods.push(req.method); return Response.json({ id: waiting, status: "interrupted" }); } });
+  const lock = await leader();
+  try {
+    await db`UPDATE companions SET endpoint_secret=${encrypt(`http://127.0.0.1:${daemon.port}`)} WHERE id=${id}`;
+    await tick(lock.sql);
+    expect((await db`SELECT status FROM runs WHERE id=${waiting}`)[0].status).toBe("interrupted");
+    expect(methods).toEqual(["GET"]);
   } finally { await lock.close(); daemon.stop(true); }
 });

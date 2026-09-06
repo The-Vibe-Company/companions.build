@@ -2,7 +2,7 @@ import { Database } from "bun:sqlite";
 import { createHash } from "node:crypto";
 import { dirname } from "node:path";
 import { mkdirSync } from "node:fs";
-import type { RunInput, RunRecord, RunStatus } from "./types";
+import type { RunInput, RunRecord, TerminalRunStatus } from "./types";
 
 interface StoredRun extends RunRecord {
   request_hash: string;
@@ -27,6 +27,7 @@ export class RunJournal {
         lane TEXT NOT NULL DEFAULT 'main',
         response_root_id TEXT,
         publish_to_chat INTEGER NOT NULL DEFAULT 0,
+        parked INTEGER NOT NULL DEFAULT 0,
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL
       );
@@ -35,6 +36,7 @@ export class RunJournal {
     if (!columns.has("lane")) this.db.exec("ALTER TABLE runs ADD COLUMN lane TEXT NOT NULL DEFAULT 'main'");
     if (!columns.has("response_root_id")) this.db.exec("ALTER TABLE runs ADD COLUMN response_root_id TEXT");
     if (!columns.has("publish_to_chat")) this.db.exec("ALTER TABLE runs ADD COLUMN publish_to_chat INTEGER NOT NULL DEFAULT 0");
+    if (!columns.has("parked")) this.db.exec("ALTER TABLE runs ADD COLUMN parked INTEGER NOT NULL DEFAULT 0");
     this.db.exec("UPDATE runs SET response_root_id=id WHERE response_root_id IS NULL");
   }
 
@@ -53,9 +55,10 @@ export class RunJournal {
       }
       const now = new Date().toISOString();
       this.db.query(`INSERT INTO runs
-        (id, request_hash, content, instructions, status, text, error, created_at, updated_at, lane, response_root_id)
-        VALUES (?, ?, ?, ?, 'running', NULL, NULL, ?, ?, ?, ?)`)
-        .run(id, hash, input.content, input.instructions, now, now, input.lane ?? "main", rootId);
+        (id, request_hash, content, instructions, status, text, error, created_at, updated_at, lane, response_root_id, parked)
+        VALUES (?, ?, ?, ?, 'running', NULL, NULL, ?, ?, ?, ?, ?)`)
+        .run(id, hash, input.content, input.instructions, now, now, input.lane ?? "main", rootId,
+          this.get(rootId)?.status === "needs_input" ? 1 : 0);
       return { kind: "accepted" as const, run: this.get(id)! };
     });
     return transaction.immediate();
@@ -66,18 +69,23 @@ export class RunJournal {
     return run ? publicRun(run) : null;
   }
 
-  settle(id: string, status: Exclude<RunStatus, "running">, text: string | null, error: string | null): RunRecord | null {
+  settle(id: string, status: TerminalRunStatus, text: string | null, error: string | null): RunRecord | null {
     this.db.query("UPDATE runs SET status = ?, text = ?, error = ?, updated_at = ? WHERE id = ? AND status = 'running'")
       .run(status, text, error, new Date().toISOString(), id);
     return this.get(id);
   }
 
   /** All accepted steering IDs settle atomically with one response stored on their root. */
-  settleGroup(rootId: string, status: Exclude<RunStatus, "running">, text: string | null, error: string | null, publishToChat = false): void {
+  settleGroup(rootId: string, status: TerminalRunStatus, text: string | null, error: string | null, publishToChat = false): void {
     this.db.query(`UPDATE runs SET status=?, text=CASE WHEN id=? THEN ? ELSE NULL END,
       error=?, publish_to_chat=CASE WHEN id=? AND ? THEN 1 ELSE 0 END, updated_at=?
       WHERE response_root_id=? AND status='running'`)
       .run(status, rootId, text, error, rootId, publishToChat ? 1 : 0, new Date().toISOString(), rootId);
+  }
+
+  parkGroup(rootId: string, parked: boolean): void {
+    this.db.query("UPDATE runs SET parked=?,updated_at=? WHERE response_root_id=? AND status='running'")
+      .run(parked ? 1 : 0, new Date().toISOString(), rootId);
   }
 
   close(): void {
@@ -85,7 +93,7 @@ export class RunJournal {
   }
 
   private getStored(id: string): StoredRun | null {
-    return this.db.query(`SELECT id, request_hash, status, text, error, lane,
+    return this.db.query(`SELECT id, request_hash, CASE WHEN status='running' AND parked=1 THEN 'needs_input' ELSE status END AS status, text, error, lane,
       response_root_id AS responseRootId, publish_to_chat AS publishToChat FROM runs WHERE id = ?`).get(id) as StoredRun | null;
   }
 }

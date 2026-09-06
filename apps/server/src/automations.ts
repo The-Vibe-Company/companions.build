@@ -100,6 +100,14 @@ export async function enqueueBackground(input: { companionId: string; clientMess
   });
 }
 
+/** The answer is already durable in the control bridge. It joins the ordinary FIFO at this
+ * instant; the executor reserves the slot and resumes Pi before releasing the tool result. */
+export async function requestRunResume(companionId: string, runId: string, sql: Database = db) {
+  const rows = await sql`UPDATE runs SET resume_requested_at=COALESCE(resume_requested_at,now())
+    WHERE companion_id=${companionId} AND id=${runId} AND status IN ('running','needs_input') RETURNING id`;
+  return rows.length > 0;
+}
+
 /** A scheduler transaction records both missed instants and the one accepted occurrence.
  * Competing schedulers skip locked definitions; restart cannot duplicate an accepted run. */
 export async function scheduleDueRoutines(sql: Database = db, now = new Date()): Promise<number> {

@@ -2,7 +2,7 @@ import { mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { InMemoryCredentialStore, Type } from "@earendil-works/pi-ai";
 import { createAgentSession, DefaultResourceLoader, ModelRuntime, SessionManager, SettingsManager } from "@earendil-works/pi-coding-agent";
-import { scriptedModel } from "./scripted-model";
+import { scriptedModel, scriptedHumanTool } from "./scripted-model";
 import { takeProviderApiKey } from "./environment";
 import type { RunExecutor, RunInput, RunLane } from "./types";
 
@@ -11,6 +11,7 @@ type ActiveExecution = {
   id: string; lane: RunLane; controller: AbortController; session: Session | null;
   ready: Promise<Session>; submissions: Set<Promise<void>>; accepting: boolean;
   preflight: Promise<void>; preflightDone(): void;
+  parked: boolean;
   publishText?: string;
 };
 
@@ -67,13 +68,13 @@ export class PiExecutor implements RunExecutor {
 
   async execute(id: string, input: RunInput): Promise<{ text: string; publishToChat: boolean }> {
     const lane = input.lane ?? "main";
-    if ([...this.active.values()].some(run => run.lane === lane && run.accepting)) throw new Error("EXECUTOR_BUSY");
+    if ([...this.active.values()].some(run => run.lane === lane && run.accepting && (lane === "main" || !run.parked))) throw new Error("EXECUTOR_BUSY");
     let preflightDone!: () => void;
     const preflight = new Promise<void>(resolve => { preflightDone = resolve; });
     const execution: ActiveExecution = {
       id, lane, controller: new AbortController(), session: null, submissions: new Set(),
       accepting: true, ready: undefined!,
-      preflight, preflightDone,
+      preflight, preflightDone, parked: false,
     };
     this.active.set(id, execution);
     if (this.cancelled.has(id)) execution.controller.abort();
@@ -115,7 +116,22 @@ export class PiExecutor implements RunExecutor {
   }
 
   acceptingRoot(lane: RunLane): string | null {
-    return [...this.active.values()].find(run => run.lane === lane && run.accepting)?.id ?? null;
+    return [...this.active.values()].find(run => run.lane === lane && run.accepting && (lane === "main" || !run.parked))?.id ?? null;
+  }
+
+  async suspend(id: string): Promise<boolean> {
+    const run = this.active.get(id);
+    if (!run?.accepting || run.controller.signal.aborted) return false;
+    run.parked = true;
+    return true;
+  }
+
+  async resume(id: string): Promise<boolean> {
+    const run = this.active.get(id);
+    if (!run?.accepting || run.controller.signal.aborted) return false;
+    if (run.lane === "background" && [...this.active.values()].some(other => other.id !== id && other.lane === "background" && other.accepting && !other.parked)) return false;
+    run.parked = false;
+    return true;
   }
 
   private submit(execution: ActiveExecution, content: string, first = false): Promise<void> {
@@ -161,12 +177,13 @@ export class PiExecutor implements RunExecutor {
     const model = this.modelRuntime.getModel(this.provider, this.modelId);
     if (!model) throw new Error("MODEL_NOT_FOUND");
     const sessionDir = execution.lane === "main" ? this.sessionsDir : join(this.sessionsDir, "background", execution.id);
+    const testTools = this.provider === "companion-test" ? [scriptedHumanTool(execution.id, this.cwd)] : [];
     mkdirSync(sessionDir, { recursive: true });
     return (await createAgentSession({
       cwd: this.cwd, agentDir: this.agentDir, modelRuntime: this.modelRuntime, model,
       settingsManager, resourceLoader, tools: ["read", "write", "edit", "bash", ...(extra?.tools.map(tool => tool.name) ?? []),
-        ...(execution.lane === "background" ? ["publish_to_chat"] : [])],
-      customTools: [...extra?.tools ?? [], ...(execution.lane === "background" ? [{
+        ...testTools.map(tool => tool.name), ...(execution.lane === "background" ? ["publish_to_chat"] : [])],
+      customTools: [...extra?.tools ?? [], ...testTools, ...(execution.lane === "background" ? [{
         name: "publish_to_chat", label: "Publish result", description: "Publish this task's useful result to the main conversation when the task finishes successfully.",
         parameters: Type.Object({ text: Type.String({ minLength: 1, maxLength: 50_000 }) }),
         async execute(_toolId: string, params: { text: string }) {

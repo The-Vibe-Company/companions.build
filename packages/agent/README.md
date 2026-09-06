@@ -8,7 +8,7 @@ every request uses `Authorization: Bearer <token>`. Production also requires `MO
 
 Protocol:
 
-- `GET /health` returns `{ready, version, activeRunId, activeRuns: {main, background}}`.
+- `GET /health` returns `{ready, version, activeRunId, activeRuns: {main, background}, parkedRuns}`.
 - `PUT /runs/:uuid` with `{content, instructions, lane?: "main" | "background"}` durably accepts a run and returns `202`.
   Repeating the UUID and exact body returns its existing state. A changed body returns
   `409 IDEMPOTENCY_CONFLICT`.
@@ -19,6 +19,10 @@ Protocol:
 - `GET /runs/:uuid` returns `{id,status,text,error,lane,responseRootId,publishToChat}`.
 - `POST /runs/:uuid/cancel` aborts active Pi work and durably returns `cancelled`; terminal calls are
   idempotent. Cancelling a main steer cancels its shared response, leaving background untouched.
+- `POST /runs/:uuid/suspend` marks a durably recorded human question `needs_input`, keeping its
+  pending Pi tool and session alive while releasing the background slot. `POST /runs/:uuid/resume`
+  reserves that slot again, or returns `409` if another background task owns it. Only then may
+  the controller deliver the question's answer. These routes never resend a prompt.
 
 Main history continues across sends. Every background task gets a fresh history under
 `sessions/background/<runId>`. Both lanes load the shared `workspace/MEMORY.md` at session start.
@@ -31,7 +35,8 @@ routes. These hooks do not replace native Pi steering or execute package install
 
 At startup every journal row left `running` is changed to `interrupted` with
 `DAEMON_RESTARTED`. The daemon never dispatches those rows again, including when the original PUT
-is retried after a crash.
+is retried after a crash. This includes parked `needs_input` rows: a promise from the previous
+process cannot be safely reconstructed. PostgreSQL still retains the question and task outcome.
 
 `AGENT_TEST_MODE=1` enables the compiled deterministic model used only by Linux acceptance tests.
 Production never selects it implicitly.

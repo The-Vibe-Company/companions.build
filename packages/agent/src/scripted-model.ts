@@ -1,5 +1,25 @@
 // Explicit test boundary. Pi's agent loop, SessionManager and built-in tools remain real.
-import { createAssistantMessageEventStream, type AssistantMessage } from "@earendil-works/pi-ai";
+import { createAssistantMessageEventStream, Type, type AssistantMessage } from "@earendil-works/pi-ai";
+import { appendFileSync, existsSync, readFileSync } from "node:fs";
+import { join } from "node:path";
+import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
+
+/** Linux-only deterministic human-response boundary. Production never registers this tool. */
+export function scriptedHumanTool(runId: string, cwd: string): ToolDefinition {
+  return {
+    name: "fixture_ask_user", label: "Fixture human question", description: "Wait for the test's explicit answer.", parameters: Type.Object({}),
+    async execute(_id, _params, signal) {
+      appendFileSync(join(cwd, `question-${runId}.txt`), "asked\n");
+      const answer = join(cwd, `answer-${runId}.txt`);
+      while (!existsSync(answer)) {
+        if (signal?.aborted) throw new Error("FIXTURE_CANCELLED");
+        await Bun.sleep(25);
+      }
+      if (signal?.aborted) throw new Error("FIXTURE_CANCELLED");
+      return { content: [{ type: "text", text: readFileSync(answer, "utf8") }], details: {} };
+    },
+  };
+}
 
 export function scriptedModel(model: any, context: any) {
   const stream = createAssistantMessageEventStream();
@@ -40,6 +60,9 @@ export function scriptedModel(model: any, context: any) {
   } else if (text === "publish-background") {
     if (results.length === 0) tool("publish_to_chat", { text: "Useful background result" });
     else message.content = [{ type: "text", text: "Private execution details" }];
+  } else if (text === "ask-background") {
+    if (results.length === 0) tool("fixture_ask_user", {});
+    else message.content = [{ type: "text", text: `Answer received: ${JSON.stringify(results.at(-1)?.content)}` }];
   } else if (text === "remember-preference") {
     if (results.length === 0) tool("write", { path: "MEMORY.md", content: "User prefers concise summaries." });
     else message.content = [{ type: "text", text: "Preference saved." }];

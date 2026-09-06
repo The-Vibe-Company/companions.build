@@ -18,7 +18,7 @@ async function settle(sql: ReservedSQL, run: any, status: string, text: string |
   await sql`WITH settled AS (
     UPDATE runs SET status=${status},error=${error},finished_at=now(),result_text=${text},publish_to_chat=${publishToChat},
       response_root_id=COALESCE((SELECT id FROM runs root WHERE root.id=${rootId} AND root.companion_id=${run.companion_id}),id)
-      WHERE id=${run.id} AND status IN ('preparing','running')
+      WHERE id=${run.id} AND status IN ('preparing','running','needs_input')
       AND EXISTS(SELECT 1 FROM pg_locks WHERE locktype='advisory' AND pid=pg_backend_pid() AND objid=721440139 AND granted)
       RETURNING id,companion_id,lane
   ) INSERT INTO messages (id,companion_id,run_id,role,content)
@@ -39,11 +39,11 @@ export interface ExecutorHooks {
 export async function claimQueuedRuns(sql: ReservedSQL) {
   // Main sends keep their durable IDs but join Pi's native active response. Only preparation
   // is serialized per lane; background always keeps one exclusive execution slot.
-  await sql`UPDATE runs r SET status='preparing',started_at=now() WHERE r.id IN (
-    SELECT DISTINCT ON (q.companion_id,q.lane) q.id FROM runs q WHERE q.status='queued'
+  await sql`UPDATE runs r SET status='preparing',started_at=COALESCE(started_at,now()) WHERE r.id IN (
+    SELECT DISTINCT ON (q.companion_id,q.lane) q.id FROM runs q WHERE (q.status='queued' OR (q.status='needs_input' AND q.resume_requested_at IS NOT NULL))
       AND NOT EXISTS (SELECT 1 FROM runs a WHERE a.companion_id=q.companion_id AND a.lane=q.lane
         AND (a.status='preparing' OR (q.lane='background' AND a.status='running')))
-    ORDER BY q.companion_id,q.lane,q.created_at,q.id)
+    ORDER BY q.companion_id,q.lane,COALESCE(q.resume_requested_at,q.created_at),q.id)
     AND EXISTS(SELECT 1 FROM pg_locks WHERE locktype='advisory' AND pid=pg_backend_pid() AND objid=721440139 AND granted)`;
 }
 export async function tick(sql: ReservedSQL, hooks: ExecutorHooks = {}) {
@@ -52,7 +52,7 @@ export async function tick(sql: ReservedSQL, hooks: ExecutorHooks = {}) {
   await scheduleDueRoutines(sql);
   await claimQueuedRuns(sql);
   const runs = await sql`SELECT r.*,c.provider,c.box_id,c.create_key,c.create_started_at,c.agent_secret,c.endpoint_secret,c.instructions,c.config_digest
-    FROM runs r JOIN companions c ON c.id=r.companion_id WHERE r.status IN ('preparing','running') ORDER BY r.created_at`;
+    FROM runs r JOIN companions c ON c.id=r.companion_id WHERE r.status IN ('preparing','running','needs_input') ORDER BY r.created_at`;
   // One machine preparation at a time per Companion; independent Companions progress in parallel.
   // Each network call only accepts/observes work, so a long Pi task does not occupy this loop.
   const grouped = Map.groupBy(runs as any[], run => run.companion_id);
@@ -74,6 +74,34 @@ export async function tick(sql: ReservedSQL, hooks: ExecutorHooks = {}) {
       if (run.cancel_requested && !run.dispatched) { await settle(sql, run, "cancelled", null, null); return; }
       try {
         let endpoint = run.endpoint_secret ? decrypt(run.endpoint_secret) : null;
+        if (run.status === "preparing" && run.dispatched) {
+          // A replied-to task reserves the normal FIFO slot before its blocked Pi tool receives
+          // the answer. Resume only observes/toggles the existing request, never PUTs a prompt.
+          if (!endpoint) { await settle(sql, run, "interrupted", null, "The waiting task lost its execution endpoint. It was not replayed."); return; }
+          if (age > 2 * 3600_000 || run.cancel_requested) {
+            await agentRequest(endpoint, token, `/runs/${run.id}/cancel`, "POST");
+            await settle(sql, run, run.cancel_requested ? "cancelled" : "interrupted", null, run.cancel_requested ? null : "Task deadline reached. It was not replayed.");
+            return;
+          }
+          const result = await agentRequest(endpoint, token, `/runs/${run.id}`);
+          if (!result) { await settle(sql, run, "interrupted", null, "The waiting task could not be confirmed. It was not replayed."); return; }
+          if (["succeeded", "failed", "cancelled", "interrupted"].includes(result.status)) {
+            await settle(sql, run, result.status, typeof result.text === "string" ? result.text : null,
+              result.status === "interrupted" ? "The agent restarted while waiting. It was not replayed." : null,
+              result.responseRootId ?? run.id, result.publishToChat === true);
+            return;
+          }
+          if (result.status === "needs_input") {
+            const health = await agentRequest(endpoint, token, "/health");
+            if (run.lane === "background" && health?.activeRuns?.background && health.activeRuns.background !== run.id) return;
+            const resumed = await agentRequest(endpoint, token, `/runs/${run.id}/resume`, "POST");
+            if (resumed?.status !== "running") return;
+          }
+          await sql`UPDATE runs SET status='running',resume_requested_at=null WHERE id=${run.id} AND status='preparing'
+            AND EXISTS(SELECT 1 FROM pg_locks WHERE locktype='advisory' AND pid=pg_backend_pid() AND objid=721440139 AND granted)`;
+          await hooks.observeRun?.({ ...run, status: "running", resumed: true }, endpoint, token);
+          return;
+        }
         if (run.status === "preparing") {
           if (hooks.canPrepareRun && !await hooks.canPrepareRun(run)) {
             if (age > 5 * 60_000) await settle(sql, run, "failed", null, "File upload did not finish. Send the message again with its files.");
@@ -143,10 +171,13 @@ export async function tick(sql: ReservedSQL, hooks: ExecutorHooks = {}) {
         } else if (age > 2 * 3600_000) {
           await agentRequest(endpoint, token, `/runs/${run.id}/cancel`, "POST");
           await settle(sql, run, "interrupted", null, "Task deadline reached. It was not replayed.");
+        } else if (result.status === "needs_input") {
+          await sql`UPDATE runs SET status='needs_input' WHERE id=${run.id} AND status='running'
+            AND EXISTS(SELECT 1 FROM pg_locks WHERE locktype='advisory' AND pid=pg_backend_pid() AND objid=721440139 AND granted)`;
         }
       } catch (error) {
         if (error instanceof SQL.SQLError) throw error;
-        if (run.status === "running" && run.provider === "local") {
+        if (run.dispatched && run.provider === "local") {
           // Docker assigns a new host port after restart. Reconnect to the SAME durable
           // daemon journal; never redispatch the request while repairing transport.
           try {
@@ -155,7 +186,7 @@ export async function tick(sql: ReservedSQL, hooks: ExecutorHooks = {}) {
           } catch (repairError) { if (repairError instanceof SQL.SQLError) throw repairError; }
         }
         // Network failures stay observable and bounded. Never include provider payloads.
-        if (age > (run.status === "preparing" ? 5 * 60_000 : 10 * 60_000)) {
+        if (age > (!run.dispatched ? 5 * 60_000 : 10 * 60_000)) {
           await settle(sql, run, run.dispatched ? "interrupted" : "failed", null, "The machine did not respond. This task was not replayed.");
           await sql`UPDATE companions SET status='error',error='Machine unavailable.',endpoint_secret=null WHERE id=${run.companion_id}`;
         }

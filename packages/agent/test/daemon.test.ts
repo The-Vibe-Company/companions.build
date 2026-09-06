@@ -16,6 +16,8 @@ class ControlledExecutor implements RunExecutor {
   cancelled: string[] = [];
   steers: Array<{ rootId: string; id: string; input: RunInput }> = [];
   async steer(rootId: string, id: string, input: RunInput) { this.steers.push({ rootId, id, input }); }
+  async suspend(_id: string) { return true; }
+  async resume(_id: string) { return true; }
   execute(id: string, input: RunInput): Promise<{ text: string }> {
     this.calls.push({ id, input });
     return new Promise((resolve, reject) => { this.resolves.set(id, resolve); this.rejects.set(id, reject); });
@@ -117,6 +119,40 @@ describe("agent daemon protocol", () => {
     expect(restarted.daemon.journal.get(steer)?.responseRootId).toBe(id);
     const duplicate = await restarted.daemon.fetch(request(`/runs/${steer}`, { method: "PUT", body: JSON.stringify({ content: steer, instructions: "", lane: "main" }) }));
     expect(duplicate.status).toBe(200);
+    expect(restarted.executor.calls).toHaveLength(0);
+  });
+
+  test("a human question parks background work; its answer cannot resume until the next task releases the slot", async () => {
+    const app = daemon();
+    const waiting = crypto.randomUUID(), next = crypto.randomUUID();
+    const put = (id: string) => app.daemon.fetch(request(`/runs/${id}`, { method: "PUT", body: JSON.stringify({ content: id, instructions: "", lane: "background" }) }));
+    await put(waiting);
+    expect((await (await app.daemon.fetch(request(`/runs/${waiting}/suspend`, { method: "POST" }))).json()).status).toBe("needs_input");
+    const health = await (await app.daemon.fetch(request("/health"))).json();
+    expect(health.activeRuns.background).toBeNull();
+    expect(health.parkedRuns).toEqual([waiting]);
+    expect((await put(next)).status).toBe(202);
+    expect((await app.daemon.fetch(request(`/runs/${waiting}/resume`, { method: "POST" }))).status).toBe(409);
+    expect(app.daemon.journal.get(waiting)?.status).toBe("needs_input");
+    app.executor.finish(next, "Next work completed independently");
+    await Bun.sleep(0);
+    expect((await (await app.daemon.fetch(request(`/runs/${waiting}/resume`, { method: "POST" }))).json()).status).toBe("running");
+    app.executor.finish(waiting, "Continued with its own answer");
+    await Bun.sleep(0);
+    expect(app.daemon.journal.get(waiting)).toMatchObject({ status: "succeeded", text: "Continued with its own answer" });
+    expect(app.executor.calls).toHaveLength(2);
+  });
+
+  test("a daemon restart interrupts a parked tool promise and keeps its ID unavailable for replay", async () => {
+    const app = daemon();
+    const body = JSON.stringify({ content: "Question", instructions: "", lane: "background" });
+    await app.daemon.fetch(request(`/runs/${id}`, { method: "PUT", body }));
+    await app.daemon.fetch(request(`/runs/${id}/suspend`, { method: "POST" }));
+    app.daemon.close(); open.pop();
+    const restarted = daemon(app.state);
+    expect(restarted.daemon.journal.get(id)).toMatchObject({ status: "interrupted", error: "DAEMON_RESTARTED" });
+    expect((await (await restarted.daemon.fetch(request(`/runs/${id}/resume`, { method: "POST" }))).json()).status).toBe("interrupted");
+    expect((await restarted.daemon.fetch(request(`/runs/${id}`, { method: "PUT", body }))).status).toBe(200);
     expect(restarted.executor.calls).toHaveLength(0);
   });
 

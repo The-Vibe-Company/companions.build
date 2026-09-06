@@ -6,6 +6,9 @@ ALTER TABLE runs ADD COLUMN IF NOT EXISTS result_text text;
 ALTER TABLE runs ADD COLUMN IF NOT EXISTS publish_to_chat boolean NOT NULL DEFAULT false;
 ALTER TABLE runs ADD COLUMN IF NOT EXISTS routine_id uuid;
 ALTER TABLE runs ADD COLUMN IF NOT EXISTS scheduled_for timestamptz;
+ALTER TABLE runs ADD COLUMN IF NOT EXISTS resume_requested_at timestamptz;
+ALTER TABLE runs DROP CONSTRAINT IF EXISTS runs_status_check;
+ALTER TABLE runs ADD CONSTRAINT runs_status_check CHECK (status IN ('queued','preparing','running','needs_input','succeeded','failed','interrupted','cancelled'));
 DROP INDEX IF EXISTS one_active_run;
 CREATE UNIQUE INDEX IF NOT EXISTS one_active_background_run ON runs(companion_id)
   WHERE lane='background' AND status IN ('preparing','running');

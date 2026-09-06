@@ -497,3 +497,9 @@ svg { width: 1rem; height: 1rem; stroke-width: 1.8; }
   .access-form { padding: 28px 22px; }
   .custom-connection { grid-template-columns: 1fr; }
 }
+
+.question-panel { width: min(100% - 2rem, 46rem); margin: .5rem auto; padding: 1rem; border: 1px solid var(--border); border-radius: 1rem; background: var(--background); }
+.question-panel > p { margin: .5rem 0; }
+.question-panel form { display:flex; align-items:flex-end; gap:.75rem; margin-top:.75rem; }
+.question-options { display:flex; flex-wrap:wrap; gap:.5rem; }
+.task-result { white-space:pre-wrap; overflow-wrap:anywhere; font-size:.875rem; margin-top:.5rem; }

@@ -4,6 +4,7 @@ import { db, migrate, listCompanions, createCompanion, detail, acceptMessage, ca
 import { BoxClient, BoxError } from "../../../packages/box/client";
 import { auth, AuthenticationRequired, requireUser, sessionUser } from "./auth";
 
+import { handleWebhook, handleTriggers } from "./triggers";
 import { handlePlugins, PluginError } from "./plugins";
 import { handleFiles, filesForThread, FILE_REQUEST_MAX_BYTES } from "./files";
 import { handleAutomations } from "./automation-routes";
@@ -13,6 +14,8 @@ const idSchema = z.string().uuid();
 const json = (body: unknown, status = 200, headers: Record<string, string> = {}) => Response.json(body, { status, headers: { "Cache-Control": "no-store", ...headers } });
 export async function handler(request: Request): Promise<Response> {
   const url = new URL(request.url);
+  const webhookResponse = await handleWebhook(request);
+  if(webhookResponse) return webhookResponse;
   if (url.pathname === "/health") return json({ ok: true });
   // Reject cross-origin browser writes, including login. Vite forwards same origin.
   const origin = request.headers.get("origin");
@@ -25,6 +28,8 @@ export async function handler(request: Request): Promise<Response> {
       return user ? json({ user: { id: user.id, email: user.email, name: user.name } }) : json({ error: "Authentication required." }, 401);
     }
     const ownerId = await requireUser(request);
+    const triggerResponse = await handleTriggers(request,ownerId);
+    if(triggerResponse) return triggerResponse;
     const fileResponse = await handleFiles(request,ownerId);
     if(fileResponse) return fileResponse;
     const automationResponse = await handleAutomations(request,ownerId);
@@ -45,7 +50,11 @@ export async function handler(request: Request): Promise<Response> {
     if (match) {
       const id = idSchema.parse(match[1]);
       if (!match[2] && request.method === "PATCH") { const companion=await configureCompanion(ownerId,id,await request.json()); return companion ? json({companion}) : json({error:"Companion not found."},404); }
-      if (!match[2] && request.method === "GET") { const result = await detail(ownerId, id); return result ? json({...result,files:await filesForThread(ownerId,id)}) : json({ error: "Companion not found." }, 404); }
+      if (!match[2] && request.method === "GET") { const result = await detail(ownerId, id);
+        if(!result)return json({error:"Companion not found."},404);
+        const files=await filesForThread(ownerId,id);
+        const questions=await db`SELECT q.id,q.run_id AS "runId",q.question,q.options,q.answer FROM task_questions q JOIN runs r ON r.id=q.run_id WHERE q.companion_id=${id} AND r.status IN ('running','needs_input','preparing') AND q.answer IS NULL ORDER BY q.created_at`;
+        return json({...result,questions,files,messages:result.messages.map((m:any)=>({...m,files:files.filter(f=>f.runId===m.runId&&f.kind===(m.role==='user'?'user_upload':'agent_output'))}))}); }
       if (match[2] === "messages" && request.method === "POST") {
         const body = z.object({ clientMessageId: idSchema, content: z.string().trim().min(1).max(50_000), attachmentCount: z.number().int().min(0).max(5).default(0) }).parse(await request.json());
         const runId = await acceptMessage(ownerId, id, body.clientMessageId, body.content, body.attachmentCount);

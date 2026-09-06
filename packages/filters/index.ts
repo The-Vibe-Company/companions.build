@@ -22,7 +22,7 @@ export async function runFilter(input: FilterInput, options: { docker?: string; 
   if (!docker) throw new FilterExecutionError("The trigger filter runtime is unavailable.");
   let child: FilterProcess;
   try { child = Bun.spawn([
-    docker, "run", "--rm", "--interactive", "--network", "none", "--read-only",
+    docker, "run", "--pull", "never", "--rm", "--interactive", "--network", "none", "--read-only",
     "--cap-drop", "ALL", "--security-opt", "no-new-privileges", "--pids-limit", "32",
     "--memory", "128m", "--cpus", "0.25", "--user", "65534:65534",
     FILTER_IMAGE, "node", "-e", entry,

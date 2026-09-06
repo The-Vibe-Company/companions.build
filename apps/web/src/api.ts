@@ -5,6 +5,7 @@ export type RunStatus =
   | "queued"
   | "preparing"
   | "running"
+  | "needs_input"
   | "succeeded"
   | "failed"
   | "interrupted"
@@ -35,6 +36,9 @@ export interface ChatMessage {
 export interface ThreadFile { id: string; runId: string; kind: "user_upload" | "agent_output"; name: string; mimeType: string; size: number; url: string }
 
 export interface Run {
+  lane?: "main"|"background";
+  source?: string;
+  resultText?: string|null;
   id: string;
   status: RunStatus;
   error: string | null;
@@ -42,6 +46,7 @@ export interface Run {
 }
 
 export interface CompanionDetail {
+  questions?: Array<{id:string;runId:string;question:string;options:string[];answer:string|null}>;
   companion: Companion;
   messages: ChatMessage[];
   runs: Run[];

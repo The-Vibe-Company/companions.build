@@ -14,3 +14,5 @@ CREATE TABLE IF NOT EXISTS task_questions (
  question text NOT NULL, options jsonb NOT NULL DEFAULT '[]', answer text,
  created_at timestamptz NOT NULL DEFAULT now(), answered_at timestamptz
 );
+
+ALTER TABLE control_commands ADD COLUMN IF NOT EXISTS result_secret text;

@@ -49,6 +49,7 @@ export const productHooks:ExecutorHooks={
       continue;
      }
      const [current]=await db`SELECT status FROM runs WHERE id=${command.runId}`;
+     if(current?.status==='needs_input') {await requestRunResume(run.companion_id,command.runId);continue;}
      if(current?.status!=='running')continue;
      await agentRequest(endpoint,token,`/control/${command.id}/result`,'POST',{answer:question.answer});
     }else await agentRequest(endpoint,token,`/control/${command.id}/result`,'POST',result);
@@ -67,7 +68,7 @@ export const productHooks:ExecutorHooks={
 
 import {registerControl} from './control';
 import {listPluginAccounts,selectedPlugins,attachPlugin} from './plugins';
-import {listRoutines,createRoutine,updateRoutine,deleteRoutine,routineInput,enqueueBackground} from './automations';
+import {listRoutines,createRoutine,updateRoutine,deleteRoutine,routineInput,enqueueBackground,requestRunResume} from './automations';
 import {z} from 'zod';
 registerControl({
  routines:context=>listRoutines(context.companionId),

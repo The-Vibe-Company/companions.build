@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import {encrypt,decrypt} from './config';
 import { db } from './store';
 import type { ControlOperation } from '../../../packages/control/agent';
 export type ControlContext={ownerId:string;companionId:string;runId:string;commandId:string;isChild:boolean};
@@ -14,8 +15,8 @@ export async function applyControl(companionId:string,raw:unknown) {
   if(!actor||!['running','needs_input'].includes(actor.status)) return {error:'This task no longer has control authority.'};
   const [claim]=await db`INSERT INTO control_commands (id,companion_id,run_id,operation) VALUES (${command.id},${companionId},${command.runId},${command.operation}) ON CONFLICT DO NOTHING RETURNING id`;
   if(!claim) {
-    const [previous]=await db`SELECT result,status FROM control_commands WHERE id=${command.id} AND companion_id=${companionId} AND run_id=${command.runId}`;
-    return previous?.result??{error:'The previous attempt has an unknown outcome. Inspect the current state before requesting a new change.'};
+    const [previous]=await db`SELECT result,result_secret,status FROM control_commands WHERE id=${command.id} AND companion_id=${companionId} AND run_id=${command.runId}`;
+    return (previous?.result_secret?JSON.parse(decrypt(previous.result_secret)):previous?.result)??{error:'The previous attempt has an unknown outcome. Inspect the current state before requesting a new change.'};
   }
   let result:unknown;
   try {
@@ -25,7 +26,7 @@ export async function applyControl(companionId:string,raw:unknown) {
     else result=await handle({ownerId:actor.owner_id,companionId,runId:command.runId,commandId:command.id,isChild:!!actor.parent_id},command.input);
   }catch(error){ result={error:error instanceof z.ZodError?'The operation input is invalid.':'The operation could not be completed. Inspect its state before retrying.'}; }
   if(JSON.stringify(result).length>90_000) result={error:'Result too large. Request a narrower result.'};
-  await db`UPDATE control_commands SET status='done',result=${result as any},finished_at=now() WHERE id=${command.id}`;
+  await db`UPDATE control_commands SET status='done',result=null,result_secret=${encrypt(JSON.stringify(result))},finished_at=now() WHERE id=${command.id}`;
   return result;
 }
 export const avatarSchema=z.object({shape:z.number().int().min(0).max(7),color:z.number().int().min(0).max(10),face:z.number().int().min(0).max(4)});

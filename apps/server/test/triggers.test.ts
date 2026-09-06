@@ -1,4 +1,4 @@
-import { beforeAll, describe, expect, test } from "bun:test";
+import { beforeAll, afterAll, describe, expect, test } from "bun:test";
 import { createHmac } from "node:crypto";
 import { db, migrate } from "../src/store";
 import { handleTriggers, handleWebhook, migrateTriggers, processTriggerInbox } from "../src/triggers";
@@ -10,6 +10,7 @@ const COMPANION = crypto.randomUUID();
 
 beforeAll(async () => {
   await migrate();
+  for(const id of [OWNER,OTHER]) await db`INSERT INTO "user"(id,name,email,"emailVerified") VALUES(${id},'Trigger fixture',${id+'@example.com'},true) ON CONFLICT DO NOTHING`;
   await db.unsafe(`ALTER TABLE companions ADD COLUMN IF NOT EXISTS owner_id text`);
   await db.unsafe(`CREATE UNIQUE INDEX IF NOT EXISTS companions_id_owner_uq ON companions(id,owner_id)`);
   await db.unsafe(`CREATE TABLE IF NOT EXISTS plugin_accounts(id uuid PRIMARY KEY,owner_id text NOT NULL,provider text NOT NULL,
@@ -17,9 +18,10 @@ beforeAll(async () => {
   await migrateTriggers();
   await migrateTriggers();
   await db.unsafe(`INSERT INTO companions(id,name,instructions,provider,create_key,agent_secret,owner_id)
-    VALUES($1,'Trigger test','','local',$2,'test',$3)`, [COMPANION, crypto.randomUUID(), OWNER]);
+    VALUES($1,'Trigger test','','local',$2,$4,$3)`, [COMPANION, crypto.randomUUID(), OWNER,encrypt("synthetic-agent-token")]);
 });
 
+afterAll(async()=>{await db`UPDATE runs SET status='cancelled' WHERE companion_id=${COMPANION} AND status IN ('queued','preparing','running')`;});
 async function createTrigger(input: Record<string, unknown>) {
   const response = await handleTriggers(new Request(`http://localhost/api/companions/${COMPANION}/triggers`, {
     method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(input),

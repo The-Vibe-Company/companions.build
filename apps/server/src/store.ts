@@ -9,7 +9,7 @@ export async function migrate(sql = db) {
     await tx`SELECT pg_advisory_xact_lock(721440138)`;
     await tx.unsafe(schema);
     await tx.unsafe(authSchema);
-    for (const name of ["product.sql", "plugins.sql", "storage-schema.sql", "automations.sql"]) await tx.unsafe(await Bun.file(new URL(`./${name}`,import.meta.url)).text());
+    for (const name of ["product.sql", "plugins.sql", "storage-schema.sql", "automations.sql", "triggers.sql"]) await tx.unsafe(await Bun.file(new URL(`./${name}`,import.meta.url)).text());
     const localId = "00000000-0000-4000-8000-000000000001";
     if (process.env.NODE_ENV !== "production") {
       await tx`INSERT INTO "user" ("id","name","email","emailVerified","createdAt","updatedAt")
@@ -65,7 +65,7 @@ export async function cancel(ownerId: string, companionId: string) {
     const [companion] = await sql`SELECT id FROM companions WHERE id=${companionId} AND owner_id=${ownerId} FOR UPDATE`;
     if (!companion) return false;
     await sql`UPDATE runs SET status='cancelled',finished_at=now() WHERE companion_id=${companionId} AND lane='main' AND status='queued'`;
-    await sql`UPDATE runs SET cancel_requested=true WHERE companion_id=${companionId} AND lane='main' AND status IN ('preparing','running')`;
+    await sql`UPDATE runs SET cancel_requested=true WHERE companion_id=${companionId} AND lane='main' AND status IN ('preparing','running','needs_input')`;
     return true;
   });
 }

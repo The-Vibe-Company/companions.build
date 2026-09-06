@@ -158,10 +158,11 @@ try:
     run([bun, "install", "--frozen-lockfile"])
     run([bun, "install", "--frozen-lockfile"], cwd=ROOT / "apps/web")
     run([bun, "scripts/build-agent.ts"])
-    for args, cwd in [([bun, "apps/server/src/api.ts"], ROOT), ([bun, "apps/server/src/executor.ts"], ROOT),
+    run([sys.executable, "scripts/filter-build.py"])
+    for args, cwd in [([bun, "apps/server/src/api.ts"], ROOT), ([bun, "apps/server/src/executor.ts"], ROOT), ([bun, "apps/server/src/worker.ts"], ROOT),
                       ([bun, "run", "dev", "--host", "127.0.0.1", "--port", str(base)], ROOT / "apps/web")]:
         children.append(subprocess.Popen(args, cwd=cwd, env=env, start_new_session=True))
-    print(f"\nCompanions: http://127.0.0.1:{base}\nAccess token: read {env['COMPANIONS_DATA_DIR']}/operator-token", flush=True)
+    print(f"\nCompanions: http://127.0.0.1:{base}\nSign in using the email link.", flush=True)
     if env.get("SMTP_HOST") == "127.0.0.1" and env.get("SMTP_PORT") == str(base + 5):
         print(f"Email: http://127.0.0.1:{base+6}", flush=True)
     print(flush=True)

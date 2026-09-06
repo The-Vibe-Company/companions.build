@@ -51,6 +51,7 @@ import {
   type Routine,
   type Trigger,
 } from "@/api";
+import { Question } from "@/components/Question";
 import { cn } from "@/lib/utils";
 import { AvatarPicker, CompanionAvatar, DEFAULT_AVATAR, type CompanionAvatarValue } from "@/components/CompanionAvatar";
 
@@ -318,6 +319,7 @@ function ActivityPanel({ detail, onClose }: { detail: CompanionDetail; onClose: 
               <strong>{statusLabel(run.status)}</strong>
               <small>{readableDate(run.createdAt)}</small>
               {run.error && <p className="run-error">{run.error}</p>}
+              {run.lane === "background" && run.resultText && <p className="task-result">{run.resultText}</p>}
             </div>
           </div>
         ))}
@@ -332,7 +334,7 @@ function Chat({ detail, onRefresh, onUnauthorized }: { detail: CompanionDetail; 
   const [sending, setSending] = useState(false);
   const [actionError, setActionError] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const activeRun = detail.runs.find((run) => isActiveRun(run.status));
+  const activeRun = detail.runs.find((run) => run.lane !== "background" && isActiveRun(run.status));
 
   async function send(event: FormEvent) {
     event.preventDefault();
@@ -403,6 +405,7 @@ function Chat({ detail, onRefresh, onUnauthorized }: { detail: CompanionDetail; 
         </ConversationContent>
         <ConversationScrollButton aria-label="Scroll to latest message" />
       </Conversation>
+      {(detail.questions??[]).map(question=><Question key={question.id} companionId={detail.companion.id} question={question} onAnswered={onRefresh}/>)}
       <form className="composer-wrap" onSubmit={send}>
         {actionError && <p className="composer-error" role="alert">{actionError}</p>}
         {files.length > 0 && <div className="pending-files">{files.map((file, index) => <span key={`${file.name}-${file.lastModified}`}><FileText />{file.name}<button type="button" onClick={() => setFiles((current) => current.filter((_, item) => item !== index))} aria-label={`Remove ${file.name}`}><X /></button></span>)}</div>}

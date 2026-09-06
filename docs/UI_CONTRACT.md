@@ -104,7 +104,7 @@ visible rather than being converted into success states.
   retains `clientDeliveryId` across an unchanged retry; the server persists its request fingerprint,
   returns the original invitation for an identical retry, and rejects changed details.
 - `POST /api/deliveries/:id/accept` accepts `{ grantMaintenance }` from the matching verified email.
-  `DELETE /api/deliveries/:id` revokes a pending sent invitation;
+  `DELETE /api/deliveries/:id` revokes a pending invitation;
   `DELETE /api/deliveries/:id/maintenance` revokes accepted maintenance consent.
 
 ## Granted maintenance

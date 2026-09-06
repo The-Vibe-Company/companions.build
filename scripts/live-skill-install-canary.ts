@@ -117,7 +117,11 @@ try {
     form.set("clientFileId", state.uploadFileId); form.set("position", "0");
     form.set("file", new File([skillText], "SKILL.md", { type: "text/markdown" }));
     const uploaded = await api(`${companionPath}/runs/${state.installRunId}/files`, form);
-    if (uploaded.file?.sha256 !== sha(skillText) || uploaded.file?.byteSize !== Buffer.byteLength(skillText)) fail("UPLOAD_BYTES_MISMATCH");
+    const uploadedFile=z.object({id:uuid,size:z.number().int(),url:z.string()}).parse(uploaded.file);
+    const downloadUrl=new URL(uploadedFile.url,apiBase);
+    if(downloadUrl.origin!==new URL(apiBase).origin||downloadUrl.pathname!==`/api${companionPath}/files/${uploadedFile.id}`)fail("UPLOAD_URL_MISMATCH");
+    const downloaded=await fetch(downloadUrl,{headers:{cookie},signal:AbortSignal.timeout(30_000)});
+    if(!downloaded.ok||uploadedFile.size!==Buffer.byteLength(skillText)||sha(new Uint8Array(await downloaded.arrayBuffer()))!==sha(skillText))fail("UPLOAD_BYTES_MISMATCH");
     if (await completed(state.installRunId, "INSTALL") !== "SKILL_INSTALL_READY") fail("INSTALL_REPLY_MISMATCH");
   }
   async function verifyExportAndDiscovery() {

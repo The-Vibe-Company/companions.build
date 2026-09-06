@@ -1,6 +1,9 @@
 # Task attachments
 
-Attachments are private files on one Companion task. They appear only in that durable thread; there is no file library. Object bytes live in the configured S3-compatible bucket and PostgreSQL holds the authorization boundary and metadata.
+Uploads and ordinary outputs are private to one Companion task. A completed delegated child may
+expose its output to the same owner's parent review through an owner-scoped reference to the same
+immutable object; there is no file library. Object bytes live in the configured S3-compatible
+bucket and PostgreSQL holds the authorization boundary and metadata.
 
 ## API integration
 
@@ -31,9 +34,14 @@ The client must retry an ambiguous upload with the same `clientFileId`, bytes, a
 }
 ```
 
-`GET /api/companions/:companionId/files/:fileId` proxies a private object after checking both the authenticated owner and Companion. It never returns an S3 key or signed URL. `filesForThread(ownerId, companionId)` returns the same projection, including both `user_upload` and `agent_output`, for the API to attach to its message/run detail response. Associate `user_upload` with the user message for the matching `runId`; associate `agent_output` with the assistant message.
+`GET /api/companions/:companionId/files/:fileId` proxies a private object after checking both the
+authenticated owner and Companion. It never returns an S3 key or signed URL.
+`filesForThread(ownerId, companionId)` returns direct attachments plus retained delegation
+references keyed to the parent review run. The API maps direct uploads and outputs to matching
+user or assistant messages when those messages exist. Background-run files, including handoffs,
+remain in the top-level projection and Activity associates them by `runId`.
 
-Run `migrateFiles()` after the accounts migration, because `storage-schema.sql` references `companions.owner_id` and `runs.attachment_count`. The runtime must not dispatch a queued task until this count equals the declared count:
+`store.migrate()` applies `storage-schema.sql` after account ownership in the canonical migration transaction; `migrateFiles()` remains the focused helper for tests and integration. The runtime must not dispatch a queued task until the stored upload count equals the declared count:
 
 ```sql
 SELECT count(*)::int
@@ -44,9 +52,9 @@ WHERE owner_id = $1
   AND kind = 'user_upload';
 ```
 
-A new user upload is accepted only while the task is queued, has not been dispatched, and its position is below `runs.attachment_count`. An already accepted upload remains idempotently retriable after dispatch, which covers a lost HTTP acknowledgement without changing the task. `filesForAgent()` returns only that exact task's user uploads as `attachments/<position>-<safe-name>`. `storeAgentOutput()` records a bounded file while that exact task is running.
+A new user upload is accepted only while the task is queued, has not been dispatched, and its position is below `runs.attachment_count`. An already accepted upload remains idempotently retriable after dispatch, which covers a lost HTTP acknowledgement without changing the task. `filesForAgent()` returns that task's user uploads and, for a delegation review, its owner-scoped handed-off child outputs. It verifies the bytes and stages them under `attachments/<position>-<safe-name>`. `storeAgentOutput()` records a bounded file while that exact task is running.
 
-The server accepts up to five files, each from 1 byte through 10 MiB. Supported types are PNG, JPEG, WebP, GIF, PDF, UTF-8 text, CSV, Markdown, and JSON. It checks file signatures or decodes and validates textual formats instead of trusting the browser MIME type. Names are reduced to a safe leaf name. If object upload succeeds but metadata persistence fails, the helper deletes that unreferenced object. Accepted task files remain durable with the thread. PostgreSQL metadata follows the task cascade; integration code that permanently deletes tasks must delete their object keys before deleting the rows.
+The server accepts up to five files, each from 1 byte through 10 MiB. Supported types are PNG, JPEG, WebP, GIF, PDF, UTF-8 text, CSV, Markdown, and JSON. It checks file signatures or decodes and validates textual formats instead of trusting the browser MIME type. Names are reduced to a safe leaf name. If object upload succeeds but metadata persistence fails, the helper deletes that unreferenced object. Accepted task files remain durable with the thread. Delegation handoffs reference the original attachment and share its object bytes; `ON DELETE RESTRICT` prevents deletion while a parent reference exists. Any future permanent-delete path must transactionally remove or tombstone authorized metadata and enqueue object cleanup only after proving that no attachment or delegation reference remains, then delete the object idempotently after commit. Never delete object bytes before the reference transaction commits.
 
 ## Configuration
 
@@ -64,3 +72,15 @@ RUN_STORAGE_ACCEPTANCE=1 bun test apps/server/test/files.test.ts
 container and private bucket owned by that verification run. The verifier labels PostgreSQL,
 MinIO, agent, and short-lived setup containers with its random run identity, then removes only
 containers carrying that exact label even when a check fails.
+## Delegation handoff
+
+The executor verifies child output durability before creating the parent review. In one fenced
+transaction it inserts the review run and `delegation_files` references to the original child
+attachments. The review keeps `attachment_count=0` because this count belongs to human uploads;
+its delegation source causes the executor to stage the linked files separately. References are
+idempotent and do not create new S3 objects.
+
+Parent detail projects each retained attachment under the parent review’s run ID. Its download URL
+continues to target the original child attachment and requires the same authenticated owner, even
+after the child is archived or retired. Background Activity shows these download links. Source and
+parent ownership, file length and SHA-256 are checked before staging.

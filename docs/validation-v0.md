@@ -2,9 +2,10 @@
 
 `python3 scripts/verify.py` runs the agent unit suites, every isolated server/PostgreSQL suite, the
 compiled Linux acceptance path, frontend behavior tests, typechecking, and both production builds.
-The final full integrated run passed at `.artifacts/verification/61566c4f5586`, including 22
-frontend tests and the runtime fault suites. Artifact paths are local evidence and are not committed.
-Earlier measured runs remain under `docs/measurements`; their counts predate the final integration.
+The final product-core run passed at `.artifacts/verification/bcdfc7fd8178`, with the account,
+template, history, handoff, and shared-memory fixes integrated. Artifact paths are local evidence
+and are not committed. Earlier measured runs remain under `docs/measurements`; their counts predate
+the final integration.
 
 The integrated Linux scenario exercises real Pi read/write/bash tools through the controller:
 two independent Companions, cancellation during a shell command, process death after a filesystem
@@ -29,10 +30,11 @@ returned a persisted French response using this model.
 
 After Box configuration, canaries passed snapshot lookup, creation, real file/shell tools,
 archive/resume of the same machine, file persistence, desktop URL retrieval, and physical takeover.
-The latest immutable snapshot was `companions-agent-v3-final-20260907`; re-running its preparation
-observed it through GET and performed no reinstall.
+The V3 snapshot `companions-agent-v3-final-20260907` was observed through GET on re-entry and was
+not reinstalled. The latest immutable distribution is `companions-agent-v5-20260907`; its delegated
+file and memory/history canaries are described below.
 
-The live portable-skills canary on the final V3 Box passed. It verified exported hashes, idempotent
+The live portable-skills canary on the V3 snapshot passed. It verified exported hashes, idempotent
 import, discovery through the daemon skills endpoint, and a real Pi tool task that could only
 succeed by reading the imported fixture. The persisted PostgreSQL result and private daemon journal
 agreed. The daemon also rejected a forged bundle containing a credentials file. The artifact is local and private; this document intentionally omits its unique fixture,
@@ -88,8 +90,37 @@ The V0 has working local and targeted live paths, but it is not a launch proof. 
 Stripe charge/meter acceptance, complete launch-provider OAuth canary matrix, hosted multi-user
 load evidence, or demonstrated few-second cold start. The portable-skill lifecycle has deterministic
 coverage and a passing real-Box canary. The runtime concurrency findings for warm-work blocking and executor-leadership fencing are
-fixed and covered by twelve focused fault tests. The fully integrated verification
-`61566c4f5586` also passes with the invitation claim, shared credential-transfer guards, model
-default preservation, and canonical migration ordering. Known credential files and recognizable
+fixed and covered by twelve focused fault tests. Final product-core verification `bcdfc7fd8178`
+covers the invitation claim, shared credential-transfer guards, model default preservation,
+canonical migration ordering, account isolation, template serialization, history search,
+delegated-file handoff, and shared-memory conflict handling. Known credential files and recognizable
 secret material are rejected during skill transfer; this is not universal secret detection for
 arbitrary package content.
+
+## Final delegation and memory acceptance
+
+The V5 frozen distribution (`companions-agent-v5-20260907`) includes versioned shared-memory
+updates, targeted history search and delegated question replies. The real Box handoff canary
+passed: a child generated an unknown UUID, returned it only through `send_file`, and its Box was
+archived while the parent remained physically paused. After release, the parent read the retained
+file from object storage and returned the exact UUID. The mobile Activity download returned HTTP
+200 with the same bytes and no horizontal overflow. No child runtime was needed for that read.
+
+The deterministic suites additionally prove concurrent memory conflicts, restart persistence,
+workspace isolation, bounded same-Companion history search, multi-hop and concurrent delegation
+cycle rejection, and later-parent-turn clarification. Account acceptance uses a real Better Auth
+logout to reject the formerly valid cookie; two deliveries from one source remain independent;
+late metering retains its original timestamp after a simulated subscription period change.
+Concurrent template promotion produces one revision, and a new child created after source
+retirement receives the pinned snapshot with fresh identity and state.
+
+A second V5 live task found that earlier review through `history_search` and merged its exact run
+ID into shared memory using the native read/update tools. The canary independently read the Box
+file and verified the stored ID; the search result ID was not included in the task prompt.
+
+The V5 chat-driven skill-install canary also passed: authenticated SKILL.md upload, installation by
+Pi’s ordinary file tools, independently downloaded upload bytes, exact exported skill bytes, native
+discovery, and a fresh SHA-256 challenge at the next turn. The PostgreSQL result matched the daemon
+journal. The first canary attempt incorrectly expected internal hash fields in the public upload
+response; the corrected probe uses the documented size/download contract and resumed the same
+accepted task IDs. No runtime import endpoint was used to install the skill.

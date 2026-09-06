@@ -6,15 +6,14 @@ Only the executor calls `progressLifecycle`. There is no machine contact in API/
 
 ## Integration
 
-Run `migrateLifecycle(tx)` after product/auth/automation migrations under the existing migration
-lock. The production executor creates one `LifecycleCoordinator` and passes it to `tick`.
-It starts at most four independent Companion jobs without awaiting their provider calls, so a cold
-Box cannot hold warm chat or active task reconciliation. Each job reserves a separate PostgreSQL
-connection and fences its effects and checkpoints against the captured leader PID. Pending machines
-are polled fairly, with one in-flight job per Companion; shutdown drains jobs before releasing the
-leader connection. Direct `progressLifecycle` remains available for deterministic behavior tests. Import `lifecycleControlHandlers` into
-`registerControl` after the original delegate and desktop handlers so the durable versions win.
-Add `templates`, `template_permission` and `prepare` to the control tool's operation vocabulary.
+`store.migrate()` applies `lifecycle.sql` in the canonical migration transaction. The production
+executor owns one `LifecycleCoordinator`, and `runtime-product.ts` registers
+`lifecycleControlHandlers` with the compiled control vocabulary. The coordinator starts at most
+four independent Companion jobs without awaiting their provider calls, so a cold Box cannot hold
+warm chat or active task reconciliation. Each job reserves a separate PostgreSQL connection and
+fences its effects and checkpoints against the captured leader PID. Pending machines are polled
+fairly, with one in-flight job per Companion; shutdown drains jobs before releasing leadership.
+Direct `progressLifecycle` remains available for deterministic behavior tests.
 
 `handleLifecycle({operation,companionId?,commandId?,runId?,input?}, ownerId)` serves API requests and
 MCP commands. API authorization supplies the authenticated owner; callers never accept an arbitrary
@@ -37,8 +36,10 @@ run. Existing Companions retain their original `/home/user/.companions` state pa
 use `/home/user/.companions/agents/<child-id>` so they never open the source Pi journal or history.
 A clone keeps its selected template revision and snapshot name even if the profile later changes.
 A private snapshot may intentionally retain the owner's browser sessions and installed software.
-Cross-owner delivery must copy only portable profile data (`name`, `instructions`, `avatar`) and
-start from the installation's fresh base Box. Never copy `snapshot_name` or `source_companion_id`.
+Cross-owner delivery copies only the portable profile (`name`, `instructions`, `avatar`) plus
+bounded, validated local-skill bundles included by the delivery request, and starts from the
+installation's fresh base Box. It never copies `snapshot_name`, `source_companion_id`, browser
+state, credentials, history, or connections.
 
 ## Desktop takeover
 
@@ -48,7 +49,7 @@ freeze/thaw. Box runs `systemctl --user freeze/thaw companions-agent.service` th
 user bus; local development uses label-checked Docker pause/unpause. The process and its child
 tools freeze together. A persisted timestamp appears only after physical confirmation. Closing
 the browser does not release takeover. A failed freeze keeps an explicit error and never claims
-that the agent has stopped. Box freeze support still requires the live provider canary.
+that the agent has stopped. A live provider canary confirmed daemon-wide freeze/resume for one Box.
 
 Release thaws the original process and clears the observed timestamp before ordinary journal
 reconciliation. An external model request may time out while frozen; that task can fail visibly
@@ -64,9 +65,10 @@ return asynchronously as another parent background task, avoiding circular waits
 
 `hooks.filesDurable(run)` must return true only after every declared output has reached durable
 object storage. A missing hook or transient failure blocks finalization. The executor must observe
-the terminal agent outbox as well as active work. The module checkpoints file completion, then
-atomically stores the result and creates the parent review task. Results and attachment references
-remain attached to the original task after its child retires.
+the terminal agent outbox as well as active work. The immutable attachment remains owned by the
+child run. The same transaction that creates the parent review inserts owner-scoped
+`delegation_files` references, so the parent can stage and download the exact bytes after child
+archival without a second object copy.
 
 The child is retained until the parent review finishes, allowing `adopt_template` during review.
 A queued/capturing snapshot blocks archive. Snapshot names are persisted before POST; a lost
@@ -104,5 +106,7 @@ owned Linux container proves a subprocess cannot write while paused and resumes 
 `apps/server/test/async-lifecycle.test.ts` additionally proves that warm chat dispatches and finishes
 while another prepare remains blocked, that repeated ticks do not duplicate jobs, that pending
 machines share the bounded preparation slots fairly, and that a lost leader cannot checkpoint a
-late provider response. `python3 scripts/verify.py` runs these with the existing Pi/Linux suite. Live Box freeze, snapshot
-and archive validation is left to the isolated credentialed canary; no worktree test uses live keys.
+late provider response. `python3 scripts/verify.py` runs these with the existing Pi/Linux suite.
+Isolated credentialed canaries have observed live Box freeze/resume, snapshot lookup/re-entry,
+archive/wake, and delegated-file handoff on individual Boxes; these observations are not continuous
+provider or latency guarantees. No worktree test uses live keys.

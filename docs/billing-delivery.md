@@ -17,9 +17,9 @@ Stripe Checkout uses subscription mode and the configured Price ID. The server s
 
 ## Client delivery
 
-`POST /api/deliveries` requires a stable `clientDeliveryId` UUID and creates an invitation for a lower-cased client email and an owned Companion. The web client keeps that UUID across ambiguous retries. Reusing it with the same request returns the first invitation without another email; reusing it with changed details is rejected. Only the portable profile is captured: name, instructions, avatar, and explicitly selected agent-template profiles. Private template snapshots, source references, personal connections, OAuth tokens, browser sessions, machine identifiers, secrets, and transcripts are excluded.
+`POST /api/deliveries` requires a stable `clientDeliveryId` UUID and creates an invitation for a lower-cased client email and an owned Companion. The web client keeps that UUID across ambiguous retries. Reusing it with the same request returns the first invitation without another email; reusing it with changed details is rejected. The persisted profile snapshot contains name, instructions, avatar, and explicitly selected agent-template profiles. In parallel, explicitly included bounded local Pi skills are exported into validated immutable private bundles for the delivered Companion and selected templates. Private template snapshots, source references, personal connections, OAuth tokens, browser sessions, machine identifiers, secrets, and transcripts are excluded.
 
-The recipient signs in through Better Auth and must have the exact verified email before `POST /api/deliveries/:id/accept` succeeds. Activation requires an active subscription whenever Stripe billing is configured. Acceptance creates a new Companion identity and a fresh Box from the configured base template. Portable child templates receive new IDs and preserve only their declarative profile and bounded child permission.
+The recipient signs in through Better Auth and must have the exact verified email before `POST /api/deliveries/:id/accept` succeeds. Activation requires an active subscription whenever Stripe billing is configured. Acceptance creates a new Companion identity and a fresh Box from the configured base template. Portable child templates receive new IDs and preserve their declarative profile, bounded child permission, and validated portable-skill bundle.
 
 Maintenance is a separate explicit grant. The sender may request it, but access exists only when the recipient accepts with `grantMaintenance: true`. The recipient can revoke it through `DELETE /api/deliveries/:id/maintenance`. `canMaintainCompanion` is the only maintenance authorization helper; ownership never follows from the original delivery.
 
@@ -40,6 +40,8 @@ Provisioning time before confirmed readiness is not charged by this ledger.
 
 `STRIPE_METER_EVENT_NAME` is the model-token meter. `STRIPE_BOX_METER_EVENT_NAME` is a separate
 Box-second meter: different units are never added into one meter. Internal `box_lifecycle`
-events are audit records and are never sent as billable consumption. A missing Box meter
-leaves its usage pending. Configure the corresponding usage prices on the Stripe subscription;
-the application cannot infer commercial rates or create prices without that configuration.
+events are audit records and are never sent as billable consumption. Both meter names are required
+for Stripe mode. If either is absent, billing is unconfigured and cannot grant hosted activation;
+ledger rows recorded outside Stripe mode are marked skipped rather than queued for provider
+delivery. Configure the corresponding usage prices on the Stripe subscription; the application
+cannot infer commercial rates or create prices without that configuration.

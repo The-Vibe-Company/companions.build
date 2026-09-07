@@ -55,7 +55,8 @@ describe("first Companion flow", () => {
     });
     vi.stubGlobal("fetch",fetchMock);
     const user=userEvent.setup();render(<App/>);
-    await user.click(await screen.findByRole("button",{name:"Settings for Ada"}));
+    await user.click(await screen.findByRole("button",{name:"Edit Ada's personality"}));
+    await user.click(screen.getByRole("button", { name: "Back to settings" }));
     await user.click(screen.getByRole("button",{name:"Delete companion"}));
     await user.click(screen.getByRole("button",{name:"Delete companion"}));
     expect(await screen.findByRole("heading",{name:"Your companions."})).toBeInTheDocument();
@@ -257,7 +258,8 @@ describe("first Companion flow", () => {
     expect(screen.getByRole("complementary", { name: "Activity" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "report.md" })).toHaveAttribute("href", "/api/companions/ada/files/report");
     await user.click(screen.getAllByRole("button", { name: "Close activity" }).at(-1)!);
-    await user.click(screen.getByRole("button", { name: "Settings for Ada" }));
+    await user.click(screen.getByRole("button", { name: "Edit Ada's personality" }));
+    await user.click(screen.getByRole("button", { name: "Back to settings" }));
     expect(screen.getByRole("dialog", { name: "Make Ada yours" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Personality/ })).toBeInTheDocument();
     expect(screen.queryByLabelText("Name")).not.toBeInTheDocument();
@@ -314,7 +316,7 @@ describe("first Companion flow", () => {
     expect(screen.getByRole("heading", { name: "Researcher" }).parentElement).toHaveTextContent("Finished");
     expect(screen.queryByRole("textbox", { name: "Message Researcher" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Desktop" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Settings for Researcher" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Edit Researcher's personality" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Activity" })).toBeInTheDocument();
     expect(window.location.pathname).toBe("/companions/specialist");
   });
@@ -334,9 +336,10 @@ describe("first Companion flow", () => {
 
     expect(await screen.findByRole("textbox", { name: "Message Ada" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Ada" }).parentElement).toHaveTextContent("Sleeping");
-    await userEvent.click(screen.getByRole("button", { name: "Settings for Ada" }));
+    await userEvent.click(screen.getByRole("button", { name: "Edit Ada's personality" }));
+    await userEvent.click(screen.getByRole("button", { name: "Back to settings" }));
     expect(screen.getByRole("button", { name: /Open computer/ })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Settings for Ada" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Settings for Ada" })).not.toBeInTheDocument();
   });
 
   it("drops files through the durable upload path and preserves the draft for an exact retry", async () => {
@@ -589,8 +592,7 @@ it("preserves the configured default model when editing only a Companion identit
   throw new Error(`Unexpected request: ${path}`);
  });
  vi.stubGlobal("fetch",fetchMock);const user=userEvent.setup();render(<App/>);
- await user.click(await screen.findByRole("button",{name:"Settings for Ada"}));
- await user.click(screen.getByRole("button",{name:/Personality/}));
+ await user.click(await screen.findByRole("button",{name:"Edit Ada's personality"}));
  await user.click(screen.getByText("Model preferences"));
  expect(screen.getByLabelText("Model")).toHaveValue("");
  await user.clear(screen.getByLabelText("Name"));await user.type(screen.getByLabelText("Name"),"Ada renamed");

@@ -14,7 +14,6 @@ import {
   PanelLeftClose,
   Paperclip,
   Plus,
-  Settings,
   Send,
   Server,
   Trash2,
@@ -562,7 +561,6 @@ function CompanionView({ detail, models, onRefresh, onUnauthorized, onMenu, onOp
         </button>
         <div className="header-actions">
           {(finished || detail.runs.some(run => isActiveRun(run.status)) || !!detail.questions?.length) && <Button variant="ghost" size="sm" onClick={() => setActivityOpen(true)} aria-label="Activity"><CalendarClock /><span>{detail.questions?.length ? 'Needs you' : 'Activity'}</span></Button>}
-          {!finished && <Button variant="ghost" size="icon" onClick={() => { setIdentityOpen(false); setSettingsOpen(true); }} aria-label={`Settings for ${detail.companion.name}`}><Settings /></Button>}
         </div>
       </header>
       {!finished && <nav className="companion-sections" aria-label="Companion sections">{([['chat', 'Discussion'], ['automations', 'Automations'], ['team', 'Team']] as const).map(([key, label]) => <button key={key} aria-current={view === key ? 'page' : undefined} onClick={() => changeView(key)}>{label}</button>)}</nav>}

@@ -1,0 +1,39 @@
+apps/server/src/api.ts
+  s_f946242dcf6ba9::t_68dab74a67ae23 123,126
+apps/server/test/store.test.ts
+  s_f946242dcf6ba9::t_8057aa0bb23530 54,179-197
+apps/web/src/App.test.tsx
+  s_f946242dcf6ba9::t_12bebf00bf7e09 104,528,571-603
+apps/web/src/App.tsx
+  s_f946242dcf6ba9::t_78702d7b9c0055 25,54-57,159,222,246,274,289,299,313,536-547,558,561,564,567-568,571-572,574,580,583,646-647,671,726,775-776,778,789,800,825-826,835,846
+apps/web/src/api.ts
+  s_f946242dcf6ba9::t_5b273a54310579 164,269
+apps/web/src/components/ProviderMark.tsx
+  s_f946242dcf6ba9::t_554753179dc1ff 1-17
+apps/web/src/components/SettingsSheet.tsx
+  s_f946242dcf6ba9::t_756261844a5c51 2,7,9-10,12-14,17,37,39
+apps/web/src/maison.css
+  s_f946242dcf6ba9::t_a9779283e3f510 115-170
+docs/measurements/maison-v2-2026-09-07.md
+  s_f946242dcf6ba9::t_8b654becb14f86 1-38
+docs/specs/maison-product-design-v2.md
+  s_f946242dcf6ba9::t_3313b2489f3f18 3-5,7
+docs/v0.md
+  s_f946242dcf6ba9::t_d798fa8c6b0572 187-196
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "e229e3f8e7b1014172501077fa53c8431c8ddf4b",
+  "prompts": {},
+  "sessions": {
+    "s_f946242dcf6ba9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a06de4-a8a5-7cd3-b713-2a8d451f7200",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "StanGirard <stan@quivr.app>"
+    }
+  }
+}

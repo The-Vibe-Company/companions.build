@@ -31,11 +31,12 @@ export function CreateTeamWizard({ config, companions, onCreated, onCancel }: Cr
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState("");
   const [creationStarted, setCreationStarted] = useState(false);
+  const [permissionWriteCommitted, setPermissionWriteCommitted] = useState(false);
   const creationId = useRef(crypto.randomUUID());
   const createdCoordinator = useRef<Companion | null>(null);
   const grantedTemplateIds = useRef(new Set<string>());
 
-  const provider = config.localAvailable ? "local" : "box";
+  const provider = config.boxAvailable ? "box" : "local";
   const providerAvailable = config.localAvailable || config.boxAvailable;
   const existingCoordinator = choice.kind === "existing" ? companions.find(item => item.id === choice.id) : undefined;
   const coordinator = createdCoordinator.current ?? existingCoordinator;
@@ -43,7 +44,8 @@ export function CreateTeamWizard({ config, companions, onCreated, onCancel }: Cr
     () => selectedTemplateIds.map(id => templates.find(template => template.id === id)).filter((template): template is AgentTemplate => Boolean(template)),
     [selectedTemplateIds, templates],
   );
-  const committed = creationStarted || grantedTemplateIds.current.size > 0;
+  const committed = creationStarted || permissionWriteCommitted;
+  const interactionLocked = saving || committed;
 
   async function loadTemplates() {
     setLoadingTemplates(true);
@@ -91,10 +93,19 @@ export function CreateTeamWizard({ config, companions, onCreated, onCancel }: Cr
       }
       if (!target) throw new Error("Choose a coordinator before creating the team.");
 
+      if (selectedTemplates.length > 0) {
+        const currentPermissions = await workspaceApi.companionTemplates(target.id);
+        for (const permission of currentPermissions.templates) {
+          if (permission.maxChildren > 0 && selectedTemplateIds.includes(permission.templateId)) {
+            grantedTemplateIds.current.add(permission.templateId);
+          }
+        }
+      }
       for (const template of selectedTemplates) {
         if (grantedTemplateIds.current.has(template.id)) continue;
         await workspaceApi.setTemplatePermission(target.id, template.id, 2);
         grantedTemplateIds.current.add(template.id);
+        setPermissionWriteCommitted(true);
       }
       onCreated(target);
     } catch (cause) {
@@ -105,6 +116,7 @@ export function CreateTeamWizard({ config, companions, onCreated, onCancel }: Cr
   }
 
   const remainingPermissions = selectedTemplateIds.filter(id => !grantedTemplateIds.current.has(id)).length;
+  const creationOutcomeUnknown = choice.kind === "new" && creationStarted && !createdCoordinator.current;
 
   return (
     <section className="team-wizard" aria-labelledby="team-wizard-title">
@@ -113,7 +125,7 @@ export function CreateTeamWizard({ config, companions, onCreated, onCancel }: Cr
           <span>Create a team</span>
           <h1 id="team-wizard-title">{step === "coordinator" ? "Who will lead?" : step === "specialists" ? "Who can help?" : "Your team, at a glance"}</h1>
         </div>
-        <button className="team-wizard__close" type="button" onClick={onCancel} disabled={committed} aria-label={committed ? "Finish saving before closing" : "Close team creation"}><X /></button>
+        <button className="team-wizard__close" type="button" onClick={onCancel} disabled={interactionLocked} aria-label={interactionLocked ? "Finish saving before closing" : "Close team creation"}><X /></button>
       </header>
 
       <ol className="team-wizard__progress" aria-label="Team creation progress">
@@ -172,7 +184,7 @@ export function CreateTeamWizard({ config, companions, onCreated, onCancel }: Cr
           <div className="team-wizard__review-lead"><span>Coordinator</span>{coordinator ? <><CompanionAvatar name={coordinator.name} avatar={coordinator.avatar} size={64} /><div><strong>{coordinator.name}</strong><small>{coordinator.instructions}</small></div></> : <><CompanionAvatar name={name} avatar={avatar} size={64} /><div><strong>{name}</strong><small>{instructions}</small></div></>}</div>
           <div className="team-wizard__review-specialists"><span>Can ask for help from</span>{selectedTemplates.length ? selectedTemplates.map(template => <div key={template.id}><CompanionAvatar name={template.name} avatar={template.avatar} size={44} /><p><strong>{template.name}</strong><small>{template.instructions}</small></p>{grantedTemplateIds.current.has(template.id) && <em><Check />Added</em>}</div>) : <p className="team-wizard__solo">No specialists yet. You can add them later.</p>}</div>
         </div>
-        {saveError && <div className="team-wizard__save-error" role="alert"><strong>{createdCoordinator.current || grantedTemplateIds.current.size ? "Your progress is saved." : "The team wasn’t created."}</strong><p>{saveError}</p>{(createdCoordinator.current || grantedTemplateIds.current.size > 0) && remainingPermissions > 0 && <small>{remainingPermissions} specialist{remainingPermissions === 1 ? "" : "s"} still to add. Retry to continue without duplicating your coordinator.</small>}</div>}
+        {saveError && <div className="team-wizard__save-error" role="alert"><strong>{creationOutcomeUnknown ? "We couldn’t confirm what was saved." : committed ? "Your progress is saved." : "The team couldn’t be saved."}</strong><p>{saveError}</p>{creationOutcomeUnknown ? <small>Retry to continue safely with the same creation request.</small> : committed && remainingPermissions > 0 ? <small>{remainingPermissions} specialist{remainingPermissions === 1 ? "" : "s"} still to add. Retry to continue without duplicating your coordinator.</small> : null}</div>}
         <div className="team-wizard__actions">
           {!committed && <Button type="button" variant="ghost" disabled={saving} onClick={() => setStep("specialists")}><ArrowLeft />Back</Button>}
           <Button type="button" disabled={saving} onClick={() => void createTeam()}>{saving ? <><LoaderCircle className="spin" />Creating team…</> : saveError ? "Try again" : "Create team"}</Button>

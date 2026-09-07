@@ -13,6 +13,7 @@ const templates = [
 
 beforeEach(() => {
   vi.spyOn(workspaceApi, "templates").mockResolvedValue({ templates });
+  vi.spyOn(workspaceApi, "companionTemplates").mockResolvedValue({ templates: [] });
 });
 
 describe("CreateTeamWizard", () => {
@@ -72,7 +73,7 @@ describe("CreateTeamWizard", () => {
       ["new-coordinator", "writer", 2],
     ]);
     expect(spawn).not.toHaveBeenCalled();
-    expect(JSON.parse(JSON.stringify(create.mock.calls[0][0]))).toMatchObject({ clientCreationId: expect.stringMatching(/^[0-9a-f-]{36}$/), name: "Maya", instructions: "Keep my app moving", provider: "local", prepare: false });
+    expect(JSON.parse(JSON.stringify(create.mock.calls[0][0]))).toMatchObject({ clientCreationId: expect.stringMatching(/^[0-9a-f-]{36}$/), name: "Maya", instructions: "Keep my app moving", provider: "box", prepare: false });
   });
 
   it("reuses its creation id when the coordinator response is lost", async () => {
@@ -87,12 +88,54 @@ describe("CreateTeamWizard", () => {
     await screen.findByText("Researcher");
     await user.click(screen.getByRole("button", { name: "Review team" }));
     await user.click(screen.getByRole("button", { name: "Create team" }));
-    expect(await screen.findByRole("alert")).toHaveTextContent("Response lost");
+    expect(await screen.findByRole("alert")).toHaveTextContent("We couldn’t confirm what was saved.");
+    expect(screen.getByRole("alert")).toHaveTextContent("Response lost");
     expect(screen.queryByRole("button", { name: "Back" })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Finish saving before closing" })).toBeDisabled();
     await user.click(screen.getByRole("button", { name: "Try again" }));
     await waitFor(() => expect(onCreated).toHaveBeenCalledWith(created));
     expect(create).toHaveBeenCalledTimes(2);
     expect(create.mock.calls[1][0].clientCreationId).toBe(create.mock.calls[0][0].clientCreationId);
+  });
+
+  it("preserves active permission limits and only re-enables revoked profiles", async () => {
+    vi.mocked(workspaceApi.companionTemplates).mockResolvedValue({ templates: [
+      { templateId: "research", maxChildren: 7, name: "Researcher", revision: 1 },
+      { templateId: "writer", maxChildren: 0, name: "Writer", revision: 3 },
+    ] });
+    const permission = vi.spyOn(workspaceApi, "setTemplatePermission").mockResolvedValue({ templateId: "writer", maxChildren: 2 });
+    const onCreated = vi.fn();
+    const user = userEvent.setup();
+    render(<CreateTeamWizard config={config} companions={[coordinator]} onCreated={onCreated} onCancel={vi.fn()} />);
+    await user.click(screen.getByRole("button", { name: "Continue" }));
+    await user.click(await screen.findByRole("checkbox", { name: /Researcher/ }));
+    await user.click(screen.getByRole("checkbox", { name: /Writer/ }));
+    await user.click(screen.getByRole("button", { name: "Review team" }));
+    await user.click(screen.getByRole("button", { name: "Create team" }));
+
+    await waitFor(() => expect(onCreated).toHaveBeenCalledWith(coordinator));
+    expect(permission).toHaveBeenCalledTimes(1);
+    expect(permission).toHaveBeenCalledWith("c1", "writer", 2);
+  });
+
+  it("locks Back and Close while the first permission write is unresolved", async () => {
+    let resolvePermission!: (value: { templateId: string; maxChildren: number }) => void;
+    const permission = vi.spyOn(workspaceApi, "setTemplatePermission").mockImplementation(() => new Promise(resolve => { resolvePermission = resolve; }));
+    const onCreated = vi.fn();
+    const onCancel = vi.fn();
+    const user = userEvent.setup();
+    render(<CreateTeamWizard config={config} companions={[coordinator]} onCreated={onCreated} onCancel={onCancel} />);
+    await user.click(screen.getByRole("button", { name: "Continue" }));
+    await user.click(await screen.findByRole("checkbox", { name: /Researcher/ }));
+    await user.click(screen.getByRole("button", { name: "Review team" }));
+    await user.click(screen.getByRole("button", { name: "Create team" }));
+
+    await waitFor(() => expect(permission).toHaveBeenCalled());
+    expect(screen.getByRole("button", { name: "Back" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Finish saving before closing" })).toBeDisabled();
+    expect(onCancel).not.toHaveBeenCalled();
+
+    resolvePermission({ templateId: "research", maxChildren: 2 });
+    await waitFor(() => expect(onCreated).toHaveBeenCalledWith(coordinator));
   });
 });

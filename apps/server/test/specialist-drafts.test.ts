@@ -88,3 +88,36 @@ test('a cancelled operation cannot submit its snapshot or publish after its in-f
  expect((await readSpecialistDraft(owner,profile.id)).draft.publication.status).toBe('failed');
  expect((await db`SELECT revision FROM agent_templates WHERE id=${profile.id}`)[0].revision).toBe(1);
 });
+test('cancellation during snapshot observation prevents the subsequent snapshot POST',async()=>{
+ const profile=await saveTemplate(owner,{name:'Cancelled observation'});
+ const {draft}=await openSpecialistDraft(owner,profile.id,{commandId:crypto.randomUUID()});
+ await db`UPDATE companions SET provider='box',box_id='observed-source',status='ready' WHERE id=${draft.companionId}`;
+ const {publication}=await requestSpecialistPublication(owner,profile.id,{commandId:crypto.randomUUID(),expectedGeneration:draft.generation,contentReviewed:true});
+ let captures=0;
+ const machines:any={freezeSpecialist:async()=>{},snapshotStatus:async()=>{await db`UPDATE specialist_operations SET status='failed',error='Cancelled' WHERE id=${publication.id}`;return 'missing';},snapshot:async()=>{captures++;},createSpecialistImage:async()=>true,sanitizeSpecialistImage:async()=>{}};
+ const authority={assertLeader:async()=>{},checkpoint:<T>(fn:(tx:any)=>Promise<T>)=>db.begin(fn)};
+ await progressSpecialistDrafts(db,machines,authority,async()=>true,draft.companionId);
+ await progressSpecialistDrafts(db,machines,authority,async()=>true,draft.companionId);
+ expect(captures).toBe(0);
+ expect((await readSpecialistDraft(owner,profile.id)).draft.publication.status).toBe('failed');
+});
+test('a create acknowledged after cancellation records the Box identity for cleanup without sanitizing it',async()=>{
+ const profile=await saveTemplate(owner,{name:'Late image create'});
+ const {draft}=await openSpecialistDraft(owner,profile.id,{commandId:crypto.randomUUID()});
+ await db`UPDATE companions SET provider='box',box_id='late-source',status='ready' WHERE id=${draft.companionId}`;
+ const {publication}=await requestSpecialistPublication(owner,profile.id,{commandId:crypto.randomUUID(),expectedGeneration:draft.generation,contentReviewed:true});
+ const snapshots=new Set<string>();let sanitized=0;
+ const machines:any={freezeSpecialist:async()=>{},snapshotStatus:async(name:string)=>snapshots.has(name)?'ready':'missing',snapshot:async(_:any,name:string)=>{snapshots.add(name);},
+  createSpecialistImage:async(image:any,checkpoint:any)=>{
+   expect((await db`SELECT create_started_at FROM companions WHERE id=${image.id}`)[0].create_started_at).not.toBeNull();
+   await db`UPDATE specialist_operations SET status='failed',error='Cancelled' WHERE id=${publication.id}`;
+   await checkpoint('late-image-box');return true;
+  },sanitizeSpecialistImage:async()=>{sanitized++;}};
+ const authority={assertLeader:async()=>{},checkpoint:<T>(fn:(tx:any)=>Promise<T>)=>db.begin(fn)};
+ for(let i=0;i<5;i++){
+  await progressSpecialistDrafts(db,machines,authority,async()=>true,draft.companionId);
+  await db`UPDATE companions SET archived_at=now(),archive_requested_at=null WHERE id=${draft.companionId} AND archive_requested_at IS NOT NULL`;
+ }
+ const [image]=await db`SELECT c.box_id,c.archive_requested_at FROM companions c JOIN specialist_operations o ON o.image_companion_id=c.id WHERE o.id=${publication.id}`;
+ expect(image.box_id).toBe('late-image-box');expect(image.archive_requested_at).not.toBeNull();expect(sanitized).toBe(0);
+});

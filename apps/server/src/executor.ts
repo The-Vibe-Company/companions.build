@@ -352,7 +352,8 @@ export class LifecycleCoordinator {
   this.leaderPid=identity.pid;
   const pending=await leader`SELECT c.id FROM companions c WHERE
    (c.retired_at IS NULL AND (c.prepare_requested OR ((c.desktop_boundary_version=1 OR c.desktop_taken) AND c.status='ready' AND c.endpoint_secret IS NOT NULL AND (c.desktop_checked_at IS NULL OR c.desktop_checked_at<now()-interval '30 seconds' OR (c.desktop_observed_generation IS DISTINCT FROM c.desktop_generation AND c.desktop_checked_at<now()-interval '2 seconds'))) OR c.archive_requested_at IS NOT NULL
-    OR EXISTS(SELECT 1 FROM machine_admission_requests m WHERE m.companion_id=c.id AND m.state='queued')
+    OR EXISTS(SELECT 1 FROM machine_admission_requests m WHERE m.companion_id=c.id AND m.state IN ('queued','cancelling'))
+    OR ((c.temporary OR c.specialist_draft_id IS NOT NULL) AND c.archived_at IS NULL AND EXISTS(SELECT 1 FROM machine_admission_requests m WHERE m.owner_id=c.owner_id AND m.state='queued' AND m.waiting_reason='active_limit'))
     OR (c.status='ready' AND c.prepare_requested=false AND NOT c.desktop_taken AND COALESCE(c.keep_alive_until,'-infinity')<=now()
       AND COALESCE(c.machine_activity_at,c.ready_at,c.created_at)<=now()-interval '30 minutes')
     OR ((c.temporary OR c.specialist_draft_id IS NOT NULL) AND c.box_id IS NOT NULL AND c.archived_at IS NULL AND (c.provider_ttl_checked_at IS NULL OR c.provider_ttl_checked_at<now()-interval '15 minutes') AND (c.keep_alive_until>now() OR EXISTS(SELECT 1 FROM runs active WHERE active.companion_id=c.id AND active.dispatched AND active.status='running')))

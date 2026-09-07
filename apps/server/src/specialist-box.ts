@@ -58,21 +58,24 @@ for retained in [saved,workspace]:
 }
 export function specialistBoxMachines(box:BoxClient|null):Pick<SpecialistMachines,'freezeSpecialist'|'createSpecialistImage'|'sanitizeSpecialistImage'>{
  return {
-  async freezeSpecialist(companion){
+  async freezeSpecialist(companion,beforeEffect=async()=>{}){
    if(!box)throw Error('box_not_configured');
+   await beforeEffect();
    const policy=(await box.command(companion.box_id,`sudo -n python3 -c ${quote(specialistCapturePolicyInspection())}`,30)).trim();
    if(policy!=='ok')throw Error('capture_policy_requires_review');
    // Disable before taking the private source capture: image copies cannot boot the old identity.
+   await beforeEffect();
    await box.command(companion.box_id,`if test -f /opt/companions/desktop-boundary.version; then sudo -n systemctl disable --now companions-agent-proxy.socket companions-agent.service companions-desktop.service; else ${userSystemctl('disable --now companions-agent.service')}; fi`);
   },
-  async createSpecialistImage(companion,checkpoint){
+  async createSpecialistImage(companion,checkpoint,beforeEffect=async()=>{}){
    if(!box)throw Error('box_not_configured');
-   if(!companion.box_id){const created=await box.create(companion.create_key,companion.snapshot_name);await checkpoint(created.id);companion.box_id=created.id;}
+   if(!companion.box_id){await beforeEffect();const created=await box.create(companion.create_key,companion.snapshot_name);await checkpoint(created.id);companion.box_id=created.id;}
    const state=await box.get(companion.box_id);
    return ['ready','idle','running'].includes(state.state)&&(!state.setupStatus||state.setupStatus==='done');
   },
-  async sanitizeSpecialistImage(companion,sourceId){
+  async sanitizeSpecialistImage(companion,sourceId,beforeEffect=async()=>{}){
    if(!box)throw Error('box_not_configured');
+   await beforeEffect();
    await box.command(companion.box_id,`sudo -n python3 -c ${quote(specialistSanitization(sourceId))}`,120);
   },
 };

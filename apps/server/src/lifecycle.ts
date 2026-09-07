@@ -170,8 +170,11 @@ export async function progressLifecycle(sql:any=db,hooks:LifecycleHooks={},machi
    if(latest.active_execution)throw new ExecutionStopped('Machine preparation waits for active work');
    if(!await (hooks.canStartWork??ownerMayStartWork)(companion.owner_id))throw new ExecutionStopped(SUBSCRIPTION_REQUIRED);
    await assertLeader();
+   // Grants can be revoked after queue admission or during a provider observation.
+   await sql.begin((tx:any)=>synchronizeSpecialistConnections(companion.id,tx));
   }
   try {
+   if(companion.prepare_requested)await sql.begin((tx:any)=>synchronizeSpecialistConnections(companion.id,tx));
    if(companion.prepare_requested){
     const [prior]=await sql`SELECT state FROM machine_admission_requests WHERE companion_id=${companion.id} AND state IN ('queued','admitted','cancelling')`;
     if(!prior){const admitted=await requestMachineAdmission(companion.owner_id,{requestId:crypto.randomUUID(),companionId:companion.id,kind:companion.archived_at?'resume':companion.temporary?'test':'configuration'},sql);if(admitted.state==='refused')await checkpoint(async tx=>{await tx`UPDATE companions SET prepare_requested=false,error='The specialist queue is full. Request preparation again when a place is available.' WHERE id=${companion.id}`;});if(admitted.state!=='admitted')return;}

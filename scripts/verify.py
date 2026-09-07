@@ -18,6 +18,8 @@ POSTGRES_IMAGES = {
 }
 parser = argparse.ArgumentParser()
 parser.add_argument("--postgres", choices=POSTGRES_IMAGES, default="17", help="PostgreSQL major used for both the crash source and isolated recovery target")
+validation_order = ["typecheck", "agent-unit", "specialist-init-and-git", "specialist-image-linux", "distribution-content-linux", "agent-build", "system", "web-tests", "web-build", "postgres-restore-seed"]
+parser.add_argument("--from-step", choices=validation_order, help="Resume remaining validation after fixing a failed step; earlier checks are recorded as skipped")
 args = parser.parse_args()
 
 os.chdir(ROOT)
@@ -36,6 +38,9 @@ steps = []
 started = time.monotonic()
 
 def run(label, args, cwd=ROOT, timeout=180):
+    if label in validation_order and args_from_step and validation_order.index(label) < validation_order.index(args_from_step):
+        steps.append({"name": label, "status": "skipped"})
+        return
     print(f"[{label}]", flush=True)
     before = time.monotonic()
     with (artifacts / f"{label}.log").open("w") as log:
@@ -52,6 +57,7 @@ def run(label, args, cwd=ROOT, timeout=180):
         raise RuntimeError(f"{label} failed")
 
 status = "failed"
+args_from_step = args.from_step
 try:
     postgres_data_path = "/var/lib/postgresql" if args.postgres == "18" else "/var/lib/postgresql/data"
     run("database-volume", ["docker", "volume", "create", "--label", verification_label, database_volume])
@@ -141,6 +147,7 @@ finally:
         cleanup = subprocess.run(["docker", "volume", "rm", *volumes.stdout.split()], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         if cleanup.returncode: status = "failed"
     report = {"status": status, "run": run_id, "seconds": round(time.monotonic()-started, 3),
+        "resumeFrom": args_from_step,
         "postgres": {"major": int(args.postgres), "image": postgres_image,
             **({"backupSha256": backup_sha256} if "backup_sha256" in locals() else {})}, "steps": steps}
     (artifacts / "summary.json").write_text(json.dumps(report, indent=2))

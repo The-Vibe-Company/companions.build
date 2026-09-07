@@ -187,7 +187,7 @@ function SpecialistEditor({ template, onCancel, onReload }: { template: AgentTem
 }
 
 function ProviderAccess() {
-  return <section className="specialist-editor__access"><strong>Apps &amp; accounts</strong><span>Apps are granted by the companion that calls this specialist.</span></section>;
+  return <section className="specialist-editor__access"><strong>Apps &amp; accounts</strong><span>Configure the specialist’s own accounts in its draft. A coordinator can override them for its team.</span></section>;
 }
 
 function LibrarySkeleton() { return <div className="specialist-library__skeleton" role="status" aria-label="Loading specialists">{[0,1,2,3].map(item => <span key={item}/>)}</div>; }

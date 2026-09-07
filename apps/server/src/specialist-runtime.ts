@@ -4,11 +4,12 @@ import {recordTemplateRevision} from './templates';
 import type {LifecycleMachines} from './lifecycle';
 import {requestMachineAdmissionInTransaction} from './admission';
 import {deferRejectedBoxStart} from './specialist-provider';
+import {BoxError} from '../../../packages/box/client';
 
 export interface SpecialistMachines extends LifecycleMachines {
- freezeSpecialist?(companion:any):Promise<void>;
- createSpecialistImage?(companion:any,checkpoint:(id:string)=>Promise<void>):Promise<boolean>;
- sanitizeSpecialistImage?(companion:any,sourceId:string):Promise<void>;
+ freezeSpecialist?(companion:any,beforeEffect?:()=>Promise<void>):Promise<void>;
+ createSpecialistImage?(companion:any,checkpoint:(id:string)=>Promise<void>,beforeEffect?:()=>Promise<void>):Promise<boolean>;
+ sanitizeSpecialistImage?(companion:any,sourceId:string,beforeEffect?:()=>Promise<void>):Promise<void>;
 }
 type Authority={assertLeader():Promise<void>;checkpoint<T>(fn:(sql:any)=>Promise<T>):Promise<T>};
 /** Each provider intent is checkpointed before submission; ambiguous captures are only observed. */
@@ -49,13 +50,13 @@ export async function progressSpecialistDrafts(sql:any,machines:SpecialistMachin
     continue;
    }
    if(op.status==='freezing'){
-    await authority.assertLeader();await machines.freezeSpecialist(source);
+    await authority.assertLeader();await machines.freezeSpecialist(source,()=>authority.assertLeader());
     await authority.checkpoint(async tx=>{
      await tx`UPDATE companions SET endpoint_secret=null,config_digest=null,prepare_requested=false WHERE id=${source.id}`;
      await tx`UPDATE specialist_operations SET status='capturing',capture_attempted_at=now() WHERE id=${op.id}`;
     });
     await authority.assertLeader();
-    if(await machines.snapshotStatus(op.source_snapshot_name)==='missing')await machines.snapshot(source,op.source_snapshot_name);
+    if(await machines.snapshotStatus(op.source_snapshot_name)==='missing'){await authority.assertLeader();await machines.snapshot(source,op.source_snapshot_name);}
     continue;
    }
    if(!op.image_companion_id){
@@ -77,11 +78,24 @@ export async function progressSpecialistDrafts(sql:any,machines:SpecialistMachin
    if(!op.sanitized_at){
     if(!await admit(image,'capture'))continue;
     await authority.assertLeader();
-    if(!await machines.createSpecialistImage(image,async id=>{await authority.checkpoint(async tx=>{await tx`UPDATE companions SET box_id=${id},create_started_at=COALESCE(create_started_at,now()) WHERE id=${image.id}`;});image.box_id=id;}))continue;
-    await authority.assertLeader();await machines.sanitizeSpecialistImage(image,source.id);
+    if(!image.box_id&&!image.create_started_at)await authority.checkpoint(async tx=>{
+     await tx`UPDATE companions SET create_started_at=now(),preparation_started_at=now() WHERE id=${image.id}`;
+    });
+    if(!await machines.createSpecialistImage(image,async id=>{
+     // A late successful create still needs its identity recorded for cancellation cleanup.
+     await executor.checkpoint(async tx=>{
+      await tx`SELECT pg_advisory_xact_lock(721440140)`;
+      const [state]=await tx`SELECT status FROM specialist_operations WHERE id=${op.id} FOR UPDATE`;
+      const stopped=!state||['failed','succeeded'].includes(state.status);
+      await tx`UPDATE companions SET box_id=${id},create_started_at=COALESCE(create_started_at,now()),
+       archive_requested_at=CASE WHEN ${stopped} THEN COALESCE(archive_requested_at,now()) ELSE archive_requested_at END WHERE id=${image.id}`;
+      if(stopped)await tx`UPDATE machine_admission_requests SET state='cancelling',released_at=null,waiting_reason='archive_pending' WHERE companion_id=${image.id} AND state IN ('admitted','cancelled')`;
+     });image.box_id=id;
+    },()=>authority.assertLeader()))continue;
+    await authority.assertLeader();await machines.sanitizeSpecialistImage(image,source.id,()=>authority.assertLeader());
     await authority.checkpoint(async tx=>{await tx`UPDATE specialist_operations SET sanitized_at=now(),image_capture_attempted_at=now() WHERE id=${op.id}`;});
     await authority.assertLeader();
-    if(await machines.snapshotStatus(op.snapshot_name)==='missing')await machines.snapshot(image,op.snapshot_name);
+    if(await machines.snapshotStatus(op.snapshot_name)==='missing'){await authority.assertLeader();await machines.snapshot(image,op.snapshot_name);}
     continue;
    }
    const captured=await machines.snapshotStatus(op.snapshot_name);
@@ -138,6 +152,9 @@ export async function progressSpecialistDrafts(sql:any,machines:SpecialistMachin
    if(error instanceof Error&&error.message==='operation_stopped')continue;
    await executor.assertLeader();
    if(op.image_companion_id&&await deferRejectedBoxStart(sql,op.image_companion_id,error))continue;
+   if(error instanceof BoxError&&['box_snapshot_limit','box_snapshot_saving'].includes(error.code)){
+    await fail(error.code==='box_snapshot_limit'?'The provider snapshot limit was reached. Review retained snapshot capacity before retrying; the published version is unchanged.':'The provider is already saving this snapshot. Inspect its state before retrying; the published version is unchanged.');continue;
+   }
    if(error instanceof Error&&error.message==='capture_policy_requires_review'){
     await fail('Snapshot exclusions need review. Remove active .boxignore or .oneignore rules that could omit prepared files, then request the test or publication again.');continue;
    }

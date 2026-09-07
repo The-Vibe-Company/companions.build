@@ -697,7 +697,7 @@ export function App() {
       if (!deletedIds.current.has(selectedId)) setDetail(result);
       setPageError("");
     } catch (cause) {
-      handleApiError(cause);
+      if (!deletedIds.current.has(selectedId)) handleApiError(cause);
     }
   }, [selectedId, handleApiError]);
 

@@ -118,8 +118,8 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
   });
 
   if (!response.ok) {
-    const body = (await response.json().catch(() => null)) as { error?: string } | null;
-    throw new ApiError(body?.error || `Request failed (${response.status})`, response.status);
+    const body = (await response.json().catch(() => null)) as { error?: string; message?: string } | null;
+    throw new ApiError(body?.error || body?.message || `Request failed (${response.status})`, response.status);
   }
 
   return response.json() as Promise<T>;
@@ -236,7 +236,7 @@ export const api = {
       form.set("position", String(position));
       const response = await fetch(`/api/companions/${id}/runs/${result.runId}/files`, { method: "POST", credentials: "same-origin", body: form });
       if (!response.ok) {
-        const body = await response.json().catch(() => null) as { error?: string } | null;
+        const body = await response.json().catch(() => null) as { error?: string; message?: string } | null;
         throw new ApiError(body?.error || `File upload failed (${response.status})`, response.status);
       }
     }));

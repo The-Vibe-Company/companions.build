@@ -88,12 +88,13 @@ export async function handler(request: Request): Promise<Response> {
   const webhookResponse = await handleWebhook(request);
   if(webhookResponse) return webhookResponse;
   if (url.pathname === "/health") return json({ ok: true });
+  // Public assets must load through TLS-terminating proxies and domain changes.
+  const apiPath = url.pathname === "/api" || url.pathname.startsWith("/api/");
+  if (!apiPath) return await serveStaticWeb(request, config.webDist) ?? json({ error: "Not found." }, 404);
   // Reject cross-origin browser writes, including login. Vite forwards same origin.
   const origin = request.headers.get("origin");
   if (origin && ![url.origin, process.env.APP_URL ?? "http://127.0.0.1:4310", `http://localhost:${process.env.WEB_PORT ?? 4310}`].includes(origin)) return json({ error: "Origin not allowed." }, 403);
   if (Number(request.headers.get("content-length") ?? 0) > (url.pathname.endsWith("/files") ? FILE_REQUEST_MAX_BYTES : 100_000)) return json({ error: "Request too large." }, 413);
-  const apiPath = url.pathname === "/api" || url.pathname.startsWith("/api/");
-  if (!apiPath) return await serveStaticWeb(request, config.webDist) ?? json({ error: "Not found." }, 404);
   try {
     if (url.pathname.startsWith("/api/auth/")) return auth.handler(request);
     if (request.method === "GET" && url.pathname === "/api/me") {

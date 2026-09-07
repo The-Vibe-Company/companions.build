@@ -81,6 +81,15 @@ after beta ends. An explicitly empty list closes access; removing the variable r
 subscription requirements. Redeploy all three roles when changing the list. Keep `BILLING_TEST_MODE`
 disabled in production.
 
+On Railway, connect the API, worker, and executor services to this GitHub repository's `main`
+branch with the root `Dockerfile`. Each role keeps its own start command:
+`/app/scripts/container-entrypoint.sh api`, `worker`, or `executor`. The API uses
+`/app/scripts/container-entrypoint.sh migrate` as its pre-deploy command and `/health` as its
+readiness check. Pushes to `main` deploy all three application services; PostgreSQL and MinIO
+retain their independent images and persistent volumes. No GitHub Actions workflow is required.
+Set `APP_URL` and `BETTER_AUTH_URL` consistently to the public HTTPS domain on all three roles;
+map the Railway custom domain to the actual service port, rather than assuming the Docker default.
+
 Keep service-specific credentials in the corresponding ignored `.env.api`, `.env.executor`, and
 `.env.worker` files. Put the selected model-provider key in `.env.api` only. In production, model requests use
 `${APP_URL}/api/model-gateway` (or an explicit HTTPS `MODEL_GATEWAY_URL` ending in

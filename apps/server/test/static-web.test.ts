@@ -44,3 +44,29 @@ test("SPA fallback is limited to safe non-API GET and HEAD requests", async () =
   expect((await serveStaticWeb(new Request("http://app.test/%2e%2e%2fsecret"), root))?.status).toBe(404);
   expect((await serveStaticWeb(new Request("http://app.test/.env"), root))?.status).toBe(404);
 });
+
+
+test("public modules load behind a TLS proxy while API origin checks remain enforced", async () => {
+  const { handler } = await import("../src/api");
+  const { config } = await import("../src/config");
+  const previousDist = config.webDist;
+  const previousUrl = process.env.APP_URL;
+  config.webDist = root;
+  process.env.APP_URL = "https://old.up.railway.app";
+  try {
+    const headers = { origin: "https://companions.build" };
+    const asset = await handler(new Request("http://companions.build/assets/index-AbCd1234.js", { headers }));
+    expect(asset.status).toBe(200);
+    expect(asset.headers.get("content-type")).toBe("text/javascript; charset=utf-8");
+    expect(await asset.text()).toBe("globalThis.built=true");
+    for (const path of ["/api/companions", "/api/auth/sign-in/magic-link"]) {
+      const response = await handler(new Request(`http://companions.build${path}`, { method: "POST", headers }));
+      expect(response.status).toBe(403);
+      expect(await response.json()).toEqual({ error: "Origin not allowed." });
+    }
+  } finally {
+    config.webDist = previousDist;
+    if (previousUrl === undefined) delete process.env.APP_URL;
+    else process.env.APP_URL = previousUrl;
+  }
+});

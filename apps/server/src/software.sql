@@ -64,6 +64,24 @@ CREATE INDEX IF NOT EXISTS portable_software_builds_pending_idx ON portable_soft
   WHERE status NOT IN ('ready','failed');
 CREATE INDEX IF NOT EXISTS portable_software_builds_owner_idx ON portable_software_builds(owner_id,created_at DESC);
 
+-- Build Boxes are tenant runtime resources, distinct from operator distribution-build Boxes.
+-- Each observed ready/resume cycle is billed independently and closes only after an observed
+-- archived or missing provider response.
+CREATE TABLE IF NOT EXISTS portable_software_usage_intervals (
+  id uuid PRIMARY KEY,
+  build_id uuid NOT NULL,
+  owner_id text NOT NULL REFERENCES "user"(id) ON DELETE RESTRICT,
+  ready_at timestamptz NOT NULL,
+  last_observed_at timestamptz NOT NULL,
+  ended_at timestamptz,
+  end_reason text CHECK (end_reason IS NULL OR end_reason IN ('archived','missing')),
+  CHECK (last_observed_at >= ready_at),
+  CHECK ((ended_at IS NULL AND end_reason IS NULL) OR (ended_at IS NOT NULL AND end_reason IS NOT NULL AND ended_at >= last_observed_at)),
+  FOREIGN KEY(build_id,owner_id) REFERENCES portable_software_builds(id,owner_id) ON DELETE RESTRICT
+);
+CREATE UNIQUE INDEX IF NOT EXISTS portable_software_usage_open_idx ON portable_software_usage_intervals(build_id) WHERE ended_at IS NULL;
+CREATE INDEX IF NOT EXISTS portable_software_usage_owner_idx ON portable_software_usage_intervals(owner_id,ready_at,id);
+
 ALTER TABLE agent_templates ADD COLUMN IF NOT EXISTS software_build_id uuid;
 ALTER TABLE template_revisions ADD COLUMN IF NOT EXISTS software_build_id uuid;
 ALTER TABLE companions ADD COLUMN IF NOT EXISTS software_build_id uuid;

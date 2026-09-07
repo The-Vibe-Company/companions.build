@@ -104,6 +104,17 @@ export class SoftwareBuildCoordinator {
   const update=async(values:Record<string,unknown>)=>checkpoint(async tx=>{
    await tx`UPDATE portable_software_builds SET ${tx(values)},updated_at=clock_timestamp() WHERE id=${id}`;
   });
+  const observeReady=async()=>{
+   const observedAt=new Date(this.now());
+   await checkpoint(async tx=>{await tx`INSERT INTO portable_software_usage_intervals(id,build_id,owner_id,ready_at,last_observed_at)
+    VALUES(${crypto.randomUUID()},${id},${row.owner_id},${observedAt},${observedAt})
+    ON CONFLICT(build_id) WHERE ended_at IS NULL DO UPDATE SET last_observed_at=GREATEST(portable_software_usage_intervals.last_observed_at,EXCLUDED.last_observed_at)`;});
+  };
+  const observeEnded=async(reason:'archived'|'missing')=>{
+   const observedAt=new Date(this.now());
+   await checkpoint(async tx=>{await tx`UPDATE portable_software_usage_intervals SET ended_at=GREATEST(last_observed_at,${observedAt}),end_reason=${reason}
+    WHERE build_id=${id} AND owner_id=${row.owner_id} AND ended_at IS NULL`;});
+  };
   const effect=async<T>(body:(build:SoftwareMachineBuild,context:SoftwareEffectContext)=>Promise<T>,cost=false):Promise<T>=>{
    await check();
    if(cost&&!await(hooks.canStartWork??ownerMayStartWork)(row.owner_id))throw new BuildFailure('software_subscription_required');
@@ -120,7 +131,15 @@ export class SoftwareBuildCoordinator {
    }
    try{
     const machine=await effect(hooks.machines.get);
-    if(machine.state==='archived'||machine.state==='missing'){await update({cleanup_status:'complete'});return;}
+    if(machine.state==='archived'||machine.state==='missing'){
+     const observedAt=new Date(this.now());
+     await checkpoint(async tx=>{
+      await tx`UPDATE portable_software_usage_intervals SET ended_at=GREATEST(last_observed_at,${observedAt}),end_reason=${machine.state}
+       WHERE build_id=${id} AND owner_id=${row.owner_id} AND ended_at IS NULL`;
+      await tx`UPDATE portable_software_builds SET cleanup_status='complete',updated_at=clock_timestamp() WHERE id=${id}`;
+     });return;
+    }
+    if(machine.state==='ready')await observeReady();
     // Pending is the durable stop intent. Read again on the next pass, never claim stop from its reply.
     await update({cleanup_status:'pending'});
     await effect(hooks.machines.archive);
@@ -138,6 +157,9 @@ export class SoftwareBuildCoordinator {
     if(!created.id||created.id.length>128)throw new BuildFailure('software_provider_identity_invalid');
     await update({box_id:created.id,status:'resolving'});
    }
+   const machine=await effect(hooks.machines.get);
+   if(machine.state==='ready')await observeReady();
+   else if(machine.state==='archived'||machine.state==='missing')await observeEnded(machine.state);
    if(row.snapshot_started_at){
     const snapshot=await effect(hooks.machines.getSnapshot);
     if(snapshot.state==='failed')throw new BuildFailure('software_snapshot_failed');
@@ -151,7 +173,6 @@ export class SoftwareBuildCoordinator {
     }
     return;
    }
-   const machine=await effect(hooks.machines.get);
    if(machine.state==='missing')throw new BuildFailure('software_build_machine_missing');
    if(machine.state==='archived'){await effect(hooks.machines.resume,true);return;}
    if(machine.state!=='ready')return;

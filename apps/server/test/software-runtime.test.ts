@@ -7,6 +7,8 @@ import { saveTemplate } from '../src/templates';
 import { SoftwareBuildCoordinator, type SoftwareBuildMachines, type SoftwareRuntimeHooks } from '../src/software-runtime';
 import { softwareManifestDigest } from '../../../packages/control/software';
 import { createCompanion, acceptMessage } from '../src/store';
+import {billableSoftwareBuildIntervals,recordCompletedUsage} from '../src/usage';
+import {recordUsage} from '../src/billing';
 
 const base={id:'software-runtime-base',providerSnapshotName:'software-runtime-base',distributionDigest:'a'.repeat(64),resolverConfigDigest:'b'.repeat(64),distro:{family:'ubuntu',suite:'noble',architecture:'amd64'}};
 const digest='d'.repeat(64);
@@ -28,21 +30,22 @@ async function fixture(){
  return {owner,template,build,c,advance:(ms:number)=>{time+=ms;},row:()=>getSoftwareBuild(owner,build.id)};
 }
 function fake(){
- const calls:string[]=[];const keys:string[]=[];let archived=false;let snapshot='ready' as 'ready'|'missing'|'pending'|'failed';
+ const calls:string[]=[];const keys:string[]=[];let machineState:'ready'|'archived'|'missing'='ready';let snapshot='ready' as 'ready'|'missing'|'pending'|'failed';
  const verified={phase:'verified',requestDigest:digest,manifestDigest:softwareManifestDigest(manifest),errorCode:null,readyForCapture:true};
  const machines:SoftwareBuildMachines={
   create:async b=>{calls.push('create');keys.push(b.createKey);return {id:`box-${b.id}`};},
-  get:async()=>{calls.push('get');return {state:archived?'archived':'ready'};},
-  resume:async()=>{calls.push('resume');archived=false;},
+  get:async()=>{calls.push('get');return {state:machineState};},
+  resume:async()=>{calls.push('resume');machineState='ready';},
   prepareHelper:async()=>{calls.push('prepare');return {requestDigest:digest};},
   statusHelper:async()=>{calls.push('status');return null;},
   runHelper:async()=>{calls.push('run');return verified;},
   readManifest:async()=>{calls.push('manifest');return manifest;},
   snapshot:async()=>{calls.push('snapshot');},getSnapshot:async()=>{calls.push('snapshotGet');return {state:snapshot};},
-  archive:async()=>{calls.push('archive');archived=true;},
+  archive:async()=>{calls.push('archive');machineState='archived';},
  };
  const hooks:SoftwareRuntimeHooks={machines,canStartWork:async()=>true,onReady:async()=>{calls.push('ready');}};
- return {machines,hooks,calls,keys,verified,setArchived:(value:boolean)=>archived=value,setSnapshot:(value:typeof snapshot)=>snapshot=value};
+ return {machines,hooks,calls,keys,verified,setArchived:(value:boolean)=>machineState=value?'archived':'ready',
+  setMachineState:(value:typeof machineState)=>machineState=value,setSnapshot:(value:typeof snapshot)=>snapshot=value};
 }
 async function idle(c:SoftwareBuildCoordinator){for(let i=0;i<100&&c.activeCount;i++)await Bun.sleep(10);expect(c.activeCount).toBe(0);}
 
@@ -221,4 +224,53 @@ test('production adapter observes terminal CLI failure without launching another
  await f.c.progress(f.build.id,pid,hooks);await f.c.progress(f.build.id,pid,hooks);
  expect(await f.row()).toMatchObject({status:'failed',cleanupStatus:'complete'});
  expect(commands).toHaveLength(1);expect(commands[0]).toContain(' status ');expect(commands.join(' ')).not.toContain('systemd-run');
+});
+
+test('software Box seconds checkpoint active minutes, close the final partial interval, and never duplicate after retry',async()=>{
+ const f=await fixture(),m=fake();m.setSnapshot('pending');
+ await f.c.progress(f.build.id,pid,m.hooks);
+ f.advance(125_000);await f.c.progress(f.build.id,pid,m.hooks);
+ let interval=(await billableSoftwareBuildIntervals()).find((value:any)=>value.build_id===f.build.id)!;
+ expect(interval).toMatchObject({seconds:125,closed:false});
+ await recordUsage({operationId:`software-box-time:${interval.id}:0`,ownerId:f.owner,category:'box_seconds',quantity:60,unit:'second',
+  occurredAt:new Date(new Date(interval.ready_at).getTime()+60_000),metadata:{softwareBuildId:f.build.id}});
+ await recordCompletedUsage();await recordCompletedUsage();
+ let ledger=await db`SELECT quantity::int,companion_id,metadata FROM usage_ledger WHERE operation_id LIKE ${`software-box-time:${interval.id}:%`} ORDER BY operation_id`;
+ expect(ledger.map((row:any)=>row.quantity)).toEqual([60,60]);
+ expect(ledger.every((row:any)=>row.companion_id===null&&row.metadata.softwareBuildId===f.build.id)).toBe(true);
+ m.setArchived(true);f.advance(10_000);await f.c.progress(f.build.id,pid,m.hooks);
+ interval=(await billableSoftwareBuildIntervals()).find((value:any)=>value.build_id===f.build.id)!;
+ expect(interval).toMatchObject({seconds:135,closed:true,end_reason:'archived'});
+ await recordCompletedUsage();await recordCompletedUsage();
+ ledger=await db`SELECT quantity::int FROM usage_ledger WHERE operation_id LIKE ${`software-box-time:${interval.id}:%`} ORDER BY operation_id`;
+ expect(ledger.map((row:any)=>row.quantity)).toEqual([60,60,15]);
+});
+
+test('a provider-missing observation closes the tenant build interval without inventing another Box',async()=>{
+ const f=await fixture(),m=fake();m.setSnapshot('pending');await f.c.progress(f.build.id,pid,m.hooks);
+ f.advance(10_000);m.setMachineState('missing');await f.c.progress(f.build.id,pid,m.hooks);
+ const interval=(await billableSoftwareBuildIntervals()).find((value:any)=>value.build_id===f.build.id)!;
+ expect(interval).toMatchObject({seconds:10,closed:true,end_reason:'missing'});
+ expect(m.calls.filter(value=>value==='create')).toHaveLength(1);
+});
+
+test('ready billing starts only after the provider response and cleanup closes it after entitlement revocation',async()=>{
+ const f=await fixture(),m=fake();let allowed=true;m.hooks.canStartWork=async()=>allowed;
+ const before=new Date((await db`SELECT created_at FROM portable_software_builds WHERE id=${f.build.id}`)[0].created_at);
+ const get=m.machines.get;m.machines.get=async(build,context)=>{const result=await get(build,context);f.advance(1000);allowed=false;return result;};
+ await f.c.progress(f.build.id,pid,m.hooks);
+ let [interval]=await db`SELECT * FROM portable_software_usage_intervals WHERE build_id=${f.build.id}`;
+ expect(new Date(interval.ready_at).getTime()).toBeGreaterThan(before.getTime());
+ expect(m.calls).toEqual(['create','get','get','archive']);
+ await f.c.progress(f.build.id,pid,m.hooks);
+ [interval]=await db`SELECT * FROM portable_software_usage_intervals WHERE build_id=${f.build.id}`;
+ expect(interval.end_reason).toBe('archived');expect(interval.ended_at).not.toBeNull();
+ expect(await f.row()).toMatchObject({status:'failed',cleanupStatus:'complete',errorCode:'software_subscription_required'});
+});
+
+test('leadership loss after a ready response cannot persist a billable observation',async()=>{
+ const f=await fixture(),m=fake();const get=m.machines.get;
+ m.machines.get=async(build,context)=>{const result=await get(build,context);await leader`SELECT pg_advisory_unlock(721440139)`;return result;};
+ await f.c.progress(f.build.id,pid,m.hooks);
+ expect(await db`SELECT id FROM portable_software_usage_intervals WHERE build_id=${f.build.id}`).toHaveLength(0);
 });

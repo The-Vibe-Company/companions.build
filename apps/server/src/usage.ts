@@ -32,6 +32,30 @@ export async function billableBoxIntervals(sql:any=db,now=new Date()){
   return {...row,segments,seconds:Math.floor(milliseconds/1000),closed:Number.isFinite(Math.min(exact,observed,next)),ended_at:new Date(end)};
  });
 }
+/** Tenant software-build Boxes only. Operator distribution-build Boxes have no row here. */
+export async function billableSoftwareBuildIntervals(sql:any=db){
+ const rows=await sql`SELECT id,build_id,owner_id,ready_at,last_observed_at,ended_at,end_reason
+  FROM portable_software_usage_intervals ORDER BY ready_at,id`;
+ return rows.map((row:any)=>{
+  const start=new Date(row.ready_at),end=new Date(row.ended_at??row.last_observed_at);
+  return {...row,segments:[[start.getTime(),end.getTime()]] as [number,number][],seconds:Math.max(0,Math.floor((end.getTime()-start.getTime())/1000)),
+   closed:!!row.ended_at,ended_at:end};
+ });
+}
+
+async function recordBoxInterval(interval:any,prefix:string,companionId?:string){
+ const seconds=interval.seconds;
+ const [{count}]=await db`SELECT count(*)::int AS count FROM usage_ledger WHERE owner_id=${interval.owner_id} AND operation_id LIKE ${prefix+'%'}`;
+ // Complete minutes while active; checkpoint the final partial minute only after confirmed closure.
+ const buckets=interval.closed?Math.ceil(seconds/60):Math.floor(seconds/60);
+ for(let bucket=count;bucket<Math.min(buckets,count+100);bucket++){
+  const quantity=Math.min(60,seconds-bucket*60);if(quantity<=0)continue;
+  let remaining=(bucket*60+quantity)*1000,occurredAt=interval.ended_at;
+  for(const [from,to] of interval.segments){if(remaining<=to-from){occurredAt=new Date(from+remaining);break;}remaining-=to-from;}
+  await recordUsage({operationId:`${prefix}${bucket}`,ownerId:interval.owner_id,...(companionId?{companionId}:{}),category:'box_seconds',quantity,unit:'second',occurredAt,
+   metadata:companionId?{}:{softwareBuildId:interval.build_id}});
+ }
+}
 /** Stable response-root IDs ensure native steering is counted once. No model request is made here. */
 export async function recordCompletedUsage(){
  const runs=await db`SELECT r.id,r.companion_id,c.owner_id,r.usage,r.finished_at FROM runs r JOIN companions c ON c.id=r.companion_id
@@ -44,18 +68,8 @@ export async function recordCompletedUsage(){
   await recordUsage({operationId:'model:'+run.id,ownerId:run.owner_id,companionId:run.companion_id,category:'model_tokens',quantity,unit:'token',occurredAt:run.finished_at,metadata:{estimatedCostUsd:Number(usage.costUsd)||0}});
  }
  const intervals=await billableBoxIntervals();
- for(const interval of intervals){
-  const seconds=interval.seconds;
-  const [{count}]=await db`SELECT count(*)::int AS count FROM usage_ledger WHERE owner_id=${interval.owner_id} AND operation_id LIKE ${'box-time:'+interval.id+':%'}`;
-  // Complete minutes while running; checkpoint the final partial minute only after archive.
-  const buckets=interval.closed?Math.ceil(seconds/60):Math.floor(seconds/60);
-  for(let bucket=count;bucket<Math.min(buckets,count+100);bucket++){
-   const quantity=Math.min(60,seconds-bucket*60);if(quantity<=0)continue;
-   let remaining=(bucket*60+quantity)*1000,occurredAt=interval.ended_at;
-   for(const [from,to] of interval.segments){if(remaining<=to-from){occurredAt=new Date(from+remaining);break;}remaining-=to-from;}
-   await recordUsage({operationId:`box-time:${interval.id}:${bucket}`,ownerId:interval.owner_id,companionId:interval.companion_id,category:'box_seconds',quantity,unit:'second',occurredAt});
-  }
- }
+ for(const interval of intervals)await recordBoxInterval(interval,`box-time:${interval.id}:`,interval.companion_id);
+ for(const interval of await billableSoftwareBuildIntervals())await recordBoxInterval(interval,`software-box-time:${interval.id}:`);
  const owners=await db`SELECT DISTINCT owner_id FROM usage_ledger WHERE stripe_delivery_status='pending' LIMIT 20`;
  for(const owner of owners)await flushPendingUsage(owner.owner_id,20);
 }

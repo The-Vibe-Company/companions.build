@@ -1,0 +1,25 @@
+apps/server/test/software-runtime.test.ts
+  s_f946242dcf6ba9::t_a8279764f8da72 198-211
+docs/adr/portable-software.md
+  s_f946242dcf6ba9::t_7c40a92629dce4 184-189
+packages/box/software-builder-cli.test.ts
+  s_f946242dcf6ba9::t_b35b22631761b9 2,78,81-142
+packages/box/software-builder-cli.ts
+  s_f946242dcf6ba9::t_bd2a737e385368 20,73,76,82-97,129-132,141-151,194,200-208
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "a347059c25d29c3cbfaa728610a0eaef3250ad43",
+  "prompts": {},
+  "sessions": {
+    "s_f946242dcf6ba9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a06de4-a8a5-7cd3-b713-2a8d451f7200",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "StanGirard <stan@quivr.app>"
+    }
+  }
+}

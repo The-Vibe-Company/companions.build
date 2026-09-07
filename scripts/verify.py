@@ -15,6 +15,7 @@ bun = module.toolchain()
 run_id = uuid.uuid4().hex[:12]
 artifacts = ROOT / ".artifacts/verification" / run_id
 artifacts.mkdir(parents=True)
+artifacts.chmod(0o700)
 database_name = f"companions-verify-postgres-{run_id}"
 storage_name = f"companions-verify-minio-{run_id}"
 verification_label = f"companions.build.verification={run_id}"
@@ -81,6 +82,28 @@ try:
     run("system", [bun, "scripts/test-server.ts", "--linux"])
     run("web-tests", [bun, "run", "test"], ROOT / "apps/web")
     run("web-build", [bun, "run", "build"], ROOT / "apps/web")
+    restore_state = artifacts / "postgres-restore-state.json"
+    backup = artifacts / "postgres-backup.dump"
+    env["COMPANIONS_DATA_DIR"] = str(artifacts / "postgres-restore-config")
+    run("postgres-restore-seed", [bun, "scripts/test-postgres-restore.ts", "seed", str(restore_state)])
+    run("postgres-backup", ["docker", "exec", database_name, "pg_dump", "--username", "companions", "--dbname", "companions", "--format", "custom", "--file", "/tmp/companions.dump"])
+    run("postgres-backup-copy", ["docker", "cp", f"{database_name}:/tmp/companions.dump", str(backup)])
+    backup.chmod(0o600)
+    run("postgres-crash", ["docker", "kill", database_name])
+    recovery_name = f"companions-verify-postgres-recovery-{run_id}"
+    run("postgres-recovery", ["docker", "run", "--detach", "--name", recovery_name, "--label", verification_label,
+        "--publish", "127.0.0.1::5432", "--env", "POSTGRES_USER=companions", "--env", "POSTGRES_PASSWORD=companions",
+        "--env", "POSTGRES_DB=companions", "postgres:17.6-alpine@sha256:ef257d85f76e48da1c64832459b59fcaba1a4dac97bf5d7450c77753542eee94"])
+    recovery_mapping = subprocess.check_output(["docker", "port", recovery_name, "5432/tcp"], text=True).strip()
+    for attempt in range(60):
+        if subprocess.run(["docker", "exec", recovery_name, "pg_isready", "-U", "companions"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode == 0: break
+        time.sleep(.5)
+    else: raise RuntimeError("Recovery PostgreSQL readiness timed out")
+    run("postgres-restore-copy", ["docker", "cp", str(backup), f"{recovery_name}:/tmp/companions.dump"])
+    run("postgres-restore", ["docker", "exec", recovery_name, "pg_restore", "--exit-on-error", "--username", "companions", "--dbname", "companions", "/tmp/companions.dump"])
+    recovery_port = recovery_mapping.rsplit(":", 1)[-1]
+    env["DATABASE_URL"] = f"postgres://companions:companions@127.0.0.1:{recovery_port}/companions"
+    run("postgres-restore-verify", [bun, "scripts/test-postgres-restore.ts", "verify", str(restore_state)])
     status = "passed"
 finally:
     owned = subprocess.run(["docker", "ps", "-aq", "--filter", f"label=companions.build.verification={run_id}"], text=True, capture_output=True)

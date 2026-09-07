@@ -15,8 +15,17 @@ python3 scripts/verify.py
 The verifier creates a unique artifact directory and uniquely labeled PostgreSQL and MinIO
 containers. It installs both lockfiles with frozen versions, typechecks, runs agent unit tests,
 builds the Linux agent, exercises the server through `scripts/test-server.ts --linux`, then runs
-web behavior tests and the production web build. Cleanup selects only the current verification
-label. A passing run prints its evidence path under `.artifacts/verification/<run-id>`.
+web behavior tests and the production web build. It then creates a real Better Auth session and a
+queued turn, takes a PostgreSQL 17 custom-format backup, kills that database container, restores
+into a fresh PostgreSQL 17 container, and verifies through the authenticated API that the session,
+Companion, message, queued turn, and stable message id all remain valid. Cleanup selects only the
+current verification label. A passing run prints its evidence path under
+`.artifacts/verification/<run-id>`.
+
+The recovery check retains its synthetic session cookie, database dump, and local auth/encryption
+keys only inside the mode-0700 evidence directory. A real restore must recover the matching
+application-managed auth and encryption keys from its secret store alongside PostgreSQL; those keys
+are intentionally not embedded in the database backup.
 
 This command proves the integrated controlled path with a real PostgreSQL database, private object
 storage, the compiled Pi/Bun program in Linux, the deterministic model, MCP fixtures, API, worker,

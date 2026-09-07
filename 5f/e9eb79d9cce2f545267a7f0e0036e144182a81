@@ -1,0 +1,21 @@
+apps/web/src/App.tsx
+  s_f946242dcf6ba9::t_32fef1ceda7750 700
+docs/measurements/companion-deletion-2026-09-07.md
+  s_f946242dcf6ba9::t_b523b944b36e2f 1-22
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "5fe9eb79d9cce2f545267a7f0e0036e144182a81",
+  "prompts": {},
+  "sessions": {
+    "s_f946242dcf6ba9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a06de4-a8a5-7cd3-b713-2a8d451f7200",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "StanGirard <stan@quivr.app>"
+    }
+  }
+}

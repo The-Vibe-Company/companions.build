@@ -1,0 +1,30 @@
+apps/web/src/components/SpecialistDraftPanel.tsx
+  s_895cd30c8c0144::t_aca4720b646519 23
+apps/web/src/App.tsx
+  s_895cd30c8c0144::t_a476cca035975b 219,301-304,420-421
+apps/web/src/components/ApplicationAccess.test.tsx
+  s_895cd30c8c0144::t_77d880fc291667 119-120
+  s_895cd30c8c0144::t_c66f2c78054617 110-118,121-124
+  s_895cd30c8c0144::t_92e882350d7cfc 125
+apps/web/src/maison.css
+  s_895cd30c8c0144::t_a476cca035975b 260-262
+apps/web/src/components/ApplicationAccess.tsx
+  s_895cd30c8c0144::t_a476cca035975b 94
+  s_895cd30c8c0144::t_188d47a4d6a9e0 2,56,65-66,89-93,95-104,125-151,154,158-162
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "4eb92979e95f3eb5391d0c43f094aa886f206b7e",
+  "prompts": {},
+  "sessions": {
+    "s_895cd30c8c0144": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a07d31-b106-7d00-912b-601ce8884ca0",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "StanGirard <stan@quivr.app>"
+    }
+  }
+}

@@ -1,0 +1,23 @@
+docs/completion-audit.md
+  s_f946242dcf6ba9::t_c403166bec861f 55-57,60-63
+docs/measurements/box-gateway-v12-2026-09-07.json
+  s_f946242dcf6ba9::t_50e08e57f5f8ad 54-63
+docs/v0.md
+  s_f946242dcf6ba9::t_70d4f10d4485fc 157,165,167
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "c2d72bf755932bb84dea3dec390fdd95f50c71a2",
+  "prompts": {},
+  "sessions": {
+    "s_f946242dcf6ba9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a06de4-a8a5-7cd3-b713-2a8d451f7200",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "StanGirard <stan@quivr.app>"
+    }
+  }
+}

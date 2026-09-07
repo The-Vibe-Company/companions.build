@@ -55,7 +55,8 @@ export async function createMailDraft(companionId:string,value:MailDraftInput,au
   if(!box)throw new CompanionMailError('Activate this Companion’s email address first.');
   const [existing]=await tx`SELECT * FROM companion_mail_messages WHERE companion_id=${companionId} AND client_id=${input.clientId}`;
   if(existing){
-   if(existing.subject!==input.subject||existing.body_text!==input.text||JSON.stringify(existing.recipients)!==JSON.stringify(input.to)||JSON.stringify(existing.cc)!==JSON.stringify(input.cc)||JSON.stringify(existing.bcc)!==JSON.stringify(input.bcc)||JSON.stringify(existing.attachments)!==JSON.stringify(input.attachments)||(input.threadId&&existing.thread_id!==input.threadId))throw new CompanionMailError('This mail identifier is already used.');
+   if(authority.kind==='email'&&existing.run_id!==authority.runId)throw new CompanionMailError('Email tasks can only access their own replies.');
+   if(existing.subject!==input.subject||existing.body_text!==input.text||JSON.stringify(existing.recipients)!==JSON.stringify(input.to)||JSON.stringify(existing.cc)!==JSON.stringify(input.cc)||JSON.stringify(existing.bcc)!==JSON.stringify(input.bcc)||JSON.stringify(existing.attachments.map((a:any)=>[a.filename,a.contentType,a.content]))!==JSON.stringify(input.attachments.map(a=>[a.filename,a.contentType,a.content]))||(input.threadId&&existing.thread_id!==input.threadId))throw new CompanionMailError('This mail identifier is already used.');
    return publicMessage(existing);
   }
   let threadId=input.threadId;
@@ -292,6 +293,8 @@ async function sendClaimedMail(row:any,dependencies:MailWorkerDependencies){
  try{
   await dependencies.assertActive?.();
   if(!await ownerMayStartWork(row.owner_id)){await sql`UPDATE companion_mail_messages SET state='failed',error_code='subscription_required' WHERE id=${row.id} AND state='sending'`;return;}
+  const [active]=await sql`SELECT c.id FROM companions c JOIN companion_mail_messages m ON m.companion_id=c.id WHERE m.id=${row.id} AND m.state='sending' AND c.retired_at IS NULL AND c.archive_requested_at IS NULL`;
+  if(!active){await sql`UPDATE companion_mail_messages SET state='cancelled',error_code='companion_unavailable' WHERE id=${row.id} AND state='sending'`;return;}
   const [parent]=await sql`SELECT message_id FROM companion_mail_messages WHERE thread_id=${row.thread_id} AND direction='inbound' AND message_id IS NOT NULL ORDER BY received_at DESC LIMIT 1`;
   const replyTo=row.sender.replace('@',`+${row.reply_token}@`);
   const response=await (dependencies.fetch??fetch)('https://api.resend.com/emails',{method:'POST',redirect:'error',signal:AbortSignal.timeout(20_000),headers:{authorization:`Bearer ${dependencies.apiKey??process.env.RESEND_API_KEY}`,'content-type':'application/json','idempotency-key':`companion-mail/${row.id}`},body:JSON.stringify({from:row.sender,to:row.recipients,cc:row.cc,bcc:row.bcc,subject:row.subject,text:row.body_text,html:row.body_html,reply_to:replyTo,headers:{'Auto-Submitted':parent?'auto-replied':'auto-generated',...(parent?{'In-Reply-To':parent.message_id,'References':parent.message_id}:{})},attachments:row.attachments.map((a:any)=>({filename:a.filename,content:a.content,content_type:a.contentType})),tags:[{name:'companion_mail_id',value:row.id}]})});

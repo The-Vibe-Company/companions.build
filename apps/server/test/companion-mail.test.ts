@@ -24,7 +24,7 @@ test('aliases and mailbox addresses cannot be changed or reused',async()=>{
  expect((await request(`/api/companions/${other}/mail`,'PUT',{localName:box.local_name}))!.status).toBe(409);
 });
 test('concurrent duplicate preparation persists one exact immutable draft',async()=>{
- const input={clientId:crypto.randomUUID(),to:['paul@example.com'],subject:'Document',text:'<script>bad</script>'};
+ const input={clientId:crypto.randomUUID(),to:['paul@example.com'],subject:'Document',text:'<script>bad</script>',attachments:[{filename:'note.txt',contentType:'text/plain',content:Buffer.from('hello').toString('base64')}]};
  const first=await createMailDraft(companionId,input,{kind:'owner'});
  const repeated=await Promise.all(Array.from({length:6},()=>createMailDraft(companionId,input,{kind:'owner'})));
  expect(repeated.every(row=>row.id===first.id)).toBe(true);

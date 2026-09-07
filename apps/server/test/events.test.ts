@@ -54,7 +54,10 @@ test("delegation creation, child progress and retirement invalidate the parent s
   await db`UPDATE companions SET parent_id=${parent.id},temporary=true WHERE id=${child.id}`;
   const parentRun = await acceptMessage(owner, parent.id, crypto.randomUUID(), "Delegate this");
   const childRun = await acceptMessage(owner, child.id, crypto.randomUUID(), "Research this");
-  const hub = new CompanionEventHub(db as any);
+  // A distinct LISTEN connection excludes fixture notifications still queued on
+  // a previous test's already-listening shared connection.
+  const listenerDatabase = new SQL(config.databaseUrl);
+  const hub = new CompanionEventHub(listenerDatabase as any);
   hubs.push(hub);
   await hub.start();
   const received: string[] = [];
@@ -69,6 +72,8 @@ test("delegation creation, child progress and retirement invalidate the parent s
   await db`UPDATE companions SET retired_at=now() WHERE id=${child.id}`;
   await eventually(() => expect(received).toEqual(["invalidate"]));
   unsubscribe();
+  await hub.close();
+  await listenerDatabase.close();
 });
 
 test("one listener fans out reconnect resync and rejects malformed notification payloads", async () => {

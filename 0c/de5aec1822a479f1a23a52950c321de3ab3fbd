@@ -1,0 +1,28 @@
+apps/server/src/model-gateway-token.ts
+  s_f946242dcf6ba9::t_2a38593ffed7b2 8,11,13,25-26
+apps/server/test/model-gateway-dispatch.test.ts
+  s_f946242dcf6ba9::t_67a3756676bb2d 3,11,17,35-41
+apps/server/test/usage.test.ts
+  s_f946242dcf6ba9::t_2a38593ffed7b2 28-29
+apps/server/src/executor.ts
+  s_f946242dcf6ba9::t_2a38593ffed7b2 261,264-267
+  s_f946242dcf6ba9::t_67a3756676bb2d 68-76
+apps/server/test/model-gateway-token.test.ts
+  s_f946242dcf6ba9::t_2a38593ffed7b2 10
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "0cde5aec1822a479f1a23a52950c321de3ab3fbd",
+  "prompts": {},
+  "sessions": {
+    "s_f946242dcf6ba9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a06de4-a8a5-7cd3-b713-2a8d451f7200",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "StanGirard <stan@quivr.app>"
+    }
+  }
+}

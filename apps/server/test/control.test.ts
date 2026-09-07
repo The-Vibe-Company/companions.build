@@ -75,3 +75,17 @@ test('agent control configures and tests a routine without enabling it, then rej
  expect(await invoke('routine_test',{id:routine.id})).toEqual({error:'Routine not found.'});
  expect(await db`SELECT id FROM runs WHERE companion_id=${companion.id} AND source='routine'`).toHaveLength(1);
 });
+
+test('agent control saves an explicit runAt routine without cron fields', async () => {
+ const companion=await createCompanion(owner,{name:'One-shot control',instructions:'',provider:'local'});
+ const runId=await acceptMessage(owner,companion.id,crypto.randomUUID(),'Remind me once');
+ await db`UPDATE runs SET status='running',dispatched=true,started_at=now() WHERE id=${runId}`;
+ const created=await applyControl(companion.id,{id:crypto.randomUUID(),runId:runId!,operation:'routine_save',input:{
+  name:'Send proposal',prompt:'Remind me to send the proposal',runAt:'2026-09-08T15:00:00+02:00',
+ }}) as any;
+ expect(created).toMatchObject({cron:null,timezone:null,enabled:true});
+ expect(new Date(created.runAt).toISOString()).toBe('2026-09-08T13:00:00.000Z');
+ expect(await controlHandlers.routines!({ownerId:owner,companionId:companion.id,runId:runId!,commandId:crypto.randomUUID(),isChild:false},{})).toEqual([
+  expect.objectContaining({id:created.id,runAt:created.runAt}),
+ ]);
+});

@@ -263,7 +263,10 @@ export interface PluginsResponse { catalog: PluginServer[]; accounts: PluginAcco
 export type CustomPluginInput =
   | { label: string; transport: "http"; url: string; headers: Record<string, string> }
   | { label: string; transport: "stdio"; command: string; args: string[]; env: Record<string, string> };
-export interface Routine { id: string; name: string; prompt: string; cron: string; timezone: string; enabled: boolean; nextFireAt?: string | null; createdAt?: string; updatedAt?: string }
+export interface Routine { id: string; name: string; prompt: string; cron: string | null; timezone: string | null; runAt?: string | null; enabled: boolean; nextFireAt?: string | null; createdAt?: string; updatedAt?: string }
+export type RoutineInput =
+  | { name: string; prompt: string; cron: string; timezone: string; enabled?: boolean }
+  | { name: string; prompt: string; runAt: string; enabled?: boolean };
 export interface RoutineHistory { runs: Array<{ id: string; status: RunStatus; resultText: string | null; error: string | null; scheduledFor: string; acceptedAt: string }>; missed: Array<{ firstScheduledFor: string; lastScheduledFor: string; cron: string; timezone: string }> }
 export interface TriggerFilterRequest { key: string; provider: "github" | "sentry"; connectionId?: string; path: string }
 export interface TriggerTarget { repo?: string; branch?: string; organization?: string; project?: string; events?: string[] }
@@ -294,7 +297,7 @@ export const workspaceApi = {
   selectPlugin: (id: string, accountId: string) => request<{ ok: true }>(`/api/companions/${id}/plugins/${accountId}`, { method: "PUT" }),
   unselectPlugin: (id: string, accountId: string) => request<{ ok: true }>(`/api/companions/${id}/plugins/${accountId}`, { method: "DELETE" }),
   routines: (id: string) => request<{ routines: Routine[] }>(`/api/companions/${id}/routines`),
-  createRoutine: (id: string, input: Omit<Routine, "id">) => request<{ routine: Routine }>(`/api/companions/${id}/routines`, { method: "POST", body: JSON.stringify(input) }),
+  createRoutine: (id: string, input: RoutineInput) => request<{ routine: Routine }>(`/api/companions/${id}/routines`, { method: "POST", body: JSON.stringify(input) }),
   updateRoutine: (id: string, routineId: string, input: Partial<Omit<Routine, "id">>) => request<{ routine: Routine }>(`/api/companions/${id}/routines/${routineId}`, { method: "PATCH", body: JSON.stringify(input) }),
   deleteRoutine: (id: string, routineId: string) => request<{ ok: true }>(`/api/companions/${id}/routines/${routineId}`, { method: "DELETE" }),
   routineHistory: (id: string, routineId: string) => request<RoutineHistory>(`/api/companions/${id}/routines/${routineId}/history`),
@@ -333,6 +336,39 @@ export const workspaceApi = {
   prepareMaintenanceCompanion: (id: string) => request<unknown>(`/api/maintenance/companions/${id}/prepare`, { method: "POST" }),
   createMaintenanceTask: (id: string, clientMessageId: string, prompt: string) => request<{ runId?: string }>(`/api/maintenance/companions/${id}/tasks`, { method: "POST", body: JSON.stringify({ clientMessageId, prompt }) }),
   maintenanceActions: (id: string) => request<{ actions: MaintenanceAction[] }>(`/api/maintenance/companions/${id}/actions`),
+};
+
+export interface MailQuota { used: number; limit: number; resetsAt: string }
+export interface MailAccount { configured: boolean; alias: string | null; domain: string; quota: MailQuota }
+export interface MailAttachment { id?: string | null; filename: string; contentType: string; content?: string; size?: number; index?: number }
+export interface MailMessage {
+  id: string; threadId: string; direction: "inbound" | "outbound"; state: string; sender: string;
+  to: string[]; cc: string[]; bcc: string[]; subject: string; text: string; html?: string | null;
+  attachments: MailAttachment[]; createdAt: string; sendAfter?: string | null; errorCode?: string | null;
+}
+export interface CompanionMailbox {
+  configured?: boolean;
+  mailbox: { address: string; localName: string } | null;
+  senders: string[];
+  messages: MailMessage[];
+  quota: MailQuota;
+}
+export interface MailDraftInput {
+  clientId: string; to: string[]; cc?: string[]; bcc?: string[]; subject: string; text: string;
+  attachments?: MailAttachment[]; threadId?: string;
+}
+
+export const mailApi = {
+  account: () => request<MailAccount>("/api/mail/account"),
+  setAlias: (alias: string) => request<MailAccount>("/api/mail/account", { method: "PUT", body: JSON.stringify({ alias }) }),
+  mailbox: (companionId: string) => request<CompanionMailbox>(`/api/companions/${companionId}/mail`),
+  createMailbox: (companionId: string, localName: string) => request<CompanionMailbox>(`/api/companions/${companionId}/mail`, { method: "PUT", body: JSON.stringify({ localName }) }),
+  allowSender: (companionId: string, email: string) => request<CompanionMailbox>(`/api/companions/${companionId}/mail/senders`, { method: "PUT", body: JSON.stringify({ email }) }),
+  removeSender: (companionId: string, email: string) => request<CompanionMailbox>(`/api/companions/${companionId}/mail/senders`, { method: "DELETE", body: JSON.stringify({ email }) }),
+  prepare: (companionId: string, input: MailDraftInput) => request<{ message: MailMessage }>(`/api/companions/${companionId}/mail/messages`, { method: "POST", body: JSON.stringify(input) }),
+  approve: (companionId: string, messageId: string, sendAt?: string) => request<{ message: MailMessage }>(`/api/companions/${companionId}/mail/messages/${messageId}/approve`, { method: "POST", body: JSON.stringify(sendAt ? { sendAt } : {}) }),
+  cancel: (companionId: string, messageId: string) => request<{ message: MailMessage }>(`/api/companions/${companionId}/mail/messages/${messageId}/cancel`, { method: "POST" }),
+  attachmentUrl: (companionId: string, messageId: string, index: number) => `/api/companions/${companionId}/mail/messages/${messageId}/attachments/${index}`,
 };
 
 export function isActiveRun(status: RunStatus) {

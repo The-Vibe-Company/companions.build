@@ -3,12 +3,14 @@ import { Box, Check, ChevronRight, Computer, LoaderCircle, Plus } from "lucide-r
 import {
   api,
   ApiError,
+  mailApi,
   workspaceApi,
   type AgentTemplate,
   type AppConfig,
   type Companion,
   type PluginAccount,
   type PluginServer,
+  type MailAccount,
 } from "@/api";
 import { AccountTiles } from "@/components/ApplicationAccess";
 import {
@@ -39,6 +41,9 @@ type StoredCreation = {
   completedAccountIds: string[];
   completedSpecialistIds: string[];
   createdCompanionId?: string;
+  mailAlias?: string;
+  mailLocalName?: string;
+  mailboxCreated?: boolean;
 };
 
 function storageKey(ownerId: string) { return `companions.create.pending.${ownerId}`; }
@@ -55,6 +60,7 @@ function readStoredCreation(ownerId?: string): StoredCreation | null {
 function failureMessage(cause: unknown, fallback: string) {
   return cause instanceof Error ? cause.message : fallback;
 }
+const validMailAlias = (value: string) => /^[a-z][a-z0-9-]{2,29}$/.test(value);
 
 export function CreateCompanion({ config, onCreated, compact = false, ownerId, onSetupLockedChange }: CreateCompanionProps) {
   const restored = useRef(readStoredCreation(ownerId));
@@ -73,6 +79,11 @@ export function CreateCompanion({ config, onCreated, compact = false, ownerId, o
   const [specialistIds, setSpecialistIds] = useState<Set<string>>(() => new Set(restored.current?.specialistIds ?? []));
   const [loadingSetup, setLoadingSetup] = useState(true);
   const [setupError, setSetupError] = useState("");
+  const [mailAccount, setMailAccount] = useState<MailAccount | null>(null);
+  const [mailAlias, setMailAlias] = useState(restored.current?.mailAlias ?? "");
+  const [mailLocalName, setMailLocalName] = useState(restored.current?.mailLocalName ?? "");
+  const mailNameEdited = useRef(Boolean(restored.current?.mailLocalName));
+  useEffect(() => { if (!mailNameEdited.current && name.trim()) { const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, ""); setMailLocalName((/^[a-z]/.test(slug) ? slug : `companion-${slug}`).slice(0, 30).padEnd(2, "x")); } }, [name]);
   const [attempted, setAttempted] = useState(Boolean(restored.current));
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
@@ -83,6 +94,7 @@ export function CreateCompanion({ config, onCreated, compact = false, ownerId, o
   const createdCompanion = useRef<Companion | null>(null);
   const completedAccounts = useRef(new Set(restored.current?.completedAccountIds ?? []));
   const completedSpecialists = useRef(new Set(restored.current?.completedSpecialistIds ?? []));
+  const mailboxCreated = useRef(Boolean(restored.current?.mailboxCreated));
   const submissionPending = useRef(false);
   const mounted = useRef(true);
   const setupLockCallback = useRef(onSetupLockedChange);
@@ -97,6 +109,9 @@ export function CreateCompanion({ config, onCreated, compact = false, ownerId, o
       completedAccountIds: [...completedAccounts.current],
       completedSpecialistIds: [...completedSpecialists.current],
       ...(companionId ? { createdCompanionId: companionId } : {}),
+      ...(mailAlias.trim() ? { mailAlias: mailAlias.trim().toLowerCase() } : {}),
+      ...(mailLocalName.trim() ? { mailLocalName: mailLocalName.trim().toLowerCase() } : {}),
+      ...(mailboxCreated.current ? { mailboxCreated: true } : {}),
     };
     try { window.sessionStorage.setItem(storageKey(ownerId), JSON.stringify(progress)); } catch { /* Storage is an optional recovery aid. */ }
   }
@@ -114,11 +129,13 @@ export function CreateCompanion({ config, onCreated, compact = false, ownerId, o
     setLoadingSetup(true);
     setSetupError("");
     try {
-      const [templateResult, pluginResult] = await Promise.all([workspaceApi.templates(), workspaceApi.plugins()]);
+      const [templateResult, pluginResult, mailResult] = await Promise.all([workspaceApi.templates(), workspaceApi.plugins(), mailApi.account()]);
       if (!mounted.current) return;
       setTemplates(templateResult.templates);
       setAccounts(pluginResult.accounts);
       setCatalog(pluginResult.catalog);
+      setMailAccount(mailResult);
+      setMailAlias(current => current || mailResult.alias || "");
     } catch (cause) {
       if (mounted.current) setSetupError(failureMessage(cause, "Could not load setup choices."));
     } finally {
@@ -183,7 +200,7 @@ export function CreateCompanion({ config, onCreated, compact = false, ownerId, o
 
   async function submit(event: FormEvent) {
     event.preventDefault();
-    if (!name.trim() || !instructions.trim() || loadingSetup || setupError || submissionPending.current) return;
+    if (!name.trim() || !instructions.trim() || loadingSetup || setupError || submissionPending.current || (mailAccount?.configured && (!validMailAlias(mailAlias.trim()) || !mailLocalName.trim()))) return;
     submissionPending.current = true;
     setAttempted(true);
     setupLockCallback.current?.(true);
@@ -203,6 +220,10 @@ export function CreateCompanion({ config, onCreated, compact = false, ownerId, o
     }
     persistProgress();
     try {
+      if (mailAccount?.configured && !mailAccount.alias) {
+        const claimed = await mailApi.setAlias(mailAlias.trim().toLowerCase());
+        setMailAccount(claimed);
+      }
       if (!createdCompanion.current) {
         const result = await api.createCompanion(frozenCreation.current);
         createdCompanion.current = result.companion;
@@ -211,6 +232,12 @@ export function CreateCompanion({ config, onCreated, compact = false, ownerId, o
         setCreatedId(result.companion.id);
       }
       const companion = createdCompanion.current;
+      if (mailAccount?.configured && !mailboxCreated.current) {
+        await mailApi.createMailbox(companion.id, mailLocalName.trim().toLowerCase());
+        mailboxCreated.current = true;
+        persistProgress(companion.id);
+        if (!mounted.current) return;
+      }
       for (const accountId of accountIds) {
         if (completedAccounts.current.has(accountId)) continue;
         await workspaceApi.selectPlugin(companion.id, accountId);
@@ -240,7 +267,7 @@ export function CreateCompanion({ config, onCreated, compact = false, ownerId, o
     }
   }
 
-  const canCreate = Boolean(name.trim() && instructions.trim() && !loadingSetup && !setupError && (config.localAvailable || config.boxAvailable));
+  const canCreate = Boolean(name.trim() && instructions.trim() && !loadingSetup && !setupError && (config.localAvailable || config.boxAvailable) && (!mailAccount?.configured || (validMailAlias(mailAlias.trim()) && mailLocalName.trim())));
 
   return <form className={cn("create-companion", compact && "create-companion--compact")} onSubmit={submit}>
     <section className="create-companion-preview" aria-label="Companion preview">
@@ -272,6 +299,8 @@ export function CreateCompanion({ config, onCreated, compact = false, ownerId, o
         <div className="field"><label htmlFor="create-companion-name">Name</label><input id="create-companion-name" value={name} maxLength={80} disabled={selectionLocked} onChange={event => setName(event.target.value)} placeholder="Ada" autoFocus={!compact}/></div>
         <div className="field"><label htmlFor="create-companion-purpose">Role</label><Textarea id="create-companion-purpose" value={instructions} maxLength={20_000} disabled={selectionLocked} onChange={event => setInstructions(event.target.value)} placeholder="Research customer questions and turn the findings into clear briefs." rows={1}/></div>
       </div>
+
+      {mailAccount?.configured && <section className="create-option-section create-mail-address"><div className="create-section-heading"><h2>Email address</h2><span>Permanent</span></div>{!mailAccount.alias && <div className="field"><label htmlFor="create-mail-alias">Your account alias</label><input id="create-mail-alias" value={mailAlias} disabled={selectionLocked} onChange={event => setMailAlias(event.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ""))} placeholder="stan" autoCapitalize="none" autoComplete="off" minLength={3} maxLength={30} pattern="[a-z][a-z0-9-]{2,29}"/><span className="field-hint">3–30 characters, starting with a letter. Choose once for every Companion.</span></div>}<div className="field"><label htmlFor="create-mail-name">Companion email name</label><input id="create-mail-name" value={mailLocalName} disabled={selectionLocked} onChange={event => { mailNameEdited.current = true; setMailLocalName(event.target.value.toLowerCase().replace(/[^a-z0-9-]/g, "")); }} minLength={2} maxLength={30} pattern="[a-z][a-z0-9-]{1,29}" placeholder={name.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-") || "ada"} autoCapitalize="none" autoComplete="off"/><span className="field-hint">{mailAlias || mailAccount.alias || "alias"}.{mailLocalName || "companion"}@{mailAccount.domain} · this address is fixed after creation.</span></div></section>}
 
       {loadingSetup ? <div className="create-setup-state" role="status"><LoaderCircle className="spin"/>Loading accounts and specialists…</div> : setupError ? <div className="create-setup-state create-setup-error" role="alert"><p>{setupError}</p><Button type="button" variant="outline" onClick={() => void loadSetup()}>Try again</Button></div> : <>
         <section className="create-option-section"><div className="create-section-heading"><h2>Apps &amp; accounts</h2><span>{accountIds.size} selected</span></div>

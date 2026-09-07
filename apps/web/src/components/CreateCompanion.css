@@ -19,6 +19,7 @@
 .create-companion-fields .field label,.create-provider-picker legend { font-size:.8125rem; font-weight:550; }
 .create-companion-fields .field input,.create-companion-fields .field textarea,.create-companion-fields .field select { min-width:0; width:100%; min-height:44px; border:1px solid var(--input); border-radius:10px; background:var(--card); color:inherit; padding:10px 12px; font:inherit; font-size:.875rem; box-shadow:none; }
 .create-companion-fields .field textarea { resize:vertical; height:46px; min-height:46px; }
+.create-mail-address .field-hint { overflow-wrap:anywhere; }
 .create-companion-fields .field input:disabled,.create-companion-fields .field textarea:disabled,.create-companion-fields .field select:disabled { opacity:.7; }
 .create-option-section { margin-top:28px; }
 .create-section-heading { display:flex; justify-content:space-between; align-items:baseline; gap:12px; margin-bottom:11px; }

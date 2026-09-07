@@ -1,0 +1,42 @@
+apps/web/src/components/LandingPage.test.tsx
+  s_f0346c90274a7b::t_b2073cc0a40378 25-26
+  s_f0346c90274a7b::t_088d03b38d6593 27
+apps/web/src/App.tsx
+  s_f0346c90274a7b::t_b2073cc0a40378 62,72-77,512,742
+  s_f0346c90274a7b::t_c34932fa9d83c2 514,609,681,684
+  s_f0346c90274a7b::t_f092f64169fd24 513,743
+apps/web/src/components/LegalPage.test.tsx
+  s_f0346c90274a7b::t_b2073cc0a40378 1-11,14-28
+  s_f0346c90274a7b::t_088d03b38d6593 12-13
+apps/web/src/components/LegalPage.css
+  s_f0346c90274a7b::t_088d03b38d6593 16,34
+  s_f0346c90274a7b::t_b2073cc0a40378 1-15,17-33,35-46
+apps/web/src/components/LegalPage.tsx
+  s_f0346c90274a7b::t_b2073cc0a40378 1-23,25-30,32-53,55-61,63-64,66-69,71-129
+  s_f0346c90274a7b::t_088d03b38d6593 62,70
+  s_f0346c90274a7b::t_1fe6719654f80d 24,31
+  s_f0346c90274a7b::t_7623e006a677a8 54,65
+apps/web/src/App.test.tsx
+  s_f0346c90274a7b::t_c34932fa9d83c2 48,52-59
+  s_f0346c90274a7b::t_b2073cc0a40378 43,45-47,49-51,60-61
+  s_f0346c90274a7b::t_f092f64169fd24 44
+apps/web/src/components/LandingPage.tsx
+  s_f0346c90274a7b::t_b2073cc0a40378 103
+  s_f0346c90274a7b::t_088d03b38d6593 83
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "0856a5d161060a0a612f0b8c36060be397082c1d",
+  "prompts": {},
+  "sessions": {
+    "s_f0346c90274a7b": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a07d79-c546-7d50-9722-768df9e521b4",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "StanGirard <stan@quivr.app>"
+    }
+  }
+}

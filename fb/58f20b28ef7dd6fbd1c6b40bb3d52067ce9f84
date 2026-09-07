@@ -1,0 +1,21 @@
+apps/server/src/lifecycle.ts
+  s_f946242dcf6ba9::t_1f19d0a0bf269b 236-243
+apps/server/test/retirement.test.ts
+  s_f946242dcf6ba9::t_5d8d3b2a700ce4 153-167
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "fb58f20b28ef7dd6fbd1c6b40bb3d52067ce9f84",
+  "prompts": {},
+  "sessions": {
+    "s_f946242dcf6ba9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a06de4-a8a5-7cd3-b713-2a8d451f7200",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "StanGirard <stan@quivr.app>"
+    }
+  }
+}

@@ -7,7 +7,8 @@ CREATE TABLE IF NOT EXISTS portable_software_results (
   manifest_digest text NOT NULL CHECK (manifest_digest ~ '^[0-9a-f]{64}$'),
   manifest jsonb NOT NULL CHECK (jsonb_typeof(manifest)='object'),
   provider_snapshot_name text NOT NULL UNIQUE,
-  created_at timestamptz NOT NULL DEFAULT now()
+  created_at timestamptz NOT NULL DEFAULT now(),
+  CHECK(id=source_build_id)
 );
 CREATE TABLE IF NOT EXISTS portable_software_result_grants (
   result_id uuid NOT NULL REFERENCES portable_software_results(id) ON DELETE RESTRICT,
@@ -21,6 +22,9 @@ ALTER TABLE agent_templates ADD COLUMN IF NOT EXISTS software_result_id uuid;
 ALTER TABLE template_revisions ADD COLUMN IF NOT EXISTS software_result_id uuid;
 ALTER TABLE companions ADD COLUMN IF NOT EXISTS software_result_id uuid;
 DO $$ BEGIN
+  IF NOT EXISTS(SELECT 1 FROM pg_constraint WHERE conname='software_build_result_identity') THEN
+    ALTER TABLE portable_software_builds ADD CONSTRAINT software_build_result_identity CHECK(result_id IS NULL OR result_id=id);
+  END IF;
   IF NOT EXISTS(SELECT 1 FROM pg_constraint WHERE conname='templates_software_result_grant_fk') THEN
     ALTER TABLE agent_templates ADD CONSTRAINT templates_software_result_grant_fk
       FOREIGN KEY(software_result_id,owner_id) REFERENCES portable_software_result_grants(result_id,owner_id) ON DELETE RESTRICT;

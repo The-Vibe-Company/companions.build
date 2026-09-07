@@ -78,6 +78,7 @@ export async function grantDeliverySoftware(tx: any, deliveryId: string, recipie
   const targets = await tx`SELECT t.target_key,r.id,r.provider_snapshot_name FROM delivery_software_targets t
     LEFT JOIN portable_software_builds b ON b.id=t.source_build_id AND b.owner_id=t.source_owner_id
     JOIN portable_software_results r ON r.id=COALESCE(t.source_result_id,b.result_id)
+      AND (t.source_result_id IS NOT NULL OR (r.source_build_id=b.id AND r.manifest_digest=b.resolved_manifest_digest))
     JOIN portable_software_result_grants g ON g.result_id=r.id AND g.owner_id=t.source_owner_id
     WHERE t.delivery_id=${deliveryId}`;
   const [{ count }] = await tx`SELECT count(*)::int AS count FROM delivery_software_targets WHERE delivery_id=${deliveryId}`;

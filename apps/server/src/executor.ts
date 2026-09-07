@@ -1,3 +1,4 @@
+import { SoftwareBuildCoordinator, type SoftwareRuntimeHooks } from './software-runtime';
 import {tracePreparation} from './preparation-trace';
 import {BoxObserver} from './box-observation';
 import { db, migrateForService } from "./store";
@@ -65,6 +66,7 @@ export function runExecution(run:any,leaderPid:number):RunExecution {
  };
 }
 export interface ExecutorHooks {
+  software?: SoftwareRuntimeHooks;
   canStartWork?(ownerId: string): Promise<boolean>;
   lifecycle?: LifecycleHooks;
   /** Test boundary; production uses the sole machine adapter. */
@@ -329,6 +331,7 @@ if (import.meta.main) {
   const lifecycle=new LifecycleCoordinator();
   const observations=new BoxObserver();
   const runs=new RunCoordinator();
-  try { for (;;) { await observations.schedule(sql); await tick(sql, productHooks,lifecycle,runs); await Bun.sleep(500); } }
-  finally { await Promise.allSettled([lifecycle.close(),observations.close(),runs.close()]); sql.release(); await db.close(); }
+  const software=new SoftwareBuildCoordinator();
+  try { for (;;) { if(productHooks.software)await software.schedule(sql,productHooks.software); await observations.schedule(sql); await tick(sql, productHooks,lifecycle,runs); await Bun.sleep(500); } }
+  finally { await Promise.allSettled([lifecycle.close(),observations.close(),runs.close(),software.close()]); sql.release(); await db.close(); }
 }

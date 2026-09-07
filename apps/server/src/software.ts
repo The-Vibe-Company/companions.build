@@ -220,10 +220,14 @@ function assertManifestRoots(build: any, manifest: PortableSoftwareManifest) {
 
 /** Internal runtime checkpoint. It validates base identity before pinning immutable manifest bytes. */
 export async function recordResolvedSoftwareManifest(ownerId: string, buildId: string, rawManifest: unknown, sql: any = db) {
+  return sql.begin((tx: any) => recordResolvedSoftwareManifestInTransaction(tx, ownerId, buildId, rawManifest));
+}
+
+/** Caller owns the transaction and its execution fence. */
+export async function recordResolvedSoftwareManifestInTransaction(tx: any, ownerId: string, buildId: string, rawManifest: unknown) {
   const manifest = validatePortableSoftwareManifest(rawManifest);
   const canonical = canonicalSoftwareManifest(manifest);
   const manifestDigest = softwareManifestDigest(manifest);
-  return sql.begin(async (tx: any) => {
     const [build] = await tx`SELECT b.*,s.distribution_digest,s.distro_family,s.distro_suite,s.distro_architecture FROM portable_software_builds b
       JOIN portable_software_bases s ON s.id=b.base_id WHERE b.id=${z.string().uuid().parse(buildId)} AND b.owner_id=${ownerId} FOR UPDATE OF b`;
     if (!build) throw new SoftwareConflict("Software build unavailable.");
@@ -243,7 +247,6 @@ export async function recordResolvedSoftwareManifest(ownerId: string, buildId: s
     await tx`UPDATE portable_software_builds SET manifest_id=${stored.id},resolved_manifest_digest=${manifestDigest},updated_at=now()
       WHERE id=${build.id} AND owner_id=${ownerId} AND (manifest_id IS NULL OR manifest_id=${stored.id})`;
     return { manifestId: stored.id as string, digest: manifestDigest };
-  });
 }
 
 function buildResult(row: any): SoftwareBuildRecord {

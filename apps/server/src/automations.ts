@@ -41,7 +41,7 @@ export async function createRoutine(companionId: string, value: RoutineInput, sq
   const next = nextRoutineFire(input.cron, input.timezone, now);
   const id = crypto.randomUUID();
   return sql.begin(async tx => {
-    const [companion] = await tx`SELECT id FROM companions WHERE id=${companionId} FOR UPDATE`;
+    const [companion] = await tx`SELECT id FROM companions WHERE id=${companionId} AND retired_at IS NULL AND archive_requested_at IS NULL FOR UPDATE`;
     if (!companion) return null;
     await tx`INSERT INTO routines(id,companion_id,name,prompt,cron,timezone,enabled,next_fire_at)
       VALUES(${id},${companionId},${input.name},${input.prompt},${input.cron},${input.timezone},${input.enabled},${input.enabled ? next : null})`;
@@ -68,6 +68,17 @@ export async function deleteRoutine(companionId: string, id: string, sql: Databa
     WHERE companion_id=${companionId} AND id=${id} AND deleted_at IS NULL RETURNING id`;
   return rows.length > 0;
 }
+/** Serialize manual admission with deletion so a removed routine cannot create new work.
+ * Disabled routines remain testable without changing their schedule. */
+export async function testRoutine(companionId: string, routineId: string, clientMessageId: string, sql: Database = db) {
+  return sql.begin(async tx => {
+    const [routine] = await tx`SELECT prompt FROM routines WHERE companion_id=${companionId}
+      AND id=${routineId} AND deleted_at IS NULL FOR UPDATE`;
+    if (!routine) return null;
+    return enqueueBackgroundInTransaction({companionId, clientMessageId, content: routine.prompt, source: 'routine'}, tx);
+  });
+}
+
 export async function routineHistory(companionId: string, id: string, sql: Database = db) {
   const [routine] = await sql`SELECT id FROM routines WHERE companion_id=${companionId} AND id=${id}`;
   if (!routine) return null;
@@ -88,7 +99,7 @@ export async function enqueueBackground(input:BackgroundInput,sql:Database=db):P
 /** Caller owns the transaction, allowing admission and its audit record to commit together. */
 export async function enqueueBackgroundInTransaction(input:BackgroundInput,tx:Database):Promise<string|null>{
  if(!input.content.trim()||input.content.length>50_000)throw Error('Task content is invalid.');
-    const [companion] = await tx`SELECT id FROM companions WHERE id=${input.companionId} FOR UPDATE`;
+    const [companion] = await tx`SELECT id FROM companions WHERE id=${input.companionId} AND retired_at IS NULL AND archive_requested_at IS NULL FOR UPDATE`;
     if (!companion) return null;
     const [existing] = await tx`SELECT id,content,lane,source FROM runs
       WHERE companion_id=${input.companionId} AND client_message_id=${input.clientMessageId}`;
@@ -114,8 +125,10 @@ export async function requestRunResume(companionId: string, runId: string, sql: 
  * Competing schedulers skip locked definitions; restart cannot duplicate an accepted run. */
 export async function scheduleDueRoutines(sql: Database = db, now = new Date()): Promise<number> {
   return sql.begin(async tx => {
-    const due = await tx`SELECT * FROM routines WHERE enabled AND deleted_at IS NULL AND next_fire_at<=${now}
-      ORDER BY next_fire_at,id LIMIT 50 FOR UPDATE SKIP LOCKED`;
+    const due = await tx`SELECT r.* FROM routines r JOIN companions c ON c.id=r.companion_id
+      WHERE r.enabled AND r.deleted_at IS NULL AND r.next_fire_at<=${now}
+        AND c.retired_at IS NULL AND c.archive_requested_at IS NULL
+      ORDER BY r.next_fire_at,r.id LIMIT 50 FOR UPDATE OF r,c SKIP LOCKED`;
     for (const routine of due) {
       const first = new Date(routine.next_fire_at);
       // prev is exclusive: +1ms includes an occurrence exactly at the scheduler's instant.

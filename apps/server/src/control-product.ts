@@ -2,7 +2,7 @@ import {listTemplateRevisions,rollbackTemplate} from './templates';
 import {z} from 'zod';
 import {registerControl} from './control';
 import {startPluginConnection,addCustomPlugin,disconnectPlugin,listPluginCatalog,checkPluginAccount} from './plugins';
-import {routineHistory,enqueueBackground} from './automations';
+import {routineHistory,testRoutine} from './automations';
 import {handleTriggers} from './triggers';
 import {handleDelivery} from './delivery';
 import {handleMaintenance} from './maintenance';
@@ -45,9 +45,9 @@ registerControl({
  plugin_disconnect:async(context,raw)=>{await disconnectPlugin(context.ownerId,z.object({accountId:uuid}).parse(raw).accountId);return {ok:true};},
  routine_history:async(context,raw)=>routineHistory(context.companionId,z.object({id:uuid}).parse(raw).id),
  routine_test:async(context,raw)=>{
-  const {id}=z.object({id:uuid}).parse(raw);const [routine]=await db`SELECT prompt FROM routines WHERE id=${id} AND companion_id=${context.companionId}`;
-  if(!routine)return {error:'Routine not found.'};
-  return {runId:await enqueueBackground({companionId:context.companionId,clientMessageId:context.commandId,content:routine.prompt,source:'routine'})};
+  const {id}=z.object({id:uuid}).parse(raw);
+  const runId=await testRoutine(context.companionId,id,context.commandId);
+  return runId?{runId}:{error:'Routine not found.'};
  },
  trigger_test:async(context,raw)=>{
   const {id,payload}=z.object({id:uuid,payload:z.unknown()}).parse(raw);

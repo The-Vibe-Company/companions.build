@@ -1,6 +1,6 @@
 import {db} from './store';
 import {z} from 'zod';
-import {listRoutines,createRoutine,updateRoutine,deleteRoutine,routineHistory,routineInput,requestRunResume,enqueueBackground} from './automations';
+import {listRoutines,createRoutine,updateRoutine,deleteRoutine,routineHistory,routineInput,requestRunResume,testRoutine} from './automations';
 const json=(v:unknown,status=200)=>Response.json(v,{status,headers:{'cache-control':'no-store'}});
 export async function handleAutomations(request:Request,ownerId:string):Promise<Response|null>{
  const path=new URL(request.url).pathname;
@@ -31,9 +31,8 @@ export async function handleAutomations(request:Request,ownerId:string):Promise<
  if(match[2])z.string().uuid().parse(match[2]);
  if(request.method==='POST'&&match[2]&&match[3]==='/test'){
   const {clientMessageId}=z.object({clientMessageId:z.string().uuid()}).parse(await request.json());
-  const [routine]=await db`SELECT prompt FROM routines WHERE id=${match[2]} AND companion_id=${id}`;
-  if(!routine)return json({error:'Routine not found.'},404);
-  return json({runId:await enqueueBackground({companionId:id,clientMessageId,content:routine.prompt,source:'routine'})},202);
+  const runId=await testRoutine(id,match[2],clientMessageId);
+  return runId?json({runId},202):json({error:'Routine not found.'},404);
  }
  if(request.method==='GET')return match[2]?json(await routineHistory(id,match[2])):json({routines:await listRoutines(id)});
  if(request.method==='POST'&&!match[2])return json({routine:await createRoutine(id,routineInput.parse(await request.json()))},201);

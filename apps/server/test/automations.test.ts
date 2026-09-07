@@ -2,8 +2,9 @@ import { afterEach, beforeAll, expect, test } from "bun:test";
 import { db, migrate, createCompanion, acceptMessage } from "../src/store";
 import { acquireExecutor, claimQueuedRuns, tick } from "../src/executor";
 import { createRoutine, updateRoutine, deleteRoutine, listRoutines, routineHistory, scheduleDueRoutines,
-  migrateAutomations, enqueueBackground, nextRoutineFire, requestRunResume, AutomationConflict } from "../src/automations";
+  migrateAutomations, testRoutine, enqueueBackground, nextRoutineFire, requestRunResume, AutomationConflict } from "../src/automations";
 import { encrypt } from "../src/config";
+import { handleAutomations } from "../src/automation-routes";
 
 const owner="00000000-0000-4000-8000-000000000001";
 const companions: string[] = [];
@@ -178,4 +179,61 @@ test("a parked run interrupted by daemon restart becomes terminal without a resu
     expect((await db`SELECT status FROM runs WHERE id=${waiting}`)[0].status).toBe("interrupted");
     expect(methods).toEqual(["GET"]);
   } finally { await lock.close(); daemon.stop(true); }
+});
+
+
+test("manual routine tests preserve disabled schedules, deduplicate and reject deleted or foreign definitions", async () => {
+  const id = await companion(), foreign = await companion();
+  const routine = await createRoutine(id, {name: "Manual", prompt: "Check", cron: "0 * * * *", timezone: "UTC", enabled: false});
+  const key = crypto.randomUUID();
+  const run = await testRoutine(id, routine.id, key);
+  expect(run).toBeString();
+  expect(await testRoutine(id, routine.id, key)).toBe(run);
+  expect(await testRoutine(foreign, routine.id, crypto.randomUUID())).toBeNull();
+  expect((await listRoutines(id))[0]).toMatchObject({enabled: false, nextFireAt: null});
+  await deleteRoutine(id, routine.id);
+  expect(await testRoutine(id, routine.id, crypto.randomUUID())).toBeNull();
+  const response = await handleAutomations(new Request(`http://local/api/companions/${id}/routines/${routine.id}/test`, {
+    method: 'POST', body: JSON.stringify({clientMessageId: crypto.randomUUID()}),
+  }), owner);
+  expect(response!.status).toBe(404);
+  expect(await db`SELECT id FROM runs WHERE companion_id=${id}`).toHaveLength(1);
+});
+
+
+test("manual admission waits for a concurrent deletion and observes its committed result", async () => {
+  const id = await companion();
+  const routine = await createRoutine(id, {name: "Delete race", prompt: "Check", cron: "0 * * * *", timezone: "UTC", enabled: false});
+  let release!: () => void, locked!: () => void;
+  const gate = new Promise<void>(resolve => {release = resolve;});
+  const ready = new Promise<void>(resolve => {locked = resolve;});
+  const deletion = db.begin(async tx => {
+    await deleteRoutine(id, routine.id, tx);
+    locked();
+    await gate;
+  });
+  await ready;
+  const admission = testRoutine(id, routine.id, crypto.randomUUID());
+  release();
+  await deletion;
+  expect(await admission).toBeNull();
+  expect(await db`SELECT id FROM runs WHERE companion_id=${id}`).toHaveLength(0);
+});
+
+
+test("retiring and retired companions cannot accumulate routine or other background work", async () => {
+  for (const retired of [false, true]) {
+    const id = await companion();
+    const input = {name: "Hourly", prompt: "Check", cron: "0 * * * *", timezone: "UTC", enabled: true};
+    const routine = await createRoutine(id, input, db, new Date("2026-01-01T06:00:00Z"));
+    await db`UPDATE companions SET archive_requested_at=now(),retired_at=${retired ? new Date() : null} WHERE id=${id}`;
+    expect(await scheduleDueRoutines(db, new Date("2026-01-01T10:30:00Z"))).toBe(0);
+    expect(await testRoutine(id, routine.id, crypto.randomUUID())).toBeNull();
+    expect(await createRoutine(id, input)).toBeNull();
+    for (const source of ['routine', 'trigger', 'delegation'] as const) {
+      expect(await enqueueBackground({companionId: id, clientMessageId: crypto.randomUUID(), content: "Check", source})).toBeNull();
+    }
+    expect(await db`SELECT id FROM runs WHERE companion_id=${id}`).toHaveLength(0);
+    expect((await routineHistory(id, routine.id))!.missed).toHaveLength(0);
+  }
 });

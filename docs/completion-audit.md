@@ -26,7 +26,9 @@ hosted acceptance. See `validation-v0.md` for dated evidence.
 - Deliveries omitted the selected model. This is corrected and covered by a PostgreSQL delivery
   check; template revisions and copied specialists also retain their models. Main and specialist deliveries still transport profiles/native skills onto fresh base
   images; they do not reproduce arbitrary installed software from a prepared private snapshot.
-  Faithful portable preparation without transferring provider/browser credentials remains open.
+  A typed manifest and clean Linux reconstruction foundation now passes artifact integrity and
+  isolation tests. Trusted resolution and delivery build progression remain unwired; faithful
+  portable preparation without transferring provider/browser credentials is still open.
   THE-572 was reopened.
 - The Account view did not refresh a pending skill delivery while it stayed open. Pending-state
   refresh is implemented.
@@ -37,9 +39,10 @@ hosted acceptance. See `validation-v0.md` for dated evidence.
   Separate provider and controller timings are needed before choosing the next optimization.
 - Chat now uses authenticated SSE invalidation from committed PostgreSQL changes, with durable
   snapshot recovery on reconnect. Full verification and a separate real browser test pass; the
-  root development server must be restarted before its final integrated browser check.
+  root browser also observed committed changes after reconnect without polling.
 - File attachment supports the file chooser and drag-and-drop; the mobile browser drop path is
-  checked. Temporary specialists are listed in Team rather than nested beneath the task that launched them.
+  checked. Temporary specialists now appear under their originating chat/background task; retired
+  specialist transcripts are read-only and labelled Finished. Mobile fixture navigation is checked.
 - Native Pi skill installation is proven through ordinary tools, but dedicated control MCP
   list/install/edit/remove operations from the capability table are absent.
 - Full OAuth provider tool/revocation matrix, managed trigger registration, hosted concurrent load,

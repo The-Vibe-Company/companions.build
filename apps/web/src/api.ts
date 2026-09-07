@@ -56,6 +56,26 @@ export interface Run {
   createdAt: string;
 }
 
+export interface TaskSummary {
+  id: string;
+  status: RunStatus;
+  lane: "main" | "background";
+  source: string;
+  createdAt: string;
+  finishedAt: string | null;
+  title: string;
+}
+
+export interface TaskDetail extends TaskSummary {
+  content: string;
+  resultText: string | null;
+  error: string | null;
+  startedAt: string | null;
+  preparedAt: string | null;
+  cancelRequested: boolean;
+  publishToChat: boolean;
+}
+
 export interface CompanionDetail {
   files?: ThreadFile[];
   questions?: Array<{id:string;runId:string;question:string;options:string[];answer:string|null}>;
@@ -179,6 +199,12 @@ export const api = {
   getCompanion: (id: string) => request<CompanionDetail>(`/api/companions/${id}`),
   deleteCompanion: (id: string) => request<{ deleted: true; companionIds?: string[] }>(`/api/companions/${id}`, { method: "DELETE" }),
   companionEvents: (id: string) => new EventSource(`/api/companions/${id}/events`),
+  taskHistory: (id: string, before?: string) =>
+    request<{ tasks: TaskSummary[]; nextCursor: string | null }>(`/api/companions/${id}/tasks?limit=20${before ? `&before=${encodeURIComponent(before)}` : ""}`),
+  taskDetail: (id: string, taskId: string) =>
+    request<{ task: TaskDetail; files: ThreadFile[] }>(`/api/companions/${id}/tasks/${taskId}`),
+  cancelTask: (id: string, taskId: string) =>
+    request<{ task: TaskDetail }>(`/api/companions/${id}/tasks/${taskId}/cancel`, { method: "POST" }),
   createCompanion: (input: Pick<Companion, "name" | "instructions" | "provider" | "avatar"> & { clientCreationId: string; prepare?: boolean; templateId?: string; templateRevision?: number }) =>
     request<{ companion: Companion }>("/api/companions", {
       method: "POST",

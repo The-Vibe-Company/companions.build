@@ -9,7 +9,7 @@ export async function migrate(sql = db) {
     await tx`SELECT pg_advisory_xact_lock(721440138)`;
     await tx.unsafe(schema);
     await tx.unsafe(authSchema);
-    for (const name of ["product.sql", "plugins.sql", "storage-schema.sql", "automations.sql", "triggers.sql", "lifecycle.sql", "desktop.sql", "box-observation.sql", "billing.sql", "delivery.sql", "maintenance.sql", "delivery-skills.sql"]) await tx.unsafe(await Bun.file(new URL(`./${name}`,import.meta.url)).text());
+    for (const name of ["product.sql", "plugins.sql", "storage-schema.sql", "automations.sql", "triggers.sql", "lifecycle.sql", "desktop.sql", "box-observation.sql", "billing.sql", "delivery.sql", "maintenance.sql", "delivery-skills.sql", "events.sql"]) await tx.unsafe(await Bun.file(new URL(`./${name}`,import.meta.url)).text());
     const localId = "00000000-0000-4000-8000-000000000001";
     if (process.env.NODE_ENV !== "production") {
       await tx`INSERT INTO "user" ("id","name","email","emailVerified","createdAt","updatedAt")
@@ -38,8 +38,8 @@ export async function createCompanion(ownerId: string, input: { name: string; in
       if(template.snapshot_name&&input.provider!=="box")throw new Conflict("This prepared template requires Box.");
     } else if(input.templateRevision)throw new Conflict("A template is required for a revision.");
     const id = crypto.randomUUID();
-    await sql`INSERT INTO companions (id,owner_id,name,instructions,provider,create_key,agent_secret,avatar,prepare_requested,template_id,template_revision,snapshot_name)
-      VALUES (${id},${ownerId},${input.name},${input.instructions??template?.instructions??""},${input.provider},${crypto.randomUUID()},${encrypt(randomBytes(32).toString("hex"))},${input.avatar??template?.avatar??{shape:0,color:0,face:0}},${input.prepare??false},${input.templateId??null},${template?.revision??null},${template?.snapshot_name??null})`;
+    await sql`INSERT INTO companions (id,owner_id,name,instructions,provider,create_key,agent_secret,avatar,prepare_requested,template_id,template_revision,snapshot_name,model_id)
+      VALUES (${id},${ownerId},${input.name},${input.instructions??template?.instructions??""},${input.provider},${crypto.randomUUID()},${encrypt(randomBytes(32).toString("hex"))},${input.avatar??template?.avatar??{shape:0,color:0,face:0}},${input.prepare??false},${input.templateId??null},${template?.revision??null},${template?.snapshot_name??null},${template?.model_id??null})`;
     return (await sql.unsafe(`SELECT ${companionColumns} FROM companions WHERE id=$1 AND owner_id=$2`, [id, ownerId]))[0];
   });
 }

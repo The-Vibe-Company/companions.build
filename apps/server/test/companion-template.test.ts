@@ -6,12 +6,12 @@ beforeAll(()=>migrate());
 test('permanent Companions pin the chosen revision with independent identity and empty history',async()=>{
  const template=await saveTemplate(owner,{name:'Coder',instructions:'Review carefully',avatar:{shape:2,color:3,face:1}});
  await db.begin(async tx=>{
-  await tx`UPDATE agent_templates SET revision=revision+1,snapshot_name='synthetic-prepared-template',instructions='Prepared coder' WHERE id=${template.id}`;
+  await tx`UPDATE agent_templates SET revision=revision+1,model_id='glm-template-fixture',snapshot_name='synthetic-prepared-template',instructions='Prepared coder' WHERE id=${template.id}`;
   await recordTemplateRevision(tx,template.id);
  });
  const first=await createCompanion(owner,{name:'First',provider:'box',templateId:template.id,prepare:true});
  const second=await createCompanion(owner,{name:'Second',provider:'box',templateId:template.id,templateRevision:2});
- expect(first.templateRevision).toBe(2);expect(first.instructions).toBe('Prepared coder');
+ expect(first.modelId).toBe('glm-template-fixture');expect(first.templateRevision).toBe(2);expect(first.instructions).toBe('Prepared coder');
  expect(first.avatar).toEqual({shape:2,color:3,face:1});expect(first.temporary).toBe(false);expect(first.parentId).toBeNull();
  const rows=await db`SELECT create_key,agent_secret,box_id,snapshot_name FROM companions WHERE id IN (${first.id},${second.id})`;
  expect(new Set(rows.map((r:any)=>r.create_key)).size).toBe(2);expect(new Set(rows.map((r:any)=>r.agent_secret)).size).toBe(2);

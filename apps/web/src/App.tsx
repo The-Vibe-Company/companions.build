@@ -22,7 +22,7 @@ import {
   Waypoints,
   X,
 } from "lucide-react";
-import { DragEvent, FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { DragEvent, FormEvent, lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Conversation,
   ConversationContent,
@@ -51,6 +51,10 @@ import { Question } from "@/components/Question";
 import { cn } from "@/lib/utils";
 import { AvatarPicker, CompanionAvatar, DEFAULT_AVATAR, type CompanionAvatarValue } from "@/components/CompanionAvatar";
 import { AccountProduct, DesktopSheet } from "@/components/ProductPanels";
+import { RoutineSettings, TriggerSettings } from "@/components/AutomationPanels";
+const TeamPanel = lazy(() => import("@/components/TeamPanel").then(module => ({ default: module.TeamPanel })));
+const CreateTeamWizard = lazy(() => import("@/components/CreateTeamWizard").then(module => ({ default: module.CreateTeamWizard })));
+import { ProviderMark } from "@/components/ProviderMark";
 import { SettingsSheet } from "@/components/SettingsSheet";
 
 const LIST_INTERVAL = 8_000;
@@ -152,7 +156,7 @@ function CreateCompanion({
   onCreated: (companion: Companion) => void;
   compact?: boolean;
 }) {
-  const firstProvider = config.localAvailable ? "local" : "box";
+  const firstProvider = config.boxAvailable ? "box" : "local";
   const [name, setName] = useState("");
   const [instructions, setInstructions] = useState("");
   const [provider, setProvider] = useState<"local" | "box">(firstProvider);
@@ -215,7 +219,7 @@ function CreateCompanion({
 
       {templates.length > 0 && <div className="field template-source"><label htmlFor={compact ? "template-compact" : "template"}>Start from</label><select id={compact ? "template-compact" : "template"} value={templateId} onChange={event => chooseTemplate(event.target.value)}><option value="">Blank Companion</option>{templates.map(template => {const needsBox=!!(template.hasSnapshot||template.softwareBuildId||template.softwareResultId);return <option key={template.id} value={template.id} disabled={needsBox&&!config.boxAvailable}>{template.name} · v{template.revision}{needsBox&&!config.boxAvailable ? " · cloud unavailable" : ""}</option>;})}</select><span className="field-hint">Templates prefill the mission and pin this Companion to the version shown.</span></div>}
 
-      <AvatarPicker value={avatar} onChange={setAvatar} />
+      <details className="create-personality"><summary><CompanionAvatar name="Your companion" avatar={avatar} size={48}/><span>Give them a little personality<small>Choose a shape, color and expression</small></span><ChevronRight/></summary><AvatarPicker value={avatar} onChange={setAvatar} /></details>
 
       <div className="field">
         <label htmlFor={compact ? "name-compact" : "name"}>Name</label>
@@ -239,7 +243,7 @@ function CreateCompanion({
         <span className="field-hint">Set the mission this Companion will start with.</span>
       </div>
 
-      <fieldset className="provider-picker">
+      <details className="create-advanced"><summary>Computer preferences</summary><fieldset className="provider-picker">
         <legend>Computer</legend>
         <label className={cn("provider-option", provider === "local" && "provider-option--selected", (!config.localAvailable || selectedTemplateNeedsBox) && "provider-option--disabled")}>
           <input
@@ -267,7 +271,7 @@ function CreateCompanion({
           <span><strong>Box</strong><small>Persistent cloud computer</small></span>
           {provider === "box" && <Check className="provider-check" />}
         </label>
-      </fieldset>
+      </fieldset></details>
       {error && <p className="field-error" role="alert">{error}</p>}
       <Button className="create-submit" type="submit" disabled={!name.trim() || !instructions.trim() || submitting || (!config.localAvailable && !config.boxAvailable)}>
         {submitting ? <LoaderCircle className="spin" /> : <Plus />}
@@ -282,6 +286,7 @@ function Sidebar({
   selectedId,
   onSelect,
   onCreate,
+  onCreateTeam,
   onNavigate,
   user,
   open,
@@ -291,6 +296,7 @@ function Sidebar({
   selectedId: string | null;
   onSelect: (id: string) => void;
   onCreate: () => void;
+  onCreateTeam: () => void;
   onNavigate: (path: string) => void;
   user: AccountUser;
   open: boolean;
@@ -304,7 +310,7 @@ function Sidebar({
           <button className="wordmark wordmark-button" onClick={() => onNavigate("/")}>companions<span>.build</span></button>
           <Button variant="ghost" size="icon" className="sidebar-close" onClick={onClose} aria-label="Close navigation"><PanelLeftClose /></Button>
         </div>
-        <div className="sidebar-label"><span>Your companions</span><Button variant="ghost" size="icon" onClick={onCreate} aria-label="New Companion"><Plus /></Button></div>
+        <div className="sidebar-label"><span>Your companions</span><details className="create-menu" onBlur={event => { if (!event.currentTarget.contains(event.relatedTarget as Node)) event.currentTarget.open = false; }} onKeyDown={event => { if (event.key === 'Escape') { event.currentTarget.open = false; event.currentTarget.querySelector('summary')?.focus(); } }}><summary aria-label="Create"><Plus /></summary><div className="create-popover"><button onClick={event => { event.currentTarget.closest('details')?.removeAttribute('open'); onCreate(); }}>New Companion</button><button onClick={event => { event.currentTarget.closest('details')?.removeAttribute('open'); onCreateTeam(); }}>Create a team</button></div></details></div>
         <nav className="companion-list">
           {companions.map((companion) => (
             <button
@@ -527,6 +533,18 @@ function CompanionConnections({ companionId }: { companionId: string }) {
 }
 
 function CompanionView({ detail, models, onRefresh, onUnauthorized, onMenu, onOpenCompanion }: { detail: CompanionDetail; models: Array<{ id: string; name: string }>; onRefresh: () => Promise<void>; onUnauthorized: () => void; onMenu: () => void; onOpenCompanion: (id: string) => void }) {
+  const readView = () => { const value = new URLSearchParams(window.location.search).get('view'); return value === 'team' || value === 'automations' ? value : 'chat'; };
+  const [view, setView] = useState(readView);
+  const [automationView, setAutomationView] = useState(() => new URLSearchParams(window.location.search).get('kind') === 'events' ? 'events' : 'routines');
+  const [identityOpen, setIdentityOpen] = useState(false);
+  useEffect(() => { const restore = () => { setView(readView()); setAutomationView(new URLSearchParams(window.location.search).get('kind') === 'events' ? 'events' : 'routines'); }; window.addEventListener('popstate', restore); return () => window.removeEventListener('popstate', restore); }, []);
+  function changeView(next: 'chat' | 'automations' | 'team', kind = automationView) {
+    const url = new URL(window.location.href);
+    if (next === 'chat') url.searchParams.delete('view'); else url.searchParams.set('view', next);
+    if (next === 'automations' && kind === 'events') url.searchParams.set('kind', kind); else url.searchParams.delete('kind');
+    if (url.pathname + url.search !== window.location.pathname + window.location.search) window.history.pushState({}, '', url.pathname + url.search);
+    setView(next); setAutomationView(kind);
+  }
   const [desktopOpen, setDesktopOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [activityOpen, setActivityOpen] = useState(false);
@@ -537,29 +555,32 @@ function CompanionView({ detail, models, onRefresh, onUnauthorized, onMenu, onOp
     <main className="workspace" id="main-content">
       <header className="chat-header">
         <Button className="mobile-menu" variant="ghost" size="icon" onClick={onMenu} aria-label="Open navigation"><Menu /></Button>
-        <div className="header-identity">
+        <button className="header-identity identity-link" disabled={finished} aria-label={`Edit ${detail.companion.name}'s personality`} onClick={() => { setIdentityOpen(true); setSettingsOpen(true); }}>
           <CompanionAvatar name={detail.companion.name} avatar={detail.companion.avatar} size={38} />
           <div><h1>{detail.companion.name}</h1><span><StatusDot status={displayedStatus} />{finished ? "Finished" : statusLabel(displayedStatus)}</span></div>
-        </div>
+        </button>
         <div className="header-actions">
           {(finished || detail.runs.some(run => isActiveRun(run.status)) || !!detail.questions?.length) && <Button variant="ghost" size="sm" onClick={() => setActivityOpen(true)} aria-label="Activity"><CalendarClock /><span>{detail.questions?.length ? 'Needs you' : 'Activity'}</span></Button>}
-          {!finished && <Button variant="ghost" size="icon" onClick={() => setSettingsOpen(true)} aria-label={`Settings for ${detail.companion.name}`}><Settings /></Button>}
+          {!finished && <Button variant="ghost" size="icon" onClick={() => { setIdentityOpen(false); setSettingsOpen(true); }} aria-label={`Settings for ${detail.companion.name}`}><Settings /></Button>}
         </div>
       </header>
-      <div className="workspace-body">
+      {!finished && <nav className="companion-sections" aria-label="Companion sections">{([['chat', 'Discussion'], ['automations', 'Automations'], ['team', 'Team']] as const).map(([key, label]) => <button key={key} aria-current={view === key ? 'page' : undefined} onClick={() => changeView(key)}>{label}</button>)}</nav>}
+      <div className="workspace-body" hidden={!finished && view !== 'chat'}>
         <Chat detail={detail} onRefresh={onRefresh} onUnauthorized={onUnauthorized} onOpenCompanion={onOpenCompanion} readOnly={finished} />
       </div>
+      {!finished && view === 'automations' && <section className="companion-page" aria-label="Automations"><div className="companion-page-inner"><header className="section-intro"><h2>A little help, on repeat.</h2><p>Set the timing. Your companion takes it from there.</p></header><nav className="automation-sections" aria-label="Automation type"><button aria-current={automationView === 'routines' ? 'page' : undefined} onClick={() => changeView('automations', 'routines')}>Routines</button><button aria-current={automationView === 'events' ? 'page' : undefined} onClick={() => changeView('automations', 'events')}>Events</button></nav>{automationView === 'routines' ? <RoutineSettings companionId={detail.companion.id}/> : <TriggerSettings companionId={detail.companion.id}/>}</div></section>}
+      {!finished && view === 'team' && <section className="companion-page" aria-label="Team"><Suspense fallback={<div className="companion-page-inner" role="status">Opening your team…</div>}><TeamPanel companion={detail.companion} onOpenCompanion={onOpenCompanion}/></Suspense></section>}
       {activityOpen && <div className="activity-layer"><button className="sheet-scrim" onClick={() => setActivityOpen(false)} aria-label="Close activity" /><ActivityPanel detail={detail} onClose={() => setActivityOpen(false)} onOpenCompanion={(id) => { setActivityOpen(false); onOpenCompanion(id); }} /></div>}
-      {settingsOpen && <SettingsSheet detail={detail} models={models} onClose={() => setSettingsOpen(false)} onSaved={onRefresh} connections={<CompanionConnections companionId={detail.companion.id} />} onActivity={() => { setSettingsOpen(false); setActivityOpen(true); }} onDesktop={() => { setSettingsOpen(false); setDesktopOpen(true); }} />}
+      {settingsOpen && <SettingsSheet initialPage={identityOpen ? "identity" : "home"} detail={detail} models={models} onClose={() => setSettingsOpen(false)} onSaved={onRefresh} connections={<CompanionConnections companionId={detail.companion.id} />} onActivity={() => { setSettingsOpen(false); setActivityOpen(true); }} onDesktop={() => { setSettingsOpen(false); setDesktopOpen(true); }} />}
       {desktopOpen && <DesktopSheet companion={detail.companion} onClose={() => setDesktopOpen(false)} onRefresh={onRefresh} />}
     </main>
   );
 }
 
-function Home({ companions, onSelect, onCreate, onMenu }: { companions: Companion[]; onSelect: (id: string) => void; onCreate: () => void; onMenu: () => void }) {
+function Home({ companions, onSelect, onCreate, onCreateTeam, onMenu }: { companions: Companion[]; onSelect: (id: string) => void; onCreate: () => void; onCreateTeam: () => void; onMenu: () => void }) {
   return <main className="home-page" id="main-content">
     <header className="mobile-page-header"><Button variant="ghost" size="icon" onClick={onMenu} aria-label="Open navigation"><Menu /></Button><span className="wordmark">companions.build</span></header>
-    <div className="home-inner"><div className="home-heading"><div><h1>A little company.<br/>A lot of possibility.</h1><p>Your companions, ready when you are.</p></div><Button onClick={onCreate}><Plus />New Companion</Button></div>
+    <div className="home-inner"><div className="home-heading"><div><h1>Your companions.</h1><p>Pick up where you left off.</p></div><div className="home-create-actions"><Button variant="ghost" onClick={onCreateTeam}>Create a team</Button><Button onClick={onCreate}><Plus />New Companion</Button></div></div>
       <div className="home-list">{companions.map((companion) => <button key={companion.id} className="home-companion" onClick={() => onSelect(companion.id)}>
         <CompanionAvatar name={companion.name} avatar={companion.avatar} size={62} />
         <span><strong>{companion.name}</strong><small>{companion.instructions}</small><em><StatusDot status={companion.status} />{statusLabel(companion.status)}</em></span><ChevronRight />
@@ -622,8 +643,8 @@ function ConnectionsPage({ onMenu }: { onMenu: () => void }) {
       <details className="advanced-panel custom-advanced"><summary>{transport === "http" ? "Request headers" : "Environment variables"}</summary><p>Values are encrypted and cannot be viewed again.</p><div className="custom-secrets">{secrets.map((item, index) => <div className="custom-secret-row" key={index}><input aria-label={`${transport === "http" ? "Header" : "Variable"} ${index + 1} name`} value={item.key} onChange={event => updateSecret(index, "key", event.target.value)} placeholder={transport === "http" ? "Authorization" : "API_TOKEN"} autoCapitalize="none" autoComplete="off" /><input aria-label={`${transport === "http" ? "Header" : "Variable"} ${index + 1} secret value`} type="password" value={item.value} onChange={event => updateSecret(index, "value", event.target.value)} placeholder="Secret value" autoComplete="new-password" /><button type="button" className="icon-action" onClick={() => setSecrets(current => current.filter((_, itemIndex) => itemIndex !== index))} aria-label={`Remove ${transport === "http" ? "header" : "variable"} ${index + 1}`}><Trash2 /></button></div>)}</div><Button type="button" variant="ghost" size="sm" onClick={() => setSecrets(current => [...current, { key: "", value: "" }])}><Plus />Add {transport === "http" ? "header" : "variable"}</Button></details>
       <div className="custom-submit"><Button type="submit" disabled={!label.trim() || (transport === "http" ? !url.trim() : !command.trim())}>Add server</Button></div>
     </form>}
-    {accounts.length > 0 && <section className="connection-section"><h2>Connected</h2>{accounts.map((account) => {const reconnect=account.healthCode==="authorization_required"?catalog.find(server=>server.id===account.serverId&&server.available):undefined;return <div className="connected-row" key={account.id}><span className="provider-dot">{(account.provider ?? account.label)[0]?.toUpperCase()}</span><div><strong>{account.label}</strong><small role="status" className={`connection-health connection-health--${account.healthStatus}`}>{healthText(account)}</small></div><div className="connection-row-actions">{reconnect&&<Button variant="ghost" size="sm" disabled={!!busy} onClick={()=>void connect(reconnect)}>Reconnect</Button>}{account.provider!=="custom"&&<Button variant="ghost" size="sm" disabled={!!busy} onClick={()=>void check(account)} aria-label={`Check ${account.label}`}>{busy===account.id?<LoaderCircle className="spin"/>:"Check"}</Button>}<button className="icon-action" disabled={!!busy} onClick={() => void disconnect(account)} aria-label={`Disconnect ${account.label}`}><Trash2 /></button></div></div>;})}</section>}
-    <section className="connection-section"><h2>Add a connection</h2><div className="provider-list">{catalog.map((server) => <div className="provider-row" key={server.id}><span className="provider-dot">{(server.provider ?? server.name)[0]?.toUpperCase()}</span><div><strong>{server.name}</strong><small>{server.available?(server.description ?? "Tools and events"):"Unavailable in this deployment"}</small></div><Button variant="outline" size="sm" disabled={!server.available||!!busy} onClick={() => void connect(server)}>{busy===server.id?<LoaderCircle className="spin"/>:server.available?"Connect":"Unavailable"}{server.available&&<ExternalLink />}</Button></div>)}</div>{catalog.length === 0 && <div className="quiet-empty"><Waypoints /><strong>No providers available</strong><span>Add a custom MCP server or try again shortly.</span></div>}</section>
+    {accounts.length > 0 && <section className="connection-section"><h2>Connected</h2>{accounts.map((account) => {const reconnect=account.healthCode==="authorization_required"?catalog.find(server=>server.id===account.serverId&&server.available):undefined;return <div className="connected-row" key={account.id}><ProviderMark provider={account.provider} name={account.label}/><div><strong>{account.label}</strong><small role="status" className={`connection-health connection-health--${account.healthStatus}`}>{healthText(account)}</small></div><div className="connection-row-actions">{reconnect&&<Button variant="ghost" size="sm" disabled={!!busy} onClick={()=>void connect(reconnect)}>Reconnect</Button>}{account.provider!=="custom"&&<Button variant="ghost" size="sm" disabled={!!busy} onClick={()=>void check(account)} aria-label={`Check ${account.label}`}>{busy===account.id?<LoaderCircle className="spin"/>:"Check"}</Button>}<button className="icon-action" disabled={!!busy} onClick={() => void disconnect(account)} aria-label={`Disconnect ${account.label}`}><Trash2 /></button></div></div>;})}</section>}
+    <section className="connection-section"><h2>Add a connection</h2><div className="provider-list">{catalog.map((server) => <div className="provider-row" key={server.id}><ProviderMark provider={server.provider} name={server.name}/><div><strong>{server.name}</strong><small>{server.available?(server.description ?? "Tools and events"):"Unavailable in this deployment"}</small></div><Button variant="outline" size="sm" disabled={!server.available||!!busy} onClick={() => void connect(server)}>{busy===server.id?<LoaderCircle className="spin"/>:server.available?"Connect":"Unavailable"}{server.available&&<ExternalLink />}</Button></div>)}</div>{catalog.length === 0 && <div className="quiet-empty"><Waypoints /><strong>No providers available</strong><span>Add a custom MCP server or try again shortly.</span></div>}</section>
   </div></main>;
 }
 
@@ -647,6 +668,7 @@ export function App() {
   const [loading, setLoading] = useState(true);
   const [pageError, setPageError] = useState("");
   const [createOpen, setCreateOpen] = useState(false);
+  const [teamCreateOpen, setTeamCreateOpen] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   const handleApiError = useCallback((cause: unknown) => {
@@ -701,7 +723,7 @@ export function App() {
   useEffect(() => { void bootstrap(); }, [bootstrap]);
 
   useEffect(() => {
-    const onPopState = () => { setCurrentPath(window.location.pathname); setSelectedId(selectedIdFromPath()); };
+    const onPopState = () => { setCurrentPath(window.location.pathname); setSelectedId(selectedIdFromPath()); setCreateOpen(false); setTeamCreateOpen(false); };
     window.addEventListener("popstate", onPopState);
     return () => window.removeEventListener("popstate", onPopState);
   }, []);
@@ -750,8 +772,10 @@ export function App() {
 
   function selectCompanion(id: string) {
     setSelectedId(id);
-    setDetail(null);
+    if (id !== selectedId) setDetail(null);
+    else void loadDetail();
     setCreateOpen(false);
+    setTeamCreateOpen(false);
     setSidebarOpen(false);
     window.history.pushState({}, "", `/companions/${id}`);
     setCurrentPath(`/companions/${id}`);
@@ -762,6 +786,7 @@ export function App() {
     setCurrentPath(path);
     setSelectedId(selectedIdFromPath());
     setCreateOpen(false);
+    setTeamCreateOpen(false);
     setSidebarOpen(false);
   }
 
@@ -772,7 +797,7 @@ export function App() {
   }
 
   function handleCreated(companion: Companion) {
-    setCompanions((current) => [companion, ...current]);
+    setCompanions((current) => [companion, ...current.filter(item => item.id !== companion.id)]);
     selectCompanion(companion.id);
     void loadList();
   }
@@ -797,7 +822,8 @@ export function App() {
         companions={companions}
         selectedId={selectedId}
         onSelect={selectCompanion}
-        onCreate={() => { setCreateOpen(true); setSidebarOpen(false); }}
+        onCreate={() => { setCreateOpen(true); setTeamCreateOpen(false); setSidebarOpen(false); }}
+        onCreateTeam={() => { setTeamCreateOpen(true); setCreateOpen(false); setSidebarOpen(false); }}
         onNavigate={navigate}
         user={user}
         open={sidebarOpen}
@@ -806,7 +832,7 @@ export function App() {
       {pageError && (
         <div className="page-error" role="alert"><CircleAlert />{pageError}<button onClick={() => void bootstrap()}>Try again</button></div>
       )}
-      {currentPath === "/account" && !createOpen ? (
+      {teamCreateOpen ? <main className="team-onboarding" id="main-content"><Suspense fallback={<div className="companion-page-inner" role="status">Opening team creation…</div>}><CreateTeamWizard config={config} companions={companions.filter(item => !item.temporary && !item.retiredAt)} onCancel={() => setTeamCreateOpen(false)} onCreated={companion => { handleCreated(companion); window.history.replaceState({}, '', `/companions/${companion.id}?view=team`); }} /></Suspense></main> : currentPath === "/account" && !createOpen ? (
         <AccountPage user={user} onSignOut={signOut} onMenu={() => setSidebarOpen(true)} />
       ) : currentPath === "/connections" && !createOpen ? (
         <ConnectionsPage onMenu={() => setSidebarOpen(true)} />
@@ -817,7 +843,7 @@ export function App() {
           <div className="model-note"><Server />Using {config.model}</div>
         </main>
       ) : !selectedId ? (
-        <Home companions={companions} onSelect={selectCompanion} onCreate={() => setCreateOpen(true)} onMenu={() => setSidebarOpen(true)} />
+        <Home companions={companions} onSelect={selectCompanion} onCreateTeam={() => setTeamCreateOpen(true)} onCreate={() => setCreateOpen(true)} onMenu={() => setSidebarOpen(true)} />
       ) : detail && detail.companion.id === selectedId ? (
         <CompanionView key={detail.companion.id} detail={detail} models={config.models ?? [{ id: config.model, name: config.model }]} onRefresh={loadDetail} onUnauthorized={() => setAuthRequired(true)} onMenu={() => setSidebarOpen(true)} onOpenCompanion={selectCompanion} />
       ) : (

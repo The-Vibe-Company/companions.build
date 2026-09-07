@@ -161,7 +161,7 @@ export const api = {
   getCompanions: () => request<{ companions: Companion[] }>("/api/companions"),
   getCompanion: (id: string) => request<CompanionDetail>(`/api/companions/${id}`),
   companionEvents: (id: string) => new EventSource(`/api/companions/${id}/events`),
-  createCompanion: (input: Pick<Companion, "name" | "instructions" | "provider" | "avatar"> & { clientCreationId: string; templateId?: string; templateRevision?: number }) =>
+  createCompanion: (input: Pick<Companion, "name" | "instructions" | "provider" | "avatar"> & { clientCreationId: string; prepare?: boolean; templateId?: string; templateRevision?: number }) =>
     request<{ companion: Companion }>("/api/companions", {
       method: "POST",
       body: JSON.stringify(input),
@@ -266,7 +266,7 @@ export const workspaceApi = {
   rollbackTemplate: (id: string, targetRevision: number, expectedRevision: number) => request<{ id: string; revision: number }>(`/api/templates/${id}/rollback`, { method: "POST", body: JSON.stringify({ targetRevision, expectedRevision }) }),
   setTemplatePermission: (companionId: string, templateId: string, maxChildren: number) => request<{ templateId: string; maxChildren: number }>(`/api/companions/${companionId}/templates/${templateId}`, { method: "PUT", body: JSON.stringify({ maxChildren }) }),
   replicas: (companionId: string) => request<{ replicas: Companion[] }>(`/api/companions/${companionId}/replicas`),
-  spawnReplica: (companionId: string, templateId: string, prompt: string, clientCommandId = crypto.randomUUID()) => request<{ companionId: string; runId: string }>(`/api/companions/${companionId}/replicas`, { method: "POST", body: JSON.stringify({ clientCommandId, templateId, prompt }) }),
+  spawnReplica: (companionId: string, templateId: string, prompt: string, clientCommandId: string = crypto.randomUUID()) => request<{ companionId: string; runId: string }>(`/api/companions/${companionId}/replicas`, { method: "POST", body: JSON.stringify({ clientCommandId, templateId, prompt }) }),
   prepare: (companionId: string) => request<unknown>(`/api/companions/${companionId}/prepare`, { method: "POST" }),
   takeDesktop: (companionId: string) => request<unknown>(`/api/companions/${companionId}/desktop/takeover`, { method: "POST" }),
   releaseDesktop: (companionId: string) => request<unknown>(`/api/companions/${companionId}/desktop/release`, { method: "POST" }),

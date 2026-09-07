@@ -51,6 +51,7 @@ test("Better Auth sessions isolate two personal accounts across every Companion 
   const [created,retried]=await Promise.all([create(),create()]);
   expect(created.status).toBe(201);
   const companion = (await created.json() as any).companion;
+  expect(companion.prepareRequested).toBe(true);
   expect((await retried.json() as any).companion.id).toBe(companion.id);
   expect((await create("Changed")).status).toBe(409);
   const url = `http://127.0.0.1:4310/api/companions/${companion.id}/messages`;
@@ -174,4 +175,23 @@ test("desktop URLs require a live owned Companion and never contact retired or a
       expect(desktop).toHaveBeenCalledTimes(state === "ready" ? 1 : 0);
     }
   } finally { desktop.mockRestore(); config.boxKey = previous; }
+});
+
+
+test("team setup can persist a coordinator without requesting preparation or a run", async () => {
+  const cookie = await signIn(`team-${crypto.randomUUID()}@example.com`);
+  const clientCreationId = crypto.randomUUID();
+  const create = (prepare: boolean) => handler(new Request("http://127.0.0.1:4310/api/companions", {
+    method: "POST", headers: { cookie, "content-type": "application/json" },
+    body: JSON.stringify({ clientCreationId, name: "Team coordinator", instructions: "Coordinate", provider: "local", prepare }),
+  }));
+  const first = await create(false); expect(first.status).toBe(201);
+  const companion = (await first.json() as any).companion;
+  expect(companion.prepareRequested).toBe(false);
+  const retry = await create(false); expect(retry.status).toBe(201);
+  expect((await retry.json() as any).companion.id).toBe(companion.id);
+  const [state] = await db`SELECT prepare_requested,box_id FROM companions WHERE id=${companion.id}`;
+  expect(state.prepare_requested).toBe(false); expect(state.box_id).toBeNull();
+  expect(await db`SELECT id FROM runs WHERE companion_id=${companion.id}`).toHaveLength(0);
+  expect((await create(true)).status).toBe(409);
 });

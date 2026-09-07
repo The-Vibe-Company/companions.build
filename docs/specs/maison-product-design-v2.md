@@ -1,8 +1,10 @@
 # Maison V2 — design produit et création d’équipe
 
-Proposition du 7 septembre 2026. Audit du front à partir du commit 70a5e80 et des
+Plan du 7 septembre 2026. Première implémentation livrée : navigation directe, équipe de spécialistes et création guidée. Voir [validation](../measurements/maison-v2-2026-09-07.md).
+
+Proposition initiale : Audit du front à partir du commit 70a5e80 et des
 captures desktop/mobile de la passe précédente. Ce document définit la prochaine passe ;
-les comportements proposés ne sont pas encore implémentés. Il remplace les recommandations
+les paragraphes de proposition conservent aussi les pistes futures ; le rapport de validation distingue ce qui est livré. Il remplace les recommandations
 UI du plan maison-interface-control-mcp.md. Le MCP existant reste conservé.
 
 ## Intention

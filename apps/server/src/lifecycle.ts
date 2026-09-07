@@ -33,12 +33,17 @@ export interface LifecycleMachines {
  health(endpoint:string,token:string):Promise<any>;
  pause(companion:any,paused:boolean,beforeEffect?:EffectGuard):Promise<DesktopMachineState|void>;
  archive(companion:any,beforeEffect?:EffectGuard):Promise<boolean>;
+ cancel?(companion:any,runId:string,beforeEffect:EffectGuard):Promise<boolean>;
  snapshot(companion:any,name:string):Promise<void>;
  snapshotStatus(name:string):Promise<'missing'|'pending'|'ready'|'failed'>;
 }
 const machines:LifecycleMachines={
  prepare:(companion,checkpoint,configured,beforeEffect)=>companion.provider==='local'?prepareLocal(companion,true,beforeEffect):prepareBox(companion,checkpoint,configured,beforeEffect),
  health:(endpoint,token)=>agentRequest(endpoint,token,'/health'),pause:pauseMachine,archive:archiveMachine,
+ async cancel(companion,runId,beforeEffect){
+  await beforeEffect();const result=await agentRequest(decrypt(companion.endpoint_secret),decrypt(companion.agent_secret),`/runs/${runId}/cancel`,'POST');
+  await beforeEffect();return terminal.includes(result?.status);
+ },
  async snapshot(companion,name){if(!provider)throw Error('box_not_configured');await provider.snapshot(companion.box_id,name);},
  async snapshotStatus(name){
   if(!provider)throw Error('box_not_configured');

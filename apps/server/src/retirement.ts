@@ -5,6 +5,7 @@ import type {LifecycleMachines} from './lifecycle';
 /** Remove from the workspace immediately; only the executor may stop its computer. */
 export async function retireCompanion(ownerId:string,id:string,sql:any=db){
  return sql.begin(async(tx:any)=>{
+  await tx`SELECT pg_advisory_xact_lock(hashtextextended(${ownerId},569))`;
   // Spawn holds the same parent lock, so no owned child can appear after this list.
   const [parent]=await tx`SELECT id FROM companions WHERE id=${id} AND owner_id=${ownerId} FOR UPDATE`;
   if(!parent)return null;
@@ -12,13 +13,17 @@ export async function retireCompanion(ownerId:string,id:string,sql:any=db){
   const ids=[id,...children.map((child:any)=>child.id)] as string[];
   for(const companionId of ids){
    await tx`UPDATE companions SET retired_at=COALESCE(retired_at,now()),
-    archive_requested_at=CASE WHEN retired_at IS NULL THEN now() ELSE COALESCE(archive_requested_at,now()) END,prepare_requested=false,endpoint_secret=null,error=null
+    archive_requested_at=CASE WHEN retired_at IS NULL THEN now() ELSE COALESCE(archive_requested_at,now()) END,prepare_requested=false,error=null
     WHERE id=${companionId} AND owner_id=${ownerId}`;
    await tx`UPDATE routines SET enabled=false,next_fire_at=null,updated_at=now() WHERE companion_id=${companionId}`;
    await tx`UPDATE triggers SET enabled=false,updated_at=now() WHERE companion_id=${companionId}`;
    await tx`UPDATE runs SET cancel_requested=true,status=CASE WHEN dispatched THEN status ELSE 'cancelled' END,
     finished_at=CASE WHEN dispatched THEN finished_at ELSE COALESCE(finished_at,now()) END
     WHERE companion_id=${companionId} AND status IN ('queued','preparing','running','needs_input')`;
+   await tx`UPDATE runs r SET cancel_requested=true,status=CASE WHEN r.dispatched THEN r.status ELSE 'cancelled' END,
+    finished_at=CASE WHEN r.dispatched THEN r.finished_at ELSE COALESCE(r.finished_at,now()) END
+    FROM delegations d JOIN companions target ON target.id=d.target_id AND target.owner_id=${ownerId}
+    WHERE d.parent_id=${companionId} AND d.run_id=r.id AND d.finished_at IS NULL AND r.status IN ('queued','preparing','running','needs_input')`;
    await tx`UPDATE template_candidates SET status='failed',error='Companion was removed.' WHERE source_companion_id=${companionId} AND status='queued'`;
    await tx`UPDATE companion_maintenance_grants SET revoked_at=COALESCE(revoked_at,now()) WHERE companion_id=${companionId} AND client_owner_id=${ownerId}`;
   }
@@ -28,7 +33,7 @@ export async function retireCompanion(ownerId:string,id:string,sql:any=db){
 
 type Checkpoint=<T>(body:(tx:any)=>Promise<T>)=>Promise<T>;
 /** Retired rows remain eligible until archive is observed, even with active/parked runs. */
-export async function progressRetirements(sql:any,companionId:string|null,machine:Pick<LifecycleMachines,'archive'|'snapshotStatus'>,
+export async function progressRetirements(sql:any,companionId:string|null,machine:Pick<LifecycleMachines,'archive'|'snapshotStatus'|'cancel'>,
  assertLeader:EffectGuard,checkpoint:Checkpoint,onArchived:(tx:any,companion:any)=>Promise<void>){
  const pending=await sql`SELECT *,archive_requested_at::text AS retirement_token FROM companions WHERE (${companionId}::uuid IS NULL OR id=${companionId})
   AND retired_at IS NOT NULL AND archive_requested_at IS NOT NULL
@@ -38,12 +43,22 @@ export async function progressRetirements(sql:any,companionId:string|null,machin
    await assertLeader();
    const [current]=await sql`SELECT id FROM companions WHERE id=${companion.id} AND owner_id=${companion.owner_id}
     AND retired_at IS NOT NULL AND archive_requested_at::text=${companion.retirement_token}
-    AND box_id IS NOT DISTINCT FROM ${companion.box_id}`;
+    AND box_id IS NOT DISTINCT FROM ${companion.box_id} AND agent_secret=${companion.agent_secret}
+    AND endpoint_secret IS NOT DISTINCT FROM ${companion.endpoint_secret}`;
    if(!current)throw new ExecutionStopped('Retirement authority changed');
    await assertLeader();
   }
   try{
    await guard();
+   // Cancellation remains available after retirement, without allowing any new prompt.
+   if(machine.cancel&&companion.endpoint_secret){
+    for(const run of await sql`SELECT id FROM runs WHERE companion_id=${companion.id} AND dispatched AND status IN ('preparing','running','needs_input') ORDER BY created_at,id`){
+     try{
+      await guard();const stopped=await machine.cancel(companion,run.id,guard);await guard();
+      if(stopped)await checkpoint(async(tx:any)=>{await tx`UPDATE runs SET status='cancelled',cancel_requested=true,error='Companion was removed.',finished_at=COALESCE(finished_at,now()) WHERE id=${run.id} AND status IN ('preparing','running','needs_input')`;});
+     }catch(error){if(error instanceof ExecutionStopped)throw error;/* Archive remains the fallback; no prompt replay. */}
+    }
+   }
    const captures=await sql`SELECT id,snapshot_name,attempted_at FROM template_candidates WHERE source_companion_id=${companion.id} AND status IN ('capturing','ready')`;
    let waiting=false;let reconciliation=false;
    for(const capture of captures){

@@ -90,6 +90,24 @@ that losing an acknowledgement after a real tool effect does not blindly replay 
 This is packaging and protocol evidence. Its timings describe the controlled machine, not Box
 creation, wake, network, or model latency.
 
+## Stability regression coverage
+
+The web API client fingerprints attachment bytes (SHA-256) and ordered metadata before admitting a
+message. Retrying the same attachment preserves message/file IDs, including after a page reload;
+replacing an unresolved upload is blocked until an acknowledged explicit stop. Legacy pending
+uploads without a recorded fingerprint also fail before admission instead of guessing their identity. The focused cases live in
+`apps/web/src/api.test.ts`.
+
+Lifecycle regressions in `apps/server/test/retirement.test.ts` use PostgreSQL lock barriers to
+exercise both orderings of retirement versus delegation review, and routine testing versus
+retirement. `apps/server/test/async-lifecycle.test.ts` verifies that 100 persistent retirements
+cannot exclude a new preparation from the bounded scheduler. These tests do not contact Box.
+
+Settings behavior coverage protects internal navigation and browser history when leaving a dirty
+Companion, while same-Companion tabs retain the mounted draft. Saves send only fields changed by
+the user; application toggles serialize mutation/reload and expose failures without guessing the
+persisted selection.
+
 ## Browser validation
 
 For frontend changes, start a dedicated stack with a port unused by other worktrees:

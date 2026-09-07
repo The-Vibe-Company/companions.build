@@ -82,4 +82,50 @@ describe("Companion API client", () => {
     expect(form.get("position")).toBe("0");
     expect(form.get("clientFileId")).toMatch(/^[0-9a-f-]{36}$/);
   });
+  it("reuses attachment identities only for exactly the same bytes and metadata", async () => {
+    const admissions: string[] = [];
+    const uploads: string[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (path: RequestInfo | URL, options: RequestInit) => {
+      if (String(path).endsWith("/messages")) {
+        admissions.push(JSON.parse(options.body as string).clientMessageId);
+        return new Response(JSON.stringify({ runId: "pending-upload" }), { status: 202 });
+      }
+      uploads.push(String((options.body as FormData).get("clientFileId")));
+      throw new TypeError("upload response lost");
+    }));
+    const file = (bytes: string) => new File([bytes], "same.txt", { type: "text/plain", lastModified: 123 });
+    await expect(api.sendMessage("file-retry", "Read", [file("aaa")])).rejects.toThrow("upload response lost");
+    await expect(api.sendMessage("file-retry", "Read", [file("aaa")])).rejects.toThrow("upload response lost");
+    await expect(api.sendMessage("file-retry", "Read", [file("bbb")])).rejects.toThrow("upload response lost");
+    expect(admissions[1]).toBe(admissions[0]);
+    expect(uploads[1]).toBe(uploads[0]);
+    expect(admissions[2]).not.toBe(admissions[0]);
+    expect(uploads[2]).not.toBe(uploads[0]);
+  });
+
+  it("restores the exact file retry identity after a page reload", async () => {
+    const bodies: string[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (_path: RequestInfo | URL, options: RequestInit) => {
+      bodies.push(JSON.parse(options.body as string).clientMessageId);
+      throw new TypeError("response lost");
+    }));
+    const file = () => new File(["resume"], "note.txt", { type: "text/plain", lastModified: 456 });
+    await expect(api.sendMessage("reloaded-upload", "Read", [file()])).rejects.toThrow("response lost");
+    vi.resetModules();
+    const reloaded = (await import("./api")).api;
+    await expect(reloaded.sendMessage("reloaded-upload", "Read", [file()])).rejects.toThrow("response lost");
+    expect(bodies[1]).toBe(bodies[0]);
+  });
+
+  it("does not replay legacy uploads whose attachment identity was not recorded", async () => {
+    sessionStorage.setItem("companions.build:pending-message:legacy-upload", JSON.stringify({
+      id: "previous-command", content: "Read", fileIds: ["previous-file"],
+    }));
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    await expect(api.sendMessage("legacy-upload", "Read", [new File(["old"], "old.txt")]))
+      .rejects.toThrow("cannot be safely retried");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
 });

@@ -109,6 +109,7 @@ interface PendingMessage {
   id: string;
   content: string;
   fileIds: string[];
+  fileFingerprints?: string[];
 }
 
 const pendingMessages = new Map<string, PendingMessage>();
@@ -123,7 +124,8 @@ function readPendingMessage(companionId: string): PendingMessage | null {
     if (!stored) return null;
     const value = JSON.parse(stored) as Partial<PendingMessage>;
     if (typeof value.id !== "string" || typeof value.content !== "string" || !Array.isArray(value.fileIds)) return null;
-    const pending = { id: value.id, content: value.content, fileIds: value.fileIds.filter((id): id is string => typeof id === "string") };
+    const pending = { id: value.id, content: value.content, fileIds: value.fileIds.filter((id): id is string => typeof id === "string"),
+      fileFingerprints: Array.isArray(value.fileFingerprints) && value.fileFingerprints.every(item => typeof item === "string") ? value.fileFingerprints : undefined };
     pendingMessages.set(companionId, pending);
     return pending;
   } catch {
@@ -150,6 +152,20 @@ function clearPendingMessage(companionId: string, acknowledgedId: string) {
   }
 }
 
+async function fingerprintFile(file: File): Promise<string> {
+  // Read before admission: an unreadable file must not create durable work.
+  const bytes = await new Promise<ArrayBuffer>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result as ArrayBuffer);
+    reader.onerror = () => reject(new Error("Could not read the attachment. Please select it again."));
+    reader.onabort = () => reject(new Error("Attachment reading was cancelled."));
+    reader.readAsArrayBuffer(file);
+  });
+  const digest = await crypto.subtle.digest("SHA-256", bytes);
+  const hash = Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, "0")).join("");
+  return JSON.stringify([file.name, file.type, file.size, file.lastModified, hash]);
+}
+
 export const api = {
   getMe: () => request<{ user: AccountUser }>("/api/me"),
   requestMagicLink: (email: string) => request<unknown>("/api/auth/sign-in/magic-link", {
@@ -168,10 +184,17 @@ export const api = {
       body: JSON.stringify(input),
     }),
   sendMessage: async (id: string, content: string, files: File[] = []) => {
+    const fileFingerprints: string[] = [];
+    // Read sequentially to bound temporary memory to one attachment.
+    for (const file of files) fileFingerprints.push(await fingerprintFile(file));
     const previous = readPendingMessage(id);
+    if (previous?.content === content && previous.fileIds.length > 0 && !previous.fileFingerprints) {
+      throw new Error("This older pending upload cannot be safely retried. Check the conversation before sending a new message.");
+    }
     const pending = previous?.content === content && previous.fileIds.length === files.length
+      && JSON.stringify(previous.fileFingerprints ?? []) === JSON.stringify(fileFingerprints)
       ? previous
-      : { id: crypto.randomUUID(), content, fileIds: files.map(() => crypto.randomUUID()) };
+      : { id: crypto.randomUUID(), content, fileIds: files.map(() => crypto.randomUUID()), fileFingerprints };
     writePendingMessage(id, pending);
 
     const result = await request<{ runId: string }>(`/api/companions/${id}/messages`, {
@@ -196,7 +219,7 @@ export const api = {
     request<{ ok: true }>(`/api/companions/${id}/cancel`, { method: "POST" }),
   openDesktop: (id: string) =>
     request<{ url?: string; preparing?: true }>(`/api/companions/${id}/desktop`, { method: "POST" }),
-  updateCompanion: (id: string, input: Pick<Companion, "name" | "instructions" | "avatar"> & { modelId?: string | null }) =>
+  updateCompanion: (id: string, input: Partial<Pick<Companion, "name" | "instructions" | "avatar">> & { modelId?: string | null }) =>
     request<{ companion: Companion }>(`/api/companions/${id}`, { method: "PATCH", body: JSON.stringify(input) }),
 };
 

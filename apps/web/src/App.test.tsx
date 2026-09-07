@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "./App";
 
 const config = { localAvailable: true, boxAvailable: true, model: "scripted/test" };
@@ -16,6 +16,13 @@ const companion = {
   avatar: { shape: 1, color: 2, face: 0 },
 };
 
+class FakeEventSource extends EventTarget {
+  static instances: FakeEventSource[] = [];
+  readonly close = vi.fn();
+  constructor(readonly url: string) { super(); FakeEventSource.instances.push(this); }
+  emit(type: "invalidate" | "resync" | "unauthorized") { this.dispatchEvent(new Event(type)); }
+}
+
 function response(body: unknown, status = 200) {
   return Promise.resolve(new Response(JSON.stringify(body), {
     status,
@@ -26,6 +33,51 @@ function response(body: unknown, status = 200) {
 describe("first Companion flow", () => {
   beforeEach(() => {
     window.history.replaceState({}, "", "/");
+    FakeEventSource.instances = [];
+  });
+
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("refreshes durable chat snapshots after coalesced events and closes revoked streams", async () => {
+    window.history.replaceState({}, "", "/companions/ada");
+    const ready = { ...companion, status: "ready" as const };
+    let detailRequests = 0;
+    let holdRefresh = false;
+    let recovered = false;
+    let releaseRefresh: (() => void) | undefined;
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      const path = String(input);
+      if (path === "/api/me") return response(me);
+      if (path === "/api/config") return response(config);
+      if (path === "/api/companions") return response({ companions: [ready] });
+      if (path === "/api/companions/ada") {
+        detailRequests++;
+        if (holdRefresh) { holdRefresh = false; return new Promise<Response>(resolve => { releaseRefresh = () => resolve(new Response(JSON.stringify({ companion: ready, messages: [], runs: [], activity: [] }), { headers: { "content-type": "application/json" } })); }); }
+        return response({ companion: ready, messages: recovered ? [{ id: "persisted", role: "assistant", content: "Recovered after reconnect", createdAt: companion.createdAt, runId: "run-persisted" }] : [], runs: [], activity: [] });
+      }
+      throw new Error(`Unexpected request: ${path}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    vi.stubGlobal("EventSource", FakeEventSource);
+    render(<App />);
+    expect(await screen.findByRole("textbox", { name: "Message Ada" })).toBeInTheDocument();
+    expect(FakeEventSource.instances).toHaveLength(1);
+    expect(FakeEventSource.instances[0].url).toBe("/api/companions/ada/events");
+
+    const baselineRequests = detailRequests;
+    holdRefresh = true;
+    FakeEventSource.instances[0].emit("invalidate");
+    FakeEventSource.instances[0].emit("invalidate");
+    FakeEventSource.instances[0].emit("resync");
+    await waitFor(() => expect(detailRequests).toBe(baselineRequests + 1));
+    recovered = true;
+    releaseRefresh?.();
+    await waitFor(() => expect(detailRequests).toBe(baselineRequests + 2));
+    expect(await screen.findByText("Recovered after reconnect")).toBeInTheDocument();
+
+    FakeEventSource.instances[0].emit("unauthorized");
+    expect(await screen.findByRole("heading", { name: /Your Companions, ready when you are/ })).toBeInTheDocument();
+    expect(FakeEventSource.instances[0].close).toHaveBeenCalled();
   });
 
   it("creates a named Box Companion and opens its durable chat", async () => {

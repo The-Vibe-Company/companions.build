@@ -51,6 +51,11 @@ The root verifier remains authoritative because several server behaviors require
 PostgreSQL and MinIO configuration. Direct file-storage acceptance can be requested with
 `RUN_STORAGE_ACCEPTANCE=1`, but the root verifier already enables it against a private bucket.
 
+Chat event tests use real PostgreSQL `LISTEN`/`NOTIFY` across separate connections. Notifications
+are bounded invalidation hints rather than a durable event log: the test must also prove that a
+reconnected client reloads the durable owner-scoped snapshot and sees changes whose notification
+it did not receive.
+
 ## Packaging and fault matrix
 
 ```sh

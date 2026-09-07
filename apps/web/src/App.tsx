@@ -54,8 +54,6 @@ import { AvatarPicker, CompanionAvatar, DEFAULT_AVATAR, type CompanionAvatarValu
 import { AccountProduct, DeliverySettings, DesktopSheet, SpecialistsSettings } from "@/components/ProductPanels";
 import { RoutineSettings, TriggerSettings } from "@/components/AutomationPanels";
 
-const ACTIVE_DETAIL_INTERVAL = 1_000;
-const IDLE_DETAIL_INTERVAL = 5_000;
 const LIST_INTERVAL = 8_000;
 const MAX_CHAT_FILES = 5;
 const MAX_CHAT_FILE_BYTES = 10 * 1024 * 1024;
@@ -728,17 +726,41 @@ export function App() {
     return () => window.removeEventListener("popstate", onPopState);
   }, []);
 
-  const active = useMemo(
-    () => detail?.companion.status === "preparing" || detail?.runs.some((run) => isActiveRun(run.status)),
-    [detail],
-  );
-
   useEffect(() => {
-    if (!selectedId || authRequired) return;
-    void loadDetail();
-    const timer = window.setInterval(() => { void loadDetail(); }, active ? ACTIVE_DETAIL_INTERVAL : IDLE_DETAIL_INTERVAL);
-    return () => window.clearInterval(timer);
-  }, [selectedId, active, authRequired, loadDetail]);
+    if (loading || !selectedId || authRequired) return;
+    let closed = false;
+    let refreshing = false;
+    let dirty = false;
+    let listTimer: number | undefined;
+    const refresh = async () => {
+      if (refreshing) { dirty = true; return; }
+      refreshing = true;
+      do {
+        dirty = false;
+        await loadDetail();
+      } while (!closed && dirty);
+      refreshing = false;
+    };
+    void refresh();
+    if (typeof EventSource === "undefined") return () => { closed = true; };
+    const events = api.companionEvents(selectedId);
+    const changed = () => {
+      void refresh();
+      if (!listTimer) listTimer = window.setTimeout(() => { listTimer = undefined; void loadList(); }, 250);
+    };
+    const unauthorized = () => { events.close(); setAuthRequired(true); };
+    events.addEventListener("invalidate", changed);
+    events.addEventListener("resync", changed);
+    events.addEventListener("unauthorized", unauthorized);
+    return () => {
+      closed = true;
+      events.removeEventListener("invalidate", changed);
+      events.removeEventListener("resync", changed);
+      events.removeEventListener("unauthorized", unauthorized);
+      events.close();
+      if (listTimer) window.clearTimeout(listTimer);
+    };
+  }, [loading, selectedId, authRequired, loadDetail, loadList]);
 
   useEffect(() => {
     if (authRequired) return;

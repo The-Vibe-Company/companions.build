@@ -154,6 +154,7 @@ export const api = {
   getConfig: () => request<AppConfig>("/api/config"),
   getCompanions: () => request<{ companions: Companion[] }>("/api/companions"),
   getCompanion: (id: string) => request<CompanionDetail>(`/api/companions/${id}`),
+  companionEvents: (id: string) => new EventSource(`/api/companions/${id}/events`),
   createCompanion: (input: Pick<Companion, "name" | "instructions" | "provider" | "avatar"> & { templateId?: string; templateRevision?: number }) =>
     request<{ companion: Companion }>("/api/companions", {
       method: "POST",

@@ -4,6 +4,13 @@ import { api } from "./api";
 afterEach(() => vi.unstubAllGlobals());
 
 describe("Companion API client", () => {
+  it("opens the authenticated same-origin event stream for one Companion", () => {
+    const opened: string[] = [];
+    vi.stubGlobal("EventSource", class { constructor(url: string) { opened.push(url); } });
+    api.companionEvents("companion-id");
+    expect(opened).toEqual(["/api/companions/companion-id/events"]);
+  });
+
   it("sends the durable client message id required by the API", async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       new Response(JSON.stringify({ runId: "run-1" }), {

@@ -17,6 +17,7 @@ import { handlePlugins, PluginError } from "./plugins";
 import { handleFiles, filesForThread, FILE_REQUEST_MAX_BYTES } from "./files";
 import { handleAutomations } from "./automation-routes";
 import { avatarSchema, configureCompanion } from "./control";
+import { handleCompanionEvents } from "./events";
 
 const idSchema = z.string().uuid();
 const json = (body: unknown, status = 200, headers: Record<string, string> = {}) => Response.json(body, { status, headers: { "Cache-Control": "no-store", ...headers } });
@@ -103,7 +104,7 @@ export async function handler(request: Request): Promise<Response> {
         return json({ companion: await createCompanion(ownerId, {...input,prepare:true}) }, 201);
       }
     }
-    const match = url.pathname.match(/^\/api\/companions\/([^/]+)(?:\/(messages|cancel|desktop))?$/);
+    const match = url.pathname.match(/^\/api\/companions\/([^/]+)(?:\/(messages|cancel|desktop|events))?$/);
     if (match) {
       const id = idSchema.parse(match[1]);
       if (!match[2] && request.method === "PATCH") { const companion=await configureCompanion(ownerId,id,await request.json()); return companion ? json({companion}) : json({error:"Companion not found."},404); }
@@ -112,6 +113,7 @@ export async function handler(request: Request): Promise<Response> {
         const files=await filesForThread(ownerId,id);
         const questions=await db`SELECT q.id,q.run_id AS "runId",q.question,q.options,q.answer FROM task_questions q JOIN runs r ON r.id=q.run_id WHERE q.companion_id=${id} AND r.status IN ('running','needs_input','preparing') AND q.answer IS NULL ORDER BY q.created_at`;
         return json({...result,questions,files,messages:result.messages.map((m:any)=>({...m,files:files.filter(f=>f.runId===m.runId&&f.kind===(m.role==='user'?'user_upload':'agent_output'))}))}); }
+      if (match[2] === "events" && request.method === "GET") return handleCompanionEvents(request, ownerId, id);
       if (match[2] === "messages" && request.method === "POST") {
         const body = z.object({ clientMessageId: idSchema, content: z.string().trim().min(1).max(50_000), attachmentCount: z.number().int().min(0).max(5).default(0) }).parse(await request.json());
         const runId = await acceptMessage(ownerId, id, body.clientMessageId, body.content, body.attachmentCount);

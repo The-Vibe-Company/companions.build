@@ -1,5 +1,5 @@
 import { StrictMode } from "react";
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { api, type Companion, type TaskDetail, type TaskSummary } from "@/api";
@@ -183,6 +183,30 @@ describe("TaskActivity", () => {
     stalePage.resolve({tasks:[background],nextCursor:null}); staleDetail.resolve({task:background,files:[]});
     await user.click(screen.getByRole("button",{name:"All activity"}));
     await waitFor(()=>expect(screen.getByRole("button",{name:/Review the launch brief/})).toHaveTextContent("Cancelled"));
+  });
+
+  it("rejects stale detail from a refresh started during cancellation", async () => {
+    const background={...detail,lane:"background" as const};
+    const cancelled={...background,status:"cancelled" as const,finishedAt:"2026-09-07T12:08:00.000Z"};
+    const cancellation=deferred<{task:TaskDetail}>();
+    const stalePage=deferred<{tasks:TaskSummary[];nextCursor:null}>();
+    const staleDetail=deferred<{task:TaskDetail;files:[]}>();
+    vi.spyOn(api,"taskHistory").mockResolvedValueOnce({tasks:[background],nextCursor:null}).mockImplementationOnce(()=>stalePage.promise);
+    vi.spyOn(api,"taskDetail").mockResolvedValueOnce({task:background,files:[]}).mockImplementationOnce(()=>staleDetail.promise);
+    vi.spyOn(api,"cancelTask").mockImplementation(()=>cancellation.promise);
+    const user=userEvent.setup(); const view=render(<TaskActivity companion={companion} refreshVersion={0} onOpenDiscussion={vi.fn()}/>);
+    await user.click(await screen.findByRole("button",{name:/Review the launch brief/}));
+    await user.click(await screen.findByRole("button",{name:"Cancel task"}));
+    view.rerender(<TaskActivity companion={companion} refreshVersion={1} onOpenDiscussion={vi.fn()}/>);
+    await waitFor(()=>expect(api.taskDetail).toHaveBeenCalledTimes(2));
+    cancellation.resolve({task:cancelled});
+    expect(await screen.findByText("Cancelled")).toBeInTheDocument();
+    await act(async()=>{
+      stalePage.resolve({tasks:[background],nextCursor:null}); staleDetail.resolve({task:background,files:[]});
+      await Promise.all([stalePage.promise,staleDetail.promise]);
+    });
+    expect(screen.getByText("Cancelled")).toBeInTheDocument();
+    expect(screen.queryByRole("button",{name:"Cancel task"})).not.toBeInTheDocument();
   });
 
   it("keeps a successful list refresh when the selected detail refresh fails", async () => {

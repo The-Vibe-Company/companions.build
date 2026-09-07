@@ -101,7 +101,8 @@ export function TaskActivity({ companion, refreshVersion = 0, onOpenCompanion, s
       } else {
         setListError(pageResult.reason instanceof Error ? pageResult.reason.message : "Could not load activity.");
       }
-      if (selected && selectedIdRef.current === selected && detailEpoch.current === epoch) {
+      if (selected && selectedIdRef.current === selected && detailEpoch.current === epoch
+        && (taskMutationEpochs.current.get(selected) ?? 0) === (mutationEpochs.get(selected) ?? 0)) {
         if (detailResult.status === "fulfilled" && detailResult.value) {
           const refreshed = detailResult.value;
           setDetail(refreshed.task); setDetailFiles(refreshed.files); setDetailError("");

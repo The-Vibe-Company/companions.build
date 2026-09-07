@@ -9,7 +9,7 @@ it("presents the supplied landing structure with truthful private-beta actions",
   const onLogin = vi.fn();
   render(<LandingPage onLogin={onLogin} />);
 
-  expect(screen.getByRole("heading", { name: "A companion that keeps your product running." })).toBeInTheDocument();
+  expect(screen.getByRole("heading", { name: "A companion for whatever’s on your mind." })).toBeInTheDocument();
   expect(screen.getByText("Open source · Private beta")).toBeInTheDocument();
   expect(screen.getByRole("heading", { name: "Three steps to your first companion." })).toBeInTheDocument();
   expect(screen.getByRole("heading", { name: "What you can ask a companion to do." })).toBeInTheDocument();

@@ -61,8 +61,8 @@ export function LandingPage({ onLogin }: { onLogin: () => void }) {
     <section className="landing-hero">
       <div className="landing-hero-copy">
         <div className="landing-badge"><i />Open source · Private beta</div>
-        <h1>A companion that keeps your product running.</h1>
-        <p>Name it and give it a job. It watches for errors, handles work you delegate, drafts changes, and brings decisions back to you.</p>
+        <h1>A companion for whatever’s on your mind.</h1>
+        <p>A little help with everyday tasks, big ideas, and everything in between. Give your companion a name, tell it what you need, and take it from there.</p>
         <div className="landing-hero-action"><Cta onClick={onLogin} /><span>Invitation required</span></div>
         <div className="landing-promises"><span>Uses only granted accounts</span><span>Every step written down</span><span>Take the mouse any time</span></div>
       </div>

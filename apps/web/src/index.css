@@ -484,6 +484,7 @@ svg { width: 1rem; height: 1rem; stroke-width: 1.8; }
 .connection-section h2 { margin: 0 0 10px; font-size: .78rem; color: var(--muted-foreground); }
 .connected-row, .provider-row { display: grid; min-height: 68px; grid-template-columns: 38px minmax(0, 1fr) auto; align-items: center; gap: 12px; border-bottom: 1px solid var(--border); }
 .connected-row strong, .connected-row small, .provider-row strong, .provider-row small { display: block; }
+.connection-account-label { display: block; margin-top: 2px; overflow: hidden; color: var(--foreground); font-size: .78rem; text-overflow: ellipsis; white-space: nowrap; }
 .connected-row small, .provider-row small { overflow: hidden; margin-top: 3px; color: var(--muted-foreground); font-size: .72rem; text-overflow: ellipsis; white-space: nowrap; }
 .connection-row-actions { display: flex; align-items: center; justify-content: flex-end; gap: 2px; }
 .connection-health--ok { color: oklch(45% .1 153deg) !important; }

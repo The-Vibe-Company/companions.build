@@ -1,0 +1,12 @@
+.plugin-account-name { grid-column: 1 / -1; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: 8px 12px; width: 100%; padding-top: 12px; border-top: 1px solid var(--border); }
+.plugin-account-name .field { margin: 0; }
+.plugin-account-name p { grid-column: 1; margin: 0; color: var(--muted-foreground); font-size: .72rem; line-height: 1.45; }
+.plugin-account-name > div:last-child { grid-column: 2; grid-row: 1 / span 2; display: flex; align-items: center; gap: 4px; }
+.plugin-account-name--compact { display: block; padding: 8px; border: 0; }
+.plugin-account-name--compact p { margin: 6px 0 10px; }
+.plugin-account-name--compact > div:last-child { display: flex; justify-content: flex-end; }
+@media(max-width:560px) {
+  .plugin-account-name { display: block; }
+  .plugin-account-name p { margin: 6px 0 10px; }
+  .plugin-account-name > div:last-child { display: flex; justify-content: flex-end; }
+}

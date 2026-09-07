@@ -20,14 +20,23 @@ export const listPluginCatalog=()=>pluginCatalog.map(provider=>({...provider,ava
 export async function migratePlugins(sql:any) { await sql.unsafe(await Bun.file(new URL('./plugins.sql',import.meta.url)).text()); }
 export class PluginError extends Error {}
 const publicColumns = db`id,provider,label,server_id AS "serverId",health_status AS "healthStatus",health_code AS "healthCode",health_checked_at AS "checkedAt",created_at AS "createdAt"`;
+const accountLabel = z.string().trim().min(1).max(80);
 export async function listPluginAccounts(ownerId:string) { return db`SELECT ${publicColumns} FROM plugin_accounts WHERE owner_id=${ownerId} ORDER BY created_at`; }
+export async function newPluginAccountLabel(ownerId:string,serverId:string,label:string) {
+  const [existing]=await db`SELECT id FROM plugin_accounts WHERE owner_id=${ownerId} AND server_id=${serverId} LIMIT 1`;
+  if(!existing)return'Default';
+  const parsed=accountLabel.safeParse(label);
+  if(!parsed.success)throw new PluginError('Name this account before connecting it.');
+  return parsed.data;
+}
 export async function startPluginConnection(ownerId:string, serverId:string, label:string,env:NodeJS.ProcessEnv=process.env) {
   const provider = pluginCatalog.find(p => p.id === serverId);
   if(!provider) throw new PluginError('Choose an available plugin.');
   if(!pluginConnectionAvailable(serverId,env))throw new PluginError(`${provider.name} connection is unavailable in this deployment.`);
+  const accountName=await newPluginAccountLabel(ownerId,serverId,label);
   const state=randomBytes(32).toString('base64url');
   const {authorizationUrl,flow}=await beginCompanionPluginOAuth({serverName:serverId,state,redirectUri:callback(),env});
-  await db`INSERT INTO plugin_oauth_flows (state_hash,owner_id,label,flow_secret,expires_at) VALUES (${hash(state)},${ownerId},${label.slice(0,80)||provider.name},${encrypt(JSON.stringify(flow))},now()+interval '10 minutes')`;
+  await db`INSERT INTO plugin_oauth_flows (state_hash,owner_id,label,flow_secret,expires_at) VALUES (${hash(state)},${ownerId},${accountName},${encrypt(JSON.stringify(flow))},now()+interval '10 minutes')`;
   return {url:authorizationUrl};
 }
 async function consumePluginFlow(ownerId:string,state:string) {
@@ -70,6 +79,13 @@ export async function attachPlugin(ownerId:string,companionId:string,accountId:s
   else await db`DELETE FROM companion_plugins WHERE companion_id=${companionId} AND account_id=${accountId}`;
 }
 export async function disconnectPlugin(ownerId:string,id:string) { uuid.parse(id); await db`DELETE FROM plugin_accounts WHERE id=${id} AND owner_id=${ownerId}`; }
+export async function renamePluginAccount(ownerId:string,id:string,label:string) {
+  uuid.parse(id);
+  const parsed=accountLabel.safeParse(label);
+  if(!parsed.success)throw new PluginError('Account names must be between 1 and 80 characters.');
+  const [account]=await db`UPDATE plugin_accounts SET label=${parsed.data} WHERE id=${id} AND owner_id=${ownerId} RETURNING ${publicColumns}`;
+  return account??null;
+}
 export async function selectedPlugins(ownerId:string,companionId:string) {
   return db`SELECT p.id,p.provider,p.label FROM companion_plugins cp JOIN plugin_accounts p ON p.id=cp.account_id JOIN companions c ON c.id=cp.companion_id WHERE c.id=${companionId} AND c.owner_id=${ownerId} AND p.owner_id=${ownerId}`;
 }
@@ -187,6 +203,7 @@ export async function handlePlugins(request:Request,ownerId:string):Promise<Resp
     return new Response(null,{status:303,headers:{location:pluginCallbackLocation(status),'cache-control':'no-store'}});
   }
   const account=path.match(/^\/api\/plugins\/([a-f0-9-]+)$/);
+  if(account&&request.method==='PATCH') {const {label}=z.object({label:z.string()}).parse(await request.json());const renamed=await renamePluginAccount(ownerId,account[1],label);return renamed?response({account:renamed}):response({error:'Connection not found.'},404);}
   if(account&&request.method==='DELETE') {await disconnectPlugin(ownerId,account[1]);return response({ok:true});}
   const match=path.match(/^\/api\/companions\/([a-f0-9-]+)\/plugins(?:\/([a-f0-9-]+))?$/);
   if(match) {

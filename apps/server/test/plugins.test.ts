@@ -1,7 +1,7 @@
 import {beforeAll,expect,test} from 'bun:test';
 import {createHash} from 'node:crypto';
 import {db,migrate,createCompanion} from '../src/store';
-import {attachPlugin,machinePlugins,addCustomPlugin,checkPluginAccount,handlePlugins,listPluginAccounts,pluginCallbackLocation,pluginConnectionAvailable,startPluginConnection} from '../src/plugins';
+import {attachPlugin,machinePlugins,addCustomPlugin,checkPluginAccount,handlePlugins,listPluginAccounts,newPluginAccountLabel,pluginCallbackLocation,pluginConnectionAvailable,renamePluginAccount,startPluginConnection} from '../src/plugins';
 import {decrypt,encrypt} from '../src/config';
 import {CompanionPluginOAuthRevokedError,type CompanionPluginStoredOAuthCredential} from '../../../packages/plugins/oauth';
 
@@ -14,6 +14,31 @@ test('catalog availability is truthful for deployment-configured and dynamic OAu
  expect(pluginConnectionAvailable('io.github.github/github-mcp-server',{})).toBe(false);
  expect(pluginConnectionAvailable('io.github.github/github-mcp-server',{COMPANION_MCP_GITHUB_CLIENT_ID:'id',COMPANION_MCP_GITHUB_CLIENT_SECRET:'secret'})).toBe(true);
  await expect(startPluginConnection(owner,'io.github.github/github-mcp-server','GitHub',{})).rejects.toThrow('unavailable in this deployment');
+});
+
+test('the first provider account is Default and later accounts require a chosen name',async()=>{
+ const ownerId=crypto.randomUUID(),serverId='app.linear/linear';
+ expect(await newPluginAccountLabel(ownerId,serverId,'Ignored first name')).toBe('Default');
+ const account=await addCustomPlugin(ownerId,{label:'unrelated custom account',transport:'http',url:'https://example.com/mcp'});
+ await db`UPDATE plugin_accounts SET provider='linear',server_id=${serverId} WHERE id=${account.id}`;
+ await expect(newPluginAccountLabel(ownerId,serverId,'')).rejects.toThrow('Name this account');
+ await expect(newPluginAccountLabel(ownerId,serverId,' '.repeat(2))).rejects.toThrow('Name this account');
+ await expect(newPluginAccountLabel(ownerId,serverId,'x'.repeat(81))).rejects.toThrow('Name this account');
+ expect(await newPluginAccountLabel(ownerId,serverId,'  Client workspace  ')).toBe('Client workspace');
+ expect(await newPluginAccountLabel(ownerId,'io.sentry/mcp','')).toBe('Default');
+});
+
+test('account rename is owner-scoped and updates the public label only',async()=>{
+ const ownerId=crypto.randomUUID(),other=crypto.randomUUID();
+ const account=await addCustomPlugin(ownerId,{label:'Default',transport:'http',url:'https://example.com/mcp'});
+ const renamed=await renamePluginAccount(ownerId,account.id,'  Client workspace  ');
+ expect(renamed).toMatchObject({id:account.id,label:'Client workspace',provider:'custom'});
+ expect(await renamePluginAccount(other,account.id,'Stolen')).toBeNull();
+ expect((await listPluginAccounts(ownerId))[0].label).toBe('Client workspace');
+ await expect(renamePluginAccount(ownerId,account.id,' ')).rejects.toThrow('between 1 and 80');
+ const foreign=await handlePlugins(new Request(`http://local/api/plugins/${account.id}`,{method:'PATCH',body:JSON.stringify({label:'Stolen'})}),other);
+ expect(foreign?.status).toBe(404);
+ expect((await listPluginAccounts(ownerId))[0].label).toBe('Client workspace');
 });
 
 test('OAuth cancellation consumes only its owner state and stale callbacks return a safe connection route',async()=>{

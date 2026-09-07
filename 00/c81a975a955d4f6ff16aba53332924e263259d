@@ -1,0 +1,21 @@
+docs/completion-audit.md
+  s_f946242dcf6ba9::t_37fdd9d27ae7c4 61-63
+docs/measurements/hosted-desktop-boundary-2026-09-07.json
+  s_f946242dcf6ba9::t_4ebe131c2472aa 1-35
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "00c81a975a955d4f6ff16aba53332924e263259d",
+  "prompts": {},
+  "sessions": {
+    "s_f946242dcf6ba9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a06de4-a8a5-7cd3-b713-2a8d451f7200",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "StanGirard <stan@quivr.app>"
+    }
+  }
+}

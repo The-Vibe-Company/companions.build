@@ -235,6 +235,11 @@ class Verifier:
             "scripts/register-software-base.test.ts", "scripts/lib/distribution-verification.test.ts",
             "scripts/live-desktop-canary-wait.test.ts", "scripts/live-box-desktop-wait.test.ts",
             "scripts/live-routine-chat-canary.test.ts", "scripts/live-routine-clock-canary.test.ts"])
+        # A fresh checkout must not depend on a manually built developer image.
+        context = ROOT / "experiments/desktop-boundary"
+        image = "companions-distribution-proof:" + dependency_fingerprint(sorted(path for path in context.rglob("*") if path.is_file()))[:16]
+        self.run("distribution-image", ["docker", "build", "--platform", "linux/amd64", "--tag", image, str(context)], timeout=300)
+        self.env["COMPANIONS_DISTRIBUTION_TEST_IMAGE"] = image
         self.run("distribution-content-linux", [self.bun, "--no-env-file", "scripts/test-distribution-verification.ts"])
         self.run("agent-build", [self.bun, "--no-env-file", "scripts/build-agent.ts"])
 
@@ -303,7 +308,7 @@ class Verifier:
         self.status = "passed"
 
     def clean_owned_resources(self):
-        if self.args.profile not in ("server", "full"):
+        if self.args.profile not in ("server", "agent", "full"):
             self.cleanup = {"status": "passed", "containers": {"found": 0, "removed": 0, "remaining": 0},
                             "volumes": {"found": 0, "removed": 0, "remaining": 0}, "errors": []}
             return

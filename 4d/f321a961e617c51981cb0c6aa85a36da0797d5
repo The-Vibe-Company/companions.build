@@ -1,0 +1,33 @@
+apps/web/src/components/SpecialistDraftPanel.css
+  s_895cd30c8c0144::t_1f34cc782d69ac 1
+apps/web/src/components/SpecialistDraftPanel.test.tsx
+  s_895cd30c8c0144::t_2793836cc60b07 1,28,68-92
+  s_895cd30c8c0144::t_4b82dffd473403 93
+apps/web/src/components/ProductPanels.tsx
+  s_895cd30c8c0144::t_1f34cc782d69ac 97-98,100,102,104
+apps/web/src/components/SpecialistDraftPanel.tsx
+  s_895cd30c8c0144::t_1f34cc782d69ac 66-67,77,91,101,111,131-134,140-141,146,148
+apps/web/src/components/ProductPanels.test.tsx
+  s_895cd30c8c0144::t_2793836cc60b07 13-31
+  s_895cd30c8c0144::t_b3b9df25e4b2ad 1
+apps/web/src/App.tsx
+  s_895cd30c8c0144::t_1f34cc782d69ac 398,428,431,796
+apps/web/src/App.test.tsx
+  s_895cd30c8c0144::t_2793836cc60b07 43-70
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "4df321a961e617c51981cb0c6aa85a36da0797d5",
+  "prompts": {},
+  "sessions": {
+    "s_895cd30c8c0144": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a07d31-b106-7d00-912b-601ce8884ca0",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "StanGirard <stan@quivr.app>"
+    }
+  }
+}

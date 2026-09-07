@@ -1,5 +1,8 @@
 import { cpSync, mkdirSync, renameSync, symlinkSync, existsSync, lstatSync, readFileSync, rmSync } from "node:fs";
 import { createHash } from "node:crypto";
+import { requirePinnedBun } from "./lib/pinned-bun";
+
+requirePinnedBun();
 
 const output = `dist/.agent-build-${crypto.randomUUID()}`;
 mkdirSync(output, { recursive: true });

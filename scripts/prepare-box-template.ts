@@ -3,6 +3,9 @@ import { config } from "../apps/server/src/config";
 import { createHash } from "node:crypto";
 import { mkdirSync, readdirSync } from "node:fs";
 import {templateInstallScript} from "./lib/template-install";
+import {requirePinnedBun} from "./lib/pinned-bun";
+
+requirePinnedBun();
 
 if (!config.boxKey) throw new Error("Configure BOX_API_KEY in .env before preparing the template.");
 const name = process.argv[2] ?? "companions-agent-v0";

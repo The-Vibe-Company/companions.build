@@ -4,6 +4,10 @@ import {requireHostedActivation} from './activation';
 import {verifyModelGatewayToken,type ModelGatewayClaims} from './model-gateway-token';
 
 export const MODEL_GATEWAY_MAX_REQUEST_BYTES=96*1024*1024;
+export const MODEL_GATEWAY_BODY_BUDGET_BYTES=128*1024*1024;
+// Encoded bytes, not an RSS estimate: parsing/serialization may briefly retain several
+// copies (UTF-8 input, UTF-16 text and JSON objects). Share the cap across gateway instances.
+const sharedBodyBudget={used:0,limit:MODEL_GATEWAY_BODY_BUDGET_BYTES};
 const RESPONSE_LIMIT=64*1024*1024,EVENT_LIMIT=16*1024*1024,DEADLINE=10*60_000;
 const prefix='/api/model-gateway/';
 const uuid=/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i;
@@ -16,7 +20,7 @@ const routes={
 } as const;
 type Api=typeof routes[keyof typeof routes]['api'];
 export type GatewayUsage={input:number;output:number;cacheRead:number;cacheWrite:number;totalTokens:number};
-type Dependencies={sql?:any;fetch?:typeof fetch;modelApi?:(provider:string,id:string)=>Promise<string|undefined>;authorize?:(ownerId:string,sql:any)=>Promise<void>;key?:(provider:string)=>string|undefined;deadlineMs?:number;bodyDeadlineMs?:number;maxConcurrent?:number};
+type Dependencies={sql?:any;fetch?:typeof fetch;modelApi?:(provider:string,id:string)=>Promise<string|undefined>;authorize?:(ownerId:string,sql:any)=>Promise<void>;key?:(provider:string)=>string|undefined;deadlineMs?:number;bodyDeadlineMs?:number;maxConcurrent?:number;bodyBudgetBytes?:number};
 class GatewayError extends Error{constructor(readonly code:string,readonly status=400){super(code);}}
 function fail(code:string,status=400):never{throw new GatewayError(code,status);}
 function problem(code:string,status:number){return Response.json({error:{type:'model_gateway_error',code,message:code}},{status,headers:{'cache-control':'no-store'}});}
@@ -26,12 +30,12 @@ async function modelApi(provider:string,id:string){
  catalog??=(async()=>{const [{ModelRuntime},{InMemoryCredentialStore}]=await Promise.all([import('@earendil-works/pi-coding-agent'),import('@earendil-works/pi-ai')]);return ModelRuntime.create({credentials:new InMemoryCredentialStore(),modelsPath:null,allowModelNetwork:false,refreshOnCreate:false});})();
  return (await catalog).getModel(provider,id)?.api;
 }
-async function boundedBody(request:Request,deadlineMs=30_000){
+async function boundedBody(request:Request,reserve:(bytes:number)=>void,deadlineMs=30_000){
  const length=request.headers.get('content-length');if(length&&(!/^\d+$/.test(length)||Number(length)>MODEL_GATEWAY_MAX_REQUEST_BYTES))fail('model_request_too_large',413);
  if(!request.body)fail('model_request_invalid');
  const reader=request.body.getReader(),chunks:Uint8Array[]=[];let size=0,timedOut=false;
  const timer=setTimeout(()=>{timedOut=true;void reader.cancel().catch(()=>{});},deadlineMs);
- try{while(true){const {done,value}=await reader.read();if(timedOut)fail('model_body_timeout',408);if(done)break;size+=value.byteLength;if(size>MODEL_GATEWAY_MAX_REQUEST_BYTES)fail('model_request_too_large',413);chunks.push(value);}}finally{clearTimeout(timer);await reader.cancel().catch(()=>{});}
+ try{while(true){const {done,value}=await reader.read();if(timedOut)fail('model_body_timeout',408);if(done)break;size+=value.byteLength;if(size>MODEL_GATEWAY_MAX_REQUEST_BYTES)fail('model_request_too_large',413);reserve(value.byteLength);chunks.push(value);}}finally{clearTimeout(timer);await reader.cancel().catch(()=>{});}
  try{const parsed=JSON.parse(Buffer.concat(chunks,size).toString('utf8'));if(!parsed||typeof parsed!=='object'||Array.isArray(parsed))fail('model_request_invalid');return parsed;}catch(error){if(error instanceof GatewayError)throw error;fail('model_request_invalid');}
 }
 /** Only self-contained Pi messages/tools may use the shared provider account. */
@@ -39,6 +43,7 @@ function sanitizeBody(body:any,api:Api,model:string){
  if(api!=='google-generative-ai'&&body.model!==model)fail('model_selection_mismatch',403);
  if(body.models!==undefined||body.previous_response_id!=null||body.conversation!=null||body.background===true||body.cachedContent!=null)fail('model_remote_state_forbidden',403);
  if(body.audio!==undefined||(body.modalities!==undefined&&JSON.stringify(body.modalities)!=='["text"]')||body.generationConfig?.speechConfig!==undefined||(body.generationConfig?.responseModalities!==undefined&&JSON.stringify(body.generationConfig.responseModalities)!=='["TEXT"]'))fail('model_hosted_option_forbidden',403);
+ for(const key of ['plugins','transforms','provider','route','session_id'])if(body[key]!==undefined)fail('model_hosted_option_forbidden',403);
  if(body.service_tier!==undefined||body.priority!==undefined||body.web_search_options!==undefined||body.speed!==undefined)fail('model_hosted_option_forbidden',403);
  // Some Pi catalog models advertise provider fallback models. This run is pinned.
  delete body.fallbacks;
@@ -138,19 +143,23 @@ class Observation{
 export function createModelGateway(deps:Dependencies={}){
  const sql=deps.sql??db,send=deps.fetch??fetch,authorize=deps.authorize??requireHostedActivation,lookup=deps.modelApi??modelApi;
  const active=new Set<Promise<void>>();let admitted=0;
+ const bodyBudget=deps.bodyBudgetBytes===undefined?sharedBodyBudget:{used:0,limit:deps.bodyBudgetBytes};
  async function allowed(claims:ModelGatewayClaims){
-  const [run]=await sql`SELECT r.id,r.model_provider,r.model_id,c.owner_id,c.agent_secret FROM runs r JOIN companions c ON c.id=r.companion_id
+  const [run]=await sql`SELECT r.id,r.model_provider,r.model_id,c.owner_id,c.agent_secret,c.endpoint_secret FROM runs r JOIN companions c ON c.id=r.companion_id
    WHERE r.id=${claims.runId} AND c.id=${claims.companionId} AND r.dispatched=true AND r.usage_source='gateway'
    AND r.status IN ('preparing','running','needs_input') AND NOT r.cancel_requested AND c.retired_at IS NULL AND c.archive_requested_at IS NULL`;
-  if(!run||sha(run.agent_secret)!==claims.credentialDigest)fail('model_run_forbidden',403);
-  try{await authorize(run.owner_id,sql);}catch{fail('subscription_required',403);}return run;
+  if(!run||claims.expiresAt<=Date.now()||sha(run.agent_secret)!==claims.credentialDigest||sha(run.endpoint_secret??'')!==claims.endpointDigest)fail('model_run_forbidden',403);
+  try{await authorize(run.owner_id,sql);}catch{fail('subscription_required',403);}
+  if(claims.expiresAt<=Date.now())fail('model_authentication_required',401);return run;
  }
  async function settle(id:string,status:'failed'|'interrupted'|'succeeded',code:string|null,upstreamStatus:number|null,value:GatewayUsage|null){
   await sql`UPDATE model_gateway_requests SET status=${status},error_code=${code},upstream_status=${upstreamStatus},usage=${value}::jsonb,usage_verified=${!!value},finished_at=now() WHERE id=${id} AND status='forwarding'`;
  }
  async function handle(request:Request):Promise<Response|null>{
   const url=new URL(request.url);if(!url.pathname.startsWith(prefix))return null;
-  let claimed:string|undefined,upstreamStatus:number|null=null;let release=()=>{};
+  let claimed:string|undefined,upstreamStatus:number|null=null;let release=()=>{},bodyBytes=0;
+  const reserveBody=(bytes:number)=>{if(bodyBudget.used+bytes>bodyBudget.limit)fail('model_body_budget_exhausted',503);bodyBudget.used+=bytes;bodyBytes+=bytes;};
+  const releaseBody=()=>{bodyBudget.used-=bodyBytes;bodyBytes=0;};
   try{
    if(request.method!=='POST')fail('model_method_forbidden',405);
    const claims=verifyModelGatewayToken(request.headers.get('x-companions-model-token')??'');
@@ -161,18 +170,23 @@ export function createModelGateway(deps:Dependencies={}){
    if(!Object.hasOwn(routes,provider)||provider!==run.model_provider)fail('model_selection_mismatch',403);
    if(await lookup(provider,run.model_id)!==api)fail('model_protocol_mismatch',403);
    const key=deps.key?deps.key(provider):routes[provider].key.map(name=>process.env[name]).find(Boolean);if(!key)fail('model_provider_unavailable',503);
-   const body=await boundedBody(request,deps.bodyDeadlineMs),wire=target(provider,api,suffix,url,body,run.model_id),encoded=JSON.stringify(wire.body);
+   let body=await boundedBody(request,reserveBody,deps.bodyDeadlineMs);
+   const wire=target(provider,api,suffix,url,body,run.model_id);
+   let encoded=JSON.stringify(wire.body);const encodedBytes=Buffer.byteLength(encoded);
+   if(encodedBytes>MODEL_GATEWAY_MAX_REQUEST_BYTES)fail('model_request_too_large',413);
+   if(encodedBytes>bodyBytes)reserveBody(encodedBytes-bodyBytes);
+   const streaming=wire.api==='google-generative-ai'?suffix.endsWith(':streamGenerateContent'):body.stream===true;
    const hash=sha(wire.url+'\n'+encoded);
    // A duplicate UUID is always a tombstone, including after process loss. Never replay it.
    const rows=await sql`INSERT INTO model_gateway_requests(id,run_id,companion_id,owner_id,provider,model_id,api,request_hash)
     SELECT ${id},r.id,c.id,c.owner_id,${provider},${run.model_id},${api},${hash} FROM runs r JOIN companions c ON c.id=r.companion_id
     WHERE r.id=${claims.runId} AND c.id=${claims.companionId} AND r.dispatched AND r.usage_source='gateway' AND r.status IN ('preparing','running','needs_input') AND NOT r.cancel_requested
-    AND c.retired_at IS NULL AND c.archive_requested_at IS NULL AND c.agent_secret=${run.agent_secret} AND r.model_provider=${provider} AND r.model_id=${run.model_id}
+    AND c.retired_at IS NULL AND c.archive_requested_at IS NULL AND c.agent_secret=${run.agent_secret} AND c.endpoint_secret IS NOT DISTINCT FROM ${run.endpoint_secret} AND r.model_provider=${provider} AND r.model_id=${run.model_id}
     ON CONFLICT DO NOTHING RETURNING id`;
    if(!rows.length)fail('model_request_not_replayable',409);claimed=id;
    if(!verifyModelGatewayToken(request.headers.get('x-companions-model-token')??''))fail('model_authentication_required',401);
    await allowed(claims);
-   const headers=new Headers({'content-type':'application/json','accept':wire.api==='google-generative-ai'||body.stream===true?'text/event-stream':'application/json'});
+   const headers=new Headers({'content-type':'application/json','accept':streaming?'text/event-stream':'application/json'});
    if(provider==='google')headers.set('x-goog-api-key',key);
    else if(wire.api==='anthropic-messages'){
     headers.set(provider==='anthropic'?'x-api-key':'authorization',provider==='anthropic'?key:'Bearer '+key);headers.set('anthropic-version','2023-06-01');
@@ -180,10 +194,9 @@ export function createModelGateway(deps:Dependencies={}){
    }else headers.set('authorization','Bearer '+key);
    const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),deps.deadlineMs??DEADLINE);
    let upstream:Response;
-   try{upstream=await send(wire.url,{method:'POST',headers,body:encoded,redirect:'error',signal:controller.signal});}catch(error){clearTimeout(timer);throw error;}
+   try{upstream=await send(wire.url,{method:'POST',headers,body:encoded,redirect:'error',signal:controller.signal});}catch(error){clearTimeout(timer);throw error;}finally{body=null;wire.body=null;encoded='';releaseBody();}
    upstreamStatus=upstream.status;
    if(!upstream.ok||!upstream.body){clearTimeout(timer);await upstream.body?.cancel();await settle(id,'failed','model_provider_rejected',upstream.status,null);claimed=undefined;return problem('model_provider_rejected',502);}
-   const streaming=wire.api==='google-generative-ai'?suffix.endsWith(':streamGenerateContent'):body.stream===true;
    if(streaming&&!upstream.headers.get('content-type')?.toLowerCase().includes('text/event-stream')){clearTimeout(timer);await upstream.body.cancel();throw Error('model_response_invalid');}
    const observation=new Observation(wire.api,streaming);let downstream:ReadableStreamDefaultController<Uint8Array>,disconnected=false;
    const stream=new ReadableStream<Uint8Array>({start(value){downstream=value;},cancel(){disconnected=true;}},{highWaterMark:1024*1024,size:chunk=>chunk?.byteLength??0});
@@ -204,7 +217,7 @@ export function createModelGateway(deps:Dependencies={}){
   }catch(error){
    if(claimed)await settle(claimed,'interrupted',error instanceof GatewayError?error.code:'model_upstream_interrupted',upstreamStatus,null).catch(()=>{});
    return problem(error instanceof GatewayError?error.code:'model_upstream_interrupted',error instanceof GatewayError?error.status:502);
-  }finally{release();}
+  }finally{releaseBody();release();}
  }
  return {handle,async drain(){await Promise.allSettled([...active]);}};
 }

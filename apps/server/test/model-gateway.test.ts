@@ -151,3 +151,66 @@ test('terminal provider failures persist verified usage without forwarding provi
  const g=gateway(()=>new Response(frame({type:'response.failed',response:{status:'failed',error:{message:'private-provider-detail'},usage:{input_tokens:15,output_tokens:5,total_tokens:20}}}),{headers:{'content-type':'text/event-stream'}}));
  const response=await g.handle(request(f,id));let body='';try{body=await response!.text();}catch{}await g.drain();expect(body).not.toContain('private-provider-detail');expect((await db`SELECT status,usage_verified,usage FROM model_gateway_requests WHERE id=${id}`)[0]).toMatchObject({status:'failed',usage_verified:true,usage:{totalTokens:20}});
 });
+
+test('OpenRouter paid extensions and routing overrides cannot reach the shared provider account',async()=>{
+ const f=await fixture('openrouter');let calls=0;const g=gateway(()=>{calls++;return upstream('openrouter');});
+ for(const extra of [{plugins:[{id:'web'}]},{transforms:['middle-out']},{provider:{order:['foreign-provider']}},{route:'fallback'},{session_id:'foreign-session'}]){
+  expect((await g.handle(request(f,undefined,{model:'fixture-model',stream:true,...extra})))!.status).toBe(403);
+ }
+ expect(calls).toBe(0);expect(await db`SELECT id FROM model_gateway_requests WHERE run_id=${f.runId}`).toHaveLength(0);
+});
+
+test('the signed endpoint fences invalidation and rotation, including a null endpoint',async()=>{
+ const f=await fixture();let calls=0;const g=gateway(()=>{calls++;return upstream('openai');});
+ const [c]=await db`SELECT agent_secret FROM companions WHERE id=${f.companionId}`;
+ f.token=mintModelGatewayToken(f.companionId,f.runId,c.agent_secret,undefined,'captured-endpoint');
+ // A token from a prepared endpoint cannot survive its invalidation to NULL.
+ expect((await g.handle(request(f)))!.status).toBe(403);
+ await db`UPDATE companions SET endpoint_secret='captured-endpoint' WHERE id=${f.companionId}`;
+ const accepted=await g.handle(request(f));expect(accepted!.status).toBe(200);await accepted!.text();await g.drain();
+ await db`UPDATE companions SET endpoint_secret='new-endpoint' WHERE id=${f.companionId}`;
+ expect((await g.handle(request(f)))!.status).toBe(403);expect(calls).toBe(1);
+});
+
+test('endpoint changes before the durable claim or after it prevent upstream forwarding',async()=>{
+ for(const phase of ['before-claim','after-claim'] as const){
+  const f=await fixture(),id=crypto.randomUUID();let calls=0,changed=false;
+  const rotate=async()=>{if(!changed){changed=true;await db`UPDATE companions SET endpoint_secret='reprepared-endpoint' WHERE id=${f.companionId}`;}};
+  const wrappedSql=(strings:TemplateStringsArray,...values:any[])=>{
+   const query=(db as any)(strings,...values);
+   if(phase==='after-claim'&&strings[0].includes('INSERT INTO model_gateway_requests'))return (async()=>{const rows=await query;await rotate();return rows;})();
+   return query;
+  };
+  const g=gateway(()=>{calls++;return upstream('openai');},{sql:wrappedSql,modelApi:async()=>{if(phase==='before-claim')await rotate();return 'openai-responses';}});
+  const response=await g.handle(request(f,id));expect(response!.status).toBe(phase==='before-claim'?409:403);expect(calls).toBe(0);
+  const rows=await db`SELECT status,error_code FROM model_gateway_requests WHERE id=${id}`;
+  if(phase==='before-claim')expect(rows).toHaveLength(0);else expect(rows[0]).toMatchObject({status:'interrupted',error_code:'model_run_forbidden'});
+ }
+});
+
+test('shared body reservation spans upstream upload and releases when headers arrive while the response still streams',async()=>{
+ const a=await fixture(),b=await fixture();let calls=0,sendHeaders!:(response:Response)=>void,source!:ReadableStreamDefaultController<Uint8Array>;
+ const body={model:'fixture-model',stream:true,input:'x'.repeat(700)};
+ const g=gateway(()=>{calls++;if(calls===1)return new Promise<Response>(resolve=>sendHeaders=resolve);return upstream('openai');},{bodyBudgetBytes:1100});
+ const first=g.handle(request(a,undefined,body));while(!calls)await Bun.sleep(2);
+ const blocked=await g.handle(request(b,undefined,body));expect(blocked!.status).toBe(503);expect(await blocked!.text()).toContain('model_body_budget_exhausted');expect(calls).toBe(1);
+ expect(await db`SELECT id FROM model_gateway_requests WHERE run_id=${b.runId}`).toHaveLength(0);
+ sendHeaders(new Response(new ReadableStream<Uint8Array>({start(controller){source=controller;}}),{headers:{'content-type':'text/event-stream'}}));
+ const firstResponse=await first;await firstResponse!.body!.cancel();
+ const second=await g.handle(request(b,undefined,body));expect(second!.status).toBe(200);await second!.text();expect(calls).toBe(2);
+ source.enqueue(new TextEncoder().encode(events('openai')));source.close();await g.drain();
+});
+
+test('body budget is released after a chunked read timeout, invalid JSON and a failed upstream upload',async()=>{
+ for(const phase of ['timeout','json','upstream'] as const){
+  const a=await fixture(),b=await fixture();let calls=0;
+  const g=gateway(()=>{calls++;if(phase==='upstream'&&calls===1)throw Error('transport interrupted');return upstream('openai');},{bodyBudgetBytes:1100,bodyDeadlineMs:20});
+  const body={model:'fixture-model',stream:true,input:'x'.repeat(700)};
+  let bad:Request;
+  if(phase==='timeout')bad=new Request(request(a),{body:new ReadableStream({start(controller){controller.enqueue(new TextEncoder().encode('{"input":"'+'x'.repeat(700)));}}),duplex:'half'} as RequestInit);
+  else if(phase==='json')bad=new Request(request(a),{body:'x'.repeat(750)});
+  else bad=request(a,undefined,body);
+  const response=await g.handle(bad);expect(response!.status).toBe(phase==='timeout'?408:phase==='json'?400:502);
+  const next=await g.handle(request(b,undefined,body));expect(next!.status).toBe(200);await next!.text();await g.drain();
+ }
+});

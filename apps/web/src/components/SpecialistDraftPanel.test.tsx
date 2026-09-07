@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { SpecialistDraftPanel } from "./SpecialistDraftPanel";
@@ -90,4 +90,35 @@ describe("draft operation controls", () => {
     draft = { ...draft, status: "editing" };
     await waitFor(() => expect(instructions).toBeEnabled(), { timeout: 3_000 });
   });
+});
+
+
+it("keeps edits and their generation when an older idle refresh resolves", async () => {
+  let finishRefresh!: (response: Response) => void;
+  let gets = 0;
+  const persisted = { ...baseDraft, lastTest: { id: "test", status: "succeeded", companionId: "test-copy", generation: 3 } };
+  const fetchMock = vi.fn((input: RequestInfo | URL, options?: RequestInit) => {
+    if (String(input).endsWith("/draft") && !options?.method) {
+      if (++gets === 1) return response({ draft: persisted });
+      return new Promise<Response>(resolve => { finishRefresh = resolve; });
+    }
+    if (options?.method === "PATCH") return Promise.resolve(new Response(JSON.stringify({ error: "Draft generation changed." }), { status: 409 }));
+    return response({ accounts: [], catalog: [] });
+  });
+  const interval = vi.spyOn(window, "setInterval");
+  vi.stubGlobal("fetch", fetchMock);
+  try {
+    render(<SpecialistDraftPanel templateId="template-1" companionId="draft-1" onClose={vi.fn()}/>);
+    const instructions = await screen.findByRole("textbox", { name: "Instructions" });
+    const refresh = interval.mock.calls.find(([, delay]) => delay === 8_000)?.[0];
+    expect(typeof refresh).toBe("function");
+    await act(async () => { (refresh as () => void)(); });
+    fireEvent.change(instructions, { target: { value: "Keep my unsaved instructions" } });
+    await act(async () => { finishRefresh(new Response(JSON.stringify({ draft: { ...persisted, generation: 4, instructions: "Changed remotely" } }))); });
+    expect(instructions).toHaveValue("Keep my unsaved instructions");
+    expect(screen.getByRole("button", { name: "Satisfactory" })).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "Save configuration" }));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/api/templates/template-1/draft", expect.objectContaining({ method: "PATCH", body: expect.stringContaining('"expectedGeneration":3') })));
+    expect(instructions).toHaveValue("Keep my unsaved instructions");
+  } finally { interval.mockRestore(); }
 });

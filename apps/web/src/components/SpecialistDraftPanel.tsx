@@ -34,6 +34,7 @@ export function SpecialistDraftPanel({ templateId, companionId, onClose, onConne
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const request = useRef(0);
+  const editRevision = useRef(0);
 
   const apply = useCallback((value: SpecialistDraft) => {
     setDraft(value);
@@ -45,10 +46,11 @@ export function SpecialistDraftPanel({ templateId, companionId, onClose, onConne
 
   const load = useCallback(async () => {
     const sequence = ++request.current;
+    const startedAtEdit = editRevision.current;
     setLoading(true); setError("");
     try {
       const result = await workspaceApi.templateDraft(templateId);
-      if (request.current === sequence) apply(result.draft);
+      if (request.current === sequence && editRevision.current === startedAtEdit) apply(result.draft);
     } catch (cause) {
       if (request.current === sequence) setError(messageFor(cause));
     } finally {
@@ -98,7 +100,7 @@ export function SpecialistDraftPanel({ templateId, companionId, onClose, onConne
   }
 
   async function assess(assessment: "satisfactory" | "needs_changes") {
-    if (!draft?.lastTest || controlsDisabled) return;
+    if (!draft?.lastTest || controlsDisabled || dirty) return;
     setBusy("assessment"); setError(""); setNotice("");
     try {
       const result = await workspaceApi.assessTemplateTest(templateId, draft.lastTest.id, assessment);
@@ -128,16 +130,16 @@ export function SpecialistDraftPanel({ templateId, companionId, onClose, onConne
     <div className="specialist-draft__content">
       <p className="specialist-draft__intro">Prepare this reusable environment in chat, then save the instructions that future copies receive.</p>
       <form className="specialist-draft__form" onSubmit={save}>
-        <label>Name<input value={name} maxLength={80} disabled={controlsDisabled} onChange={event => { setName(event.target.value); setNotice(""); }}/></label>
-        <label>Instructions<Textarea value={instructions} rows={7} maxLength={20_000} disabled={controlsDisabled} onChange={event => { setInstructions(event.target.value); setNotice(""); }}/></label>
-        <label>Initialization script<span className="specialist-draft__hint">Runs once when a test or intervention copy is created.</span><Textarea className="specialist-draft__script" value={initScript} rows={7} spellCheck={false} disabled={controlsDisabled} placeholder="Optional shell script" onChange={event => { setInitScript(event.target.value); setNotice(""); }}/></label>
+        <label>Name<input value={name} maxLength={80} disabled={controlsDisabled} onChange={event => { editRevision.current += 1; setName(event.target.value); setNotice(""); }}/></label>
+        <label>Instructions<Textarea value={instructions} rows={7} maxLength={20_000} disabled={controlsDisabled} onChange={event => { editRevision.current += 1; setInstructions(event.target.value); setNotice(""); }}/></label>
+        <label>Initialization script<span className="specialist-draft__hint">Runs once when a test or intervention copy is created.</span><Textarea className="specialist-draft__script" value={initScript} rows={7} spellCheck={false} disabled={controlsDisabled} placeholder="Optional shell script" onChange={event => { editRevision.current += 1; setInitScript(event.target.value); setNotice(""); }}/></label>
         <Button type="submit" disabled={controlsDisabled || !dirty || !name.trim()}>{busy === "save" ? <LoaderCircle className="spin"/> : <Check/>}{busy === "save" ? "Saving…" : "Save configuration"}</Button>
       </form>
 
       <section className="specialist-draft__section"><div className="specialist-draft__section-title"><div><h3>Apps &amp; accounts</h3><p>Select the real accounts used while preparing this draft.</p></div></div><ApplicationAccess companionId={companionId} onConnect={onConnections}/></section>
 
       <section className="specialist-draft__section"><div className="specialist-draft__section-title"><div><h3>Test a mission</h3><p>A test runs on a fresh copy of this saved generation.</p></div><span className={`specialist-draft__status specialist-draft__status--${draft.lastTest?.status ?? "none"}`}>{testStatus(draft)}</span></div>
-        {draft.lastTest && <div className="specialist-draft__test-result"><span>Generation {draft.lastTest.generation}</span>{draft.lastTest.error && <p role="alert">{draft.lastTest.error}</p>}{testFinished && <div><Button type="button" size="sm" variant={draft.lastTest.assessment === "satisfactory" ? "default" : "outline"} disabled={controlsDisabled} onClick={() => void assess("satisfactory")}>Satisfactory</Button><Button type="button" size="sm" variant="outline" disabled={controlsDisabled} aria-pressed={draft.lastTest.assessment === "needs_changes"} onClick={() => void assess("needs_changes")}>Needs changes</Button></div>}{draft.lastTest.companionId && <Button type="button" size="sm" variant="ghost" onClick={() => onOpenCompanion?.(draft.lastTest!.companionId!)}>Open test chat</Button>}</div>}
+        {draft.lastTest && <div className="specialist-draft__test-result"><span>Generation {draft.lastTest.generation}</span>{draft.lastTest.error && <p role="alert">{draft.lastTest.error}</p>}{testFinished && <div><Button type="button" size="sm" variant={draft.lastTest.assessment === "satisfactory" ? "default" : "outline"} disabled={controlsDisabled || dirty} onClick={() => void assess("satisfactory")}>Satisfactory</Button><Button type="button" size="sm" variant="outline" disabled={controlsDisabled || dirty} aria-pressed={draft.lastTest.assessment === "needs_changes"} onClick={() => void assess("needs_changes")}>Needs changes</Button></div>}{draft.lastTest.companionId && <Button type="button" size="sm" variant="ghost" onClick={() => onOpenCompanion?.(draft.lastTest!.companionId!)}>Open test chat</Button>}</div>}
         <form className="specialist-draft__test" onSubmit={runTest}><label htmlFor={`test-${templateId}`}>Test brief</label><Textarea id={`test-${templateId}`} value={testPrompt} rows={3} disabled={controlsDisabled} placeholder="Give the copy a concrete mission and expected result." onChange={event => setTestPrompt(event.target.value)}/>{dirty && <p>Save this configuration before testing it.</p>}<Button type="submit" variant="outline" disabled={controlsDisabled || dirty || !testPrompt.trim()}>{busy === "test" ? <LoaderCircle className="spin"/> : <FlaskConical/>}{busy === "test" ? "Starting…" : "Test mission"}</Button></form>
       </section>
 

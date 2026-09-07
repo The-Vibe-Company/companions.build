@@ -113,8 +113,9 @@ export async function handleCompanionMail(request:Request,ownerId:string):Promis
    return json({alias:account?.alias??null,domain:domain(),configured:Boolean(process.env.RESEND_API_KEY&&process.env.RESEND_WEBHOOK_SECRET),quota:await mailQuota(ownerId)});
   }
   const companionId=z.string().uuid().parse(match![1]);
-  const [companion]=await db`SELECT id,temporary FROM companions WHERE id=${companionId} AND owner_id=${ownerId} AND retired_at IS NULL AND archive_requested_at IS NULL`;
+  const [companion]=await db`SELECT id,temporary,specialist_draft_id FROM companions WHERE id=${companionId} AND owner_id=${ownerId} AND retired_at IS NULL AND archive_requested_at IS NULL`;
   if(!companion)return json({error:'Companion not found.'},404);
+  if(companion.specialist_draft_id)throw new CompanionMailError('Specialist configuration drafts use the preparation chat, not email.');
   if(!match![2]){
    if(request.method==='PUT'){
     if(companion.temporary)throw new CompanionMailError('Temporary specialists cannot own an email address.');
@@ -260,7 +261,7 @@ async function fetchIncoming(row:any,dependencies:MailWorkerDependencies){
 
 async function admitIncoming(row:any,sql:Database){
  return sql.begin(async(tx:Database)=>{
-  const [companion]=await tx`SELECT id,owner_id FROM companions WHERE id=${row.companion_id} AND retired_at IS NULL AND archive_requested_at IS NULL FOR UPDATE`;
+  const [companion]=await tx`SELECT id,owner_id FROM companions WHERE id=${row.companion_id} AND retired_at IS NULL AND archive_requested_at IS NULL AND NOT temporary AND specialist_draft_id IS NULL FOR UPDATE`;
   const [current]=await tx`SELECT * FROM companion_mail_messages WHERE id=${row.id} AND state='ready' AND run_id IS NULL FOR UPDATE`;
   if(!current)return;
   if(!companion){await tx`UPDATE companion_mail_messages SET state='ignored',error_code='companion_unavailable' WHERE id=${current.id}`;return;}

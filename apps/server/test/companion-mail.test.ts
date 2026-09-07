@@ -1,4 +1,5 @@
 import {beforeAll,beforeEach,expect,test} from 'bun:test';
+import {createSpecialistDraft} from '../src/specialist-drafts';
 import {createHmac} from 'node:crypto';
 import {db,migrate,createCompanion} from '../src/store';
 import {approveMailDraft,claimMailSend,createMailDraft,handleCompanionMail,handleCompanionMailWebhook,handleCompanionMailControl,mailFilesForRun,tickCompanionMail,validateMailDraft,verifyMailWebhook} from '../src/companion-mail';
@@ -191,4 +192,22 @@ test('failed receiving GET retries durably without duplicate runs',async()=>{
  await tickCompanionMail(deps);await tickCompanionMail(deps);
  expect(await db`SELECT id FROM runs WHERE companion_id=${companionId}`).toHaveLength(1);
  [message]=await db`SELECT * FROM companion_mail_messages WHERE companion_id=${companionId}`;expect(message.fetch_attempts).toBe(2);
+});
+
+
+test('specialist drafts cannot activate mailboxes or admit mail during capture',async()=>{
+ const {draft}=await createSpecialistDraft(owner,{commandId:crypto.randomUUID(),name:'Draft without mail'});
+ expect((await request(`/api/companions/${draft.companionId}/mail`,'PUT',{localName:'draft-mail'}))!.status).toBe(409);
+ expect(await db`SELECT companion_id FROM companion_mailboxes WHERE companion_id=${draft.companionId}`).toHaveLength(0);
+ // A stale/pre-existing mailbox or already retrieved message must not bypass the guard.
+ await db`INSERT INTO companion_mailboxes(companion_id,owner_id,local_name,address) VALUES(${draft.companionId},${owner},'stale-draft','stale-draft@example.com')`;
+ const threadId=crypto.randomUUID(),messageId=crypto.randomUUID();
+ await db`INSERT INTO companion_mail_threads(id,companion_id,reply_token) VALUES(${threadId},${draft.companionId},${crypto.randomUUID()})`;
+ await db`INSERT INTO companion_mail_senders(companion_id,email) VALUES(${draft.companionId},'allowed@example.com')`;
+ await db`INSERT INTO companion_mail_messages(id,companion_id,thread_id,direction,state,sender,body_text) VALUES(${messageId},${draft.companionId},${threadId},'inbound','ready','allowed@example.com','Mutate the captured workspace')`;
+ await db`UPDATE specialist_drafts SET status='capturing' WHERE template_id=${draft.templateId}`;
+ await tickCompanionMail({apiKey:'test',fetch:async()=>{throw Error('Unexpected provider request');}});
+ expect((await db`SELECT state,run_id FROM companion_mail_messages WHERE id=${messageId}`)[0]).toMatchObject({state:'ignored',run_id:null});
+ expect(await db`SELECT id FROM runs WHERE companion_id=${draft.companionId} AND source='email'`).toHaveLength(0);
+ expect((await db`SELECT generation FROM specialist_drafts WHERE template_id=${draft.templateId}`)[0].generation).toBe(draft.generation);
 });

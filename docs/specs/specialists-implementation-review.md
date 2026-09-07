@@ -60,3 +60,34 @@ from this local implementation validation.
 
 Review totals: Standards — one non-blocking maintainability observation; Spec — no remaining
 blocking finding in the reviewed implementation.
+
+
+## Pre-PR review and integration follow-up
+
+An independent deep review covered all 73 changed files after integration of the then-current
+main. It found seven actionable issues; a targeted review of the subsequent mail integration
+found one more. All eight now have inspected fixes:
+
+- Reset inherited GitHub credential helpers before installing the in-memory broker; a real Git
+  fill/approve test proves managed tokens are not written to a credential store or reused after revocation.
+- Reject new requests during initialization before journal acceptance, including when Pi has
+  not yet registered its execution root; retrying the same request later remains valid.
+- Open hidden draft conversations with an empty ordinary-companion list, and let phone users
+  close/reopen configuration without leaving the chat or losing their edits.
+- Expose test conversations while running or failed, separate from the completion assessment.
+- Lock configuration during persisted operations and ignore refresh responses that predate local
+  edits, preserving the original generation check. Assessment cannot discard an unsaved edit.
+- Preserve capacity-form input while polling queued, admitted and cancelling requests.
+- Exclude specialist configuration drafts from mailbox activation and incoming email admission,
+  so mail cannot bypass a frozen draft or invalidate a tested image without a generation change.
+
+After merging the mail controls from main, full local verification passed with PostgreSQL 18
+and storage acceptance enabled (`RUN_STORAGE_ACCEPTANCE=1 python3 scripts/verify.py --profile full --postgres 18`).
+This included 396 server tests, 154 frontend tests, real Linux product/MCP/storage acceptance,
+compiled runtime and web builds, and PostgreSQL crash/restore. The two final focused corrections
+were then checked with 20 mail tests, root TypeScript/runtime build, and all 155 frontend tests
+plus the web production build. Earlier failing regression runs are retained as evidence.
+
+Final local evidence: `.artifacts/verification/c49fd7e882d5` (full), `462efafe2b12` (mail),
+`446a9b922992` (web). All three record unchanged source during their run and successful owned-resource
+cleanup. These checks do not include a live Box canary or deployment.

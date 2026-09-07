@@ -1,0 +1,6 @@
+.identity-fields { min-width:0; margin:0; padding:0; border:0; }
+.identity-fields:disabled { opacity:.75; }
+.settings-unsaved { display:flex; flex-direction:column; align-items:flex-start; gap:24px; padding:20px 0; }
+.settings-unsaved p { max-width:32ch; font-size:1rem; line-height:1.6; }
+.settings-unsaved>div { display:flex; flex-wrap:wrap; gap:8px; }
+@media(max-width:760px) { .settings-unsaved button { min-height:44px; } }

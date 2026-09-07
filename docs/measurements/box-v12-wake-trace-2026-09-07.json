@@ -1,0 +1,254 @@
+{
+  "date": "2026-09-07",
+  "status": "measured",
+  "applicationSourceCommit": "7834b7e",
+  "template": "companions-agent-v12-20260907",
+  "scope": "One archived Box wake with opt-in preparation tracing; same Box, real Pi/GLM, independent new file verified.",
+  "wake": {
+    "admissionMs": 18.876750000000015,
+    "totalSeconds": 30.57402225,
+    "preparationSeconds": 16.747,
+    "executionSeconds": 13.31,
+    "newFileVerified": true
+  },
+  "archiveSeconds": 0.571298208,
+  "desktopFirstAttempt": "DESKTOP_PROVISIONING_TIMEOUT",
+  "trace": [
+    {
+      "event": "preparation_trace",
+      "phase": "admission_health",
+      "startedMs": 20024.126,
+      "durationMs": 53.582,
+      "outcome": "error"
+    },
+    {
+      "event": "preparation_trace",
+      "phase": "box_get",
+      "startedMs": 20541.085,
+      "durationMs": 13.583,
+      "outcome": "archived"
+    },
+    {
+      "event": "preparation_trace",
+      "phase": "box_resume",
+      "startedMs": 20555.691,
+      "durationMs": 173.823,
+      "outcome": "ok"
+    },
+    {
+      "event": "preparation_trace",
+      "phase": "box_get",
+      "startedMs": 21046.616,
+      "durationMs": 18.206,
+      "outcome": "not_ready"
+    },
+    {
+      "event": "preparation_trace",
+      "phase": "box_get",
+      "startedMs": 21554.78,
+      "durationMs": 17.021,
+      "outcome": "not_ready"
+    },
+    {
+      "event": "preparation_trace",
+      "phase": "box_get",
+      "startedMs": 22068.138,
+      "durationMs": 13.683,
+      "outcome": "not_ready"
+    },
+    {
+      "event": "preparation_trace",
+      "phase": "box_get",
+      "startedMs": 22580.181,
+      "durationMs": 14.055,
+      "outcome": "not_ready"
+    },
+    {
+      "event": "preparation_trace",
+      "phase": "box_get",
+      "startedMs": 23095.624,
+      "durationMs": 16.243,
+      "outcome": "not_ready"
+    },
+    {
+      "event": "preparation_trace",
+      "phase": "box_get",
+      "startedMs": 23602.951,
+      "durationMs": 15.616,
+      "outcome": "not_ready"
+    },
+    {
+      "event": "preparation_trace",
+      "phase": "box_get",
+      "startedMs": 24113.174,
+      "durationMs": 15.773,
+      "outcome": "not_ready"
+    },
+    {
+      "event": "preparation_trace",
+      "phase": "box_get",
+      "startedMs": 24619.645,
+      "durationMs": 15.152,
+      "outcome": "not_ready"
+    },
+    {
+      "event": "preparation_trace",
+      "phase": "box_get",
+      "startedMs": 25129.861,
+      "durationMs": 16.459,
+      "outcome": "not_ready"
+    },
+    {
+      "event": "preparation_trace",
+      "phase": "box_get",
+      "startedMs": 25638.029,
+      "durationMs": 15.287,
+      "outcome": "not_ready"
+    },
+    {
+      "event": "preparation_trace",
+      "phase": "box_get",
+      "startedMs": 26147.516,
+      "durationMs": 16.524,
+      "outcome": "not_ready"
+    },
+    {
+      "event": "preparation_trace",
+      "phase": "box_get",
+      "startedMs": 26659.415,
+      "durationMs": 13.589,
+      "outcome": "not_ready"
+    },
+    {
+      "event": "preparation_trace",
+      "phase": "box_get",
+      "startedMs": 27175.334,
+      "durationMs": 14.078,
+      "outcome": "not_ready"
+    },
+    {
+      "event": "preparation_trace",
+      "phase": "box_get",
+      "startedMs": 27677.828,
+      "durationMs": 15.717,
+      "outcome": "not_ready"
+    },
+    {
+      "event": "preparation_trace",
+      "phase": "box_get",
+      "startedMs": 28187.816,
+      "durationMs": 15.343,
+      "outcome": "not_ready"
+    },
+    {
+      "event": "preparation_trace",
+      "phase": "box_get",
+      "startedMs": 28700.981,
+      "durationMs": 13.685,
+      "outcome": "not_ready"
+    },
+    {
+      "event": "preparation_trace",
+      "phase": "box_get",
+      "startedMs": 29207.41,
+      "durationMs": 15.748,
+      "outcome": "ready"
+    },
+    {
+      "event": "preparation_trace",
+      "phase": "box_setup",
+      "startedMs": 29223.243,
+      "durationMs": 0,
+      "outcome": "ready"
+    },
+    {
+      "event": "preparation_trace",
+      "phase": "box_environment",
+      "startedMs": 29225.88,
+      "durationMs": 62.236,
+      "outcome": "ok"
+    },
+    {
+      "event": "preparation_trace",
+      "phase": "box_services",
+      "startedMs": 29290.56,
+      "durationMs": 4647,
+      "outcome": "ok"
+    },
+    {
+      "event": "preparation_trace",
+      "phase": "box_service_desktop",
+      "startedMs": 33737.834,
+      "durationMs": 91.4,
+      "outcome": "ok"
+    },
+    {
+      "event": "preparation_trace",
+      "phase": "box_service_agent",
+      "startedMs": 33834.847,
+      "durationMs": 45.42,
+      "outcome": "ok"
+    },
+    {
+      "event": "preparation_trace",
+      "phase": "box_service_proxy",
+      "startedMs": 33892.34,
+      "durationMs": 45.35,
+      "outcome": "ok"
+    },
+    {
+      "event": "preparation_trace",
+      "phase": "box_host",
+      "startedMs": 33942.099,
+      "durationMs": 1884.151,
+      "outcome": "ok"
+    },
+    {
+      "event": "preparation_trace",
+      "phase": "lifecycle_health",
+      "startedMs": 35826.966,
+      "durationMs": 62.163,
+      "outcome": "ready"
+    },
+    {
+      "event": "preparation_trace",
+      "phase": "ready_checkpoint",
+      "startedMs": 35894.613,
+      "durationMs": 3.329,
+      "outcome": "ok"
+    },
+    {
+      "event": "preparation_trace",
+      "phase": "admission_health",
+      "startedMs": 36342.379,
+      "durationMs": 40.724,
+      "outcome": "ready"
+    },
+    {
+      "event": "preparation_trace",
+      "phase": "plugin_configuration",
+      "startedMs": 36386.255,
+      "durationMs": 49.962,
+      "outcome": "ok"
+    },
+    {
+      "event": "preparation_trace",
+      "phase": "run_staging",
+      "startedMs": 36383.146,
+      "durationMs": 54.857,
+      "outcome": "ok"
+    },
+    {
+      "event": "preparation_trace",
+      "phase": "admission_put",
+      "startedMs": 36446.423,
+      "durationMs": 69.166,
+      "outcome": "ok"
+    }
+  ],
+  "limits": [
+    "Single wake sample; provider readiness polling timestamps include polling granularity.",
+    "Service subphase durations are remote command measurements; their reconstructed startedMs values are approximate and cannot separate transport from queue time.",
+    "box_services includes 4.647 seconds elapsed, but measured service work is about 0.182 seconds. The unmeasured remainder is not attributed to a specific provider cause."
+  ]
+}

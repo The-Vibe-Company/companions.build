@@ -9,7 +9,7 @@ import {saveTemplate} from '../src/templates';
 import {delegateTask} from '../src/delegation';
 import {handler} from '../src/api';
 import {setMagicLinkDeliveryForTests} from '../src/auth';
-import {createRoutine} from '../src/automations';
+import {createRoutine,testRoutine} from '../src/automations';
 import {handleTriggers,handleWebhook} from '../src/triggers';
 const owner='00000000-0000-4000-8000-000000000001';
 const owned:string[]=[];
@@ -163,5 +163,71 @@ test('DELETE winning during snapshot observation prevents final template activat
   expect((await db`SELECT revision,snapshot_name,source_companion_id FROM agent_templates WHERE id=${template.id}`)[0]).toMatchObject({revision:1,snapshot_name:null,source_companion_id:null});
   expect((await db`SELECT status FROM template_candidates WHERE id=${candidate}`)[0].status).toBe('failed');
   expect(await db`SELECT revision FROM template_revisions WHERE template_id=${template.id} AND revision=2`).toHaveLength(0);
+ }finally{await l.close();}
+});
+
+async function waitUntil(check:()=>Promise<boolean>){const end=Date.now()+3000;while(Date.now()<end){if(await check())return;await Bun.sleep(5);}throw Error('Database barrier was not reached');}
+async function pid(sql:any){return (await sql`SELECT pg_backend_pid() AS pid`)[0].pid as number;}
+async function blocked(pid:number){return (await db`SELECT cardinality(pg_blocking_pids(${pid}))>0 AS blocked`)[0].blocked as boolean;}
+
+test('routine test and Companion retirement share lock order without deadlock',async()=>{
+ const id=await fixture(),routine=await createRoutine(id,{name:'Concurrent test',prompt:'Work',cron:'0 * * * *',timezone:'UTC',enabled:false});
+ const blocker=await db.reserve(),remover=await db.reserve(),tester=await db.reserve();
+ let release!:()=>void,entered!:()=>void;
+ const hold=new Promise<void>(r=>release=r),ready=new Promise<void>(r=>entered=r);
+ const removalPid=await pid(remover),testPid=await pid(tester);
+ const held=blocker.begin(async tx=>{await tx`SELECT id FROM companions WHERE id=${id} FOR UPDATE`;entered();await hold;});
+ let removal:Promise<any>|undefined,admission:Promise<any>|undefined;
+ try{
+  await ready;
+  removal=retireCompanion(owner,id,remover);void removal.catch(()=>{});
+  await waitUntil(()=>blocked(removalPid));
+  admission=testRoutine(id,routine!.id,crypto.randomUUID(),tester);void admission.catch(()=>{});
+  await waitUntil(()=>blocked(testPid));
+  release();await held;
+  expect(await removal).toMatchObject({deleted:true});
+  expect(await admission).toBeNull();
+  expect(await db`SELECT id FROM runs WHERE companion_id=${id}`).toHaveLength(0);
+ }finally{release();await Promise.allSettled([held,removal,admission].filter(Boolean));blocker.release();remover.release();tester.release();}
+});
+
+test('a review admission racing DELETE cannot leave queued work on a retired parent',async()=>{
+ const parent=await fixture(),target=await fixture(),parentRun=await acceptMessage(owner,parent,crypto.randomUUID(),'Delegate');
+ const delegated=await delegateTask(owner,parent,parentRun!,crypto.randomUUID(),{companionId:target,prompt:'Finished work'});
+ await db`UPDATE runs SET status='succeeded',result_text='Result',finished_at=now() WHERE id=${delegated.runId}`;
+ await db`UPDATE delegations SET files_saved_at=now() WHERE run_id=${delegated.runId}`;
+ const blocker=await db.reserve(),remover=await db.reserve(),l=await leader(),f=fake();
+ const removerPid=await pid(remover);let deletionDone=false;
+ await blocker`SELECT pg_advisory_lock(721440999)`;
+ await db.unsafe(`CREATE FUNCTION hold_review_admission() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.companion_id='${parent}'::uuid AND NEW.source='delegation' THEN PERFORM pg_advisory_xact_lock(721440999); END IF; RETURN NEW; END $$; CREATE TRIGGER hold_review_admission BEFORE INSERT ON runs FOR EACH ROW EXECUTE FUNCTION hold_review_admission()`);
+ let deletion:Promise<any>|undefined;
+ const progression=progressLifecycle(l.sql,{},f.machine,{companionId:target,leaderPid:l.pid});void progression.catch(()=>{});
+ try{
+  await waitUntil(()=>blocked(l.pid));
+  deletion=retireCompanion(owner,parent,remover).finally(()=>{deletionDone=true;});void deletion.catch(()=>{});
+  await waitUntil(async()=>deletionDone||await blocked(removerPid));
+  await blocker`SELECT pg_advisory_unlock(721440999)`;
+  await progression;await deletion;
+  expect(await db`SELECT id FROM runs WHERE companion_id=${parent} AND status IN ('queued','preparing','running','needs_input')`).toHaveLength(0);
+  const [review]=await db`SELECT r.status FROM delegations d JOIN runs r ON r.id=d.returned_run_id WHERE d.run_id=${delegated.runId}`;
+  expect(review?.status).toBe('cancelled');
+ }finally{
+  await blocker`SELECT pg_advisory_unlock(721440999)`;
+  await Promise.allSettled([progression,deletion].filter(Boolean));
+  await db.unsafe('DROP TRIGGER hold_review_admission ON runs; DROP FUNCTION hold_review_admission()');
+  blocker.release();remover.release();await l.close();
+ }
+});
+
+test('DELETE winning before a delayed delegation review preserves the result without another run',async()=>{
+ const parent=await fixture(),target=await fixture(),parentRun=await acceptMessage(owner,parent,crypto.randomUUID(),'Delegate');
+ const delegated=await delegateTask(owner,parent,parentRun!,crypto.randomUUID(),{companionId:target,prompt:'Finished work'});
+ await db`UPDATE runs SET status='succeeded',result_text='Retained result',finished_at=now() WHERE id=${delegated.runId}`;
+ await db`UPDATE delegations SET files_saved_at=now() WHERE run_id=${delegated.runId}`;
+ const l=await leader();
+ try{
+  await progressLifecycle(l.sql,{canStartWork:async()=>{await retireCompanion(owner,parent);return true;}},fake().machine,{companionId:target,leaderPid:l.pid});
+  expect((await db`SELECT returned_run_id,finished_at,result FROM delegations WHERE run_id=${delegated.runId}`)[0]).toMatchObject({returned_run_id:null,finished_at:expect.any(Date),result:expect.objectContaining({text:'Retained result'})});
+  expect(await db`SELECT id FROM runs WHERE companion_id=${parent} AND source='delegation'`).toHaveLength(0);
  }finally{await l.close();}
 });

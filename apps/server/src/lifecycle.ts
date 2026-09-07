@@ -257,11 +257,15 @@ export async function progressLifecycle(sql:any=db,hooks:LifecycleHooks={},machi
   if(!delegation.returned_run_id){
    const parentCanStart=await (hooks.canStartWork??ownerMayStartWork)(delegation.owner_id);
    await checkpoint(async(tx:any)=>{
+    // Match retirement's owner graph lock, then lock computers before their delegation.
+    await tx`SELECT pg_advisory_xact_lock(hashtextextended(${delegation.owner_id},569))`;
+    // Parent before temporary child also matches adoption's row-lock order.
+    const [parent]=await tx`SELECT id,retired_at,archive_requested_at FROM companions WHERE owner_id=${delegation.owner_id} AND id=${delegation.parent_id} FOR UPDATE`;
+    await tx`SELECT id FROM companions WHERE owner_id=${delegation.owner_id} AND id=${delegation.target_id} FOR UPDATE`;
     const [current]=await tx`SELECT * FROM delegations WHERE id=${delegation.id} FOR UPDATE`;
-    if(current.returned_run_id)return;
+    if(!current||current.returned_run_id||current.finished_at)return;
     const result={status:delegation.status,text:delegation.result_text??null,error:delegation.error??null,runId:delegation.run_id,companionId:delegation.target_id};
-    const [parent]=await tx`SELECT id FROM companions WHERE id=${delegation.parent_id} AND owner_id=${delegation.owner_id} AND retired_at IS NULL`;
-    if(!parent||!parentCanStart){await tx`UPDATE delegations SET result=${result},finished_at=now() WHERE id=${delegation.id}`;if(delegation.temporary)await tx`UPDATE companions SET archive_requested_at=COALESCE(archive_requested_at,now()),prepare_requested=false WHERE id=${delegation.target_id}`;return;}
+    if(!parent||parent.retired_at||parent.archive_requested_at||!parentCanStart){await tx`UPDATE delegations SET result=${result},finished_at=now() WHERE id=${delegation.id}`;if(delegation.temporary)await tx`UPDATE companions SET archive_requested_at=COALESCE(archive_requested_at,now()),prepare_requested=false WHERE id=${delegation.target_id}`;return;}
     const returned=crypto.randomUUID();
     const content='Delegated task finished. Review this result and any retained files; if useful, adopt the child Box as a template before finishing this review.\n'+JSON.stringify(result);
     await tx`INSERT INTO runs(id,companion_id,client_message_id,content,lane,source) VALUES(${returned},${delegation.parent_id},${returned},${content},'background','delegation')`;

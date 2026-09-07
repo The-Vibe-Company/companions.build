@@ -74,6 +74,9 @@ export async function deleteRoutine(companionId: string, id: string, sql: Databa
  * Disabled routines remain testable without changing their schedule. */
 export async function testRoutine(companionId: string, routineId: string, clientMessageId: string, sql: Database = db) {
   return sql.begin(async tx => {
+    // Companion first, matching retirement and ordinary background admission.
+    const [companion] = await tx`SELECT id FROM companions WHERE id=${companionId} AND retired_at IS NULL AND archive_requested_at IS NULL FOR UPDATE`;
+    if (!companion) return null;
     const [routine] = await tx`SELECT prompt FROM routines WHERE companion_id=${companionId}
       AND id=${routineId} AND deleted_at IS NULL FOR UPDATE`;
     if (!routine) return null;

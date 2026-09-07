@@ -68,3 +68,22 @@ test('asynchronous preparation is bounded and repeated scheduling never duplicat
   await tick(lock.sql,hooks,coordinator);await until(()=>seen.size===7);
  }finally{blocked.release();await coordinator.close();await lock.close();}
 });
+
+test('persistent retirements beyond the scan limit cannot starve a new preparation',async()=>{
+ const pending=await Promise.all(Array.from({length:100},(_,i)=>companion('Unconfirmed retirement '+i)));
+ for(const id of pending)await db`UPDATE companions SET retired_at=now(),archive_requested_at=now(),create_started_at=now()-interval '1 day' WHERE id=${id}`;
+ const fresh=await companion('New preparation'),lock=await leader(),coordinator=new LifecycleCoordinator();let attempts=0;
+ const hooks={lifecycleMachines:machine(async c=>{expect(c.id).toBe(fresh);attempts++;return null;})};
+ try{
+  await db`UPDATE companions SET prepare_requested=true WHERE id=${fresh}`;
+  for(let round=0;round<30&&!attempts;round++){
+   await coordinator.schedule(lock.sql,hooks);
+   await until(()=>coordinator.activeCount===0);
+  }
+  expect(attempts).toBe(1);
+  expect((await db`SELECT count(*)::int AS count FROM companions WHERE id IN ${db(pending)} AND retired_at IS NOT NULL AND archived_at IS NULL`)[0].count).toBe(100);
+ }finally{
+  await coordinator.close();await lock.close();
+  for(const id of pending)await db`UPDATE companions SET archived_at=now() WHERE id=${id}`;
+ }
+},10_000);

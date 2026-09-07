@@ -337,8 +337,7 @@ export class RunCoordinator {
 export class LifecycleCoordinator {
  private jobs=new Map<string,Promise<void>>();
  private closing=false;
- private lastScheduled=new Map<string,number>();
- private sequence=0;
+ private cursor:string|null=null;
  private leaderPid:number|null=null;
  constructor(private database=db){}
  get activeCount(){return this.jobs.size;}
@@ -353,13 +352,12 @@ export class LifecycleCoordinator {
     OR EXISTS(SELECT 1 FROM delegations d JOIN runs r ON r.id=d.run_id WHERE d.target_id=c.id AND d.finished_at IS NULL AND r.status IN ('succeeded','failed','interrupted','cancelled'))))
    OR (c.retired_at IS NOT NULL AND c.archive_requested_at IS NOT NULL AND (c.archived_at IS NULL OR c.archived_at<c.archive_requested_at))
    OR EXISTS(SELECT 1 FROM machine_usage_events e WHERE e.companion_id=c.id AND e.reported_at IS NULL)
-   ORDER BY c.created_at,c.id LIMIT 100`;
-  const pendingIds=new Set(pending.map((companion:any)=>companion.id));
-  for(const id of this.lastScheduled.keys())if(!pendingIds.has(id)&&!this.jobs.has(id))this.lastScheduled.delete(id);
-  for(const companion of [...pending].sort((a,b)=>(this.lastScheduled.get(a.id)??0)-(this.lastScheduled.get(b.id)??0))){
+   ORDER BY CASE WHEN ${this.cursor}::uuid IS NULL OR c.id>${this.cursor}::uuid THEN 0 ELSE 1 END,c.id LIMIT 100`;
+  // Rotate before LIMIT, so persistent old intents cannot exclude later computers.
+  for(const companion of pending){
    if(this.jobs.size>=4)break;
    if(this.jobs.has(companion.id))continue;
-   this.lastScheduled.set(companion.id,++this.sequence);
+   this.cursor=companion.id;
    const job=this.progress(companion.id,identity.pid,hooks).catch(()=>{console.error('lifecycle_progress_failed');}).finally(()=>{this.jobs.delete(companion.id);});
    this.jobs.set(companion.id,job);
   }

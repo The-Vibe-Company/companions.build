@@ -286,7 +286,7 @@ describe("first Companion flow", () => {
         {id:"app.linear/linear",name:"Linear",provider:"linear",available:true},
         {id:"io.github.github/github-mcp-server",name:"GitHub",provider:"github",available:true},
       ],accounts});
-      if(path==="/api/plugins/accounts/linear-account/check"&&options?.method==="POST")return response({account:{...accounts[0],healthStatus:"ok",checkedAt}});
+      if(path==="/api/plugins/accounts/linear-account/check"&&options?.method==="POST")return response({account:{id:"linear-account",healthStatus:"ok",healthCode:null,checkedAt}});
       if(path==="/api/plugins/connect"&&options?.method==="POST")return response({url:"https://oauth.example/reconnect"});
       throw new Error(`Unexpected request: ${path}`);
     });
@@ -299,6 +299,8 @@ describe("first Companion flow", () => {
     await user.click(screen.getByRole("button",{name:"Check Linear work"}));
     expect(await screen.findByText("Connection ready",{exact:false})).toBeInTheDocument();
     expect(screen.getByText("Connection ready",{exact:false}).textContent).toContain(" · ");
+    expect(screen.getByText("Linear work")).toBeInTheDocument();
+    expect(screen.getByRole("button",{name:"Disconnect Linear work"})).toBeInTheDocument();
     await user.click(screen.getByRole("button",{name:"Reconnect"}));
     await waitFor(()=>expect(popup.location.href).toBe("https://oauth.example/reconnect"));
     expect(fetchMock).toHaveBeenCalledWith("/api/plugins/connect",expect.objectContaining({method:"POST",body:JSON.stringify({serverId:"io.github.github/github-mcp-server",label:"GitHub"})}));

@@ -195,6 +195,7 @@ export const api = {
 export interface PluginServer { id: string; name: string; description?: string; provider?: string; kind?: "oauth" | "remote" | "custom"; available: boolean }
 export type PluginHealthCode = "authorization_required" | "connection_failed" | "configuration_invalid" | "agent_check_required";
 export interface PluginAccount { id: string; serverId: string | null; label: string; provider?: string; healthStatus: "unchecked" | "ok" | "error" | "requires_agent"; healthCode: PluginHealthCode | null; checkedAt: string | null }
+export type PluginHealthResult = Pick<PluginAccount, "id" | "healthStatus" | "healthCode" | "checkedAt">;
 export interface PluginsResponse { catalog: PluginServer[]; accounts: PluginAccount[] }
 export type CustomPluginInput =
   | { label: string; transport: "http"; url: string; headers: Record<string, string> }
@@ -218,7 +219,7 @@ export interface MaintenanceAction { id: string; operation: string; createdAt: s
 
 export const workspaceApi = {
   plugins: () => request<PluginsResponse>("/api/plugins"),
-  checkPlugin: (id: string) => request<{ account: PluginAccount }>(`/api/plugins/accounts/${id}/check`, { method: "POST" }),
+  checkPlugin: (id: string) => request<{ account: PluginHealthResult }>(`/api/plugins/accounts/${id}/check`, { method: "POST" }),
   connectPlugin: (serverId: string, label: string) => request<{ url?: string; account?: PluginAccount }>("/api/plugins/connect", { method: "POST", body: JSON.stringify({ serverId, label }) }),
   addCustomPlugin: (input: CustomPluginInput) => request<{ id: string }>("/api/plugins/custom", { method: "POST", body: JSON.stringify(input) }),
   deletePlugin: (id: string) => request<{ ok: true }>(`/api/plugins/${id}`, { method: "DELETE" }),

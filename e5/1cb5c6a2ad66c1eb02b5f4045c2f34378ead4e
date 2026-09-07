@@ -1,0 +1,21 @@
+docs/adr/portable-software.md
+  s_f946242dcf6ba9::t_cdde1229e6fa2f 1-101,103-116,118-138
+  s_f946242dcf6ba9::t_83592e0b444faa 117
+  s_f946242dcf6ba9::t_fa6235be4d07c1 102
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "e51cb5c6a2ad66c1eb02b5f4045c2f34378ead4e",
+  "prompts": {},
+  "sessions": {
+    "s_f946242dcf6ba9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a06de4-a8a5-7cd3-b713-2a8d451f7200",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": null
+    }
+  }
+}

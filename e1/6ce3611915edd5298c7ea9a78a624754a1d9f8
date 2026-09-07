@@ -1,0 +1,38 @@
+apps/server/src/store.ts
+  s_f946242dcf6ba9::t_70ab546245878d 5
+apps/server/src/templates.ts
+  s_f946242dcf6ba9::t_28fbc9bc89584f 11,19-20,32-33,40-41,48,54-55
+  s_f946242dcf6ba9::t_43029d878b4b08 8
+apps/server/test/software.test.ts
+  s_f946242dcf6ba9::t_478a79c2400f77 68-73,198-200
+  s_f946242dcf6ba9::t_7b6da88156179c 30
+  s_f946242dcf6ba9::t_75841439b6f050 1-29,31-67,74-145,160-180,182-197,202
+  s_f946242dcf6ba9::t_c0aa1db4ce5462 146-159
+  s_f946242dcf6ba9::t_bf8a10b63a86fe 181,201
+apps/server/src/software.ts
+  s_f946242dcf6ba9::t_c0aa1db4ce5462 116-128
+  s_f946242dcf6ba9::t_773a4db4851fca 32,41-42,132-135,148-168,183,189-191,203
+  s_f946242dcf6ba9::t_28fbc9bc89584f 1-31,33-40,43-115,129-131,136-147,169-182,184-188,192-202,204-209
+apps/server/src/software.sql
+  s_f946242dcf6ba9::t_a6854c63b7fd0c 88
+  s_f946242dcf6ba9::t_6641ca3737e04d 29-31
+  s_f946242dcf6ba9::t_70ab546245878d 1-4,6-28,32-39,45-48,50-87,89-95
+  s_f946242dcf6ba9::t_0ad7c2685a4929 5,40,49
+  s_f946242dcf6ba9::t_773a4db4851fca 41-44
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "e16ce3611915edd5298c7ea9a78a624754a1d9f8",
+  "prompts": {},
+  "sessions": {
+    "s_f946242dcf6ba9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a06de4-a8a5-7cd3-b713-2a8d451f7200",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "StanGirard <stan@quivr.app>"
+    }
+  }
+}

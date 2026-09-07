@@ -11,6 +11,7 @@ from urllib.parse import urlparse
 from dev_support import LOCAL, ROOT, proxy_command, read_json, write_json
 
 SERVICES = ("api", "storage", "s3", "mailpit")
+PROXY_KEYS = ("PORTLESS_URL", "PORTLESS_PORT", "PORTLESS_HTTPS", "PORTLESS_STATE_DIR", "PORTLESS_SYNC_HOSTS")
 MANIFEST = LOCAL / "dev-portless-routes.json"
 ANSI = re.compile(r"\x1b\[[0-9;]*m")
 
@@ -114,7 +115,8 @@ def register_services(env: dict[str, str], ports: dict[str, int]) -> dict[str, s
     stale = read_json(MANIFEST)
     if stale.get("aliases"):
         raise RuntimeError("Stale Portless route ownership exists; run scripts/dev_portless.py cleanup")
-    manifest: dict[str, object] = {"primaryHost": host, "aliases": []}
+    manifest: dict[str, object] = {"primaryHost": host, "aliases": [],
+                                 "proxyEnv": {key: env[key] for key in PROXY_KEYS if key in env}}
     urls: dict[str, str] = {}
     try:
         for service in SERVICES:
@@ -148,6 +150,13 @@ def cleanup_stale(env: dict[str, str]) -> None:
     if manifest.get("primaryHost") != _primary_host(env):
         raise RuntimeError("Portless manifest belongs to a different primary worktree hostname")
     _cleanup_manifest(env, manifest)
+
+
+def cleanup_recorded(env: dict[str, str]) -> None:
+    """Recover from the route journal even before the supervisor publishes endpoints."""
+    manifest = read_json(MANIFEST)
+    if manifest.get("aliases"):
+        cleanup_stale({**env, **manifest.get("proxyEnv", {})})
 
 
 @contextmanager

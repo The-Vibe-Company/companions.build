@@ -3,6 +3,11 @@ import importlib.util
 import os
 from pathlib import Path
 import subprocess
+import json
+import signal
+import shlex
+import sys
+import time
 import tempfile
 import unittest
 from contextlib import nullcontext
@@ -13,6 +18,63 @@ cli = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(cli)
 
 class IsolationTests(unittest.TestCase):
+    def test_hard_parent_crash_cannot_launch_an_unrecorded_service(self):
+        for phase in ('before_record', 'before_release', 'after_release'):
+            with self.subTest(phase=phase), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                marker, journal = root / 'started', root / 'ownership.json'
+                service = ['/bin/sh', '-c', f'touch {shlex.quote(str(marker))}; sleep 60; :']
+                code = '''import sys,json,time
+from pathlib import Path
+sys.path.insert(0, sys.argv[1])
+from dev_support import launch_owned,write_json
+phase,journal=sys.argv[2:4]
+def persist(child,record):
+    if phase != 'before_record': write_json(Path(journal),record)
+    print(child.pid,flush=True)
+    if phase != 'after_release': sys.stdin.readline()
+launch_owned(json.loads(sys.argv[4]),persist)
+time.sleep(60)
+'''
+                parent = subprocess.Popen([sys.executable, '-c', code, str(cli.ROOT / 'scripts'), phase,
+                                           str(journal), json.dumps(service)], stdin=subprocess.PIPE,
+                                          stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+                child_pid = None
+                try:
+                    child_pid = int(parent.stdout.readline())
+                    if phase == 'after_release':
+                        deadline = time.monotonic() + 5
+                        while not marker.exists() and time.monotonic() < deadline:
+                            time.sleep(.02)
+                        self.assertTrue(marker.exists())
+                    parent.kill()
+                    parent.wait(timeout=5)
+                    if phase == 'after_release':
+                        record = json.loads(journal.read_text())
+                        command = subprocess.check_output(['ps', '-p', str(child_pid), '-o', 'command='], text=True).strip()
+                        identity = subprocess.check_output(['ps', '-p', str(child_pid), '-o', 'lstart='], text=True).strip()
+                        self.assertEqual(record['command'], command)
+                        self.assertEqual(record['identity'], identity)
+                    else:
+                        deadline = time.monotonic() + 5
+                        while time.monotonic() < deadline:
+                            result = subprocess.run(['ps', '-p', str(child_pid), '-o', 'stat='], capture_output=True, text=True)
+                            if result.returncode or result.stdout.strip().startswith('Z'):
+                                break
+                            time.sleep(.02)
+                        else:
+                            self.fail('Unreleased child survived its parent')
+                        self.assertFalse(marker.exists())
+                finally:
+                    if parent.poll() is None:
+                        parent.kill()
+                    if child_pid is not None:
+                        try:
+                            os.killpg(child_pid, signal.SIGKILL)
+                        except ProcessLookupError:
+                            pass
+                    parent.communicate(timeout=5)
+
     def test_local_environment_does_not_inherit_hosted_configuration(self):
         with patch.dict(os.environ, {'DATABASE_URL': 'postgres://remote', 'BOX_API_KEY': 'secret',
                                     'AGENT_TEST_MODE': '0', 'PORTLESS_FUNNEL': '1', 'PATH': '/bin'}, clear=True):

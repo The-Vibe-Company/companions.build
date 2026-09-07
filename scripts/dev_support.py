@@ -6,9 +6,39 @@ import os
 from pathlib import Path
 import subprocess
 import signal
+import sys
 
 ROOT = Path(__file__).resolve().parents[1]
 LOCAL = ROOT / '.local'
+
+def launch_owned(command, persist, **kwargs):
+    """Release a child into its service only after its ownership record is saved.
+
+    A killed parent closes the gate: an unrecorded child exits without executing.
+    Exec preserves the recorded PID, start time and process group.
+    """
+    read_fd, write_fd = os.pipe()
+    child = None
+    try:
+        child = subprocess.Popen([sys.executable, str(ROOT / 'scripts/dev-child.py'),
+                                  str(read_fd), *command], pass_fds=(read_fd,),
+                                 start_new_session=True, **kwargs)
+        os.close(read_fd)
+        read_fd = None
+        record = {'pid': child.pid, 'command': ' '.join(command),
+                  'identity': subprocess.check_output(['ps', '-p', str(child.pid), '-o', 'lstart='], text=True).strip(),
+                  'launchCommand': subprocess.check_output(['ps', '-p', str(child.pid), '-o', 'command='], text=True).strip()}
+        persist(child, record)
+        os.write(write_fd, b'1')
+        return child
+    except BaseException:
+        if child is not None:
+            terminate_process(child)
+        raise
+    finally:
+        if read_fd is not None:
+            os.close(read_fd)
+        os.close(write_fd)
 
 def terminate_process(child, grace=10):
     """Terminate an owned process group; process-exit races are already successful exits."""

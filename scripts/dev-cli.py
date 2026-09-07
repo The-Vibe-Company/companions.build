@@ -207,7 +207,7 @@ def down():
                 continue
             identity = subprocess.run(['ps', '-p', str(pid), '-o', 'lstart='], capture_output=True, text=True)
             command = subprocess.run(['ps', '-p', str(pid), '-o', 'command='], capture_output=True, text=True)
-            if identity.returncode == 0 and identity.stdout.strip() == service.get('identity') and command.stdout.strip() == service.get('command'):
+            if identity.returncode == 0 and identity.stdout.strip() == service.get('identity') and command.stdout.strip() in (service.get('command'), service.get('launchCommand')):
                 os.killpg(pid, signal.SIGTERM)
                 deadline = time.monotonic() + 10
                 while time.monotonic() < deadline:
@@ -227,9 +227,8 @@ def down():
             if subprocess.check_output(command, text=True).strip():
                 raise RuntimeError('Owned containers remain running')
         proxy_env = state.get('endpoints', {}).get('proxyEnv')
-        if proxy_env:
-            from dev_portless import cleanup_stale
-            cleanup_stale({**local_env(), **proxy_env})
+        from dev_portless import cleanup_recorded
+        cleanup_recorded({**local_env(), **(proxy_env or {})})
         for service in state.get('services', {}).values():
             service['status'] = 'stopped'
         state.update(status='stopped', cleanup={'verified': True})

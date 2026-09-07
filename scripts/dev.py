@@ -11,7 +11,7 @@ import socket
 import time
 import urllib.request
 from bun import ROOT, module
-from dev_support import lock, prepare, read_json, write_json, source_digest, terminate_process
+from dev_support import lock, prepare, read_json, write_json, source_digest, terminate_process, launch_owned
 
 os.chdir(ROOT)
 stack_lock = lock("dev-stack.lock")
@@ -218,13 +218,12 @@ try:
             log_offsets[name] = handle.tell()
             service_handles[name] = handle
             log_handles.append(handle)
-            child = subprocess.Popen(bun_command(args), cwd=cwd, env=env, stdout=handle, stderr=subprocess.STDOUT, start_new_session=True)
-            children.append(child)
-            processes[name] = child
-            state["services"][name] = {"status": "starting", "pid": child.pid, "log": str(logs / f"{name}.log"),
-                "identity": subprocess.check_output(["ps", "-p", str(child.pid), "-o", "lstart="], text=True).strip(),
-                "command": subprocess.check_output(["ps", "-p", str(child.pid), "-o", "command="], text=True).strip()}
-            write_json(state_path, state)
+            def persist_child(child, record):
+                children.append(child)
+                processes[name] = child
+                state["services"][name] = {"status": "starting", "log": str(logs / f"{name}.log"), **record}
+                write_json(state_path, state)
+            launch_owned(bun_command(args), persist_child, cwd=cwd, env=env, stdout=handle, stderr=subprocess.STDOUT)
         if "api" in selected:
             wait_http(f"http://127.0.0.1:{env['API_PORT']}/health", "API")
         if "web" in selected:
@@ -245,6 +244,9 @@ try:
     start_services()
     if env.get("PORTLESS_URL"):
         from dev_portless import register_services
+        # Recovery must know the exact proxy before the first alias side effect.
+        state["endpoints"] = {"proxyEnv": {key: env[key] for key in ("PORTLESS_URL", "PORTLESS_PORT", "PORTLESS_HTTPS", "PORTLESS_STATE_DIR", "PORTLESS_SYNC_HOSTS") if key in env}}
+        write_json(state_path, state)
         public_services = register_services(env, {"api": int(env["API_PORT"]), "storage": base+4, "s3": base+3, "mailpit": base+6})
     endpoints = {"url": env["APP_URL"], "webPort": int(env["WEB_PORT"]), "apiPort": int(env["API_PORT"]),
                  "mailUrl": public_services.get("mailpit", f"http://127.0.0.1:{base+6}"), "basePort": base,

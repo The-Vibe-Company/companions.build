@@ -82,6 +82,19 @@ class PortlessRouteTests(unittest.TestCase):
             self.assertFalse((Path(directory) / "manifest.json").exists())
         self.assertEqual(fake.routes, {})
 
+    def test_registration_journal_recovers_without_published_supervisor_endpoints(self):
+        fake = FakePortless()
+        foreign = "api.other-worktree.companions.localhost"
+        fake.routes[foreign] = 9999
+        with tempfile.TemporaryDirectory() as directory:
+            patches = self.harness(fake, directory)
+            with patches[0], patches[1], patches[2]:
+                portless.register_services(self.env, self.ports)
+                # A hard crash here skips supervisor endpoint publication and finally cleanup.
+                portless.cleanup_recorded({"PATH": "/bin"})
+                self.assertFalse((Path(directory) / "manifest.json").exists())
+        self.assertEqual(fake.routes, {foreign: 9999})
+
     def test_cleanup_refuses_a_route_now_pointing_to_a_foreign_port(self):
         fake = FakePortless()
         alias = "api.quiet-meadow.companions.localhost"

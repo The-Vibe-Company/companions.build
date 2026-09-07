@@ -1,0 +1,29 @@
+{
+  "date": "2026-09-07T04:52:22.838809+00:00",
+  "sourceCommit": "7834b7e72373d38bec496bf3683fdc0f00f4e357",
+  "template": "companions-agent-v12-20260907",
+  "http": {
+    "/health": 200,
+    "/": 200,
+    "/api/companions": 401,
+    "/api/events": 401,
+    "modelGatewayUnauthenticated": 401
+  },
+  "privateStorageRoundtrip": true,
+  "services": {
+    "api": "SUCCESS",
+    "executor": "SUCCESS",
+    "worker": "SUCCESS",
+    "minio": "SUCCESS",
+    "Postgres": "SUCCESS"
+  },
+  "apiSourceAndProviderKeyVerified": true,
+  "executorSourceAndNoProviderKeyVerified": true,
+  "verifiedSoftwareBaseRegistered": true,
+  "appUrl": "https://api-production-9337d.up.railway.app",
+  "scope": "Application services run the checked source. PostgreSQL and MinIO remain existing healthy services. HTTP isolation, private object storage, loaded API/executor source and model-key placement were checked after deployment.",
+  "limits": [
+    "Hosted real-user login, model execution, Stripe activation/meters, OAuth consent matrix and sustained runtime load are not established by this deployment check.",
+    "Real Pi/GLM and interactive desktop acceptance ran on a real V12 Box using the local control plane; see box-gateway-v12-2026-09-07.json."
+  ]
+}

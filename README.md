@@ -83,7 +83,7 @@ Development without `MODEL_GATEWAY_URL` retains the direct-provider path for own
 Run the isolated image acceptance (it creates and removes its own PostgreSQL container and network):
 
 ```sh
-bun scripts/test-production-container.ts
+python3 scripts/bun.py scripts/test-production-container.ts
 ```
 
 ## Run on Box
@@ -92,22 +92,29 @@ Prepare the frozen runtime once, then create Box-backed Companions from it:
 
 ```sh
 # Set BOX_API_KEY in .env first. Never commit credentials.
-python3 scripts/bun.py scripts/prepare-box-template.ts companions-agent-v5-20260907
-# Add BOX_TEMPLATE=companions-agent-v5-20260907 to .env, then restart scripts/dev.py.
+python3 scripts/bun.py scripts/prepare-box-template.ts companions-agent-v1-your-release
+# Add BOX_TEMPLATE=companions-agent-v1-your-release to .env, then restart scripts/dev.py.
 ```
 
 The executor creates or resumes the same Box and owns every Pi run. It
 stages the selected model, plugins, files, trigger context, and control MCP, and persists intent
 before each external effect. Opening the desktop wakes the Box when necessary. Human takeover is
-shown as complete only after the runtime confirms the agent is paused. The authorized API route
+shown as complete only after the runtime confirms desktop control; headless work and chat continue. The authorized API route
 retrieves the provider desktop URL after readiness; it never dispatches a Pi run.
 
-Live Box canaries have covered creation, tools, archive/resume, desktop access, physical takeover,
-memory/history, and delegated-file handoff across immutable snapshots through
-`companions-agent-v5-20260907`. The recorded cold/wake timing sample came from
-`companions-agent-v3-final-20260907`: 33.6 seconds for first creation and 35.3 seconds for wake. It
-does not establish V5 latency or the desired few-second cold path. See
-[measured validation](docs/validation-v0.md).
+Choose a new immutable name for each release. Publication pins an archive, verifies every installed
+distribution file, and repeats the comparison on an independent Box restored from the named
+snapshot. A provider `ready` response alone never completes publication. Interrupted attempts retain
+their creation identities and reconcile an accepted capture without resubmitting it.
+
+The V12 live canary covers first turn, new file creation after archive/resume, key-free model access,
+provider usage accounting, native control MCP skill installation and next-turn discovery. Browser
+acceptance opens the real desktop and uses mouse/keyboard under confirmed human control. The
+single cold-preparation sample was 10.5 seconds; wake preparation took 16.4 seconds. The initial
+viewer provision exceeded the 60-second canary deadline and later recovered without manual repair.
+These measurements do not establish the desired few-second startup guarantee. See
+[the V12 measurement](docs/measurements/box-gateway-v12-2026-09-07.json) and
+[the completion audit](docs/completion-audit.md).
 
 ## Product surfaces
 

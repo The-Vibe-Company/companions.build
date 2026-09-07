@@ -40,9 +40,10 @@ hosted acceptance. See `validation-v0.md` for dated evidence.
 
 ## Remaining product and acceptance gaps
 
-- Few-second cold creation/wake is not demonstrated: fresh V9 provider creation to ready took about 44 seconds,
-  and wake preparation took 16.7 seconds. Phase traces identify service preparation and provider
-  hosting as substantial costs; the few-second target remains open.
+- Few-second cold creation/wake is not demonstrated. The latest fresh V12 sample prepared in
+  10.5 seconds; wake preparation took 16.4 seconds. Initial viewer provisioning exceeded the
+  60-second canary deadline and later recovered without manual repair. Real browser control then
+  opened the system settings with mouse/keyboard. See `measurements/box-gateway-v12-2026-09-07.json`.
 - Chat now uses authenticated SSE invalidation from committed PostgreSQL changes, with durable
   snapshot recovery on reconnect. Full verification and a separate real browser test pass; the
   root browser also observed committed changes after reconnect without polling.
@@ -55,20 +56,17 @@ hosted acceptance. See `validation-v0.md` for dated evidence.
   pass live acceptance on an independently verified V12 image: duplicate installation operation,
   exact exported bytes, daemon journal and discovery/use on the following turn are checked.
   See `measurements/box-gateway-v12-2026-09-07.json`. Its first viewer attempt timed out during provider provisioning; the same Box later passed without manual repair.
-- Client activation remains blocked until the model gateway reaches a verified Box distribution.
-  The gateway and run-scoped, revocable credentials are implemented; a compiled Linux Pi agent
-  completed real GLM calls without a global provider key in its environment. A fresh verified V12
-  Box then passed first turn and archive/wake with new file creation. Provider-reported usage
-  entered the ledger once, and a completed run's token was rejected before a provider claim.
-  The V12 viewer initially timed out during provider provisioning, then passed without manual repair; actual GUI takeover also preserves headless work and chat. Hosted rollout remains pending. The hosted V10
-  deployment still uses the previous credential path and must not activate clients.
-- V11 distribution publication was rejected during live acceptance: the source contained the
-  expected agent SHA-256 immediately after installation, but stop/resume restored the exact V10
-  binary; a fresh Box from the named V11 snapshot also contained V10. Provider `ready` did not
-  establish artifact integrity. The replacement publication protocol must pin an immutable local
-  archive, verify installed bytes and verify every distribution file on a fresh restored Box
-  before registration or deployment. The next release uses a fresh source Box. This observation
-  does not establish the underlying provider/filesystem cause.
+- Model credential isolation now passes real Linux and V12 Box acceptance. No global model key is
+  present in the Box configuration or daemon environment. Verified provider usage enters the ledger
+  once, and completed-run access is rejected before a provider claim. The gateway is deployed at
+  application commit `7834b7e`; inspection verifies the provider key on the API only, a key-free
+  executor and the registered V12 software base. Commercial activation still requires real Stripe
+  settings and end-to-end billing acceptance. See `measurements/hosted-gateway-2026-09-07.json`.
+- V11 publication was rejected after the source's installed V11 binary reverted to V10 on
+  stop/resume and a named-snapshot restore. The replacement publisher pins an immutable archive,
+  checks installed bytes and verifies all distribution files on an independent restored Box before
+  registration. A fresh source V12 passed this protocol and live acceptance. The V11 capture was
+  retired; the underlying provider/filesystem cause was not established.
 - Full OAuth provider tool/revocation matrix, managed trigger registration, hosted concurrent load,
   real email delivery and Stripe subscription/meter acceptance still lack complete live evidence.
   Software build Box time now enters the existing ledger through fenced observed intervals;

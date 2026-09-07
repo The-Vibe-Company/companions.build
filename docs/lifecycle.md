@@ -143,6 +143,13 @@ Provider readiness is variable; Box cold preparation can take roughly 20–90 se
 operational expectations, not a latency guarantee. Lifecycle stores actual start/ready/archive
 boundaries. Preparation has a five-minute bound; retry wakes or repairs the same known Box.
 
+After a known Box resumes with the same applied environment digest, preparation first rediscovers
+its private preview and makes one authenticated, two-second health probe. A healthy restored daemon
+can skip environment upload and service configuration. Failed hosting or health falls back to the
+normal configuration path in that operation. New Boxes and changed configurations always configure.
+No endpoint is persisted by this shortcut: lifecycle health, skill staging, the fenced ready checkpoint,
+and admission health remain required. No URL cache or additional durable state is introduced.
+
 ## Verification
 
 `apps/server/test/lifecycle.test.ts` uses isolated PostgreSQL and a fake machine boundary to prove
@@ -169,7 +176,7 @@ between completed provider spans and the next span include controller scheduling
 No endpoint, token, command, provider response or raw error is serialized.
 
 The trace separates create/GET/resume, setup state, environment upload, service configuration,
-preview hosting, lifecycle/admission health, plugin configuration, staging and prompt PUT.
+preview hosting, `box_rediscovery_health`, lifecycle/admission health, plugin configuration, staging and prompt PUT.
 `run_staging` includes `plugin_configuration`, so their durations must not be added together.
 A successful `box_resume` means the API call returned; subsequent `box_get`/`box_setup` observations
 show when the provider is usable. `ready_checkpoint` records the machine-ready SQL write.

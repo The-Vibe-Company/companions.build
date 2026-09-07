@@ -95,11 +95,14 @@ export async function prepareLocal(companion: any, refreshConfig = true, beforeE
   if (!/^127\.0\.0\.1:\d+$/.test(port)) throw new MachineError("local_endpoint_invalid");
   return `http://${port}`;
 }
-export async function prepareBox(companion: any, checkpoint: (boxId: string) => Promise<void>, configured: () => Promise<void>, beforeEffect:EffectGuard=unguarded, client:BoxClient|null=box): Promise<string | null> {
+type PreviewHealthProbe=(endpoint:string,token:string)=>Promise<{ready?:unknown}|null>;
+export async function prepareBox(companion: any, checkpoint: (boxId: string) => Promise<void>, configured: () => Promise<void>, beforeEffect:EffectGuard=unguarded, client:BoxClient|null=box,
+  probe:PreviewHealthProbe=(endpoint,token)=>agentRequest(endpoint,token,'/health')): Promise<string | null> {
   const box=client;
   await beforeEffect();
   if (!box || !config.boxTemplate) throw new MachineError("box_not_configured");
   let id = companion.box_id;
+  const existingBox=!!id;
   if (!id) {
     if (companion.create_started_at && Date.now() - new Date(companion.create_started_at).getTime() > 23 * 3600_000) throw new MachineError("box_creation_needs_reconciliation");
     await beforeEffect();
@@ -109,12 +112,32 @@ export async function prepareBox(companion: any, checkpoint: (boxId: string) => 
   }
   await beforeEffect();
   const machine = await tracePreparation(companion.id,'box_get',()=>box.get(id),value=>value.state==='archived'?'archived':['ready','idle','running'].includes(value.state)?'ready':'not_ready');
+  if(machine.id!==id)throw new MachineError("box_identity_mismatch");
   if (machine.state === "archived") { await beforeEffect(); await tracePreparation(companion.id,'box_resume',()=>box.resume(id)); return null; }
   if (!["ready", "idle", "running"].includes(machine.state)) return null;
   preparationState(companion.id,'box_setup',machine.setupStatus==='failed'?'setup_failed':machine.setupStatus&&machine.setupStatus!=='done'?'setup_pending':'ready');
   if (machine.setupStatus === "failed") throw new MachineError("box_setup_failed");
   if (machine.setupStatus && machine.setupStatus !== "done") return null;
   if (companion.endpoint_secret && companion.config_digest === environmentDigest(companion.agent_secret)) {preparationState(companion.id,'box_endpoint','reused');return decrypt(companion.endpoint_secret);}
+  // Resume starts enabled systemd units. Rediscover their private preview before
+  // repeating configuration, but only for this known Box's already-applied environment.
+  // The caller retains endpoint_secret=null until its ordinary readiness checkpoint.
+  if(existingBox&&!companion.endpoint_secret&&companion.config_digest===environmentDigest(companion.agent_secret)){
+    let endpoint:string|undefined;
+    await beforeEffect();
+    try{endpoint=await tracePreparation(companion.id,'box_host',()=>box.host(id,8787));}
+    catch(error){if(error instanceof ExecutionStopped)throw error;}
+    if(endpoint){
+      await beforeEffect();
+      let ready=false;
+      try{ready=(await tracePreparation(companion.id,'box_rediscovery_health',()=>probe(endpoint!,decrypt(companion.agent_secret)),value=>value?.ready===true?'ready':'not_ready'))?.ready===true;}
+      catch(error){if(error instanceof ExecutionStopped)throw error;}
+      await beforeEffect();
+      if(ready)return endpoint;
+    }
+    // One failed probe falls through immediately. No cached endpoint or retry state
+    // survives this operation; the existing env/service/host repair remains authoritative.
+  }
   const values = { ...modelEnvironment(decrypt(companion.agent_secret)), AGENT_STATE_DIR: companion.template_id ? `/home/user/.companions/agents/${companion.id}` : "/home/user/.companions" };
   // systemd EnvironmentFile uses double quoted values, not shell expansion.
   const envText = Object.entries(values).map(([key, value]) => `${key}="${value.replace(/\\/g, "\\\\").replace(/"/g, '\\"').replace(/\n/g, "\\n")}"`).join("\n");

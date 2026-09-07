@@ -1,5 +1,5 @@
 /** Opt-in preparation diagnostics. Never serialize operation values, errors, or endpoints. */
-const phases=['box_create','box_get','box_resume','box_setup','box_endpoint','box_environment','box_services','box_service_desktop','box_service_agent','box_service_proxy','box_host','lifecycle_health','ready_checkpoint','admission_health','plugin_configuration','run_staging','admission_put'] as const;
+const phases=['box_create','box_get','box_resume','box_setup','box_endpoint','box_environment','box_services','box_service_desktop','box_service_agent','box_service_proxy','box_host','box_rediscovery_health','lifecycle_health','ready_checkpoint','admission_health','plugin_configuration','run_staging','admission_put'] as const;
 const outcomes=['ok','error','ready','archived','not_ready','setup_pending','setup_failed','reused'] as const;
 export type PreparationPhase=typeof phases[number];
 type Outcome=typeof outcomes[number];

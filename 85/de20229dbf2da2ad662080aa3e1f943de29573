@@ -1,0 +1,70 @@
+apps/web/src/components/TeamPanel.test.tsx
+  s_895cd30c8c0144::t_694146f748ac40 15-42
+apps/web/src/components/SpecialistImprovements.test.tsx
+  s_895cd30c8c0144::t_880fbc2ca9f8c5 1-28
+apps/web/src/components/ProductPanels.test.tsx
+  s_895cd30c8c0144::t_10c51871652a87 13-31
+  s_895cd30c8c0144::t_f728b6bca21c86 32-54
+apps/web/src/components/SpecialistLibrary.tsx
+  s_895cd30c8c0144::t_a4b7c027822c3a 102,113
+  s_895cd30c8c0144::t_346dd74f163d1b 11,13,19,40-49,61,64,84-85,95,99,107,112
+  s_895cd30c8c0144::t_8eefc8ad7bed7f 3,70
+apps/web/src/components/TeamPanel.css
+  s_895cd30c8c0144::t_e371d4d0acc789 66,101
+apps/web/src/components/SpecialistDraftPanel.tsx
+  s_895cd30c8c0144::t_4b63e14fbfa297 59-63
+  s_895cd30c8c0144::t_dc9db260b4193c 1-58,64-146
+apps/web/src/components/SpecialistLibrary.css
+  s_895cd30c8c0144::t_8eefc8ad7bed7f 7,17
+apps/web/src/components/SpecialistImprovements.css
+  s_895cd30c8c0144::t_13840ee2512ca2 1
+apps/web/src/components/SpecialistLibrary.test.tsx
+  s_895cd30c8c0144::t_63079843915495 13-55
+apps/web/src/api.ts
+  s_895cd30c8c0144::t_60f0e54bda3fcd 278,285-295,297-307,309-311,369-374
+  s_895cd30c8c0144::t_346dd74f163d1b 296,308,368
+  s_895cd30c8c0144::t_dec483598e6874 330-333,385-387
+  s_895cd30c8c0144::t_e371d4d0acc789 312-320,380-381
+  s_895cd30c8c0144::t_13840ee2512ca2 321-329,382-384
+  s_895cd30c8c0144::t_2e286f9b50ba9b 361
+apps/web/src/App.tsx
+  s_895cd30c8c0144::t_8eefc8ad7bed7f 57,378,417,772
+  s_895cd30c8c0144::t_6c1f3f96b532f4 331
+  s_895cd30c8c0144::t_13840ee2512ca2 62
+apps/web/src/components/SpecialistDraftPanel.css
+  s_895cd30c8c0144::t_dc9db260b4193c 1-15
+apps/web/src/components/ProductPanels.tsx
+  s_895cd30c8c0144::t_6c1f3f96b532f4 152
+  s_895cd30c8c0144::t_dec483598e6874 3,90,96-104
+  s_895cd30c8c0144::t_2e286f9b50ba9b 146
+  s_895cd30c8c0144::t_174d222825342e 149-150
+  s_895cd30c8c0144::t_667a066179e412 148
+  s_895cd30c8c0144::t_281ba9006bbf33 105-106
+apps/web/src/index.css
+  s_895cd30c8c0144::t_96df4f3717485c 405-407
+apps/web/src/components/SpecialistImprovements.tsx
+  s_895cd30c8c0144::t_13840ee2512ca2 1-32
+apps/web/src/components/SpecialistDraftPanel.test.tsx
+  s_895cd30c8c0144::t_9080a41613d926 1-67
+apps/web/src/components/TeamPanel.tsx
+  s_895cd30c8c0144::t_6c1f3f96b532f4 336
+  s_895cd30c8c0144::t_e371d4d0acc789 3,239,326,344-385
+  s_895cd30c8c0144::t_667a066179e412 110
+  s_895cd30c8c0144::t_f6f3bf0764ee7e 386-387
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "85de20229dbf2da2ad662080aa3e1f943de29573",
+  "prompts": {},
+  "sessions": {
+    "s_895cd30c8c0144": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a07d31-b106-7d00-912b-601ce8884ca0",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "StanGirard <stan@quivr.app>"
+    }
+  }
+}

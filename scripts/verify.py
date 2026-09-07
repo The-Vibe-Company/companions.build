@@ -1,6 +1,7 @@
 """Run repository checks with isolated services and durable evidence."""
 import argparse
 from datetime import datetime, timezone
+import fcntl
 import hashlib
 import json
 import os
@@ -22,6 +23,24 @@ POSTGRES_IMAGES = {
     "18": "postgres@sha256:4ef4dbc939d61acea57712655ddb4b4ab27419c913f94cca0cd57cb3ea3c2280",
 }
 PROFILES = ("web", "server", "agent", "full")
+PRIVATE_ENV_NAMES = {
+    "AGENT_TOKEN", "APP_URL", "BETTER_AUTH_SECRET", "BETTER_AUTH_URL", "BOX_API_KEY",
+    "BOX_TEMPLATE", "COMPANION_BOX_API_KEY", "COMPANIONS_ENCRYPTION_KEY", "COMPANIONS_TOKEN",
+    "DATABASE_URL", "EMAIL_PROVIDER",
+    "GOOGLE_API_KEY", "GEMINI_API_KEY", "ANTHROPIC_API_KEY", "OPENAI_API_KEY",
+    "OPENROUTER_API_KEY", "ZAI_API_KEY", "RESEND_API_KEY", "SMTP_HOST", "SMTP_PASSWORD",
+    "SMTP_PORT", "SMTP_SECURE", "SMTP_USER", "STRIPE_SECRET_KEY", "STRIPE_WEBHOOK_SECRET",
+    "MODEL_GATEWAY_URL", "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "S3_ACCESS_KEY_ID",
+    "S3_SECRET_ACCESS_KEY",
+}
+
+
+def private_environment(name):
+    return name in PRIVATE_ENV_NAMES or name.endswith(("_API_KEY", "_PASSWORD", "_SECRET", "_TOKEN"))
+
+
+def interrupt_on_signal(number, _frame):
+    raise InterruptedError(f"received {signal.Signals(number).name}")
 
 
 def dependency_fingerprint(paths):
@@ -46,11 +65,13 @@ class Verifier:
         self.database_volume = f"companions-verify-postgres-data-{self.run_id}"
         self.storage_name = f"companions-verify-minio-{self.run_id}"
         self.verification_label = f"companions.build.verification={self.run_id}"
-        self.env = {**os.environ, "AGENT_TEST_MODE": "1", "COMPANIONS_VERIFY_RUN": self.run_id}
+        self.env = {key: value for key, value in os.environ.items() if not private_environment(key)}
+        self.env.update({"AGENT_TEST_MODE": "1", "COMPANIONS_VERIFY_RUN": self.run_id})
         self.steps = []
         self.started = time.monotonic()
         self.status = "failed"
         self.failure = None
+        self.source_changed = False
         self.backup_sha256 = None
         self.cleanup = {"status": "pending", "containers": {}, "volumes": {}}
         command = [sys.executable, "scripts/verify.py", "--profile", args.profile, "--postgres", args.postgres]
@@ -61,8 +82,10 @@ class Verifier:
         self.publish_latest("running")
 
     def latest_payload(self, status):
-        return {"status": status, "profile": self.args.profile,
+        return {"status": status, "profile": self.args.profile, "run": self.run_id,
+            "pid": os.getpid(),
             "artifact": str(self.artifacts.relative_to(ROOT)), "source": self.source,
+            "sourceChanged": self.source_changed,
             "reproduction": self.reproduction,
             "updatedAt": datetime.now(timezone.utc).isoformat()}
 
@@ -79,19 +102,19 @@ class Verifier:
         log_path = self.artifacts / f"{label}.log"
         step = {"name": label, "status": "running"}
         self.steps.append(step)
+        child = None
+        child_running = False
         try:
             with log_path.open("w") as log:
                 child = subprocess.Popen(command, cwd=cwd, env=self.env, stdout=log,
                     stderr=subprocess.STDOUT, start_new_session=True)
+                child_running = True
                 try:
                     code = child.wait(timeout=timeout)
+                    child_running = False
                 except subprocess.TimeoutExpired:
-                    os.killpg(child.pid, signal.SIGTERM)
-                    try:
-                        child.wait(timeout=5)
-                    except subprocess.TimeoutExpired:
-                        os.killpg(child.pid, signal.SIGKILL)
-                        child.wait()
+                    self.terminate(child)
+                    child_running = False
                     step.update({"status": "failed", "exitCode": None, "timedOut": True,
                                  "timeoutSeconds": timeout})
                     raise RuntimeError(f"{label} timed out after {timeout} seconds")
@@ -101,12 +124,30 @@ class Verifier:
                 print(log_path.read_text(errors="replace")[-8000:])
                 raise RuntimeError(f"{label} failed with exit code {code}")
         except BaseException:
-            step.setdefault("status", "failed")
+            if child is not None and child_running:
+                self.terminate(child)
+            if step["status"] == "running":
+                step["status"] = "failed"
             step.setdefault("exitCode", None)
             step.setdefault("timedOut", False)
             raise
         finally:
             step["seconds"] = round(time.monotonic() - before, 3)
+
+    @staticmethod
+    def terminate(child):
+        try:
+            os.killpg(child.pid, signal.SIGTERM)
+        except ProcessLookupError:
+            return
+        try:
+            child.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            try:
+                os.killpg(child.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                return
+            child.wait()
 
     def skipped(self, label, reason):
         self.steps.append({"name": label, "status": "skipped", "reason": reason, "seconds": 0})
@@ -128,7 +169,7 @@ class Verifier:
             if (cwd / "node_modules").is_dir() and stamps.get(key) == fingerprint:
                 self.skipped(label, "lockfiles unchanged")
                 continue
-            self.run(label, [self.bun, "install", "--frozen-lockfile"], cwd)
+            self.run(label, [self.bun, "--no-env-file", "install", "--frozen-lockfile"], cwd)
             stamps[key] = fingerprint
             changed = True
         if changed:
@@ -179,7 +220,7 @@ class Verifier:
             "S3_SECRET_ACCESS_KEY": storage_secret_key, "S3_BUCKET_FILES": "companions-files", "S3_REGION": "us-east-1"})
 
     def run_agent_checks(self):
-        self.run("agent-unit", [self.bun, "test", "packages/agent/test/daemon.test.ts",
+        self.run("agent-unit", [self.bun, "--no-env-file", "test", "packages/agent/test/daemon.test.ts",
             "packages/agent/test/environment.test.ts", "packages/agent/test/initialization.test.ts",
             "packages/agent/test/memory.test.ts", "packages/agent/test/skills.test.ts",
             "packages/desktop/desktop.test.ts", "packages/control/software.test.ts",
@@ -189,24 +230,24 @@ class Verifier:
             "scripts/register-software-base.test.ts", "scripts/lib/distribution-verification.test.ts",
             "scripts/live-desktop-canary-wait.test.ts", "scripts/live-box-desktop-wait.test.ts",
             "scripts/live-routine-chat-canary.test.ts", "scripts/live-routine-clock-canary.test.ts"])
-        self.run("distribution-content-linux", [self.bun, "scripts/test-distribution-verification.ts"])
-        self.run("agent-build", [self.bun, "scripts/build-agent.ts"])
+        self.run("distribution-content-linux", [self.bun, "--no-env-file", "scripts/test-distribution-verification.ts"])
+        self.run("agent-build", [self.bun, "--no-env-file", "scripts/build-agent.ts"])
 
     def run_server_checks(self):
-        command = [self.bun, "scripts/test-server.ts", "--linux"]
+        command = [self.bun, "--no-env-file", "scripts/test-server.ts", "--linux"]
         if self.args.test:
             command.extend(["--test", self.args.test])
         self.run("system", command)
 
     def run_web_checks(self):
-        self.run("web-tests", [self.bun, "run", "test"], ROOT / "apps/web")
-        self.run("web-build", [self.bun, "run", "build"], ROOT / "apps/web")
+        self.run("web-tests", [self.bun, "--no-env-file", "run", "test"], ROOT / "apps/web")
+        self.run("web-build", [self.bun, "--no-env-file", "run", "build"], ROOT / "apps/web")
 
     def run_restore_check(self):
         restore_state = self.artifacts / "postgres-restore-state.json"
         backup = self.artifacts / "postgres-backup.dump"
         self.env["COMPANIONS_DATA_DIR"] = str(self.artifacts / "postgres-restore-config")
-        self.run("postgres-restore-seed", [self.bun, "scripts/test-postgres-restore.ts", "seed", str(restore_state)])
+        self.run("postgres-restore-seed", [self.bun, "--no-env-file", "scripts/test-postgres-restore.ts", "seed", str(restore_state)])
         self.run("postgres-backup", ["docker", "exec", self.database_name, "pg_dump", "--username", "companions", "--dbname", "companions", "--format", "custom", "--file", "/tmp/companions.dump"])
         self.run("postgres-backup-copy", ["docker", "cp", f"{self.database_name}:/tmp/companions.dump", str(backup)])
         backup.chmod(0o600)
@@ -229,7 +270,7 @@ class Verifier:
         self.run("postgres-restore-copy", ["docker", "cp", str(backup), f"{recovery_name}:/tmp/companions.dump"])
         self.run("postgres-restore", ["docker", "exec", recovery_name, "pg_restore", "--exit-on-error", "--username", "companions", "--dbname", "companions", "/tmp/companions.dump"])
         self.env["DATABASE_URL"] = f"postgres://companions:companions@127.0.0.1:{recovery_mapping.rsplit(':', 1)[-1]}/companions"
-        self.run("postgres-restore-verify", [self.bun, "scripts/test-postgres-restore.ts", "verify", str(restore_state)])
+        self.run("postgres-restore-verify", [self.bun, "--no-env-file", "scripts/test-postgres-restore.ts", "verify", str(restore_state)])
 
     def execute(self):
         self.bun = module.toolchain()
@@ -238,14 +279,16 @@ class Verifier:
             python_tests = set((ROOT / "scripts").glob("dev-*.test.py"))
             python_tests.update((ROOT / "scripts").glob("*_test.py"))
             for path in sorted(python_tests):
-                label = path.name.replace(".test.py", "").removesuffix("_test")
+                label = path.name.replace(".test.py", "") if path.name.endswith(".test.py") else path.stem.removesuffix("_test")
                 self.run(f"python-{label}", [sys.executable, str(path)])
         if self.args.profile in ("server", "full"):
             self.start_services()
         if self.args.profile in ("server", "agent", "full"):
-            self.run("typecheck", [self.bun, "node_modules/typescript/bin/tsc"])
+            self.run("typecheck", [self.bun, "--no-env-file", "node_modules/typescript/bin/tsc"])
         if self.args.profile in ("agent", "full"):
             self.run_agent_checks()
+        elif self.args.profile == "server":
+            self.run("agent-build", [self.bun, "--no-env-file", "scripts/build-agent.ts"])
         if self.args.profile in ("server", "full"):
             self.run_server_checks()
         if self.args.profile in ("web", "full"):
@@ -256,8 +299,8 @@ class Verifier:
 
     def clean_owned_resources(self):
         if self.args.profile not in ("server", "full"):
-            self.cleanup = {"status": "passed", "containers": {"found": 0, "removed": 0},
-                            "volumes": {"found": 0, "removed": 0}, "errors": []}
+            self.cleanup = {"status": "passed", "containers": {"found": 0, "removed": 0, "remaining": 0},
+                            "volumes": {"found": 0, "removed": 0, "remaining": 0}, "errors": []}
             return
         errors = []
         owned = subprocess.run(["docker", "ps", "-aq", "--filter", f"label={self.verification_label}"], text=True, capture_output=True)
@@ -271,6 +314,10 @@ class Verifier:
                 errors.append("container removal failed")
             else:
                 self.cleanup["containers"]["removed"] = len(container_ids)
+        remaining = subprocess.run(["docker", "ps", "-aq", "--filter", f"label={self.verification_label}"], text=True, capture_output=True)
+        self.cleanup["containers"]["remaining"] = len(remaining.stdout.split()) if remaining.returncode == 0 else None
+        if remaining.returncode or remaining.stdout.split():
+            errors.append("container cleanup postcondition failed")
         volumes = subprocess.run(["docker", "volume", "ls", "-q", "--filter", f"label={self.verification_label}"], text=True, capture_output=True)
         volume_ids = volumes.stdout.split() if volumes.returncode == 0 else []
         self.cleanup["volumes"] = {"found": len(volume_ids), "removed": 0}
@@ -282,13 +329,24 @@ class Verifier:
                 errors.append("volume removal failed")
             else:
                 self.cleanup["volumes"]["removed"] = len(volume_ids)
+        remaining = subprocess.run(["docker", "volume", "ls", "-q", "--filter", f"label={self.verification_label}"], text=True, capture_output=True)
+        self.cleanup["volumes"]["remaining"] = len(remaining.stdout.split()) if remaining.returncode == 0 else None
+        if remaining.returncode or remaining.stdout.split():
+            errors.append("volume cleanup postcondition failed")
         self.cleanup.update({"status": "failed" if errors else "passed", "errors": errors})
         if errors:
             self.status = "failed"
 
     def write_report(self):
+        final_source = source_evidence(ROOT)
+        self.source_changed = final_source["fingerprint"] != self.source["fingerprint"]
+        if self.source_changed:
+            self.status = "failed"
+            self.failure = self.failure or {"type": "SourceChanged", "message": "source changed during validation"}
         report = {"status": self.status, "run": self.run_id, "profile": self.args.profile,
             "seconds": round(time.monotonic() - self.started, 3), "source": self.source,
+            "sourceChanged": self.source_changed,
+            **({"finalSource": final_source} if self.source_changed else {}),
             "reproduction": self.reproduction,
             "postgres": {"major": int(self.args.postgres), "image": self.postgres_image,
                          **({"backupSha256": self.backup_sha256} if self.backup_sha256 else {})},
@@ -312,16 +370,28 @@ def parse_args(argv=None):
 
 def main(argv=None):
     os.chdir(ROOT)
-    verifier = Verifier(parse_args(argv))
-    try:
-        verifier.execute()
-    except BaseException as error:
-        verifier.failure = {"type": type(error).__name__, "message": str(error)}
-        print(f"ERROR: {error}", file=sys.stderr, flush=True)
-    finally:
-        verifier.clean_owned_resources()
-        verifier.write_report()
-    return 0 if verifier.status == "passed" else 1
+    args = parse_args(argv)
+    lock_path = ROOT / ".local/verification.lock"
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    with lock_path.open("w") as lock:
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            print("ERROR: another validation is already running in this worktree", file=sys.stderr)
+            return 2
+        verifier = Verifier(args)
+        previous_sigterm = signal.getsignal(signal.SIGTERM)
+        signal.signal(signal.SIGTERM, interrupt_on_signal)
+        try:
+            verifier.execute()
+        except BaseException as error:
+            verifier.failure = {"type": type(error).__name__, "message": str(error)}
+            print(f"ERROR: {error}", file=sys.stderr, flush=True)
+        finally:
+            verifier.clean_owned_resources()
+            verifier.write_report()
+            signal.signal(signal.SIGTERM, previous_sigterm)
+        return 0 if verifier.status == "passed" else 1
 
 
 if __name__ == "__main__":

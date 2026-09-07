@@ -16,7 +16,7 @@ try {
   await admin.unsafe(`CREATE DATABASE "${name}"`);
   try {
    const url = new URL(config.databaseUrl); url.pathname = `/${name}`;
-   const child = Bun.spawn([process.execPath, "test", `apps/server/test/${file}`], { env: { ...process.env, DATABASE_URL: url.href,
+   const child = Bun.spawn([process.execPath, "--no-env-file", "test", `apps/server/test/${file}`], { env: { ...process.env, DATABASE_URL: url.href,
     COMPANIONS_DATA_DIR: resolve(`.artifacts/system-tests/${name}`), AGENT_TEST_MODE: "1",
     RUN_LOCAL_ACCEPTANCE: process.argv.includes("--linux") ? "1" : "0" }, stdout: "inherit", stderr: "inherit" });
    const code=await child.exited;if(code){process.exitCode=code;break;}

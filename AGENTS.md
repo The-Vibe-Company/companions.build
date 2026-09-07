@@ -16,6 +16,9 @@ This is a new product, independent of the old Companion Skills Hub. Product deci
   preserving its disk. Stop owned local test stacks and tunnels when validation finishes; check
   cleanup after failures too. Keep other projects' machines untouched.
 - Frontend must show real persisted states; no simulated success or cosmetic progress indicators.
+- For local development, Herdr controls, service restart, scenarios or browser validation, follow
+  `docs/dev-workflow.md`. Use `./dev status --json` for endpoints and current evidence, focused
+  `./dev check` profiles while iterating, and full verification before integration.
 - Commit and PR titles use Commitizen style, e.g. `feat(chat): persist accepted messages`.
 - Issues live in Linear project companions.build, team THE. GitHub is for code and PRs.
 

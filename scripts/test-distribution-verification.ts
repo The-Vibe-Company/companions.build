@@ -29,5 +29,7 @@ assert observed()!=expected
 assert all(entry['path']!='companion-agent' for entry in observed()['files'])
 print('PASS exact Linux hash command: all files, stale helper rejected, symlink excluded')
 `);
-const child=Bun.spawn(['docker','run','--rm','--platform','linux/amd64','--mount',`type=bind,src=${directory},dst=/fixture,readonly`,'companions-desktop-boundary:proof','python3','/fixture/test.py'],{stdout:'inherit',stderr:'inherit'});
+const image=process.env.COMPANIONS_DISTRIBUTION_TEST_IMAGE ?? 'companions-desktop-boundary:proof';
+const labels=process.env.COMPANIONS_VERIFY_RUN ? ['--label',`companions.build.verification=${process.env.COMPANIONS_VERIFY_RUN}`] : [];
+const child=Bun.spawn(['docker','run','--rm','--platform','linux/amd64',...labels,'--mount',`type=bind,src=${directory},dst=/fixture,readonly`,image,'python3','/fixture/test.py'],{stdout:'inherit',stderr:'inherit'});
 process.exitCode=await child.exited;

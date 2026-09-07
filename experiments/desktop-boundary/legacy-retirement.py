@@ -50,10 +50,22 @@ result=retire();assert result.returncode==0,result.stderr
 os.chown(state/'control.sqlite',1000,1000)
 result=retire();assert result.returncode!=0 and 'HEADLESS_STATE_OWNERSHIP_CHANGED' in result.stderr
 os.chown(state/'control.sqlite',agent.pw_uid,agent.pw_gid)
-# A later unmask invalidates the retirement shortcut; it cannot silently coexist.
+# A later unmask invalidates both shortcuts and must migrate once again.
+Path('/usr/local/bin/chown').unlink()
 unit.unlink();unit.write_text('old daemon reintroduced');Path('/tmp/deny-stop').touch()
 result=retire();assert result.returncode!=0 and 'LEGACY_SERVICE_STOP_FAILED' in result.stderr
 Path('/tmp/deny-stop').unlink();bus.close();bus_path.unlink()
 result=retire();assert result.returncode==0,result.stderr
 assert os.readlink(unit)=='/dev/null'
-print('PASS offline mask, checked user-UID stop, mixed ownership migration, unchanged histories, no repeated chown, changed ownership refusal')
+# Installation retires without a state argument. It must invalidate ownership
+# checkpoints before a later launch, even when only a deeply nested file changed.
+unit.unlink();unit.write_text('legacy daemon reintroduced again')
+nested=state/'pi'/'sessions'/'new-history.jsonl'
+nested.write_text('retained legacy append');os.chown(nested,1000,1000)
+result=S.run(['python3','/retire-legacy.py'],capture_output=True,text=True,timeout=10)
+assert result.returncode==0,result.stderr
+assert not list(Path('/var/lib/companions-runtime-migrations').glob('*-ownership-v1'))
+assert nested.stat().st_uid==1000
+result=retire();assert result.returncode==0,result.stderr
+assert nested.stat().st_uid==agent.pw_uid and nested.read_text()=='retained legacy append'
+print('PASS offline mask, checked user-UID stop, mixed ownership migration, unchanged histories, no repeated chown, changed ownership refusal, nested migration after legacy reintroduction')

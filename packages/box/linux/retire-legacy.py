@@ -30,6 +30,12 @@ already_masked=unit.is_symlink() and os.readlink(unit)=='/dev/null'
 needs_retirement=not retired.exists() or retired.read_text()!='masked and stopped\n' or not already_masked or wanted.is_symlink() or wanted.exists()
 if needs_retirement:
     retired.unlink(missing_ok=True)
+    # A reintroduced legacy invocation may have written nested files since the
+    # previous migration. Invalidate every state checkpoint, including when the
+    # installer retires the unit without a state argument; migrate after stop.
+    for previous in checkpoints.iterdir():
+        if re.fullmatch(r'[a-f0-9]{64}-ownership-v1',previous.name):
+            previous.unlink()
     # Offline mask survives a stopped user manager and the next provider resume.
     # A successful best-effort bus call alone is not a durable retirement checkpoint.
     if wanted.is_symlink():wanted.unlink()

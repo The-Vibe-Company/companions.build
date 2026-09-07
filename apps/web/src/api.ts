@@ -290,6 +290,7 @@ export interface SpecialistTest {
   prompt?: string | null;
   error?: string | null;
   assessment?: "satisfactory" | "needs_changes" | null;
+  companionId?: string | null;
 }
 export interface SpecialistPublication {
   id: string;
@@ -323,7 +324,7 @@ export interface SpecialistImprovement {
   templateId: string;
   summary: string;
   recipe: string | null;
-  status: "pending" | "applied" | "rejected" | "unavailable";
+  status: "proposed" | "applied" | "rejected" | "unavailable";
   baseRevision: number;
   sourceCompanionId: string;
 }
@@ -380,8 +381,8 @@ export const workspaceApi = {
   specialistConnections: (companionId: string, templateId: string) => request<{ connections: SpecialistConnection[] }>(`/api/companions/${companionId}/specialists/${templateId}/connections`),
   updateSpecialistConnection: (companionId: string, templateId: string, input: { slot: string; accountId: string | null; useDefault?: boolean }) => request<{ connections: SpecialistConnection[] }>(`/api/companions/${companionId}/specialists/${templateId}/connections`, { method: "PATCH", body: JSON.stringify(input) }),
   specialistImprovements: (companionId: string) => request<{ improvements: SpecialistImprovement[] }>(`/api/companions/${companionId}/specialist-improvements`),
-  applySpecialistImprovement: (id: string, commandId = crypto.randomUUID()) => request<{ improvement: SpecialistImprovement }>(`/api/specialist-improvements/${id}/apply`, { method: "POST", body: JSON.stringify({ commandId }) }),
-  rejectSpecialistImprovement: (id: string, commandId = crypto.randomUUID()) => request<{ improvement: SpecialistImprovement }>(`/api/specialist-improvements/${id}/reject`, { method: "POST", body: JSON.stringify({ commandId }) }),
+  applySpecialistImprovement: (id: string, commandId = crypto.randomUUID()) => request<{ status: string; companionId?: string | null; runId?: string | null }>(`/api/specialist-improvements/${id}/apply`, { method: "POST", body: JSON.stringify({ commandId }) }),
+  rejectSpecialistImprovement: (id: string, commandId = crypto.randomUUID()) => request<{ status: string }>(`/api/specialist-improvements/${id}/reject`, { method: "POST", body: JSON.stringify({ commandId }) }),
   specialistLimits: () => request<AccountSpecialistLimits>("/api/account/specialist-limits"),
   updateSpecialistActiveLimit: (active: number | null) => request<unknown>("/api/account/specialist-limits", { method: "PATCH", body: JSON.stringify({ active }) }),
   cancelSpecialistRequest: (id: string) => request<unknown>(`/api/account/specialist-requests/${id}/cancel`, { method: "POST" }),

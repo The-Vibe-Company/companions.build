@@ -16,11 +16,12 @@ function testStatus(draft: SpecialistDraft) {
   return "Test in progress";
 }
 
-export function SpecialistDraftPanel({ templateId, companionId, onClose, onConnections }: {
+export function SpecialistDraftPanel({ templateId, companionId, onClose, onConnections, onOpenCompanion }: {
   templateId: string;
   companionId: string;
   onClose: () => void;
   onConnections: () => void;
+  onOpenCompanion?: (id: string) => void;
 }) {
   const [draft, setDraft] = useState<SpecialistDraft | null>(null);
   const [name, setName] = useState("");
@@ -63,6 +64,11 @@ export function SpecialistDraftPanel({ templateId, companionId, onClose, onConne
   }, [draft, load]);
 
   const dirty = Boolean(draft) && (name !== draft!.name || instructions !== draft!.instructions || initScript !== draft!.initScript);
+  useEffect(() => {
+    if (!draft || dirty || busy || draft.status === "testing" || draft.status === "publishing") return;
+    const timer = window.setInterval(() => void load(), 8_000);
+    return () => window.clearInterval(timer);
+  }, [busy, dirty, draft, load]);
 
   async function save(event: FormEvent) {
     event.preventDefault();
@@ -129,7 +135,7 @@ export function SpecialistDraftPanel({ templateId, companionId, onClose, onConne
       <section className="specialist-draft__section"><div className="specialist-draft__section-title"><div><h3>Apps &amp; accounts</h3><p>Select the real accounts used while preparing this draft.</p></div></div><ApplicationAccess companionId={companionId} onConnect={onConnections}/></section>
 
       <section className="specialist-draft__section"><div className="specialist-draft__section-title"><div><h3>Test a mission</h3><p>A test runs on a fresh copy of this saved generation.</p></div><span className={`specialist-draft__status specialist-draft__status--${draft.lastTest?.status ?? "none"}`}>{testStatus(draft)}</span></div>
-        {draft.lastTest && <div className="specialist-draft__test-result"><span>Generation {draft.lastTest.generation}</span>{draft.lastTest.error && <p role="alert">{draft.lastTest.error}</p>}{testFinished && <div><Button type="button" size="sm" variant={draft.lastTest.assessment === "satisfactory" ? "default" : "outline"} disabled={Boolean(busy)} onClick={() => void assess("satisfactory")}>Satisfactory</Button><Button type="button" size="sm" variant="outline" disabled={Boolean(busy)} aria-pressed={draft.lastTest.assessment === "needs_changes"} onClick={() => void assess("needs_changes")}>Needs changes</Button></div>}</div>}
+        {draft.lastTest && <div className="specialist-draft__test-result"><span>Generation {draft.lastTest.generation}</span>{draft.lastTest.error && <p role="alert">{draft.lastTest.error}</p>}{testFinished && <div><Button type="button" size="sm" variant={draft.lastTest.assessment === "satisfactory" ? "default" : "outline"} disabled={Boolean(busy)} onClick={() => void assess("satisfactory")}>Satisfactory</Button><Button type="button" size="sm" variant="outline" disabled={Boolean(busy)} aria-pressed={draft.lastTest.assessment === "needs_changes"} onClick={() => void assess("needs_changes")}>Needs changes</Button>{draft.lastTest.companionId && <Button type="button" size="sm" variant="ghost" onClick={() => onOpenCompanion?.(draft.lastTest!.companionId!)}>Open test chat</Button>}</div>}</div>}
         <form className="specialist-draft__test" onSubmit={runTest}><label htmlFor={`test-${templateId}`}>Test brief</label><Textarea id={`test-${templateId}`} value={testPrompt} rows={3} disabled={Boolean(busy)} placeholder="Give the copy a concrete mission and expected result." onChange={event => setTestPrompt(event.target.value)}/>{dirty && <p>Save this configuration before testing it.</p>}<Button type="submit" variant="outline" disabled={Boolean(busy) || dirty || !testPrompt.trim()}>{busy === "test" ? <LoaderCircle className="spin"/> : <FlaskConical/>}{busy === "test" ? "Starting…" : "Test mission"}</Button></form>
       </section>
 

@@ -8,11 +8,11 @@ beforeEach(() => vi.unstubAllGlobals());
 
 describe("SpecialistImprovements", () => {
   it("prepares a proposal without presenting it as already installed", async () => {
-    let improvement = { id: "i1", templateId: "t1", summary: "Keep the repository formatter in the prepared image", recipe: "bun add -g prettier", status: "pending", baseRevision: 2, sourceCompanionId: "child" };
+    let improvement = { id: "i1", templateId: "t1", summary: "Keep the repository formatter in the prepared image", recipe: "bun add -g prettier", status: "proposed", baseRevision: 2, sourceCompanionId: "child" };
     const fetchMock = vi.fn((input: RequestInfo | URL, options?: RequestInit) => {
       const path = String(input);
       if (path === "/api/companions/c1/specialist-improvements") return response({ improvements: [improvement] });
-      if (path === "/api/specialist-improvements/i1/apply" && options?.method === "POST") { improvement = { ...improvement, status: "applied" }; return response({ improvement }); }
+      if (path === "/api/specialist-improvements/i1/apply" && options?.method === "POST") { improvement = { ...improvement, status: "applied" }; return response({ status: "applied", companionId: "draft-1", runId: "run-1" }); }
       throw new Error(`Unexpected ${path}`);
     });
     vi.stubGlobal("fetch", fetchMock);
@@ -21,7 +21,7 @@ describe("SpecialistImprovements", () => {
     expect(await screen.findByText(improvement.summary)).toBeInTheDocument();
     expect(screen.queryByText(/installed/i)).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Prepare improvement" }));
-    await waitFor(() => expect(screen.queryByText(improvement.summary)).not.toBeInTheDocument());
+    await screen.findByRole("button", { name: "Open draft" });
     const body = JSON.parse(String((fetchMock.mock.calls[1][1] as RequestInit).body));
     expect(body.commandId).toEqual(expect.any(String));
   });

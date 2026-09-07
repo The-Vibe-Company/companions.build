@@ -351,6 +351,7 @@ export class LifecycleCoordinator {
    (c.retired_at IS NULL AND (c.prepare_requested OR ((c.desktop_boundary_version=1 OR c.desktop_taken) AND c.status='ready' AND c.endpoint_secret IS NOT NULL AND (c.desktop_checked_at IS NULL OR c.desktop_checked_at<now()-interval '30 seconds' OR (c.desktop_observed_generation IS DISTINCT FROM c.desktop_generation AND c.desktop_checked_at<now()-interval '2 seconds'))) OR c.archive_requested_at IS NOT NULL
     OR EXISTS(SELECT 1 FROM template_candidates t WHERE t.source_companion_id=c.id AND t.status IN ('queued','capturing','ready'))
     OR EXISTS(SELECT 1 FROM delegations d JOIN runs r ON r.id=d.run_id WHERE d.target_id=c.id AND d.finished_at IS NULL AND r.status IN ('succeeded','failed','interrupted','cancelled'))))
+   OR (c.retired_at IS NOT NULL AND c.archive_requested_at IS NOT NULL AND (c.archived_at IS NULL OR c.archived_at<c.archive_requested_at))
    OR EXISTS(SELECT 1 FROM machine_usage_events e WHERE e.companion_id=c.id AND e.reported_at IS NULL)
    ORDER BY c.created_at,c.id LIMIT 100`;
   const pendingIds=new Set(pending.map((companion:any)=>companion.id));

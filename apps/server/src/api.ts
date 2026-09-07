@@ -5,6 +5,7 @@ import {availableModels} from "./models";
 import { handleBilling, handleStripeWebhook, requireProductActivation, billingConfiguration, ProductActivationRequired } from "./billing";
 import { handleDelivery } from "./delivery";
 import { handleLifecycle } from "./lifecycle";
+import { retireCompanion } from "./retirement";
 import {listTemplateRevisions,rollbackTemplate} from "./templates";
 import { LifecycleConflict } from "./templates";
 import { z } from "zod";
@@ -129,6 +130,7 @@ export async function handler(request: Request): Promise<Response> {
     const match = url.pathname.match(/^\/api\/companions\/([^/]+)(?:\/(messages|cancel|desktop|events))?$/);
     if (match) {
       const id = idSchema.parse(match[1]);
+      if (!match[2] && request.method === "DELETE") { const result=await retireCompanion(ownerId,id); return result ? json(result,202) : json({error:"Companion not found."},404); }
       if (!match[2] && request.method === "PATCH") { const companion=await configureCompanion(ownerId,id,await request.json()); return companion ? json({companion}) : json({error:"Companion not found."},404); }
       if (!match[2] && request.method === "GET") { const result = await detail(ownerId, id);
         if(!result)return json({error:"Companion not found."},404);

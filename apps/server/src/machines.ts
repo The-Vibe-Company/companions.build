@@ -158,8 +158,8 @@ export async function pauseMachine(companion: any, paused: boolean, beforeEffect
   if(applied.generation!==generation||applied.taken!==paused||!applied.confirmed)throw new MachineError('desktop_not_confirmed');
   return applied;
 }
-export async function archiveMachine(companion: any, beforeEffect:EffectGuard=unguarded) {
-  const runDocker=async(args:string[])=>{await beforeEffect();return docker(args);};
+export async function archiveMachine(companion: any, beforeEffect:EffectGuard=unguarded, runLocal:(args:string[])=>Promise<string>=docker) {
+  const runDocker=async(args:string[])=>{await beforeEffect();return runLocal(args);};
   await beforeEffect();
   if (companion.provider === "box") {
     if (!companion.box_id && !companion.create_started_at) return true;
@@ -170,8 +170,11 @@ export async function archiveMachine(companion: any, beforeEffect:EffectGuard=un
     return false;
   }
   const name = `companions-${workspace}-${companion.id}`;
-  let current: any;
-  try { current = JSON.parse(await runDocker(["inspect", name]))[0]; } catch { return false; }
+  // A successful exact-name listing distinguishes absence from a broken Docker transport.
+  const names=await runDocker(["ps","-a","--filter",`name=^/${name}$`,"--format","{{.Names}}"]);
+  if(!names.trim())return true;
+  if(names.trim()!==name)throw new MachineError("local_machine_ownership_mismatch");
+  const current=JSON.parse(await runDocker(["inspect", name]))[0];
   if (current.Config?.Labels?.["companions.build.workspace"] !== workspace) throw new MachineError("local_machine_ownership_mismatch");
   if (current.State.Paused) await runDocker(["unpause", name]);
   if (current.State.Running) await runDocker(["stop", "--time", "10", name]);

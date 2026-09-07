@@ -120,7 +120,7 @@ export class Conflict extends Error {}
 export async function acceptMessage(ownerId: string, companionId: string, clientMessageId: string, content: string, attachmentCount = 0) {
   return db.begin(async sql => {
     // Lock companion to serialize duplicate admission with cancellation and FIFO claims.
-    const [companion] = await sql`SELECT id FROM companions WHERE id=${companionId} AND owner_id=${ownerId} FOR UPDATE`;
+    const [companion] = await sql`SELECT id FROM companions WHERE id=${companionId} AND owner_id=${ownerId} AND retired_at IS NULL AND archive_requested_at IS NULL FOR UPDATE`;
     if (!companion) return null;
     const [existing] = await sql`SELECT id,content,attachment_count FROM runs WHERE companion_id=${companionId} AND client_message_id=${clientMessageId}`;
     if (existing) {

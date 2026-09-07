@@ -1,4 +1,5 @@
 import {tracePreparation} from './preparation-trace';
+import {progressRetirements} from './retirement';
 import {handoffDelegationFiles} from './files';
 import { z } from 'zod';
 import { db } from './store';
@@ -110,6 +111,7 @@ export async function progressLifecycle(sql:any=db,hooks:LifecycleHooks={},machi
   })) as Promise<T>;
   checkpoints=result.catch(()=>undefined);return result;
  }
+ await progressRetirements(sql,companionId,machine,()=>assertLeader(),checkpoint,(tx,companion)=>usage(tx,companion,'archived'));
  // GUI coordination never pauses the Pi daemon or headless work. Periodic reconciliation
  // reopens a restarted fail-closed broker only to the current durable human intent.
  const pending=await sql`SELECT * FROM companions WHERE (${companionId}::uuid IS NULL OR id=${companionId}) AND retired_at IS NULL AND
@@ -199,16 +201,19 @@ export async function progressLifecycle(sql:any=db,hooks:LifecycleHooks={},machi
   }catch(error){if(error instanceof ExecutionStopped)throw error;await checkpoint(async(tx:any)=>{await tx`UPDATE companions SET desktop_checked_at=now(),error=${companion.desktop_taken?'Desktop takeover could not be confirmed. Desktop interactions may still be active.':'Machine preparation is temporarily unavailable.'} WHERE id=${companion.id} AND desktop_generation=${companion.desktop_generation}`;});}
  }
  // A submitted snapshot name is only observed on recovery; an ambiguous POST is never repeated.
- for(const candidate of await sql`SELECT k.*,c.box_id,c.provider,c.owner_id FROM template_candidates k JOIN companions c ON c.id=k.source_companion_id WHERE (${companionId}::uuid IS NULL OR c.id=${companionId}) AND k.status IN ('queued','capturing','ready') AND NOT c.desktop_taken AND c.desktop_paused_at IS NULL ORDER BY k.requested_at LIMIT 50`){
+ for(const candidate of await sql`SELECT k.*,c.box_id,c.provider,c.owner_id FROM template_candidates k JOIN companions c ON c.id=k.source_companion_id WHERE (${companionId}::uuid IS NULL OR c.id=${companionId}) AND k.status IN ('queued','capturing','ready') AND c.retired_at IS NULL AND NOT c.desktop_taken AND c.desktop_paused_at IS NULL ORDER BY k.requested_at LIMIT 50`){
   try{
    if(candidate.status==='queued'){
     if(!await (hooks.canStartWork??ownerMayStartWork)(candidate.owner_id)){await checkpoint(async(tx:any)=>{await tx`UPDATE template_candidates SET status='failed',error=${SUBSCRIPTION_REQUIRED} WHERE id=${candidate.id}`;});continue;}
     if(!candidate.box_id)continue;
     if((await sql`SELECT id FROM runs WHERE companion_id=${candidate.source_companion_id} AND status IN ('queued','preparing','running','needs_input') LIMIT 1`).length)continue;
-    await checkpoint(async(tx:any)=>{await tx`UPDATE template_candidates SET status='capturing',attempted_at=now() WHERE id=${candidate.id}`;});
+    const admitted=await checkpoint(async(tx:any)=>{return await tx`UPDATE template_candidates SET status='capturing',attempted_at=now() WHERE id=${candidate.id} AND status='queued' AND EXISTS(SELECT 1 FROM companions WHERE id=${candidate.source_companion_id} AND retired_at IS NULL) RETURNING id`;});
+    if(!admitted.length)continue;
     await assertLeader();const exists=await machine.snapshotStatus(candidate.snapshot_name);
     if(exists==='missing'){
      if(!await (hooks.canStartWork??ownerMayStartWork)(candidate.owner_id)){await checkpoint(async(tx:any)=>{await tx`UPDATE template_candidates SET status='failed',error=${SUBSCRIPTION_REQUIRED} WHERE id=${candidate.id}`;});continue;}
+     await assertLeader();
+     if(!(await sql`SELECT id FROM companions WHERE id=${candidate.source_companion_id} AND retired_at IS NULL`).length)continue;
      await assertLeader();await machine.snapshot(candidate,candidate.snapshot_name);
     }
    }

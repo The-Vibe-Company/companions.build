@@ -30,6 +30,7 @@ type Props = {
 };
 
 export function SettingsSheet({ embedded = false, active = true, activity, computer, detail, models, initialPage = 'home', onPageChange, onClose, onDeleted, onSaved, onActivity, onDesktop, connections }: Props) {
+  const [deliveryExpanded, setDeliveryExpanded] = useState(false);
   const [page, setPage] = useState<Page>(embedded && initialPage === 'home' ? 'identity' : initialPage);
   const [name, setName] = useState(detail.companion.name);
   const [instructions, setInstructions] = useState(detail.companion.instructions);
@@ -108,11 +109,10 @@ export function SettingsSheet({ embedded = false, active = true, activity, compu
   }
 
   const surface = <div className="settings-surface">
-      {embedded && <nav className="settings-tabs" aria-label="Settings sections">{(['identity', 'connections', 'delivery', 'activity', ...(detail.companion.provider === 'box' ? ['computer'] : [])] as Page[]).map(target => <button key={target} type="button" disabled={saving || deleting} aria-current={page === target || page === 'delete' && target === 'identity' ? 'page' : undefined} onClick={() => { goToPage(target); setPendingAction(null); }}>{titles[target]}</button>)}</nav>}
       <header className="sheet-header">
         <div className="settings-heading">
           {(embedded ? page === 'delete' : page !== 'home') && !pendingAction && <Button variant="ghost" size="icon" aria-label="Back to settings" disabled={saving || deleting} onClick={() => goToPage(embedded ? 'identity' : 'home')}><ArrowLeft /></Button>}
-          <h2 ref={heading} tabIndex={-1} id="settings-title">{pendingAction ? 'Keep your changes?' : page === 'home' ? `Make ${detail.companion.name} yours` : titles[page]}</h2>
+          <h2 ref={heading} tabIndex={-1} id="settings-title">{pendingAction ? 'Keep your changes?' : page === 'home' ? `Make ${detail.companion.name} yours` : embedded && page === 'identity' ? 'Settings' : titles[page]}</h2>
         </div>
         {!embedded && !pendingAction && <Button variant="ghost" size="icon" disabled={saving || deleting} onClick={() => leave(onClose)} aria-label="Close settings"><X /></Button>}
       </header>
@@ -148,9 +148,10 @@ export function SettingsSheet({ embedded = false, active = true, activity, compu
           </div>}
           {page === 'identity' && <form className="identity-form" onSubmit={save} onChange={() => setSaved(false)}>
             <fieldset className="identity-fields" disabled={saving}>
-              <AvatarPicker value={avatar} onChange={value => { setAvatar(value); setSaved(false); }} />
+              {!embedded && <AvatarPicker value={avatar} onChange={value => { setAvatar(value); setSaved(false); }} />}
               <div className="field"><label htmlFor="identity-name">Name</label><input id="identity-name" value={name} onChange={event => setName(event.target.value)} maxLength={80} /></div>
               <div className="field"><label htmlFor="identity-mission">Purpose</label><Textarea id="identity-mission" value={instructions} onChange={event => setInstructions(event.target.value)} rows={5} maxLength={20000} /></div>
+              {embedded && <details className="settings-appearance"><summary><CompanionAvatar name={name || detail.companion.name} avatar={avatar} size={40}/><span>Appearance</span><ChevronRight/></summary><AvatarPicker value={avatar} onChange={value => { setAvatar(value); setSaved(false); }}/></details>}
               {!!models?.length && <details className="advanced-panel"><summary>Model preferences</summary>
                 <div className="field"><label htmlFor="identity-model">Model</label><select id="identity-model" value={modelId} onChange={event => setModelId(event.target.value)}><option value="">Default model</option>{models.map(model => <option value={model.id} key={model.id}>{model.name}</option>)}</select></div>
               </details>}
@@ -158,6 +159,10 @@ export function SettingsSheet({ embedded = false, active = true, activity, compu
             {error && <p className="field-error" role="alert">{error}</p>}
             <div className="sheet-actions"><span role="status">{saving ? 'Saving…' : saved ? 'Changes saved' : dirty ? 'Unsaved changes' : ''}</span><Button type="submit" disabled={saving || !name.trim() || !dirty}>{saving ? <LoaderCircle className="spin" /> : <Check />}Save changes</Button></div>
           </form>}
+          {embedded && page === 'identity' && <>
+            <section className="settings-block"><h3>Applications</h3>{connections}</section>
+            <details className="settings-delivery" onToggle={event => setDeliveryExpanded(event.currentTarget.open)}><summary><span>Client delivery</span><ChevronRight/></summary>{deliveryExpanded && <DeliverySettings companionId={detail.companion.id}/>}</details>
+          </>}
           {embedded && page === 'identity' && <button type="button" className="settings-delete-entry" disabled={saving || deleting} onClick={() => { setDeleteError(''); goToPage('delete'); }}><Trash2 />Delete companion</button>}
           {page === 'activity' && activity}
           {active && page === 'computer' && computer}

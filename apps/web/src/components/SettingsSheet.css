@@ -18,11 +18,23 @@
 .settings-page .sheet-header { padding:28px 0 16px; border:0; }
 .settings-page .sheet-content { padding:0; overflow:visible; }
 .settings-page .sheet-actions { margin-top:24px; }
-.settings-tabs { display:flex; gap:24px; flex-wrap:wrap; border-bottom:1px solid var(--border); }
-.settings-tabs button { position:relative; min-height:44px; color:var(--muted-foreground); font-size:.875rem; }
-.settings-tabs button[aria-current=page] { color:var(--foreground); font-weight:600; }
-.settings-tabs button[aria-current=page]::after { content:""; position:absolute; left:0; right:0; bottom:-1px; height:2px; background:var(--foreground); }
 .settings-page .identity-form { max-width:620px; }
 .settings-page .identity-form .avatar-picker { max-width:480px; }
-.settings-page-computer { max-width:none; }
-@media(max-width:760px) { .settings-page { padding:16px 20px 32px; } .settings-tabs { gap:4px 20px; } }
+@media(max-width:760px) { .settings-page { padding:16px 20px 32px; } }
+
+.activity-panel--embedded { display:block; width:100%; max-width:800px; margin:0 auto; flex:auto; border:0; padding:0; overflow:visible; }
+.companion-page>.activity-panel--embedded { padding:32px 24px; }
+.settings-page .activity-panel--embedded .activity-heading { display:none; }
+.settings-page { max-width:760px; }
+.settings-page .sheet-header { padding-top:8px; }
+.settings-appearance { margin-top:24px; }
+.settings-appearance summary,.settings-delivery summary { display:flex; align-items:center; gap:12px; min-height:56px; cursor:pointer; list-style:none; }
+.settings-appearance summary>span,.settings-delivery summary>span { flex:1; font-weight:500; }
+.settings-appearance summary>svg,.settings-delivery summary>svg { width:16px; height:16px; color:var(--muted-foreground); }
+.settings-appearance[open] summary>svg,.settings-delivery[open] summary>svg { transform:rotate(90deg); }
+.settings-appearance .avatar-picker { margin-top:20px; }
+.settings-appearance .avatar-preview { display:none; }
+.settings-appearance .avatar-options { flex-wrap:wrap; overflow:visible; }
+.settings-block { padding-top:28px; margin-top:36px; border-top:1px solid var(--border); }
+.settings-block h3 { margin-bottom:16px; font-weight:600; font-size:1rem; }
+.settings-delivery { margin-top:28px; border-top:1px solid var(--border); padding-top:12px; }

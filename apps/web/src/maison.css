@@ -171,3 +171,7 @@ button,a,input,textarea,select{transition:background-color 160ms ease,color 160m
 
 .companion-sections .companion-settings-access { margin-left:auto; }
 @media(max-width:480px) { .companion-sections { padding-inline:16px; gap:16px; } }
+
+.companion-sections { overflow-x:auto; scrollbar-width:thin; }
+.companion-sections button { flex-shrink:0; }
+.automation-group+.automation-group { margin-top:40px; padding-top:32px; border-top:1px solid var(--border); }

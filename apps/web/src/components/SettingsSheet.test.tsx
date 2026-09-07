@@ -94,18 +94,15 @@ it('prevents duplicate deletion and closing while the request is pending', async
 });
 
 
-it('renders settings as page sections and preserves identity drafts between subtabs', async () => {
+it('renders one settings page with compact appearance and preserves drafts across delete confirmation', async () => {
   const user=userEvent.setup();
-  render(<SettingsSheet embedded detail={detail} models={[]} connections={<p>Choose connected apps</p>} activity={<p>Task history</p>} computer={<p>Computer controls</p>} onDeleted={vi.fn()} onClose={vi.fn()} onSaved={vi.fn()} onActivity={vi.fn()} onDesktop={vi.fn()}/>);
+  render(<SettingsSheet embedded detail={detail} models={[]} connections={<p>Choose connected apps</p>} onDeleted={vi.fn()} onClose={vi.fn()} onSaved={vi.fn()} onActivity={vi.fn()} onDesktop={vi.fn()}/>);
   expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  expect(screen.queryByRole('navigation',{name:'Settings sections'})).not.toBeInTheDocument();
+  expect(screen.getByText('Choose connected apps')).toBeInTheDocument();
+  expect(document.querySelector('.settings-appearance')).not.toHaveAttribute('open');
   await user.clear(screen.getByLabelText('Name'));
   await user.type(screen.getByLabelText('Name'),'Mila draft');
-  await user.click(screen.getByRole('button',{name:'Applications'}));
-  expect(screen.getByText('Choose connected apps')).toBeInTheDocument();
-  await user.click(screen.getByRole('button',{name:'Activity'}));
-  expect(screen.getByText('Task history')).toBeInTheDocument();
-  await user.click(screen.getByRole('button',{name:'Personality'}));
-  expect(screen.getByLabelText('Name')).toHaveValue('Mila draft');
   await user.click(screen.getByRole('button',{name:'Delete companion'}));
   expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   await user.click(screen.getByRole('button',{name:'Keep companion'}));

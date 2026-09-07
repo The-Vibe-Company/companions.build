@@ -4,6 +4,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, 
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { AgentSkills, type SkillManifest } from "../../control/skills";
+import {AgentControl} from "../../control/agent";
 
 const roots: string[] = [];
 afterEach(() => { while (roots.length) rmSync(roots.pop()!, { recursive: true, force: true }); });
@@ -111,4 +112,45 @@ test("import is idempotent, atomically updates imported names, and preserves unr
   const collision = { version: 1 as const, skills: [{ name: "existing", files: [file("SKILL.md", "Replacement") ] }] };
   expect((await skills.handleRequest(request("/skills/import", "PUT", collision)))!.status).toBe(409);
   expect(readFileSync(join(root, "existing", "SKILL.md"), "utf8")).toBe("Unrelated local package");
+});
+
+test("control operations install, CAS-update, list and idempotently remove a local Pi skill",async()=>{
+  const directory=state(),skills=new AgentSkills(directory);let control=new AgentControl(directory,skills);const runId=crypto.randomUUID();
+  const first={name:"writer",files:[file("SKILL.md","---\ndescription: Writes clearly.\n---\nVersion one"),file("references/style.md","Direct.")]};
+  const install={clientOperationId:crypto.randomUUID(),skill:first};
+  try{
+    expect(await control.call(runId,"skill_install",install)).toMatchObject({imported:["writer"],unchanged:[]});
+    expect(await control.call(runId,"skill_install",install)).toMatchObject({imported:["writer"],unchanged:[]});
+    const listed=await control.call(runId,"skills",{}) as any,hash=listed.skills[0].hash;
+    expect(listed).toEqual({skills:[{name:"writer",description:"Writes clearly.",hash,editable:true}]});
+
+    const changed={name:"writer",files:[file("SKILL.md","---\ndescription: Writes clearly.\n---\nVersion two")]};
+    expect(await control.call(runId,"skill_update",{clientOperationId:crypto.randomUUID(),expectedHash:"0".repeat(64),skill:changed})).toEqual({error:"SKILL_NAME_CONFLICT"});
+    expect(readFileSync(join(directory,"pi","skills","writer","SKILL.md"),"utf8")).toContain("Version one");
+    expect(await control.call(runId,"skill_update",{clientOperationId:crypto.randomUUID(),expectedHash:hash,skill:changed})).toMatchObject({imported:["writer"]});
+    const updated=(await control.call(runId,"skills",{}) as any).skills[0].hash;
+
+    const remove={clientOperationId:crypto.randomUUID(),name:"writer",expectedHash:updated};
+    expect(await control.call(runId,"skill_remove",remove)).toEqual({removed:true,unchanged:false});
+    expect((await control.call(runId,"skills",{}) as any).skills).toEqual([]);
+    expect(await control.call(runId,"skill_install",{clientOperationId:crypto.randomUUID(),skill:changed})).toMatchObject({imported:["writer"]});
+    control.close();control=new AgentControl(directory,skills);
+    expect(await control.call(runId,"skill_remove",remove)).toEqual({removed:true,unchanged:false});
+    expect((await control.call(runId,"skills",{}) as any).skills).toHaveLength(1);
+  }finally{control.close();}
+});
+
+test("control identity advertises the local skill schemas without sending mutations to the server",async()=>{
+  const directory=state(),control=new AgentControl(directory),runId=crypto.randomUUID();
+  try{
+    const pending=control.call(runId,"identity",{});await Bun.sleep(0);
+    const requestList=await (await control.handleRequest(request("/control")))!.json() as any;
+    expect(requestList.requests).toHaveLength(1);
+    await control.handleRequest(request(`/control/${requestList.requests[0].id}/result`,"POST",{operations:["identity"],examples:{},instructions:"Read state."}));
+    const identity=await pending as any;
+    expect(identity.operations).toContain("skills");expect(identity.operations).toContain("skill_install");
+    expect(identity.examples.skill_update).toMatchObject({clientOperationId:"UUID",expectedHash:"hash returned by skills"});
+    expect(identity.instructions).toContain("keep clientOperationId stable");
+    expect((await (await control.handleRequest(request("/control")))!.json() as any).requests).toEqual([]);
+  }finally{control.close();}
 });

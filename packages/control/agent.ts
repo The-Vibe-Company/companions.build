@@ -1,6 +1,7 @@
 import { Database } from 'bun:sqlite';
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
+import {createHash} from 'node:crypto';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
@@ -9,19 +10,22 @@ import type { ToolDefinition } from '@earendil-works/pi-coding-agent';
 import { z } from 'zod';
 import { pluginTools } from '../plugins/tools';
 import type { MachinePlugin } from '../plugins/catalog';
+import {AgentSkills} from './skills';
 
-const operations=['history_search','identity','companion_create','models','configure','companions','routines','routine_save','routine_delete','routine_history','routine_test','plugins','plugin_select','plugin_catalog','plugin_connect','plugin_custom','plugin_check','plugin_disconnect','triggers','trigger_save','trigger_delete','trigger_test','trigger_history','delegate','task_status','task_answer','task_cancel','deliveries','delivery_prepare','maintenance','maintenance_inspect','maintenance_configure','maintenance_prepare','maintenance_task','maintenance_history','templates','template_permission','prepare','template_save','template_history','template_rollback','software_prepare','software_status','spawn','adopt_template','ask_user','desktop_takeover','desktop_release'] as const;
+const localSkillOperations=['skills','skill_install','skill_update','skill_remove'] as const;
+const operations=['history_search','identity','companion_create','models','configure','companions','routines','routine_save','routine_delete','routine_history','routine_test','plugins','plugin_select','plugin_catalog','plugin_connect','plugin_custom','plugin_check','plugin_disconnect','triggers','trigger_save','trigger_delete','trigger_test','trigger_history','delegate','task_status','task_answer','task_cancel','deliveries','delivery_prepare','maintenance','maintenance_inspect','maintenance_configure','maintenance_prepare','maintenance_task','maintenance_history','templates','template_permission','prepare','template_save','template_history','template_rollback','software_prepare','software_status','spawn','adopt_template','ask_user','desktop_takeover','desktop_release',...localSkillOperations] as const;
 export type ControlOperation=typeof operations[number];
 /** Durable local MCP outbox. The executor visits Box; Box need not reach a local web server. */
 export class AgentControl {
   private readonly db:Database;
   private plugins:MachinePlugin[]=[];
   private generation='';
-  constructor(stateDir:string) {
+  constructor(stateDir:string,private readonly skills=new AgentSkills(stateDir)) {
     mkdirSync(stateDir,{recursive:true});
     this.db=new Database(join(stateDir,'control.sqlite'));
     this.db.exec(`PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL;
       CREATE TABLE IF NOT EXISTS requests(id TEXT PRIMARY KEY,run_id TEXT NOT NULL,operation TEXT NOT NULL,input TEXT NOT NULL,result TEXT,status TEXT NOT NULL DEFAULT 'pending',created_at INTEGER NOT NULL);
+      CREATE TABLE IF NOT EXISTS local_requests(id TEXT PRIMARY KEY,run_id TEXT NOT NULL,operation TEXT NOT NULL,input TEXT NOT NULL,result TEXT,status TEXT NOT NULL DEFAULT 'pending',created_at INTEGER NOT NULL);
       UPDATE requests SET status='interrupted',result='{"error":"Agent restarted; this request was not replayed."}' WHERE status='pending';`);
   }
   async handleRequest(request:Request):Promise<Response|null> {
@@ -42,16 +46,41 @@ export class AgentControl {
     return null;
   }
   async call(runId:string,operation:ControlOperation,input:unknown,signal?:AbortSignal) {
+    if(operation==='skills')return this.skills.control('skills',input);
+    if((localSkillOperations as readonly string[]).includes(operation))return this.callLocalSkill(runId,operation as Exclude<typeof localSkillOperations[number],'skills'>,input);
     const id=crypto.randomUUID();
     this.db.query('INSERT INTO requests(id,run_id,operation,input,created_at) VALUES(?,?,?,?,?)').run(id,runId,operation,JSON.stringify(input),Date.now());
     const deadline=Date.now()+(operation==='ask_user'?2*3600_000:120_000);
     while(Date.now()<deadline&&!signal?.aborted) {
       const row=this.db.query('SELECT status,result FROM requests WHERE id=?').get(id) as any;
-      if(row.status!=='pending') return JSON.parse(row.result);
+      if(row.status!=='pending') {
+        const result=JSON.parse(row.result);
+        if(operation==='identity'&&Array.isArray(result?.operations)){
+          result.operations=[...new Set([...result.operations,...localSkillOperations])];
+          result.examples={...result.examples,skills:{},skill_install:{clientOperationId:'UUID',skill:{name:'writer',files:[{path:'SKILL.md',data:'base64',sha256:'lowercase SHA-256'}]}},skill_update:{clientOperationId:'UUID',expectedHash:'hash returned by skills',skill:{name:'writer',files:[{path:'SKILL.md',data:'base64',sha256:'lowercase SHA-256'}]}},skill_remove:{clientOperationId:'UUID',name:'writer',expectedHash:'hash returned by skills'}};
+          result.instructions=`${result.instructions??''} Manage local Pi skills with skills, skill_install, skill_update and skill_remove; keep clientOperationId stable when retrying a mutation.`.trim();
+        }
+        return result;
+      }
       await Bun.sleep(150);
     }
     this.db.query(`UPDATE requests SET status='interrupted',result='{"error":"Control request timed out; inspect its state before retrying."}' WHERE id=? AND status='pending'`).run(id);
     throw new Error(signal?.aborted?'CONTROL_CANCELLED':'CONTROL_TIMEOUT');
+  }
+  private callLocalSkill(runId:string,operation:'skill_install'|'skill_update'|'skill_remove',input:unknown){
+    const id=typeof input==='object'&&input!==null&&'clientOperationId' in input?(input as any).clientOperationId:null;
+    if(typeof id!=='string'||!/^[a-f0-9]{8}-[a-f0-9]{4}-[1-5][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i.test(id))return {error:'INVALID_SKILL_OPERATION'};
+    const serialized=JSON.stringify(input),fingerprint=createHash('sha256').update(serialized).digest('hex');
+    const created=this.db.query('INSERT INTO local_requests(id,run_id,operation,input,created_at) VALUES(?,?,?,?,?) ON CONFLICT DO NOTHING').run(id,runId,operation,fingerprint,Date.now());
+    const row=this.db.query('SELECT run_id AS runId,operation,input,result,status FROM local_requests WHERE id=?').get(id) as any;
+    if(!row||row.runId!==runId||row.operation!==operation||row.input!==fingerprint)return {error:'SKILL_OPERATION_CONFLICT'};
+    if(!created.changes&&row.status==='done')return JSON.parse(row.result);
+    const result=this.skills.control(operation,input);
+    this.db.query("UPDATE local_requests SET result=?,status='done' WHERE id=? AND status='pending'").run(JSON.stringify(result),id);
+    // Retain a bounded recent idempotency window. Removal has its own independent
+    // 500-entry filesystem journal so a SQLite cleanup cannot delete a reinstallation.
+    this.db.exec("DELETE FROM local_requests WHERE id IN (SELECT id FROM local_requests WHERE status='done' ORDER BY created_at DESC,id DESC LIMIT -1 OFFSET 500)");
+    return result;
   }
   async toolsFactory({runId}:{runId:string}) {
     const server=new McpServer({name:'companion-control',version:'0.2.0'});
@@ -59,7 +88,7 @@ export class AgentControl {
     const client=new Client({name:'companion-agent',version:'0.2.0'});
     const [a,b]=InMemoryTransport.createLinkedPair();await server.connect(a);await client.connect(b);
     const plugins=pluginTools(()=>this.plugins);
-    const tool:ToolDefinition={name:'companion_control',label:'Companion control',description:'Use the companion-control MCP to configure this product: identity, instructions, routines, plugins, triggers, delegation, templates and prepared software. Call identity with empty input to discover schemas. Never claim a configuration changed before this tool confirms it.',parameters:Type.Object({operation:Type.Union(operations.map(x=>Type.Literal(x))),input:Type.Record(Type.String(),Type.Unknown())}),async execute(_id,params,signal){
+    const tool:ToolDefinition={name:'companion_control',label:'Companion control',description:'Use the companion-control MCP to configure this product: identity, skills, instructions, routines, plugins, triggers, delegation, templates and prepared software. Call identity with empty input to discover schemas. Never claim a configuration changed before this tool confirms it.',parameters:Type.Object({operation:Type.Union(operations.map(x=>Type.Literal(x))),input:Type.Record(Type.String(),Type.Unknown())}),async execute(_id,params,signal){
       const result=await client.callTool({name:'companion_control',arguments:params as Record<string,unknown>},undefined,{signal,timeout:(params as any).operation==='ask_user'?2*3600_000+5000:125_000});
       return {content:result.content as any,details:{}};
     }};

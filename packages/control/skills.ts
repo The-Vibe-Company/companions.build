@@ -6,16 +6,21 @@ import { z } from "zod";
 const MAX_BYTES = 10 * 1024 * 1024;
 const MAX_FILES = 500;
 const MARKER = ".companions-skill-import.json";
+const REMOVALS = ".companions-skill-removals.json";
 const nameSchema = z.string().min(1).max(64).regex(/^[a-z0-9][a-z0-9_-]*$/);
 const fileSchema = z.object({
   path: z.string().min(1).max(500),
-  data: z.string(),
+  data: z.string().max(Math.ceil(MAX_BYTES*4/3)+4),
   sha256: z.string().regex(/^[a-f0-9]{64}$/),
 });
 const manifestSchema = z.object({
   version: z.literal(1),
   skills: z.array(z.object({ name: nameSchema, files: z.array(fileSchema).min(1) })),
 });
+const operationIdSchema=z.string().uuid();
+const hashSchema=z.string().regex(/^[a-f0-9]{64}$/);
+const controlSkillSchema=z.object({name:nameSchema,files:z.array(fileSchema).min(1)}).strict();
+const removalSchema=z.object({version:z.literal(1),entries:z.array(z.object({id:operationIdSchema,name:nameSchema,expectedHash:hashSchema,identity:z.string(),removed:z.boolean(),complete:z.boolean()})).max(500)}).strict();
 
 export type SkillManifest = z.infer<typeof manifestSchema>;
 type ValidatedSkill = { name: string; files: Array<{ path: string; bytes: Buffer; sha256: string }>; hash: string };
@@ -28,12 +33,36 @@ export class AgentSkills {
   private readonly importRoot: string;
   private readonly roots: string[];
   private readonly stateRoot: string;
+  private readonly removalsPath:string;
 
   constructor(stateDir: string) {
     this.importRoot = join(stateDir, "pi", "skills");
     this.roots = [this.importRoot, join(stateDir, "workspace", ".pi", "skills")];
     mkdirSync(this.importRoot, { recursive: true, mode: 0o700 });
     this.stateRoot = realpathSync(stateDir);
+    this.removalsPath=join(this.importRoot,REMOVALS);
+  }
+
+  control(operation:"skills"|"skill_install"|"skill_update"|"skill_remove",raw:unknown){
+    try{
+      if(operation==="skills"){
+        z.object({}).strict().parse(raw);
+        return {skills:this.discover().map(skill=>({name:skill.name,description:description(skill.files),hash:skill.hash,editable:this.packageInRoot(this.importRoot,skill.name)!==null}))};
+      }
+      if(operation==="skill_remove"){
+        const value=z.object({clientOperationId:operationIdSchema,name:nameSchema,expectedHash:hashSchema}).strict().parse(raw);
+        return this.remove(value.clientOperationId,value.name,value.expectedHash);
+      }
+      const value=z.object({clientOperationId:operationIdSchema,expectedHash:hashSchema.optional(),skill:controlSkillSchema}).strict().parse(raw);
+      const skills=validateManifest({version:1,skills:[value.skill]});
+      if(operation==="skill_install"&&value.expectedHash!==undefined)throw new SkillTransferError("INVALID_SKILL_OPERATION");
+      if(operation==="skill_update"&&value.expectedHash===undefined)throw new SkillTransferError("INVALID_SKILL_OPERATION");
+      return this.import(skills,operation==="skill_install"?{mode:"install"}:{mode:"update",expectedHash:value.expectedHash});
+    }catch(error){
+      if(error instanceof SkillTransferError)return {error:error.code};
+      if(error instanceof z.ZodError||error instanceof SyntaxError)return {error:"INVALID_SKILL_OPERATION"};
+      return {error:"SKILL_OPERATION_FAILED"};
+    }
   }
 
   async handleRequest(request: Request): Promise<Response | null> {
@@ -90,7 +119,7 @@ export class AgentSkills {
     return [...found.values()].sort((a, b) => a.name.localeCompare(b.name));
   }
 
-  private import(skills: ValidatedSkill[]) {
+  private import(skills: ValidatedSkill[],control?:{mode:"install"|"update";expectedHash?:string}) {
     if (!this.safeRoot(this.importRoot)) throw new SkillTransferError("UNSAFE_SKILL_PACKAGE");
     const names = new Set<string>();
     const actions: Array<{ skill: ValidatedSkill; target: string; replace: boolean }> = [];
@@ -98,15 +127,21 @@ export class AgentSkills {
     for (const skill of skills) {
       if (names.has(skill.name)) throw new SkillTransferError("DUPLICATE_SKILL_NAME");
       names.add(skill.name);
+      if(this.packageInRoot(this.roots[1],skill.name))throw new SkillTransferError("SKILL_NAME_CONFLICT",409);
       const target = join(this.importRoot, skill.name);
       let info;
       try { info = lstatSync(target); } catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
-      if (!info) { actions.push({ skill, target, replace: false }); continue; }
+      if (!info) {
+        if(control?.mode==="update")throw new SkillTransferError("SKILL_NOT_FOUND",404);
+        actions.push({ skill, target, replace: false }); continue;
+      }
       if (!info.isDirectory() || info.isSymbolicLink()) throw new SkillTransferError("SKILL_NAME_CONFLICT", 409);
       let existing: ValidatedSkill;
       try { existing = readPackage(target, skill.name); } catch { throw new SkillTransferError("SKILL_NAME_CONFLICT", 409); }
+      if(control?.mode==="update"&&control.expectedHash!==existing.hash)throw new SkillTransferError("SKILL_NAME_CONFLICT",409);
       if (existing.hash === skill.hash) { unchanged.push(skill.name); continue; }
-      if (readMarker(target) !== existing.hash) throw new SkillTransferError("SKILL_NAME_CONFLICT", 409);
+      if(control?.mode==="install")throw new SkillTransferError("SKILL_NAME_CONFLICT",409);
+      if(!control&&readMarker(target)!==existing.hash)throw new SkillTransferError("SKILL_NAME_CONFLICT",409);
       actions.push({ skill, target, replace: true });
     }
 
@@ -139,6 +174,40 @@ export class AgentSkills {
       if (item.action.replace) rmSync(backup, { recursive: true, force: true });
     }
     return { bundleHash: bundleHash(skills), imported: actions.map(item => item.skill.name), unchanged };
+  }
+
+  private packageInRoot(root:string,name:string):ValidatedSkill|null{
+    if(!this.safeRoot(root))return null;const target=join(root,name);let info;
+    try{info=lstatSync(target);}catch(error){if((error as NodeJS.ErrnoException).code==="ENOENT")return null;throw error;}
+    if(!info.isDirectory()||info.isSymbolicLink())throw new SkillTransferError("SKILL_NAME_CONFLICT",409);
+    return readPackage(target,name);
+  }
+
+  private removalJournal():z.infer<typeof removalSchema>{
+    try{const info=lstatSync(this.removalsPath);if(!info.isFile()||info.isSymbolicLink())throw new SkillTransferError("SKILL_OPERATION_JOURNAL_INVALID");return removalSchema.parse(JSON.parse(readFileSync(this.removalsPath,"utf8")));}
+    catch(error){if((error as NodeJS.ErrnoException).code==="ENOENT")return {version:1,entries:[]};throw new SkillTransferError("SKILL_OPERATION_JOURNAL_INVALID");}
+  }
+  private saveRemovalJournal(journal:z.infer<typeof removalSchema>){
+    const temporary=join(this.importRoot,`.removals-${crypto.randomUUID()}`);writeFileSync(temporary,JSON.stringify(journal),{flag:"wx",mode:0o600});renameSync(temporary,this.removalsPath);
+  }
+  private remove(id:string,name:string,expectedHash:string){
+    if(!this.safeRoot(this.importRoot))throw new SkillTransferError("UNSAFE_SKILL_PACKAGE");
+    const journal=this.removalJournal();let entry=journal.entries.find(item=>item.id===id);
+    if(entry&&(entry.name!==name||entry.expectedHash!==expectedHash))throw new SkillTransferError("SKILL_OPERATION_CONFLICT",409);
+    const staging=join(this.importRoot,`.remove-${id}`);
+    if(entry?.complete){rmSync(staging,{recursive:true,force:true});return {removed:entry.removed,unchanged:true};}
+    if(entry&&this.packageInRoot(this.importRoot,name)){
+      const info=lstatSync(join(this.importRoot,name),{bigint:true});if(entry.identity!==`${info.dev}:${info.ino}`)throw new SkillTransferError("SKILL_NAME_CONFLICT",409);
+    }
+    if(entry&&lstatOrNull(staging)){entry.complete=true;this.saveRemovalJournal(journal);rmSync(staging,{recursive:true,force:true});return {removed:true,unchanged:false};}
+    const current=this.packageInRoot(this.importRoot,name);
+    if(!entry){
+      if(journal.entries.length>=500){const completed=journal.entries.findIndex(item=>item.complete);if(completed<0)throw new SkillTransferError("SKILL_OPERATION_JOURNAL_FULL");journal.entries.splice(completed,1);}
+      const info=current&&lstatSync(join(this.importRoot,name),{bigint:true});entry={id,name,expectedHash,identity:info?`${info.dev}:${info.ino}`:"missing",removed:!!current,complete:!current};journal.entries.push(entry);this.saveRemovalJournal(journal);
+    }
+    if(!current)return {removed:false,unchanged:true};
+    if(current.hash!==expectedHash)throw new SkillTransferError("SKILL_NAME_CONFLICT",409);
+    renameSync(join(this.importRoot,name),staging);entry.complete=true;this.saveRemovalJournal(journal);rmSync(staging,{recursive:true,force:true});return {removed:true,unchanged:false};
   }
 
   private safeRoot(root: string) {
@@ -220,7 +289,7 @@ function validatePath(path: string) {
 }
 function denied(part: string) {
   const value = part.toLowerCase();
-  return value === MARKER || value === ".env" || value.startsWith(".env.") || value === "auth.json" || value === "cookies" || value === "keys" || value === "node_modules" || value === ".git";
+  return value === MARKER || value === REMOVALS || value === ".env" || value.startsWith(".env.") || value === "auth.json" || value === "cookies" || value === "keys" || value === "node_modules" || value === ".git";
 }
 /** A deliberately conservative screen for known credential files and obvious plaintext secrets.
  * Skill packages can contain arbitrary bytes, so this is not a universal secret detector. */
@@ -265,6 +334,7 @@ function readMarker(directory: string) {
     return marker?.version === 1 && /^[a-f0-9]{64}$/.test(marker.hash) ? marker.hash as string : null;
   } catch { return null; }
 }
+function lstatOrNull(path:string){try{return lstatSync(path);}catch(error){if((error as NodeJS.ErrnoException).code==="ENOENT")return null;throw error;}}
 function description(files: ValidatedSkill["files"]) {
   const skill = files.find(file => file.path === "SKILL.md")!.bytes.toString("utf8");
   const frontmatter = skill.match(/^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/)?.[1] ?? "";

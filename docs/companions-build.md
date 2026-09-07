@@ -472,7 +472,7 @@ mêmes opérations métier.
 | Domaine | Capacités attendues du MCP |
 | --- | --- |
 | Companions | Créer, lire et modifier mission, instructions, modèle et configuration ; piloter les actions de cycle de vie autorisées |
-| Skills | Lister, installer, modifier et retirer |
+| Skills | Lister, installer, modifier et retirer les paquets Pi locaux avec un manifeste validé ; l'agent récupère lui-même les fichiers avec ses outils natifs, sans URL ni catalogue ajouté au MCP |
 | Plugins et connexions | Découvrir, connecter, vérifier, associer et retirer les accès autorisés |
 | Routines | Créer, modifier, activer, désactiver, supprimer, tester et consulter les exécutions |
 | Triggers | Configurer source et consigne, écrire le filtre, tester, activer/désactiver et consulter les décisions |

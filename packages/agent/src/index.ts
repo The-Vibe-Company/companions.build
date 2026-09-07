@@ -22,9 +22,9 @@ export async function startAgent() {
   const port = parsePort(process.env.PORT);
   const stateDir = resolve(process.env.AGENT_STATE_DIR ?? "/home/user/.companions");
   const executor = await startupPhase("PI",()=>PiExecutor.create(stateDir));
-  const control = await startupPhase("CONTROL",()=>new AgentControl(stateDir));
   const files = await startupPhase("FILES",()=>new AgentFiles(stateDir));
   const skills = await startupPhase("SKILLS",()=>new AgentSkills(stateDir));
+  const control = await startupPhase("CONTROL",()=>new AgentControl(stateDir,skills));
   const desktopSocket = process.env.DESKTOP_BOUNDARY_VERSION === "1" ? process.env.DESKTOP_AGENT_SOCKET : undefined;
   executor.toolsFactory = async context => {
     const product = await control.toolsFactory(context);

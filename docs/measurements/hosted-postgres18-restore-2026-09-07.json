@@ -1,0 +1,84 @@
+{
+  "date": "2026-09-07",
+  "status": "passed",
+  "scope": "Read-only pg_dump of the companions.build production PostgreSQL service restored into an isolated local PostgreSQL 18 container",
+  "source": {
+    "provider": "Railway",
+    "project": "companions.build",
+    "environment": "production",
+    "service": "Postgres",
+    "linkedProjectEnvironmentAndServiceVerifiedBeforeSsh": true,
+    "databaseVersion": "18.6 (Debian 18.6-1.pgdg13+2)",
+    "databaseMutated": false
+  },
+  "backup": {
+    "format": "PostgreSQL custom archive",
+    "compression": "gzip",
+    "consistentSingleTransactionSnapshot": true,
+    "bytes": 161363,
+    "sha256": "bb8d6d2eec0bc4d8686c520c2d5ffec19815d594e0bd97ef7952ad03898055a1",
+    "tocEntries": 331,
+    "tableDataEntries": 47,
+    "remoteTemporaryFileMode": "0600",
+    "localBackupMode": "0600",
+    "remoteAndLocalSha256MatchedBeforeCleanup": true,
+    "remoteTemporaryFileRemoved": true,
+    "privateLocalBackupRetained": true
+  },
+  "restore": {
+    "image": "docker.io/library/postgres@sha256:4ef4dbc939d61acea57712655ddb4b4ab27419c913f94cca0cd57cb3ea3c2280",
+    "platform": "linux/arm64",
+    "databaseVersion": "18.6 (Debian 18.6-1.pgdg13+2)",
+    "exitOnFirstError": true,
+    "isolatedOwnedContainerRemoved": true
+  },
+  "timingsSeconds": {
+    "dumpAndRemoteSha256": 1.374,
+    "copySha256VerificationAndRemoteCleanup": 4.161,
+    "localContainerStartRestoreAndVersionCheck": 1.605
+  },
+  "restoredSnapshot": {
+    "databaseBytes": 10524351,
+    "publicTables": 47,
+    "requiredTablesPresent": [
+      "companions",
+      "runs",
+      "model_gateway_requests",
+      "usage_ledger",
+      "portable_software_bases",
+      "portable_software_base_selection"
+    ],
+    "modelGatewayConstraints": 22,
+    "constraints": {
+      "total": 609,
+      "validated": 608,
+      "declaredNotValid": 1,
+      "declaredNotValidName": "usage_ledger_category_unit_check",
+      "existingRowsViolatingDeclaredNotValidCheck": 0
+    },
+    "rowCounts": {
+      "users": 0,
+      "companions": 0,
+      "runs": 0,
+      "messages": 0,
+      "modelGatewayRequests": 0,
+      "usageLedger": 0,
+      "portableSoftwareBases": 1,
+      "portableSoftwareBuilds": 0,
+      "portableSoftwareBaseSelections": 1
+    },
+    "selectedSoftwareBase": {
+      "id": "companions-v12-ubuntu-noble-amd64",
+      "providerSnapshot": "companions-agent-v12-20260907",
+      "distribution": "ubuntu",
+      "suite": "noble",
+      "architecture": "amd64",
+      "selectionForeignKeyResolved": true
+    }
+  },
+  "limits": [
+    "The hosted snapshot contained no user, Companion, run, model-gateway, or usage-ledger rows, so this does not prove restoration of populated tenant data or durable jobs.",
+    "This proves database backup and restore only; it does not prove hosted authentication, model activation, Box execution, email, payments, or object-storage restoration.",
+    "No production service was stopped or restarted, and no production database row was written."
+  ]
+}

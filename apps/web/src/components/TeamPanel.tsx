@@ -199,6 +199,13 @@ function SpecialistRow({ companionId, member, busy, setBusy, onError, onReload }
   const [prompt, setPrompt] = useState("");
   const [revisions, setRevisions] = useState<AgentTemplateRevision[] | null>(null);
   const [restoreRevision, setRestoreRevision] = useState("");
+  const [revisionLoading, setRevisionLoading] = useState(false);
+  const [revisionError, setRevisionError] = useState("");
+  const [editName, setEditName] = useState(member.profile.name);
+  const [editInstructions, setEditInstructions] = useState(member.profile.instructions);
+  const [editAvatar, setEditAvatar] = useState<CompanionAvatarValue>(member.profile.avatar);
+  const [editError, setEditError] = useState("");
+  const [editSaved, setEditSaved] = useState(false);
   const taskIntent = useRef<{ prompt: string; id: string } | null>(null);
 
   async function assign(event: FormEvent) {
@@ -215,12 +222,29 @@ function SpecialistRow({ companionId, member, busy, setBusy, onError, onReload }
   }
 
   async function loadRevisions() {
-    if (revisions) return;
+    if (revisions || revisionLoading) return;
+    setRevisionLoading(true); setRevisionError("");
     try {
       const result = await workspaceApi.templateRevisions(member.profile.id);
       setRevisions(result.revisions);
       setRestoreRevision(String(result.revisions.find(item => item.revision !== member.profile.revision)?.revision ?? ""));
-    } catch (cause) { onError(errorText(cause)); }
+    } catch (cause) { setRevisionError(errorText(cause)); }
+    finally { setRevisionLoading(false); }
+  }
+
+  async function saveProfile(event: FormEvent) {
+    event.preventDefault(); setBusy(`edit:${member.profile.id}`); setEditError(""); setEditSaved(false);
+    try {
+      await workspaceApi.updateTemplate(member.profile.id, {
+        name: editName.trim(),
+        instructions: editInstructions.trim(),
+        avatar: editAvatar,
+        revision: member.profile.revision,
+      });
+      setEditSaved(true);
+      await onReload();
+    } catch (cause) { setEditError(errorText(cause)); }
+    finally { setBusy(""); }
   }
 
   async function changeLimit(value: number) {
@@ -243,7 +267,20 @@ function SpecialistRow({ companionId, member, busy, setBusy, onError, onReload }
   return <article className="team-member">
     <div className="team-person"><CompanionAvatar name={member.profile.name} avatar={member.profile.avatar} size={48} /><div><strong>{member.profile.name}</strong><p>{member.profile.instructions || "Focused specialist profile."}</p></div><Button variant="outline" size="sm" onClick={() => setAssigning(value => !value)} aria-expanded={assigning} aria-controls={`assign-${member.profile.id}`}>Assign a task</Button></div>
     {assigning && <form className="team-task" id={`assign-${member.profile.id}`} onSubmit={assign}><div className="field"><label htmlFor={`task-${member.profile.id}`}>What should {member.profile.name} do?</label><Textarea autoFocus id={`task-${member.profile.id}`} rows={3} value={prompt} onChange={event => setPrompt(event.target.value)} /></div><div className="team-form-actions"><Button type="submit" disabled={!prompt.trim() || !!busy}>{busy === `spawn:${member.profile.id}` ? <LoaderCircle className="spin" /> : <CopyPlus />}Start task</Button><Button type="button" variant="ghost" disabled={!!busy} onClick={() => setAssigning(false)}>Cancel</Button></div></form>}
-    <details className="team-advanced" onToggle={event => { if (event.currentTarget.open) void loadRevisions(); }}><summary>Profile settings</summary><div className="team-advanced-content"><label>Simultaneous copies<select value={member.permission.maxChildren} disabled={!!busy} onChange={event => void changeLimit(Number(event.target.value))}>{limits.map(value => <option key={value} value={value}>{value}</option>)}</select></label>{revisions === null ? <span className="team-muted">Loading version history…</span> : revisions.length > 1 ? <div className="team-restore"><label>Earlier version<select value={restoreRevision} onChange={event => setRestoreRevision(event.target.value)}>{revisions.filter(item => item.revision !== member.profile.revision).map(item => <option value={item.revision} key={item.revision}>Version {item.revision} · {item.name}</option>)}</select></label><Button type="button" variant="outline" size="sm" disabled={!restoreRevision || !!busy} onClick={() => void restore()}>{busy === `restore:${member.profile.id}` ? <LoaderCircle className="spin" /> : <RotateCw />}Restore</Button></div> : <span className="team-muted">Version {member.profile.revision} is the only saved version.</span>}<Button className="team-remove" type="button" variant="ghost" size="sm" disabled={!!busy} onClick={() => void changeLimit(0)}><UserRoundMinus />Remove from team</Button></div></details>
+    <details className="team-advanced" onToggle={event => { if (event.currentTarget.open) void loadRevisions(); }}><summary>Profile settings</summary><div className="team-advanced-content">
+      <form className="team-profile-edit" onSubmit={saveProfile}>
+        <p>Changes update this shared profile and apply to future uses.</p>
+        <div className="field"><label htmlFor={`profile-name-${member.profile.id}`}>Profile name</label><input id={`profile-name-${member.profile.id}`} maxLength={80} value={editName} onChange={event => { setEditName(event.target.value); setEditSaved(false); }} /></div>
+        <div className="field"><label htmlFor={`profile-role-${member.profile.id}`}>Profile role</label><Textarea id={`profile-role-${member.profile.id}`} rows={3} maxLength={20_000} value={editInstructions} onChange={event => { setEditInstructions(event.target.value); setEditSaved(false); }} /></div>
+        <AvatarPicker value={editAvatar} onChange={value => { setEditAvatar(value); setEditSaved(false); }} />
+        {editError && <p className="field-error" role="alert">{editError}</p>}
+        {editSaved && <p className="team-save-status" role="status">Profile saved.</p>}
+        <Button type="submit" disabled={!editName.trim() || !!busy}>{busy === `edit:${member.profile.id}` ? <LoaderCircle className="spin" /> : <Check />}Save profile</Button>
+      </form>
+      <label>Simultaneous copies<select value={member.permission.maxChildren} disabled={!!busy} onChange={event => void changeLimit(Number(event.target.value))}>{limits.map(value => <option key={value} value={value}>{value}</option>)}</select></label>
+      {revisionError ? <div className="team-revision-error"><span role="alert">{revisionError}</span><Button type="button" variant="outline" size="sm" disabled={revisionLoading} onClick={() => void loadRevisions()}>{revisionLoading ? <LoaderCircle className="spin" /> : <RotateCw />}Retry history</Button></div> : revisions === null ? <span className="team-muted">Loading version history…</span> : revisions.length > 1 ? <div className="team-restore"><label>Earlier version<select value={restoreRevision} onChange={event => setRestoreRevision(event.target.value)}>{revisions.filter(item => item.revision !== member.profile.revision).map(item => <option value={item.revision} key={item.revision}>Version {item.revision} · {item.name}</option>)}</select></label><Button type="button" variant="outline" size="sm" disabled={!restoreRevision || !!busy} onClick={() => void restore()}>{busy === `restore:${member.profile.id}` ? <LoaderCircle className="spin" /> : <RotateCw />}Restore</Button></div> : <span className="team-muted">Version {member.profile.revision} is the only saved version.</span>}
+      <Button className="team-remove" type="button" variant="ghost" size="sm" disabled={!!busy} onClick={() => void changeLimit(0)}><UserRoundMinus />Remove from team</Button>
+    </div></details>
   </article>;
 }
 

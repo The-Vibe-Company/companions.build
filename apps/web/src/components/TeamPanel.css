@@ -61,8 +61,15 @@
 .team-advanced > summary { width: max-content; min-height: 44px; }
 .team-advanced > summary:hover { color: var(--foreground); }
 .team-advanced-content { display: grid; gap: 14px; padding: 2px 0 20px; }
-.team-advanced-content label { display: flex; align-items: center; justify-content: space-between; gap: 16px; color: var(--muted-foreground); font-size: .8125rem; }
+.team-advanced-content > label { display: flex; align-items: center; justify-content: space-between; gap: 16px; color: var(--muted-foreground); font-size: .8125rem; }
 .team-advanced-content select { min-height: 40px; max-width: min(100%, 260px); border: 1px solid var(--input); border-radius: 8px; padding: 7px 10px; background: var(--card); color: var(--foreground); }
+.team-profile-edit { display: grid; gap: 16px; border-bottom: 1px solid var(--border); padding-bottom: 20px; }
+.team-profile-edit > p:first-child { margin: 0; color: var(--muted-foreground); font-size: .8125rem; line-height: 1.5; }
+.team-profile-edit .field { margin: 0; }
+.team-profile-edit .avatar-picker { padding-top: 4px; }
+.team-profile-edit > button { width: max-content; min-height: 40px; }
+.team-save-status { margin: 0; color: oklch(.42 .1 145); font-size: .8125rem; }
+.team-revision-error { display: flex; align-items: center; justify-content: space-between; gap: 12px; color: var(--destructive); font-size: .75rem; }
 .team-restore { display: flex; align-items: flex-end; gap: 10px; }
 .team-restore label { flex: 1; align-items: flex-start; flex-direction: column; gap: 7px; }
 .team-restore select { width: 100%; max-width: none; }

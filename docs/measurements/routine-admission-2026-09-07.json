@@ -143,5 +143,139 @@
   "limits": [
     "No live provider calls were made for this change.",
     "Webhook atomic admission is validated separately."
-  ]
+  ],
+  "controlMcpFollowup": {
+    "applicationCommit": "888eba8",
+    "verification": {
+      "status": "passed",
+      "run": "2fd40ce7abda",
+      "seconds": 45.81,
+      "postgres": {
+        "major": 18,
+        "image": "postgres@sha256:4ef4dbc939d61acea57712655ddb4b4ab27419c913f94cca0cd57cb3ea3c2280",
+        "backupSha256": "a7b58216cc5be84f3993f2a58af5b33a77d3d55e0576d0e0aee704f1742a2713"
+      },
+      "steps": [
+        {
+          "name": "database-volume",
+          "exitCode": 0,
+          "seconds": 0.039
+        },
+        {
+          "name": "database",
+          "exitCode": 0,
+          "seconds": 0.178
+        },
+        {
+          "name": "storage",
+          "exitCode": 0,
+          "seconds": 0.227
+        },
+        {
+          "name": "storage-bucket",
+          "exitCode": 0,
+          "seconds": 0.229
+        },
+        {
+          "name": "install",
+          "exitCode": 0,
+          "seconds": 0.071
+        },
+        {
+          "name": "web-install",
+          "exitCode": 0,
+          "seconds": 0.07
+        },
+        {
+          "name": "typecheck",
+          "exitCode": 0,
+          "seconds": 2.291
+        },
+        {
+          "name": "agent-unit",
+          "exitCode": 0,
+          "seconds": 1.381
+        },
+        {
+          "name": "distribution-content-linux",
+          "exitCode": 0,
+          "seconds": 0.81
+        },
+        {
+          "name": "agent-build",
+          "exitCode": 0,
+          "seconds": 0.243
+        },
+        {
+          "name": "system",
+          "exitCode": 0,
+          "seconds": 29.156
+        },
+        {
+          "name": "web-tests",
+          "exitCode": 0,
+          "seconds": 2.944
+        },
+        {
+          "name": "web-build",
+          "exitCode": 0,
+          "seconds": 3.078
+        },
+        {
+          "name": "postgres-restore-seed",
+          "exitCode": 0,
+          "seconds": 0.292
+        },
+        {
+          "name": "postgres-backup",
+          "exitCode": 0,
+          "seconds": 0.132
+        },
+        {
+          "name": "postgres-backup-copy",
+          "exitCode": 0,
+          "seconds": 0.02
+        },
+        {
+          "name": "postgres-crash",
+          "exitCode": 0,
+          "seconds": 0.276
+        },
+        {
+          "name": "postgres-recovery-volume",
+          "exitCode": 0,
+          "seconds": 0.019
+        },
+        {
+          "name": "postgres-recovery",
+          "exitCode": 0,
+          "seconds": 0.224
+        },
+        {
+          "name": "postgres-restore-copy",
+          "exitCode": 0,
+          "seconds": 0.036
+        },
+        {
+          "name": "postgres-restore",
+          "exitCode": 0,
+          "seconds": 0.276
+        },
+        {
+          "name": "postgres-restore-verify",
+          "exitCode": 0,
+          "seconds": 0.226
+        }
+      ]
+    },
+    "regression": "Editing a disabled routine implicitly applied the creation default enabled=true.",
+    "fix": "An explicit patch schema preserves omitted activation state across API and MCP.",
+    "test": "Persisted applyControl creation, edit, manual test, duplicate command, deletion and deleted-ID refusal.",
+    "reproducedBeforeFix": true,
+    "cleanup": {
+      "ownedVerificationContainersRemaining": 0,
+      "ownedVerificationVolumesRemaining": 0,
+      "boxCalls": 0
+    }
+  }
 }

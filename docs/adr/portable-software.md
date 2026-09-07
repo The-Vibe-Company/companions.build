@@ -1,0 +1,138 @@
+# Portable software for client deliveries
+
+Status: accepted security boundary; implementation pending.
+
+## Context
+
+An agent template includes its prepared software environment. Private templates can preserve that
+environment by capturing a child Box directly. A client delivery cannot reuse that snapshot: it may
+contain browser sessions, credentials, history, private files, or software configuration that no
+general scanner can identify safely.
+
+The current delivery path copies the profile, selected model, and validated local Pi skills into a
+fresh Box created from the platform base. It does not transfer other software installed in the
+source Box. A private snapshot without a portable manifest is therefore an unverified source
+environment, not proof that the delivered copy is prepared.
+
+The headless Pi process cannot bridge this gap itself. It runs as the unprivileged
+`companions-agent` user with no capabilities, no sudo, a read-only root filesystem, and only its
+agent state mounted writable. It may install local skills in that state. It cannot install system
+packages or safely turn arbitrary writable files into a client image.
+
+## Decision
+
+Client software is rebuilt from a pinned declarative manifest in a fresh, credential-free build
+Box. The builder never starts from the provider's Companion or its captured snapshot. It produces a
+new immutable snapshot which delivered Companions and specialist templates can use with fresh
+execution identities and client-owned connections.
+
+The locked manifest has this logical shape:
+
+```ts
+type PackageId = string;
+type PortableSoftwareManifestV1 = {
+  version: 1;
+  base: {
+    id: string;                 // opaque platform identity
+    distributionDigest: string; // lowercase SHA-256
+    distro: {
+      family: string;
+      suite: string;
+      architecture: string;
+    };
+  };
+  apt: {
+    roots: PackageId[];
+    packages: Array<{
+      id: PackageId;
+      name: string;
+      version: string;
+      architecture: string;
+      sha256: string;
+      dependencies: PackageId[];
+    }>;
+  };
+  npm: {
+    roots: PackageId[];
+    packages: Array<{
+      id: PackageId;
+      name: string;
+      version: string;
+      integrity: string; // sha512 SRI
+      dependencies: PackageId[];
+    }>;
+  };
+};
+```
+
+The actual distro family and suite come from a verified base-image probe. They are not hard-coded
+to Debian or to a release name. The opaque base identity selects an immutable, platform-owned Box
+base; `distributionDigest` binds its software distribution and provisioning helper. Distro values
+use a short lowercase identifier grammar. Package names, versions, architectures, SHA-256 values,
+SRI values, and package IDs each have strict ecosystem-specific grammars and length limits.
+
+Every dependency edge names an entry in the same manifest. Roots and the complete resolved closure
+are sorted, unique, target-specific, and bounded. npm versions are exact registry versions, never
+ranges, tags, aliases, Git sources, or file references. Every npm archive has SHA-512 SRI. Every apt
+package has an exact version, architecture, and `.deb` SHA-256 from the configured immutable,
+signed repository snapshot. Unknown fields are rejected.
+
+The manifest contains no URLs, shell commands, lifecycle scripts, environment variables, headers,
+tokens, filesystem destinations, or provider snapshot names. npm lifecycle scripts are disabled.
+Packages that require them are unsupported in version 1. Apt maintainer scripts remain trusted
+distribution package content; only the configured signed repository snapshot is eligible, and no
+user-provided maintainer script or repository is accepted.
+
+Canonical JSON uses lexicographically sorted object keys and package/dependency arrays sorted by
+ID. Its SHA-256 is stored with the template revision and delivery build. A template edit or rollback
+creates or restores a complete profile, skill bundle, software manifest, and clean snapshot
+revision together.
+
+## Recording and building
+
+A future product operation records desired public packages. It does not give Pi sudo and does not
+claim the packages are installed. A trusted resolver converts that request into the closed locked
+manifest above. Manual installs made through the desktop, language-manager state, arbitrary
+binaries, and files outside portable skills remain private and unverified until they are expressed
+and rebuilt through this contract. Source-Box inventory may suggest requirements to the user, but
+it cannot automatically authorize a recipe or prove that the source contains no secrets.
+
+The runtime lifecycle owner claims a durable build job, creates a Box from the pinned clean base,
+and supplies no model, plugin, OAuth, browser, source-agent, or client credentials. A root-owned
+helper baked into that base validates the manifest again and installs it using fixed argv,
+the configured apt repository snapshot, and the configured public npm registry. Pi cannot invoke
+this helper. npm installation uses lifecycle scripts disabled and a fixed product prefix. The
+builder independently verifies the installed package closure and hashes before capturing the clean
+snapshot.
+
+Create, install, verify, snapshot, and cleanup each have a durable checkpoint and stable operation
+identity. An ambiguous snapshot request is observed by its persisted name and is never submitted
+blindly again. An invitation that promises prepared software remains pending until its clean
+snapshot is confirmed. A failed build exposes a safe stable error and cannot be presented as ready.
+Ordinary Companion wake-up performs no package installation.
+
+## Required implementation
+
+The implementation needs immutable manifest storage; manifest references on templates and template
+revisions; delivery build rows pinned to the selected revision; a runtime-only build progression;
+and final snapshot references on the delivered main Companion and copied specialist templates.
+Delivery state must distinguish profile-and-skills readiness from clean-software readiness without
+describing an unverified source snapshot as portable.
+
+Acceptance must prove:
+
+- validation rejects ranges, alternate registries, URLs, commands, environment values, unknown
+  fields, incomplete closures, duplicate identities, bad hashes, and npm lifecycle requirements;
+- the build starts from the registered base identity and never reads or references the source Box
+  or source snapshot;
+- no source, model, plugin, OAuth, browser, or client credential enters the build Box;
+- declared packages are independently observed in a delivered Box, with no installer invocation on
+  wake;
+- two client deliveries have independent Boxes, files, connections, histories, and later changes;
+- the selected template revision remains pinned across retries, edits, and rollbacks;
+- failures around every provider effect recover without duplicate Boxes, installs, or snapshots;
+- pending and failed builds never send or display a prepared-software success; and
+- cleanup cannot delete a snapshot or manifest still referenced by a delivery or template revision.
+
+Until this builder exists, profile, model, and portable-skill delivery remains useful but is not
+evidence that arbitrary software from a prepared source Box was transferred.

@@ -101,3 +101,17 @@ bind. A failed preflight prevents a misleading healthy endpoint. Migration is on
 ordinary wakes only perform the small storage preflight. A failed/ambiguous chat is never replayed
 by migration. The optional live canaries verify physical paths via authorized provider commands;
 the host's old home path intentionally continues to show the retained backup.
+
+A later owned-Box diagnostic found `workspace` and `sessions` root-owned while the physical state
+root, sibling directories and existing files remained agent-owned. A nonce directory/file created
+as the agent kept that ownership through archive/resume, so a general `/var` ownership reset was
+not demonstrated. The exact origin of those two directories remains unresolved.
+
+Startup now validates and reconciles only a fixed list of runtime directories: `workspace`,
+`sessions`, `pi`, `outbox`, `pi/skills`, `sessions/background` and `workspace/inbox`. It rejects
+symlinks/outside paths and does not walk or chown user project trees. The unprivileged preflight
+creates/rewrites/renames a file and commits SQLite WAL in each managed directory as well as the
+state root. The Linux restart proof injects the exact partial root ownership, retains old bytes,
+then requires a new real Pi write. The live wake canary also requires a new UUID-named file and an
+independent provider read after resume; reading or rewriting an existing writable file is no
+longer sufficient evidence.

@@ -75,7 +75,8 @@ assert (Path(result.stdout.strip())/'workspace/latest').read_text()=='latest bef
 child='00000000-0000-4000-8000-000000000003';configure(child)
 child_logical=logical/'agents'/child
 result=migrate(child_logical);assert result.returncode==0,result.stderr
-assert list(Path(result.stdout.strip()).iterdir())==[]
+assert not list(Path(result.stdout.strip()).rglob('*.jsonl'))
+assert not (Path(result.stdout.strip())/'runs.sqlite').exists()
 assert not child_logical.exists()
 # Actual UID verifies both SQLite writes and refusal of wrongly owned new files.
 preflight=['setpriv','--reuid='+str(agent.pw_uid),'--regid='+str(agent.pw_gid),'--init-groups','python3','/opt/companions/state-preflight.py',str(physical)]
@@ -84,6 +85,25 @@ os.chown(physical,1000,1000)
 assert S.run(preflight,capture_output=True).returncode!=0
 os.chown(physical,agent.pw_uid,agent.pw_gid)
 assert S.run(preflight).returncode==0
+# The concrete live drift: only managed workspace/sessions became root-owned.
+# Preflight must refuse it even though the state root and existing files work.
+configure(identity)
+for relative in ['workspace','sessions']:
+    path=physical/relative;path.mkdir(exist_ok=True);os.chown(path,0,0);path.chmod(0o755)
+private=physical/'workspace'/'user-project';private.mkdir();os.chown(private,0,0)
+assert S.run(preflight,capture_output=True).returncode!=0
+result=migrate();assert result.returncode==0,result.stderr
+assert all((physical/relative).stat().st_uid==agent.pw_uid for relative in ['workspace','sessions'])
+assert private.stat().st_uid==0 # No recursive ownership repair of user projects.
+assert (physical/'workspace/new-result').read_text()=='new authoritative result'
+assert S.run(preflight).returncode==0
+# Managed symlinks are rejected; neither the target nor retained history is changed.
+(physical/'sessions').rename(physical/'retained-sessions')
+outside=Path('/tmp/not-agent-state');outside.mkdir();(physical/'sessions').symlink_to(outside)
+result=migrate();assert result.returncode!=0 and 'UNSAFE_MANAGED_STATE_DIRECTORY' in result.stderr
+assert outside.stat().st_uid==0
+assert S.run(preflight,capture_output=True).returncode!=0
+(physical/'sessions').unlink();(physical/'retained-sessions').rename(physical/'sessions')
 # An unverified existing destination is never silently adopted or overwritten.
 fourth='00000000-0000-4000-8000-000000000004';configure(fourth)
 foreign=Path('/var/lib/companions-agent')/fourth;foreign.mkdir();(foreign/'keep').write_text('untouched')

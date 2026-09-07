@@ -48,6 +48,27 @@ def manifest(root):
     return hashlib.sha256(json.dumps(entries, separators=(',', ':')).encode()).hexdigest()
 
 
+def managed_directories(root, agent):
+    # These are runtime-owned entry points, not arbitrary project directories.
+    # Check only this fixed set on wake; never scan/chown the user's tree.
+    if root.resolve() != root or root.lstat().st_uid != agent.pw_uid:
+        fail('UNSAFE_PHYSICAL_STATE_DIRECTORY')
+    for relative in ['workspace', 'sessions', 'pi', 'outbox', 'pi/skills', 'sessions/background', 'workspace/inbox']:
+        path = root / relative
+        if path.resolve() != path:
+            fail('UNSAFE_MANAGED_STATE_DIRECTORY')
+        path.mkdir(mode=0o700, exist_ok=True)
+        if not path.is_dir():
+            fail('UNSAFE_MANAGED_STATE_DIRECTORY')
+        info = path.lstat()
+        if info.st_uid != agent.pw_uid or info.st_gid != agent.pw_gid:
+            os.chown(path, agent.pw_uid, agent.pw_gid, follow_symlinks=False)
+        if stat.S_IMODE(info.st_mode) & 0o700 != 0o700:
+            path.chmod(stat.S_IMODE(info.st_mode) | 0o700)
+        if path.lstat().st_uid != agent.pw_uid:
+            fail('HEADLESS_STATE_OWNERSHIP_CHANGED')
+
+
 def main():
     if os.getuid() != 0 or len(sys.argv) != 2:
         fail('STATE_MIGRATION_ROOT_REQUIRED')
@@ -101,6 +122,7 @@ def main():
         if not target.is_dir():
             fail('STATE_MIGRATION_TARGET_MISSING')
         # The legacy home tree is a retained backup, never a subsequent source.
+        managed_directories(target, agent)
         print(target)
         return
     if target.exists():
@@ -129,14 +151,15 @@ def main():
         for path in reversed([staging, *staging.rglob('*')]):
             if path.is_dir() and not path.is_symlink():
                 sync_directory(path)
+        result = subprocess.run(['setpriv', '--reuid=' + str(agent.pw_uid), '--regid=' + str(agent.pw_gid), '--init-groups',
+                                 'python3', '/opt/companions/state-preflight.py', str(staging), '--root-only'], capture_output=True)
+        if result.returncode:
+            fail('HEADLESS_STATE_PREFLIGHT_FAILED')
         save('verified', manifest(staging))
         os.rename(staging, target)
         sync_directory(parent)
-    result = subprocess.run(['setpriv', '--reuid=' + str(agent.pw_uid), '--regid=' + str(agent.pw_gid), '--init-groups',
-                             'python3', '/opt/companions/state-preflight.py', str(target)], capture_output=True)
-    if result.returncode:
-        fail('HEADLESS_STATE_PREFLIGHT_FAILED')
     save('committed')
+    managed_directories(target, agent)
     print(target)
 
 

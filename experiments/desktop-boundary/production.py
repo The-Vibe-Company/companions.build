@@ -115,4 +115,33 @@ assert counts['agent']==before['agent'];assert counts['human']==before['human']+
 assert int((workspace/'network-counter').read_text())>network_before+5
 desktop(2,False);resumed=start('desktop-key-fixture');until(lambda:finished(resumed));assert counts['agent']>before['agent']
 until(lambda:finished(network))
-print(json.dumps({'status':'passed','realPiTools':True,'guiPaused':True,'chatDuringTakeover':True,'headlessNetworkDuringTakeover':True,'humanGuiWorks':True,'directBypassDenied':True,'freshCaptureAndResume':True}))
+# Restart with the exact live partial drift. Existing file contents survive,
+# while a new real Pi tool write must work after the bounded directory repair.
+import signal
+for pid in S.check_output(['ip','netns','pids','companions-agent'],text=True).split():
+    try:os.kill(int(pid),signal.SIGTERM)
+    except ProcessLookupError:pass
+# Match service stop semantics: bounded TERM, then kill remaining owned members.
+# Namespace PID 1 may ignore default TERM while its main loop is idle.
+time.sleep(.3)
+for pid in S.check_output(['ip','netns','pids','companions-agent'],text=True).split():
+    try:os.kill(int(pid),signal.SIGKILL)
+    except ProcessLookupError:pass
+# This fixture has exactly one headless UID. Include its descendants even if
+# the emulated process is absent from ip netns pids; keep the desktop UID alive.
+S.run(['pkill','-KILL','-u','companions-agent'],stdout=S.DEVNULL,stderr=S.DEVNULL)
+daemon.wait(timeout=5)
+until(lambda:not S.check_output(['ip','netns','pids','companions-agent'],text=True).strip())
+assert not ready(), 'old daemon still reachable after namespace members stopped'
+for relative in ['workspace','sessions']:
+    path=workspace.parent/relative;os.chown(path,0,0);path.chmod(0o755)
+(workspace/'note.txt').rename(workspace/'retained-note.txt')
+token=str(uuid.uuid4())
+daemon=S.Popen(['python3','/opt/companions/launch-headless.py'],env={**os.environ,'AGENT_STATE_DIR':state,'AGENT_TOKEN':token,'AGENT_TEST_MODE':'1','PORT':'8787'},stdout=S.DEVNULL)
+until(ready)
+new_note=start('write-note','background');result=until(lambda:finished(new_note))
+assert (workspace/'note.txt').exists(), 'New Pi write missing after managed directory restart'
+assert (workspace/'note.txt').read_bytes()==(workspace/'retained-note.txt').read_bytes()
+assert (workspace/'note.txt').stat().st_uid==pwd.getpwnam('companions-agent').pw_uid
+assert all((workspace.parent/relative).stat().st_uid==pwd.getpwnam('companions-agent').pw_uid for relative in ['workspace','sessions'])
+print(json.dumps({'status':'passed','realPiTools':True,'guiPaused':True,'chatDuringTakeover':True,'headlessNetworkDuringTakeover':True,'humanGuiWorks':True,'directBypassDenied':True,'freshCaptureAndResume':True,'managedDirectoryRestart':True}))

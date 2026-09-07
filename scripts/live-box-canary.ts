@@ -70,10 +70,18 @@ if (!state.wake) {
   await waitFor("archive", async () => (await box.get(state.boxId)).state === "archived");
   state.archiveSeconds = (performance.now() - started) / 1000; await save();
   const originalId = state.boxId;
+  const wakeId = z.string().uuid().parse(state.wakeMessageId);
+  const probeName = `wake-write-${wakeId}.txt`;
   await task(state.wakeMessageId,
-    "Read the existing box-canary.sh, execute it with bash and verify its output. Do not rewrite it. Reply exactly BOX_CANARY_OK and nothing else.", "wake");
+    `Read the existing box-canary.sh, execute it with bash and verify its output. Do not rewrite it. Create a NEW workspace file named ${probeName} containing exactly ${wakeId}, then read it back and verify it. Reply exactly BOX_CANARY_OK and nothing else.`, "wake");
   if (state.boxId !== originalId) throw new Error("BOX_ID_CHANGED");
 }
+// Re-running the script must still verify the independent file proof if a
+// previous observation failed after the task's successful status was journaled.
+const wakeId = z.string().uuid().parse(state.wakeMessageId);
+const written = await box.command(state.boxId, `sudo -n cat /var/lib/companions-agent/${state.companionId}/workspace/wake-write-${wakeId}.txt`, 30);
+if (written.trim() !== wakeId) throw Error("CANARY_WAKE_WRITE_MISMATCH");
+state.wake.newFileVerified = true; await save();
 await waitFor("desktop", async () => {
   try { const { url } = await api(`${path}/desktop`, {}); return new URL(url).protocol === "https:"; } catch { return false; }
 }, 60_000);

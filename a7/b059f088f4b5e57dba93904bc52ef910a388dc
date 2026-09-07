@@ -1,0 +1,21 @@
+apps/server/src/plugins.ts
+  s_f0346c90274a7b::t_c01b654675e52e 143-152,154-156,158,161-165
+apps/server/test/plugins.test.ts
+  s_f0346c90274a7b::t_f7d802000ee1fc 3-4,70-94
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "a7b059f088f4b5e57dba93904bc52ef910a388dc",
+  "prompts": {},
+  "sessions": {
+    "s_f0346c90274a7b": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a07d79-c546-7d50-9722-768df9e521b4",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "StanGirard <stan@quivr.app>"
+    }
+  }
+}

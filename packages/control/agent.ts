@@ -20,7 +20,7 @@ export class AgentControl {
   private readonly db:Database;
   private plugins:MachinePlugin[]=[];
   private generation='';
-  constructor(stateDir:string,private readonly skills=new AgentSkills(stateDir),private readonly afterLocalSkillMutation?:()=>void) {
+  constructor(stateDir:string,private readonly skills=new AgentSkills(stateDir),private readonly afterLocalSkillControl?:()=>void) {
     mkdirSync(stateDir,{recursive:true});
     this.db=new Database(join(stateDir,'control.sqlite'));
     this.db.exec(`PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL;
@@ -71,7 +71,7 @@ export class AgentControl {
     const id=typeof input==='object'&&input!==null&&'clientOperationId' in input?(input as any).clientOperationId:null;
     if(typeof id!=='string'||!/^[a-f0-9]{8}-[a-f0-9]{4}-[1-5][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i.test(id))return {error:'INVALID_SKILL_OPERATION'};
     const serialized=JSON.stringify(input),fingerprint=createHash('sha256').update(serialized).digest('hex');
-    const checkpoint=operation==='skill_remove'?null:this.skills.mutationCheckpoint(input);
+    const checkpoint=operation==='skill_remove'?null:this.skills.mutationCheckpoint(operation,input);
     const storedInput=JSON.stringify({fingerprint,checkpoint});
     const created=this.db.query('INSERT INTO local_requests(id,run_id,operation,input,created_at) VALUES(?,?,?,?,?) ON CONFLICT DO NOTHING').run(id,runId,operation,storedInput,Date.now());
     const row=this.db.query('SELECT run_id AS runId,operation,input,result,status FROM local_requests WHERE id=?').get(id) as any;
@@ -81,7 +81,7 @@ export class AgentControl {
     const result=!created.changes&&operation!=='skill_remove'&&prior.checkpoint
       ?this.skills.reconcileMutation(operation,input,prior.checkpoint)
       :this.skills.control(operation,input);
-    if(result&&typeof result==='object'&&!('error' in result))this.afterLocalSkillMutation?.();
+    this.afterLocalSkillControl?.();
     this.db.query("UPDATE local_requests SET result=?,status='done' WHERE id=? AND status='pending'").run(JSON.stringify(result),id);
     // Retain a bounded recent idempotency window. Removal has its own independent
     // 500-entry filesystem journal so a SQLite cleanup cannot delete a reinstallation.

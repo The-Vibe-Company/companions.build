@@ -188,3 +188,21 @@ test("an ambiguous update retry never overwrites a newer reinstall",async()=>{
     expect(readFileSync(join(directory,"pi","skills","writer","SKILL.md"),"utf8")).toContain("Version three");
   }finally{control.close();}
 });
+
+test("a pending invalid CAS cannot become successful after another writer installs its target",async()=>{
+  const directory=state(),skills=new AgentSkills(directory),runId=crypto.randomUUID();
+  const first={name:"writer",files:[file("SKILL.md","---\ndescription: Writes.\n---\nVersion one")]};
+  let control=new AgentControl(directory,skills);
+  await control.call(runId,"skill_install",{clientOperationId:crypto.randomUUID(),skill:first});
+  const firstHash=(await control.call(runId,"skills",{}) as any).skills[0].hash;control.close();
+  const target={name:"writer",files:[file("SKILL.md","---\ndescription: Writes.\n---\nTarget version")]};
+  const invalid={clientOperationId:crypto.randomUUID(),expectedHash:"0".repeat(64),skill:target};let fail=true;
+  control=new AgentControl(directory,skills,()=>{if(fail){fail=false;throw new Error("FAULT_AFTER_SKILL_CONTROL");}});
+  await expect(control.call(runId,"skill_update",invalid)).rejects.toThrow("FAULT_AFTER_SKILL_CONTROL");control.close();
+  expect(skills.control("skill_update",{clientOperationId:crypto.randomUUID(),expectedHash:firstHash,skill:target})).toMatchObject({imported:["writer"]});
+  control=new AgentControl(directory,skills);
+  try{
+    expect(await control.call(runId,"skill_update",invalid)).toEqual({error:"SKILL_NAME_CONFLICT"});
+    expect(readFileSync(join(directory,"pi","skills","writer","SKILL.md"),"utf8")).toContain("Target version");
+  }finally{control.close();}
+});

@@ -68,22 +68,34 @@ export class AgentSkills {
 
   /** Captures enough pre-mutation state to reconcile a crash between the filesystem rename and
    * the local idempotency journal commit. Invalid/conflicting requests remain safe to replay. */
-  mutationCheckpoint(raw:unknown):SkillMutationCheckpoint|null{
+  mutationCheckpoint(operation:"skill_install"|"skill_update",raw:unknown):SkillMutationCheckpoint|null{
+    try{
+      const value=z.object({clientOperationId:operationIdSchema,expectedHash:hashSchema.optional(),skill:controlSkillSchema}).strict().parse(raw);
+      const [skill]=validateManifest({version:1,skills:[value.skill]});
+      if(this.packageInRoot(this.roots[1],skill.name))return null;
+      const currentHash=this.packageInRoot(this.importRoot,skill.name)?.hash??null;
+      if(operation==="skill_install"&&(value.expectedHash!==undefined||(currentHash!==null&&currentHash!==skill.hash)))return null;
+      if(operation==="skill_update"&&(value.expectedHash===undefined||currentHash===null||currentHash!==value.expectedHash))return null;
+      return {name:skill.name,currentHash,targetHash:skill.hash,bundleHash:bundleHash([skill])};
+    }catch{return null;}
+  }
+
+  reconcileMutation(operation:"skill_install"|"skill_update",raw:unknown,before:SkillMutationCheckpoint){
+    const current=this.mutationState(raw);
+    if(!current||current.name!==before.name||current.targetHash!==before.targetHash||current.bundleHash!==before.bundleHash)return {error:"SKILL_OPERATION_CONFLICT"};
+    if(current.currentHash===before.currentHash)return this.control(operation,raw);
+    if(current.currentHash!==before.targetHash)return {error:"SKILL_NAME_CONFLICT"};
+    const changed=before.currentHash!==before.targetHash;
+    return {bundleHash:before.bundleHash,imported:changed?[before.name]:[],unchanged:changed?[]:[before.name]};
+  }
+
+  private mutationState(raw:unknown):SkillMutationCheckpoint|null{
     try{
       const value=z.object({clientOperationId:operationIdSchema,expectedHash:hashSchema.optional(),skill:controlSkillSchema}).strict().parse(raw);
       const [skill]=validateManifest({version:1,skills:[value.skill]});
       if(this.packageInRoot(this.roots[1],skill.name))return null;
       return {name:skill.name,currentHash:this.packageInRoot(this.importRoot,skill.name)?.hash??null,targetHash:skill.hash,bundleHash:bundleHash([skill])};
     }catch{return null;}
-  }
-
-  reconcileMutation(operation:"skill_install"|"skill_update",raw:unknown,before:SkillMutationCheckpoint){
-    const current=this.mutationCheckpoint(raw);
-    if(!current||current.name!==before.name||current.targetHash!==before.targetHash||current.bundleHash!==before.bundleHash)return {error:"SKILL_OPERATION_CONFLICT"};
-    if(current.currentHash===before.currentHash)return this.control(operation,raw);
-    if(current.currentHash!==before.targetHash)return {error:"SKILL_NAME_CONFLICT"};
-    const changed=before.currentHash!==before.targetHash;
-    return {bundleHash:before.bundleHash,imported:changed?[before.name]:[],unchanged:changed?[]:[before.name]};
   }
 
   async handleRequest(request: Request): Promise<Response | null> {

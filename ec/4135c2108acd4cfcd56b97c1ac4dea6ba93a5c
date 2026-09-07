@@ -1,0 +1,27 @@
+docs/completion-audit.md
+  s_f946242dcf6ba9::t_dc381a54713a63 91-95
+docs/measurements/local-postgres18-routines-2026-09-07.json
+  s_f946242dcf6ba9::t_88814eea29c712 1-34
+docs/v0.md
+  s_f946242dcf6ba9::t_2becd27d0bede3 168
+scripts/test-postgres-restore.ts
+  s_f946242dcf6ba9::t_010fdd03411bf7 67-72
+scripts/verify.py
+  s_f946242dcf6ba9::t_a6ea94188a9697 130-132,136-138
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "ec4135c2108acd4cfcd56b97c1ac4dea6ba93a5c",
+  "prompts": {},
+  "sessions": {
+    "s_f946242dcf6ba9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a06de4-a8a5-7cd3-b713-2a8d451f7200",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "StanGirard <stan@quivr.app>"
+    }
+  }
+}

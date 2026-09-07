@@ -13,6 +13,8 @@ export interface InitializationProcess {
   pid: number;
   exited: Promise<number>;
   killGroup(signal: "SIGTERM" | "SIGKILL"): void;
+  /** Checks the process group, including descendants after the original shell has exited. */
+  isGroupAlive?(): boolean | Promise<boolean>;
 }
 
 export type InitializationLauncher = (script: string, cwd: string) => InitializationProcess;
@@ -79,6 +81,9 @@ export class InitializationRunner {
         this.finish("timed_out", null);
         return { kind: "warning", status: "timed_out", warning: TIMEOUT_WARNING };
       }
+      // A shell can exit while a background descendant remains in its detached process group.
+      // Never overlap that descendant with the model mission.
+      if (await this.groupAlive(child)) await this.stopAndConfirm(child);
       if (outcome === 0) {
         this.finish("succeeded", 0);
         return { kind: "ready", status: "succeeded" };
@@ -117,13 +122,27 @@ export class InitializationRunner {
   }
 
   private async stopAndConfirm(child: InitializationProcess): Promise<void> {
+    if (!await this.groupAlive(child)) return;
     child.killGroup("SIGTERM");
-    const grace = Symbol("grace");
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const expired = new Promise<typeof grace>(resolve => { timer = setTimeout(() => resolve(grace), this.terminationGraceMs); });
-    const outcome = await Promise.race([child.exited, expired]);
-    if (timer) clearTimeout(timer);
-    if (outcome === grace) { child.killGroup("SIGKILL"); await child.exited; }
+    if (await this.waitForGroupExit(child, this.terminationGraceMs)) return;
+    child.killGroup("SIGKILL");
+    if (!await this.waitForGroupExit(child, this.terminationGraceMs)) throw new Error("INIT_PROCESS_GROUP_STILL_ACTIVE");
+  }
+
+  private async groupAlive(child: InitializationProcess): Promise<boolean> {
+    if (child.isGroupAlive) return await child.isGroupAlive();
+    // Compatibility for injected runners that only model the root process.
+    return true;
+  }
+
+  private async waitForGroupExit(child: InitializationProcess, timeoutMs: number): Promise<boolean> {
+    if (!child.isGroupAlive) { await child.exited; return true; }
+    const deadline = Date.now() + timeoutMs;
+    do {
+      if (!await child.isGroupAlive()) return true;
+      await Bun.sleep(Math.min(25, Math.max(1, deadline - Date.now())));
+    } while (Date.now() < deadline);
+    return !await child.isGroupAlive();
   }
 }
 
@@ -131,5 +150,12 @@ function launchInitialization(script: string, cwd: string): InitializationProces
   const child = Bun.spawn(["/bin/sh", "-lc", script], {
     cwd, env: process.env, stdin: "ignore", stdout: "ignore", stderr: "ignore", detached: true,
   });
-  return { pid: child.pid, exited: child.exited, killGroup(signal) { process.kill(-child.pid, signal); } };
+  return {
+    pid: child.pid, exited: child.exited,
+    killGroup(signal) { process.kill(-child.pid, signal); },
+    isGroupAlive() {
+      try { process.kill(-child.pid, 0); return true; }
+      catch (error: any) { if (error?.code === "ESRCH") return false; throw error; }
+    },
+  };
 }

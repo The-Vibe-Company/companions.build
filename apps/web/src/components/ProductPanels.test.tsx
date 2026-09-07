@@ -251,3 +251,45 @@ describe("specialist profile history", () => {
     expect(fetchMock).toHaveBeenCalledWith("/api/templates/t1/rollback", expect.objectContaining({ method: "POST", body: JSON.stringify({ targetRevision: 1, expectedRevision: 2 }) }));
   });
 });
+
+describe("embedded computer controls", () => {
+  const companion: Companion = { id: "c1", name: "Luna", instructions: "", provider: "box", status: "ready", error: null, createdAt: "2026-09-07T00:00:00Z", desktopTaken: true, desktopPausedAt: "2026-09-07T00:00:00Z" };
+  it("renders a page section and releases control only through the explicit action", async () => {
+    const fetchMock = vi.fn((..._args: unknown[]) => response({ requested: true }));
+    vi.stubGlobal("fetch", fetchMock);
+    const props = { companion, onClose: vi.fn(), onRefresh: vi.fn().mockResolvedValue(undefined), embedded: true };
+    const view = render(<DesktopSheet {...props} />);
+    expect(screen.getByRole("region", { name: "Computer controls" })).toBeInTheDocument();
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Close desktop controls" })).not.toBeInTheDocument();
+    expect(screen.getByText("You have control")).toBeInTheDocument();
+    view.rerender(<DesktopSheet {...props} active={false} />);
+    expect(screen.queryByRole("region")).not.toBeInTheDocument();
+    expect(fetchMock).not.toHaveBeenCalled();
+    view.rerender(<DesktopSheet {...props} active />);
+    await userEvent.setup().click(screen.getByRole("button", { name: "Release desktop" }));
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(String(fetchMock.mock.calls[0]?.[0])).toContain("desktop/release");
+    view.unmount();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+  it("stops pending viewer polling when the tab is hidden without releasing human control", async () => {
+    vi.useFakeTimers();
+    const fetchMock = vi.fn(() => response({ preparing: true }, 202));
+    vi.stubGlobal("fetch", fetchMock);
+    const close = vi.fn(), replace = vi.fn();
+    vi.spyOn(window, "open").mockReturnValue({ closed: false, close, location: { replace }, document: { title: "", body: { textContent: "", style: { cssText: "" } } } } as unknown as Window);
+    const props = { companion, onClose: vi.fn(), onRefresh: vi.fn().mockResolvedValue(undefined), embedded: true };
+    const view = render(<DesktopSheet {...props} />);
+    await act(async () => { screen.getByRole("button", { name: "Open desktop" }).click(); });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    view.rerender(<DesktopSheet {...props} active={false} />);
+    await act(async () => { await vi.advanceTimersByTimeAsync(10_000); });
+    expect(close).toHaveBeenCalledTimes(1);
+    expect(replace).not.toHaveBeenCalled();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    view.rerender(<DesktopSheet {...props} active />);
+    expect(screen.getByRole("button", { name: "Open desktop" })).toBeEnabled();
+    expect(screen.getByText("You have control")).toBeInTheDocument();
+  });
+});

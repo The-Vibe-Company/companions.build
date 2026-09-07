@@ -138,21 +138,26 @@ export function DeliverySettings({ companionId }: { companionId: string }) {
   return <form className="settings-stack delivery-form" onSubmit={submit}><div className="settings-intro"><Send /><div><h3>Deliver to a client</h3><p>A fresh, independent copy.</p></div></div><div className="field"><label htmlFor="delivery-email">Client email</label><input id="delivery-email" type="email" value={email} onChange={event => setEmail(event.target.value)} placeholder="client@company.com" /></div>{!!templates.length && <fieldset className="template-checks"><legend>Include specialist profiles</legend>{templates.map(item => <label key={item.id}><input type="checkbox" checked={selected.includes(item.id)} onChange={() => setSelected(current => current.includes(item.id) ? current.filter(id => id !== item.id) : [...current, item.id])} /><CompanionAvatar name={item.name} avatar={item.avatar} size={28} />{item.name}</label>)}</fieldset>}<label className="filter-toggle"><input type="checkbox" checked={maintenance} onChange={event => setMaintenance(event.target.checked)} />Request maintenance access</label>{notice && <p className={notice.kind === "ready" ? "success-copy" : notice.kind === "pending" ? "pending-copy" : "field-error"} role="status">{notice.text}</p>}<Button disabled={!email.trim() || busy}>{busy ? <LoaderCircle className="spin" /> : <Send />}Send invitation</Button></form>;
 }
 
-export function DesktopSheet({ companion, onClose, onRefresh }: { companion: Companion; onClose: () => void; onRefresh: () => Promise<void> }) {
+export function DesktopSheet({ companion, onClose, onRefresh, embedded = false, active = true }: { companion: Companion; onClose: () => void; onRefresh: () => Promise<void>; embedded?: boolean; active?: boolean }) {
   const [waiting, setWaiting] = useState<"pause" | "release" | "prepare" | "">(""); const [error, setError] = useState("");
   const desktopPoll = useRef<{ cancelled: boolean; popup: Window; timer?: number } | null>(null);
-  useEffect(() => () => {
-    if (!desktopPoll.current) return;
-    desktopPoll.current.cancelled = true;
-    if (desktopPoll.current.timer) window.clearTimeout(desktopPoll.current.timer);
-    if (!desktopPoll.current.popup.closed) desktopPoll.current.popup.close();
-  }, []);
   useEffect(() => {
-    if (!waiting || waiting === "prepare") return;
+    if (!active) setWaiting("");
+    return () => {
+      // Only the pending viewer belongs to this panel; human control stays durable.
+      if (!desktopPoll.current) return;
+      desktopPoll.current.cancelled = true;
+      if (desktopPoll.current.timer) window.clearTimeout(desktopPoll.current.timer);
+      if (!desktopPoll.current.popup.closed) desktopPoll.current.popup.close();
+      desktopPoll.current = null;
+    };
+  }, [active, companion.id]);
+  useEffect(() => {
+    if (!active || !waiting || waiting === "prepare") return;
     if ((waiting === "pause" && companion.desktopPausedAt) || (waiting === "release" && !companion.desktopPausedAt)) { setWaiting(""); return; }
     if (companion.error) { setError(companion.error); setWaiting(""); return; }
     const timer = window.setInterval(() => void onRefresh(), 1_200); return () => window.clearInterval(timer);
-  }, [waiting, companion.desktopPausedAt, companion.error, onRefresh]);
+  }, [active, waiting, companion.desktopPausedAt, companion.error, onRefresh]);
   async function open() {
     const popup = window.open("about:blank", "_blank"); setError("");
     if (!popup) { setError("Allow pop-ups to open the desktop."); return; }
@@ -171,11 +176,14 @@ export function DesktopSheet({ companion, onClose, onRefresh }: { companion: Com
         if (result.url) { poll.cancelled = true; desktopPoll.current = null; popup.location.replace(result.url); setWaiting(""); void onRefresh(); return; }
         if (Date.now() - startedAt >= 5 * 60_000) { poll.cancelled = true; desktopPoll.current = null; popup.close(); setWaiting(""); setError("The desktop is taking longer than expected. Try again shortly."); return; }
         poll.timer = window.setTimeout(() => void attempt(), 2_000);
-      } catch (cause) { poll.cancelled = true; desktopPoll.current = null; popup.close(); setWaiting(""); setError(errorText(cause)); }
+      } catch (cause) { if (poll.cancelled) return; poll.cancelled = true; desktopPoll.current = null; popup.close(); setWaiting(""); setError(errorText(cause)); }
     };
     await attempt();
   }
   async function toggle() { const releasing = !!companion.desktopTaken; setWaiting(releasing ? "release" : "pause"); setError(""); try { if (releasing) await workspaceApi.releaseDesktop(companion.id); else await workspaceApi.takeDesktop(companion.id); await onRefresh(); } catch (cause) { setWaiting(""); setError(errorText(cause)); } }
   const confirmedPaused = !!companion.desktopPausedAt;
-  return <div className="sheet-layer"><button className="sheet-scrim" onClick={onClose} aria-label="Close desktop controls" /><aside className="desktop-sheet" role="dialog" aria-modal="true" aria-labelledby="desktop-title"><header className="sheet-header"><div><span>{companion.name}</span><h2 id="desktop-title">Desktop</h2></div><Button variant="ghost" size="icon" onClick={onClose} aria-label="Close desktop controls"><X /></Button></header><div className="desktop-content"><div className={`desktop-state ${confirmedPaused ? "desktop-state--paused" : ""}`}><CompanionAvatar name={companion.name} avatar={companion.avatar} size={68} /><span>{confirmedPaused ? <Pause /> : <MonitorUp />}</span></div><div><h3>{confirmedPaused ? "You have control" : waiting === "prepare" ? "Preparing desktop…" : waiting === "pause" ? "Taking control…" : "Open the computer"}</h3><p>{confirmedPaused ? "The desktop is yours. Chat and background work continue." : waiting === "prepare" ? "The new tab will open when the desktop is ready." : "View the desktop, or take control to make changes."}</p></div>{error && <p className="field-error" role="alert">{error}</p>}<div className="desktop-actions"><Button variant="outline" onClick={() => void open()} disabled={!!waiting}>{waiting === "prepare" ? <LoaderCircle className="spin" /> : <ArrowUpRight />}{waiting === "prepare" ? "Preparing…" : "Open desktop"}</Button><Button onClick={() => void toggle()} disabled={!!waiting}>{waiting && waiting !== "prepare" ? <LoaderCircle className="spin" /> : confirmedPaused ? <Play /> : <Pause />}{waiting === "release" ? "Releasing…" : waiting === "pause" ? "Taking control…" : confirmedPaused ? "Release desktop" : "Take control"}</Button></div><div className="trust-note"><ShieldCheck />Control is shown only after the computer confirms it.</div></div></aside></div>;
+  if (!active) return null;
+  const content = <div className="desktop-content"><div className={`desktop-state ${confirmedPaused ? "desktop-state--paused" : ""}`}><CompanionAvatar name={companion.name} avatar={companion.avatar} size={68} /><span>{confirmedPaused ? <Pause /> : <MonitorUp />}</span></div><div><h3>{confirmedPaused ? "You have control" : waiting === "prepare" ? "Preparing desktop…" : waiting === "pause" ? "Taking control…" : "Open the computer"}</h3><p>{confirmedPaused ? "The desktop is yours. Chat and background work continue." : waiting === "prepare" ? "The new tab will open when the desktop is ready." : "View the desktop, or take control to make changes."}</p></div>{error && <p className="field-error" role="alert">{error}</p>}<div className="desktop-actions"><Button variant="outline" onClick={() => void open()} disabled={!!waiting}>{waiting === "prepare" ? <LoaderCircle className="spin" /> : <ArrowUpRight />}{waiting === "prepare" ? "Preparing…" : "Open desktop"}</Button><Button onClick={() => void toggle()} disabled={!!waiting}>{waiting && waiting !== "prepare" ? <LoaderCircle className="spin" /> : confirmedPaused ? <Play /> : <Pause />}{waiting === "release" ? "Releasing…" : waiting === "pause" ? "Taking control…" : confirmedPaused ? "Release desktop" : "Take control"}</Button></div><div className="trust-note"><ShieldCheck />Control is shown only after the computer confirms it.</div></div>;
+  if (embedded) return <section aria-label="Computer controls">{content}</section>;
+  return <div className="sheet-layer"><button className="sheet-scrim" onClick={onClose} aria-label="Close desktop controls" /><aside className="desktop-sheet" role="dialog" aria-modal="true" aria-labelledby="desktop-title"><header className="sheet-header"><div><span>{companion.name}</span><h2 id="desktop-title">Desktop</h2></div><Button variant="ghost" size="icon" onClick={onClose} aria-label="Close desktop controls"><X /></Button></header>{content}</aside></div>;
 }

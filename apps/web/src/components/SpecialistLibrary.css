@@ -1,13 +1,13 @@
 .specialist-library{flex:1;min-width:0;min-height:0;height:100%;overflow:auto;background:var(--background);color:var(--foreground)}
-.specialist-library__inner{width:min(100%,972px);margin:0 auto;padding:40px 36px 72px}
+.specialist-library__inner{width:min(100%,900px);margin:0 auto;padding:40px 36px 72px}
 .specialist-library__heading{display:flex;align-items:flex-end;justify-content:space-between;gap:24px;margin-bottom:22px}
-.specialist-library__title{display:flex;align-items:flex-start;gap:12px;min-width:0}.specialist-library__title h1{margin:0;font-size:2rem;line-height:1.15;letter-spacing:-.035em;font-weight:560}.specialist-library__title p{max-width:680px;margin:10px 0 0;color:var(--muted-foreground);font-size:.9rem;line-height:1.55}.specialist-library__menu{display:none}
+.specialist-library__title{display:flex;align-items:flex-start;gap:12px;min-width:0}.specialist-library__title h1{margin:0;font-size:2rem;line-height:1.15;letter-spacing:-.035em;font-weight:550}.specialist-library__title p{max-width:680px;margin:10px 0 0;color:var(--muted-foreground);font-size:1rem;line-height:1.5}.specialist-library__menu{display:none}
 .specialist-library__error{display:flex;align-items:center;justify-content:space-between;gap:16px;margin:16px 0;padding:12px 14px;border-radius:10px;background:oklch(.965 .018 25);color:oklch(.43 .13 25);font-size:.84rem}
 .specialist-library__list{border-top:1px solid var(--border)}.specialist-library__row{border-bottom:1px solid var(--border)}
-.specialist-library__summary{display:grid;grid-template-columns:56px minmax(0,1fr) auto auto;align-items:center;gap:20px;min-height:80px;padding:6px 4px}.specialist-library__summary>div{min-width:0}.specialist-library__summary strong,.specialist-library__summary span{display:block}.specialist-library__summary>div>strong{font-size:1rem;font-weight:620}.specialist-library__summary>div>span{margin-top:3px;overflow:hidden;color:var(--muted-foreground);font-size:.875rem;text-overflow:ellipsis;white-space:nowrap}.specialist-library__version{color:var(--muted-foreground);font-size:.75rem;white-space:nowrap}
-.specialist-library__row.is-expanded .specialist-library__summary{background:color-mix(in oklch,var(--muted) 42%,transparent)}
-.specialist-editor{margin:0 4px 12px 76px;padding:16px;border-radius:14px;background:var(--muted)}
-.specialist-editor__grid{display:grid;grid-template-columns:minmax(0,.7fr) minmax(0,1.3fr);gap:16px;margin-bottom:14px}.specialist-editor label,.specialist-create label{display:grid;gap:6px;min-width:0;font-size:.78rem;font-weight:590}.specialist-editor input,.specialist-editor select,.specialist-create input{width:100%;min-height:42px;border:1px solid var(--border);border-radius:10px;background:var(--background);padding:9px 12px;color:var(--foreground);font:inherit;font-size:.9rem}.specialist-editor textarea,.specialist-create textarea{border-radius:10px;background:var(--background);font-size:.9rem;resize:vertical}.specialist-editor input:focus-visible,.specialist-editor select:focus-visible,.specialist-create input:focus-visible{outline:2px solid var(--ring);outline-offset:2px}
+.specialist-library__summary{display:grid;grid-template-columns:56px minmax(0,1fr) auto auto;align-items:center;gap:20px;min-height:68px;padding:6px 4px}.specialist-library__summary>div{min-width:0}.specialist-library__summary strong,.specialist-library__summary span{display:block}.specialist-library__summary>div>strong{font-size:1rem;font-weight:620}.specialist-library__summary>div>span{margin-top:3px;overflow:hidden;color:var(--muted-foreground);font-size:.875rem;text-overflow:ellipsis;white-space:nowrap}.specialist-library__version{color:var(--muted-foreground);font-size:.75rem;white-space:nowrap}
+
+.specialist-editor{margin:0 4px 12px 76px;padding:14px;border-radius:14px;background:var(--muted)}
+.specialist-editor__grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:12px}.specialist-editor label,.specialist-create label{display:grid;gap:6px;min-width:0;font-size:.8125rem;font-weight:550}.specialist-editor input,.specialist-editor select,.specialist-create input{width:100%;min-height:44px;border:1px solid var(--input);border-radius:10px;background:var(--card);padding:10px 14px;color:var(--foreground);font:inherit;font-size:.9rem}.specialist-editor textarea,.specialist-create textarea{border-radius:10px;background:var(--background);font-size:.9rem;resize:vertical}.specialist-editor input:focus-visible,.specialist-editor select:focus-visible,.specialist-create input:focus-visible{outline:2px solid var(--ring);outline-offset:2px}
 .specialist-editor__access{display:flex;align-items:baseline;justify-content:space-between;gap:16px;margin:16px 0;padding:11px 12px;border:1px solid var(--border);border-radius:10px;background:var(--background)}.specialist-editor__access strong{font-size:.8rem;font-weight:620}.specialist-editor__access span{color:var(--muted-foreground);font-size:.72rem;text-align:right}
 .specialist-editor__appearance{margin:12px 0}.specialist-editor__appearance>summary{display:flex;align-items:center;gap:9px;width:max-content;min-height:40px;color:var(--muted-foreground);font-size:.78rem;cursor:pointer;list-style:none}.specialist-editor__appearance>summary::-webkit-details-marker{display:none}.specialist-editor__appearance>summary>svg:last-child{width:14px;transition:transform .18s ease}.specialist-editor__appearance[open]>summary>svg:last-child{transform:rotate(180deg)}.specialist-editor__appearance .avatar-picker{margin-top:10px;padding:14px;border-radius:12px;background:var(--background)}
 .specialist-editor__history{padding-top:13px;border-top:1px solid var(--border)}.specialist-editor__history>div{display:flex;align-items:center;gap:10px;min-height:38px;color:var(--muted-foreground);font-size:.75rem}.specialist-editor__history label{display:block;margin-left:auto}.specialist-editor__history select{width:auto;min-height:36px;padding:6px 30px 6px 10px;font-size:.78rem}.specialist-editor__saved{margin:10px 0 0;color:oklch(.43 .11 145);font-size:.78rem}.specialist-editor__actions{display:flex;justify-content:flex-end;gap:8px;margin-top:14px}
@@ -17,3 +17,37 @@
 @media(max-width:760px){.specialist-library__inner{padding:24px 20px 56px}.specialist-library__heading{align-items:flex-start}.specialist-library__title h1{font-size:1.6rem}.specialist-library__title p{font-size:.82rem}.specialist-library__menu{display:inline-flex;margin-left:-10px}.specialist-library__heading>button{margin-top:2px}.specialist-library__summary{grid-template-columns:48px minmax(0,1fr) auto;gap:12px;padding:10px 0}.specialist-library__summary>.character-mark{width:48px!important;height:48px!important}.specialist-library__version{display:none}.specialist-editor{margin:0 0 12px;padding:14px}.specialist-editor__grid{grid-template-columns:1fr}.specialist-editor__access{align-items:flex-start;flex-direction:column;gap:3px}.specialist-editor__access span{text-align:left}.specialist-editor__history>div{align-items:flex-start;flex-wrap:wrap}.specialist-editor__history label{margin-left:0;width:100%}.specialist-create{grid-template-columns:1fr}.specialist-create__preview{display:none}}
 @media(max-width:520px){.specialist-library__heading{align-items:stretch;flex-direction:column}.specialist-library__heading>button{align-self:flex-start}.specialist-library__summary{grid-template-columns:44px minmax(0,1fr) auto}.specialist-library__summary>.character-mark{width:44px!important;height:44px!important}.specialist-editor__actions{display:grid;grid-template-columns:1fr 1fr}.specialist-editor__actions button{width:100%}}
 @media(prefers-reduced-motion:reduce){.specialist-library__skeleton span{animation:none}.specialist-editor__appearance>summary>svg:last-child{transition:none}}
+
+/* Specialists reference: compact ruled rows and a single inline editing surface. */
+.specialist-library__heading>button { flex-shrink:0; min-height:44px; padding:11px 18px; border-radius:10px; font-size:14px; font-weight:550; }
+.specialist-library__summary>button { min-height:36px; padding:8px 14px; border-radius:9px; font-size:13px; font-weight:550; }
+.specialist-library__version { min-width:150px; }
+.specialist-editor__role { margin-bottom:12px; }
+.specialist-editor__role textarea { min-height:44px; height:44px; border:1px solid var(--input); border-radius:10px; background:var(--card); padding:10px 14px; font-size:15px; }
+.specialist-editor__copies>span { display:block; font-size:13px; font-weight:550; margin-bottom:6px; }
+.specialist-editor__copies p { margin:0; min-height:44px; display:flex; align-items:center; color:var(--muted-foreground); font-size:13px; }
+.specialist-editor__access { margin:12px 0; padding:0; border:0; border-radius:0; background:transparent; }
+.specialist-editor__access strong { font-size:13px; font-weight:550; }
+.specialist-editor__access span { font-size:12px; }
+.specialist-editor__footer { display:flex; flex-wrap:wrap; align-items:center; gap:14px; }
+.specialist-editor__footer .specialist-editor__appearance { position:relative; margin:0; }
+.specialist-editor__footer .specialist-editor__appearance>summary { font-size:13px; min-height:44px; gap:10px; }
+.specialist-editor__footer .specialist-editor__appearance[open] { flex-basis:100%; }
+.specialist-editor__appearance fieldset { min-width:0; border:0; margin:0; padding:0; }
+.specialist-editor__footer .specialist-editor__appearance .avatar-picker { background:transparent; padding:0; }
+.specialist-editor__history-toggle { margin-left:auto; min-height:44px; color:var(--muted-foreground); font-size:13px; white-space:nowrap; }
+.specialist-editor__footer .specialist-editor__actions { margin:0; }
+.specialist-editor__footer .specialist-editor__actions button { min-height:40px; border-radius:9px; padding:9px 16px; font-size:13px; }
+.specialist-editor__history { margin-top:12px; }
+@media(max-width:760px) {
+ .specialist-library__summary>button,.specialist-editor__footer .specialist-editor__actions button { min-height:44px; }
+ .specialist-editor__footer { gap:8px 14px; }
+ .specialist-editor__footer .specialist-editor__actions { margin-left:auto; }
+ .specialist-editor__footer .specialist-editor__appearance[open] .avatar-options { flex-wrap:wrap; }
+ .specialist-editor__copies p { min-height:24px; }
+}
+
+.specialist-library button,.specialist-editor input,.specialist-editor textarea { box-shadow:none; }
+.specialist-editor input,.specialist-editor textarea { font-weight:400; }
+
+@media(max-width:760px) { .specialist-library__summary>.specialist-library__version { display:none; } .specialist-editor__role textarea { height:88px; } }

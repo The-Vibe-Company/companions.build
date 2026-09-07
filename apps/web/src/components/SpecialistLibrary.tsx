@@ -41,7 +41,7 @@ export function SpecialistLibrary({ onMenu, refreshVersion = 0 }: Props) {
       <header className="specialist-library__heading">
         <div className="specialist-library__title">
           {onMenu && <Button className="specialist-library__menu" variant="ghost" size="icon" onClick={onMenu} aria-label="Open navigation"><Menu /></Button>}
-          <div><h1>Specialists</h1><p>Reusable profiles your companions can call on.</p></div>
+          <div><h1>Specialists</h1><p>Reusable profiles your companions can call on. Adding one here never starts a machine.</p></div>
         </div>
         <Button onClick={() => { setCreating(true); setEditingId(null); }} disabled={creating}><Plus />New specialist</Button>
       </header>
@@ -49,7 +49,7 @@ export function SpecialistLibrary({ onMenu, refreshVersion = 0 }: Props) {
       {error && <div className="specialist-library__error" role="alert"><span>{error}</span><Button variant="outline" size="sm" onClick={() => void load()}><RotateCw />Try again</Button></div>}
       {creating && <NewSpecialist onCancel={() => setCreating(false)} onRefresh={async () => { await load(); setCreating(false); }} onCreated={async id => { const result = await load(true); setCreating(false); if (result?.some(item => item.id === id)) setEditingId(id); }} />}
 
-      {loading && templates.length === 0 ? <LibrarySkeleton /> : !error && templates.length === 0 && !creating ? <section className="specialist-library__empty"><CompanionAvatar name="Specialist" avatar={DEFAULT_AVATAR} size={72}/><h2>Build your specialist bench</h2><p>Create a reusable role once, then add it to any companion’s team.</p></section> : <section className="specialist-library__list" aria-label="Saved specialists">
+      {loading && templates.length === 0 ? <LibrarySkeleton /> : !error && templates.length === 0 && !creating ? <section className="specialist-library__empty"><CompanionAvatar name="Specialist" avatar={DEFAULT_AVATAR} size={72}/><h2>No specialists yet</h2><p>Create a reusable role once, then add it to any companion’s team.</p></section> : <section className="specialist-library__list" aria-label="Saved specialists">
         {templates.map(template => <SpecialistLibraryRow key={template.id} template={template} expanded={editingId === template.id} onToggle={() => setEditingId(current => current === template.id ? null : template.id)} onReload={load} />)}
       </section>}
     </div>
@@ -112,6 +112,7 @@ function SpecialistEditor({ template, onCancel, onReload }: { template: AgentTem
   const [baselineRevision, setBaselineRevision] = useState(template.revision);
   const [revisions, setRevisions] = useState<AgentTemplateRevision[] | null>(null);
   const [targetRevision, setTargetRevision] = useState("");
+  const [historyOpen, setHistoryOpen] = useState(false);
   const [historyError, setHistoryError] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -160,12 +161,17 @@ function SpecialistEditor({ template, onCancel, onReload }: { template: AgentTem
   }
 
   return <form className="specialist-editor" onSubmit={save}>
-    <div className="specialist-editor__grid"><label>Name<input value={name} maxLength={80} disabled={saving} onChange={event => { setName(event.target.value); setSaved(false); }}/></label><label>Role<Textarea value={instructions} rows={3} maxLength={20_000} disabled={saving} onChange={event => { setInstructions(event.target.value); setSaved(false); }}/></label></div>
+    <div className="specialist-editor__grid"><label>Name<input value={name} maxLength={80} disabled={saving} onChange={event => { setName(event.target.value); setSaved(false); }}/></label><div className="specialist-editor__copies"><span>Simultaneous copies</span><p>Set by each companion</p></div></div>
+    <label className="specialist-editor__role">Role<Textarea value={instructions} rows={2} maxLength={20_000} disabled={saving} onChange={event => { setInstructions(event.target.value); setSaved(false); }}/></label>
     <ProviderAccess />
-    <details className="specialist-editor__appearance"><summary><CompanionAvatar name="Appearance preview" avatar={avatar} size={30}/>Change appearance<ChevronDown /></summary><AvatarPicker value={avatar} onChange={value => { setAvatar(value); setSaved(false); }}/></details>
-    <div className="specialist-editor__history"><div><span>Version {baselineRevision}</span>{historyError ? <Button type="button" variant="ghost" size="sm" onClick={() => void loadHistory()}><RotateCw />Retry history</Button> : revisions === null ? <span>Loading history…</span> : revisions.length < 2 ? <span>First saved version</span> : <><label htmlFor={`history-${template.id}`}>Earlier version</label><select id={`history-${template.id}`} value={targetRevision} disabled={saving} onChange={event => setTargetRevision(event.target.value)}>{revisions.filter(item => item.revision !== baselineRevision).map(item => <option key={item.revision} value={item.revision}>Version {item.revision} · {item.name}</option>)}</select><Button type="button" variant="outline" size="sm" disabled={!targetRevision || saving} onClick={() => void restore()}><RotateCw />Restore</Button></>}</div></div>
     {error && <p className="field-error" role="alert">{error}</p>}{saved && <p className="specialist-editor__saved" role="status">Profile saved.</p>}
-    <div className="specialist-editor__actions"><Button type="button" variant="outline" disabled={saving} onClick={onCancel}>Cancel</Button><Button type="submit" disabled={saving || !name.trim()}>{saving ? <LoaderCircle className="spin"/> : <Check />}{saving ? "Saving…" : "Save"}</Button></div>
+    <div className="specialist-editor__footer">
+      <details className="specialist-editor__appearance"><summary><CompanionAvatar name="Appearance preview" avatar={avatar} size={30}/>Change appearance<ChevronDown /></summary><fieldset disabled={saving}><AvatarPicker value={avatar} onChange={value => { setAvatar(value); setSaved(false); }}/></fieldset></details>
+      <button className="specialist-editor__history-toggle" type="button" aria-expanded={historyOpen} aria-controls={`specialist-history-${template.id}`} onClick={() => setHistoryOpen(current => !current)}>Version {baselineRevision} · history</button>
+      <div className="specialist-editor__actions"><Button type="button" variant="outline" disabled={saving} onClick={onCancel}>Cancel</Button><Button type="submit" disabled={saving || !name.trim()}>{saving && <LoaderCircle className="spin"/>}{saving ? "Saving…" : "Save"}</Button></div>
+    </div>
+    {historyOpen && <div className="specialist-editor__history" id={`specialist-history-${template.id}`}><div><span>Version {baselineRevision}</span>{historyError ? <Button type="button" variant="ghost" size="sm" onClick={() => void loadHistory()}><RotateCw />Retry history</Button> : revisions === null ? <span>Loading history…</span> : revisions.length < 2 ? <span>First saved version</span> : <><label htmlFor={`history-${template.id}`}>Earlier version</label><select id={`history-${template.id}`} value={targetRevision} disabled={saving} onChange={event => setTargetRevision(event.target.value)}>{revisions.filter(item => item.revision !== baselineRevision).map(item => <option key={item.revision} value={item.revision}>Version {item.revision} · {item.name}</option>)}</select><Button type="button" variant="outline" size="sm" disabled={!targetRevision || saving} onClick={() => void restore()}><RotateCw />Restore</Button></>}</div></div>}
+
   </form>;
 }
 

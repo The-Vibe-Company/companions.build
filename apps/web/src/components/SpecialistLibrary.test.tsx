@@ -64,6 +64,8 @@ describe("SpecialistLibrary", () => {
     render(<SpecialistLibrary />);
 
     await user.click(await screen.findByRole("button", { name: "Edit" }));
+    expect(screen.queryByRole("button", { name: "Restore" })).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Version 2 · history" }));
     await screen.findByRole("option", { name: "Version 1 · Research partner" });
     await user.click(screen.getByRole("button", { name: "Restore" }));
 
@@ -124,7 +126,7 @@ describe("SpecialistLibrary", () => {
 
     expect(await screen.findByText("Changed elsewhere", { selector: ".specialist-library__summary strong" })).toBeInTheDocument();
     expect(role).toHaveValue("My unsaved version one draft");
-    expect(screen.getByText("Version 1", { selector: ".specialist-editor__history span" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Version 1 · history" })).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Save" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent("This profile changed elsewhere. Reload and try again.");

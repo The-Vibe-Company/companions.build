@@ -46,6 +46,20 @@ it('retains a failed save and clears the unsaved guard only after successful per
   expect(onClose).toHaveBeenCalledOnce();
 });
 
+it('patches only edited fields and adopts external changes to untouched fields', async () => {
+  const external = { ...detail, companion: { ...detail.companion, instructions: 'Updated by Ada.\n' } };
+  const save = vi.spyOn(api, 'updateCompanion').mockResolvedValue({ companion: { ...external.companion, name: 'Mila' } });
+  const props = { embedded:true, models:[], connections:null, onDeleted:vi.fn(), onClose:vi.fn(), onSaved:vi.fn().mockResolvedValue(undefined), onActivity:vi.fn(), onDesktop:vi.fn() };
+  const view = render(<SettingsSheet detail={detail} {...props}/>);
+  view.rerender(<SettingsSheet detail={external} {...props}/>);
+  expect(screen.getByLabelText('Purpose')).toHaveValue('Updated by Ada.\n');
+  await userEvent.clear(screen.getByLabelText('Name'));
+  await userEvent.type(screen.getByLabelText('Name'), 'Mila');
+  await userEvent.click(screen.getByRole('button', { name:'Save changes' }));
+  await waitFor(() => expect(save).toHaveBeenCalledWith('ada', { name:'Mila' }));
+  expect(screen.getByLabelText('Purpose')).toHaveValue('Updated by Ada.\n');
+});
+
 it('guards the computer action when unsaved identity changes are kept on the settings overview', async () => {
   const {user,onDesktop}=setup();
   await user.type(screen.getByLabelText('Purpose'),' More context.');

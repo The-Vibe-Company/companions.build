@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
+import { forwardRef, useEffect, useImperativeHandle, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { ArrowLeft, Check, ChevronRight, Computer, CalendarClock, LoaderCircle, UserRound, Waypoints, Send, Trash2, X } from 'lucide-react';
 import { api, type CompanionDetail, type AppConfig } from '@/api';
 import { Button } from './ui/button';
@@ -29,7 +29,9 @@ type Props = {
   connections: ReactNode;
 };
 
-export function SettingsSheet({ embedded = false, active = true, activity, computer, detail, models, initialPage = 'home', onPageChange, onClose, onDeleted, onSaved, onActivity, onDesktop, connections }: Props) {
+export type SettingsSheetHandle = { requestLeave: (action: () => void) => boolean };
+
+export const SettingsSheet = forwardRef<SettingsSheetHandle, Props>(function SettingsSheet({ embedded = false, active = true, activity, computer, detail, models, initialPage = 'home', onPageChange, onClose, onDeleted, onSaved, onActivity, onDesktop, connections }, ref) {
   const [deliveryExpanded, setDeliveryExpanded] = useState(false);
   const [page, setPage] = useState<Page>(embedded && initialPage === 'home' ? 'identity' : initialPage);
   const [name, setName] = useState(detail.companion.name);
@@ -43,9 +45,9 @@ export function SettingsSheet({ embedded = false, active = true, activity, compu
   const deletingRef = useRef(false);
   const [error, setError] = useState('');
   const [saved, setSaved] = useState(false);
-  const [baseline, setBaseline] = useState(() => JSON.stringify({ name, instructions, avatar, modelId }));
+  const [baseline, setBaseline] = useState(() => ({ name, instructions, avatar, modelId }));
   const [pendingAction, setPendingAction] = useState<(() => void) | null>(null);
-  const dirty = JSON.stringify({ name, instructions, avatar, modelId }) !== baseline;
+  const dirty = name !== baseline.name || instructions !== baseline.instructions || JSON.stringify(avatar) !== JSON.stringify(baseline.avatar) || modelId !== baseline.modelId;
   const dialog = useRef<HTMLDialogElement>(null);
   const heading = useRef<HTMLHeadingElement>(null);
 
@@ -58,6 +60,14 @@ export function SettingsSheet({ embedded = false, active = true, activity, compu
   }, [embedded]);
   useEffect(() => { if (embedded) setPage(initialPage === 'home' ? 'identity' : initialPage); }, [embedded, initialPage]);
   useEffect(() => { if (!active) return; if (page === 'delete' && !pendingAction) keepCompanion.current?.focus(); else heading.current?.focus(); }, [page, pendingAction, active]);
+  useEffect(() => {
+    const next = { name: detail.companion.name, instructions: detail.companion.instructions, avatar: detail.companion.avatar ?? DEFAULT_AVATAR, modelId: detail.companion.modelId ?? '' };
+    setName(current => current === baseline.name ? next.name : current);
+    setInstructions(current => current === baseline.instructions ? next.instructions : current);
+    setAvatar(current => JSON.stringify(current) === JSON.stringify(baseline.avatar) ? next.avatar : current);
+    setModelId(current => current === baseline.modelId ? next.modelId : current);
+    setBaseline(next);
+  }, [detail.companion.name, detail.companion.instructions, detail.companion.avatar, detail.companion.modelId]);
   useEffect(() => {
     if (!dirty) return;
     const preventLoss = (event: BeforeUnloadEvent) => { event.preventDefault(); event.returnValue = ''; };
@@ -75,15 +85,33 @@ export function SettingsSheet({ embedded = false, active = true, activity, compu
     if (dirty) setPendingAction(() => action); else action();
   }
 
+  useImperativeHandle(ref, () => ({
+    requestLeave(action) {
+      if (saving || deletingRef.current) return true;
+      if (dirty) { setPendingAction(() => action); return true; }
+      action(); return false;
+    },
+  }), [dirty, saving]);
+
   async function save(event: FormEvent) {
     event.preventDefault();
     if (saving || !name.trim()) return;
     setSaving(true); setError(''); setSaved(false);
-    const next = { name: name.trim(), instructions: instructions.trim(), avatar, modelId };
+    const nameChanged = name !== baseline.name;
+    const instructionsChanged = instructions !== baseline.instructions;
+    const avatarChanged = JSON.stringify(avatar) !== JSON.stringify(baseline.avatar);
+    const modelChanged = modelId !== baseline.modelId;
+    const changes = {
+      ...(nameChanged ? { name: name.trim() } : {}),
+      ...(instructionsChanged ? { instructions: instructions.trim() } : {}),
+      ...(avatarChanged ? { avatar } : {}),
+      ...(modelChanged ? { modelId: modelId || null } : {}),
+    };
     try {
-      await api.updateCompanion(detail.companion.id, { ...next, modelId: next.modelId || null });
-      setName(next.name); setInstructions(next.instructions);
-      setBaseline(JSON.stringify(next));
+      const result = await api.updateCompanion(detail.companion.id, changes);
+      const saved = { name: result.companion.name, instructions: result.companion.instructions, avatar: result.companion.avatar ?? DEFAULT_AVATAR, modelId: result.companion.modelId ?? '' };
+      setName(saved.name); setInstructions(saved.instructions); setAvatar(saved.avatar); setModelId(saved.modelId);
+      setBaseline(saved);
       setSaved(true);
       await onSaved();
     } catch (cause) {
@@ -173,4 +201,4 @@ export function SettingsSheet({ embedded = false, active = true, activity, compu
     onCancel={event => { event.preventDefault(); if (deletingRef.current) return; if (page === 'delete' && !pendingAction) { goToPage('home'); return; } if (pendingAction) { setPendingAction(null); goToPage('identity'); } else leave(onClose); }}
     onClick={event => { if (event.target === event.currentTarget && !pendingAction) leave(onClose); }}>
 {surface}</dialog>;
-}
+});

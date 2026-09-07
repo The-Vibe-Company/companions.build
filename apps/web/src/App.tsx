@@ -54,7 +54,7 @@ import { RoutineSettings, TriggerSettings } from "@/components/AutomationPanels"
 const TeamPanel = lazy(() => import("@/components/TeamPanel").then(module => ({ default: module.TeamPanel })));
 const CreateTeamWizard = lazy(() => import("@/components/CreateTeamWizard").then(module => ({ default: module.CreateTeamWizard })));
 import { ProviderMark } from "@/components/ProviderMark";
-import { SettingsSheet } from "@/components/SettingsSheet";
+import { SettingsSheet, type SettingsSheetHandle } from "@/components/SettingsSheet";
 
 const LIST_INTERVAL = 8_000;
 const MAX_CHAT_FILES = 5;
@@ -509,7 +509,7 @@ function Chat({ detail, onRefresh, onUnauthorized, onOpenCompanion, readOnly = f
             <span className="composer-hint">Enter to send · Shift + Enter for a new line</span>
             <div className="composer-buttons">
               <label className="attach-button" aria-label="Attach files"><Plus /><input type="file" multiple accept="image/png,image/jpeg,image/webp,image/gif,application/pdf,text/plain,text/csv,text/markdown,application/json,.md,.markdown,.txt,.csv,.json" onChange={(event) => { addFiles(Array.from(event.target.files ?? [])); event.currentTarget.value = ""; }} /></label>
-              {activeRun && (
+              {(activeRun || (actionError && api.hasPendingUpload(detail.companion.id))) && (
                 <Button type="button" variant="outline" size="sm" onClick={cancel}><CircleStop />Cancel</Button>
               )}
               <Button type="submit" size="icon" disabled={!draft.trim() || sending} aria-label="Send message">
@@ -525,13 +525,28 @@ function Chat({ detail, onRefresh, onUnauthorized, onOpenCompanion, readOnly = f
 
 function CompanionConnections({ companionId }: { companionId: string }) {
   const [all, setAll] = useState<PluginAccount[]>([]); const [selected, setSelected] = useState<PluginAccount[]>([]); const [error, setError] = useState("");
-  const load = useCallback(async () => { try { const [plugins, current] = await Promise.all([workspaceApi.plugins(), workspaceApi.companionPlugins(companionId)]); setAll(plugins.accounts); setSelected(current.accounts); } catch (cause) { setError(cause instanceof Error ? cause.message : "Could not load connections"); } }, [companionId]);
-  useEffect(() => { void load(); }, [load]);
+  const [busy, setBusy] = useState("");
+  const mutationPending = useRef(false);
+  const load = useCallback(async () => { const [plugins, current] = await Promise.all([workspaceApi.plugins(), workspaceApi.companionPlugins(companionId)]); setAll(plugins.accounts); setSelected(current.accounts); }, [companionId]);
+  useEffect(() => { void load().then(() => setError("")).catch(cause => setError(cause instanceof Error ? cause.message : "Could not load connections")); }, [load]);
   const selectedIds = new Set(selected.map((item) => item.id));
-  return <div className="settings-stack">{all.length === 0 ? <p className="settings-empty">Connect an account from Connections first.</p> : all.map((account) => <label className="connection-choice" key={account.id}><span className="provider-dot">{(account.provider ?? account.label).slice(0, 1).toUpperCase()}</span><span><strong>{account.label}</strong><small>{account.provider ?? account.serverId}</small></span><input type="checkbox" checked={selectedIds.has(account.id)} onChange={() => void (selectedIds.has(account.id) ? workspaceApi.unselectPlugin(companionId, account.id) : workspaceApi.selectPlugin(companionId, account.id)).then(load)} /></label>)}{error && <p className="field-error">{error}</p>}</div>;
+  async function toggle(accountId: string) {
+    if (mutationPending.current) return;
+    mutationPending.current = true;
+    setBusy(accountId); setError("");
+    let mutationError = "";
+    try { await (selectedIds.has(accountId) ? workspaceApi.unselectPlugin(companionId, accountId) : workspaceApi.selectPlugin(companionId, accountId)); }
+    catch (cause) { mutationError = cause instanceof Error ? cause.message : "Could not update this application"; }
+    try { await load(); }
+    catch (cause) { if (!mutationError) mutationError = cause instanceof Error ? cause.message : "Could not reload applications"; }
+    setError(mutationError); setBusy(""); mutationPending.current = false;
+  }
+  return <div className="settings-stack">{all.length === 0 ? <p className="settings-empty">Connect an account from Connections first.</p> : all.map((account) => <label className="connection-choice" key={account.id}><span className="provider-dot">{(account.provider ?? account.label).slice(0, 1).toUpperCase()}</span><span><strong>{account.label}</strong><small>{account.provider ?? account.serverId}</small></span><input type="checkbox" checked={selectedIds.has(account.id)} disabled={!!busy} onChange={() => void toggle(account.id)} /></label>)}{error && <p className="field-error" role="alert">{error}</p>}</div>;
 }
 
-function CompanionView({ detail, models, onRefresh, onUnauthorized, onMenu, onOpenCompanion, onDeleted }: { detail: CompanionDetail; models: Array<{ id: string; name: string }>; onDeleted: (ids: string[]) => void; onRefresh: () => Promise<void>; onUnauthorized: () => void; onMenu: () => void; onOpenCompanion: (id: string) => void }) {
+type NavigationGuard = (action: () => void, updateHistory?: boolean) => boolean;
+
+function CompanionView({ detail, models, onRefresh, onUnauthorized, onMenu, onOpenCompanion, onDeleted, onRegisterNavigationGuard, onLocationChange }: { detail: CompanionDetail; models: Array<{ id: string; name: string }>; onDeleted: (ids: string[]) => void; onRefresh: () => Promise<void>; onUnauthorized: () => void; onMenu: () => void; onOpenCompanion: (id: string) => void; onRegisterNavigationGuard: (guard: NavigationGuard | null) => void; onLocationChange: (location: string) => void }) {
   type CompanionSection = 'chat' | 'automations' | 'team' | 'activity' | 'computer' | 'applications' | 'settings';
   const finished = Boolean(detail.companion.retiredAt);
   const readView = (): CompanionSection => {
@@ -542,15 +557,30 @@ function CompanionView({ detail, models, onRefresh, onUnauthorized, onMenu, onOp
   };
   const [view, setView] = useState(readView);
   const [settingsVisited, setSettingsVisited] = useState(() => readView() === 'settings');
+  const settingsRef = useRef<SettingsSheetHandle>(null);
   useEffect(() => { const restore = () => { const restoredView = readView(); setView(restoredView); if (restoredView === 'settings') setSettingsVisited(true); }; window.addEventListener('popstate', restore); return () => window.removeEventListener('popstate', restore); }, []);
   function changeView(next: CompanionSection) {
     const url = new URL(window.location.href);
     if (next === 'chat') url.searchParams.delete('view'); else url.searchParams.set('view', next);
     url.searchParams.delete('kind');
     if (url.pathname + url.search !== window.location.pathname + window.location.search) window.history.pushState({}, '', url.pathname + url.search);
+    onLocationChange(url.pathname + url.search);
     if (next === 'settings') setSettingsVisited(true);
     setView(next);
   }
+  useEffect(() => {
+    onRegisterNavigationGuard((action, updateHistory = true) => {
+      if (!settingsRef.current) { action(); return false; }
+      const held = settingsRef.current.requestLeave(action);
+      if (held) {
+        setSettingsVisited(true);
+        setView('settings');
+        if (updateHistory) changeView('settings');
+      }
+      return held;
+    });
+    return () => onRegisterNavigationGuard(null);
+  }, [onRegisterNavigationGuard]);
   const displayedStatus = finished ? "archived" : detail.companion.status;
 
   return (
@@ -574,7 +604,7 @@ function CompanionView({ detail, models, onRefresh, onUnauthorized, onMenu, onOp
       {view === 'activity' && <section className="companion-page" aria-label="Activity"><ActivityPanel embedded detail={detail} onOpenCompanion={onOpenCompanion} /></section>}
       {!finished && view === 'computer' && <section className="companion-page" aria-label="Computer"><DesktopSheet embedded companion={detail.companion} onClose={() => changeView('chat')} onRefresh={onRefresh} /></section>}
       {!finished && view === 'applications' && <section className="companion-page" aria-label="Applications"><div className="companion-page-inner"><header className="section-intro"><h2>Applications</h2><p>Choose which connected accounts {detail.companion.name} can use.</p></header><CompanionConnections companionId={detail.companion.id} /></div></section>}
-      {!finished && settingsVisited && <div className="companion-page" hidden={view !== 'settings'}><SettingsSheet embedded active={view === 'settings'} detail={detail} models={models} onClose={() => changeView('chat')} onSaved={onRefresh} onDeleted={onDeleted} connections={null} onActivity={() => changeView('activity')} onDesktop={() => changeView('computer')} /></div>}
+      {!finished && settingsVisited && <div className="companion-page" hidden={view !== 'settings'}><SettingsSheet ref={settingsRef} embedded active={view === 'settings'} detail={detail} models={models} onClose={() => changeView('chat')} onSaved={onRefresh} onDeleted={onDeleted} connections={null} onActivity={() => changeView('activity')} onDesktop={() => changeView('computer')} /></div>}
     </main>
   );
 }
@@ -673,6 +703,14 @@ export function App() {
   const [createOpen, setCreateOpen] = useState(false);
   const [teamCreateOpen, setTeamCreateOpen] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const navigationGuard = useRef<NavigationGuard | null>(null);
+  const acceptedLocation = useRef(window.location.pathname + window.location.search);
+  const registerNavigationGuard = useCallback((guard: NavigationGuard | null) => { navigationGuard.current = guard; }, []);
+
+  function leaveCompanion(action: () => void) {
+    if (selectedId && navigationGuard.current) navigationGuard.current(action);
+    else action();
+  }
 
   const handleApiError = useCallback((cause: unknown) => {
     if (cause instanceof ApiError && cause.status === 401) setAuthRequired(true);
@@ -726,10 +764,31 @@ export function App() {
   useEffect(() => { void bootstrap(); }, [bootstrap]);
 
   useEffect(() => {
-    const onPopState = () => { setCurrentPath(window.location.pathname); setSelectedId(selectedIdFromPath()); setCreateOpen(false); setTeamCreateOpen(false); };
+    const onPopState = () => {
+      const target = window.location.pathname + window.location.search;
+      const targetId = selectedIdFromPath();
+      const accept = () => {
+        window.history.replaceState({}, "", target);
+        acceptedLocation.current = target;
+        setCurrentPath(window.location.pathname);
+        if (targetId !== selectedId) setDetail(null);
+        setSelectedId(targetId);
+        setCreateOpen(false);
+        setTeamCreateOpen(false);
+      };
+      if (selectedId && targetId !== selectedId && navigationGuard.current) {
+        const restore = acceptedLocation.current;
+        if (navigationGuard.current(accept, false)) {
+          window.history.pushState({}, "", restore);
+          acceptedLocation.current = restore;
+        }
+        return;
+      }
+      accept();
+    };
     window.addEventListener("popstate", onPopState);
     return () => window.removeEventListener("popstate", onPopState);
-  }, []);
+  }, [selectedId]);
 
   useEffect(() => {
     if (loading || !selectedId || authRequired) return;
@@ -774,23 +833,30 @@ export function App() {
   }, [authRequired, loadList]);
 
   function selectCompanion(id: string) {
-    setSelectedId(id);
-    if (id !== selectedId) setDetail(null);
-    else void loadDetail();
-    setCreateOpen(false);
-    setTeamCreateOpen(false);
-    setSidebarOpen(false);
-    window.history.pushState({}, "", `/companions/${id}`);
-    setCurrentPath(`/companions/${id}`);
+    const select = () => {
+      setSelectedId(id);
+      if (id !== selectedId) setDetail(null);
+      else void loadDetail();
+      setCreateOpen(false);
+      setTeamCreateOpen(false);
+      setSidebarOpen(false);
+      window.history.pushState({}, "", `/companions/${id}`);
+      acceptedLocation.current = `/companions/${id}`;
+      setCurrentPath(`/companions/${id}`);
+    };
+    if (id === selectedId) select(); else leaveCompanion(select);
   }
 
   function navigate(path: string) {
-    window.history.pushState({}, "", path);
-    setCurrentPath(path);
-    setSelectedId(selectedIdFromPath());
-    setCreateOpen(false);
-    setTeamCreateOpen(false);
-    setSidebarOpen(false);
+    leaveCompanion(() => {
+      window.history.pushState({}, "", path);
+      acceptedLocation.current = path;
+      setCurrentPath(path);
+      setSelectedId(selectedIdFromPath());
+      setCreateOpen(false);
+      setTeamCreateOpen(false);
+      setSidebarOpen(false);
+    });
   }
 
   async function signOut() {
@@ -805,6 +871,7 @@ export function App() {
     setDetail(null);
     setPageError('');
     window.history.replaceState({}, '', '/');
+    acceptedLocation.current = '/';
     setCurrentPath('/'); setSelectedId(null);
     setCreateOpen(false); setTeamCreateOpen(false);
   }
@@ -835,8 +902,8 @@ export function App() {
         companions={companions}
         selectedId={selectedId}
         onSelect={selectCompanion}
-        onCreate={() => { setCreateOpen(true); setTeamCreateOpen(false); setSidebarOpen(false); }}
-        onCreateTeam={() => { setTeamCreateOpen(true); setCreateOpen(false); setSidebarOpen(false); }}
+        onCreate={() => leaveCompanion(() => { setCreateOpen(true); setTeamCreateOpen(false); setSidebarOpen(false); })}
+        onCreateTeam={() => leaveCompanion(() => { setTeamCreateOpen(true); setCreateOpen(false); setSidebarOpen(false); })}
         onNavigate={navigate}
         user={user}
         open={sidebarOpen}
@@ -856,9 +923,9 @@ export function App() {
           <div className="model-note"><Server />Using {config.model}</div>
         </main>
       ) : !selectedId ? (
-        <Home companions={companions} onSelect={selectCompanion} onCreateTeam={() => setTeamCreateOpen(true)} onCreate={() => setCreateOpen(true)} onMenu={() => setSidebarOpen(true)} />
+        <Home companions={companions} onSelect={selectCompanion} onCreateTeam={() => leaveCompanion(() => setTeamCreateOpen(true))} onCreate={() => leaveCompanion(() => setCreateOpen(true))} onMenu={() => setSidebarOpen(true)} />
       ) : detail && detail.companion.id === selectedId ? (
-        <CompanionView onDeleted={handleDeleted} key={detail.companion.id} detail={detail} models={config.models ?? [{ id: config.model, name: config.model }]} onRefresh={loadDetail} onUnauthorized={() => setAuthRequired(true)} onMenu={() => setSidebarOpen(true)} onOpenCompanion={selectCompanion} />
+        <CompanionView onDeleted={handleDeleted} key={detail.companion.id} detail={detail} models={config.models ?? [{ id: config.model, name: config.model }]} onRefresh={loadDetail} onUnauthorized={() => setAuthRequired(true)} onMenu={() => setSidebarOpen(true)} onOpenCompanion={selectCompanion} onRegisterNavigationGuard={registerNavigationGuard} onLocationChange={location => { acceptedLocation.current = location; }} />
       ) : (
         <main className="detail-loading" id="main-content"><LoaderCircle className="spin" /><span>Opening Companion…</span></main>
       )}

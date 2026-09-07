@@ -274,6 +274,95 @@ describe("first Companion flow", () => {
     expect(browserComposer).toHaveValue("");
   });
 
+  it("guards unsaved settings before leaving for another Companion", async () => {
+    window.history.replaceState({}, "", "/companions/ada");
+    const browser = { ...companion, id:"browser", name:"Browser", status:"ready" as const };
+    vi.stubGlobal("fetch", vi.fn((input:RequestInfo|URL) => {
+      const path=String(input);
+      if(path==="/api/me") return response(me);
+      if(path==="/api/config") return response(config);
+      if(path==="/api/companions") return response({companions:[companion,browser]});
+      if(path==="/api/companions/ada") return response({companion,messages:[],runs:[],activity:[]});
+      if(path==="/api/companions/browser") return response({companion:browser,messages:[],runs:[],activity:[]});
+      throw new Error(`Unexpected request: ${path}`);
+    }));
+    const user=userEvent.setup(); render(<App/>);
+    await user.click(await screen.findByRole("button",{name:"Edit Ada's personality"}));
+    await user.type(screen.getByLabelText("Purpose")," Keep this draft.");
+    await user.click(screen.getByRole("button",{name:/Browser, Companion/}));
+    expect(screen.getByRole("heading",{name:"Keep your changes?"})).toBeInTheDocument();
+    expect(window.location.pathname).toBe("/companions/ada");
+    await user.click(screen.getByRole("button",{name:"Keep editing"}));
+    expect(screen.getByLabelText("Purpose")).toHaveValue("Research customer questions. Keep this draft.");
+    await user.click(screen.getByRole("button",{name:/Browser, Companion/}));
+    await user.click(screen.getByRole("button",{name:"Discard changes"}));
+    expect(await screen.findByRole("textbox",{name:"Message Browser"})).toBeInTheDocument();
+  });
+
+  it("guards an unsaved settings draft when browser history leaves the Companion", async () => {
+    const browser = { ...companion, id:"browser", name:"Browser", status:"ready" as const };
+    window.history.replaceState({}, "", "/companions/browser");
+    window.history.pushState({}, "", "/companions/ada?view=settings");
+    vi.stubGlobal("fetch", vi.fn((input:RequestInfo|URL) => {
+      const path=String(input);
+      if(path==="/api/me") return response(me);
+      if(path==="/api/config") return response(config);
+      if(path==="/api/companions") return response({companions:[companion,browser]});
+      if(path==="/api/companions/ada") return response({companion,messages:[],runs:[],activity:[]});
+      if(path==="/api/companions/browser") return response({companion:browser,messages:[],runs:[],activity:[]});
+      throw new Error(`Unexpected request: ${path}`);
+    }));
+    const user=userEvent.setup(); render(<App/>);
+    await user.type(await screen.findByLabelText("Purpose"), " Keep this draft.");
+
+    act(() => window.history.back());
+    expect(await screen.findByRole("heading",{name:"Keep your changes?"})).toBeInTheDocument();
+    await waitFor(() => expect(window.location.pathname).toBe("/companions/ada"));
+    expect(window.location.search).toBe("?view=settings");
+    await user.click(screen.getByRole("button",{name:"Keep editing"}));
+    expect(screen.getByLabelText("Purpose")).toHaveValue("Research customer questions. Keep this draft.");
+
+    act(() => window.history.back());
+    await user.click(await screen.findByRole("button",{name:"Discard changes"}));
+    expect(await screen.findByRole("textbox",{name:"Message Browser"})).toBeInTheDocument();
+  });
+
+  it("reloads authoritative application selection and reports mutation failures", async () => {
+    window.history.replaceState({}, "", "/companions/ada?view=applications");
+    const accounts=[
+      {id:"github",serverId:"github",label:"Work GitHub",provider:"github",healthStatus:"ok",healthCode:null,checkedAt:null},
+      {id:"linear",serverId:"linear",label:"Work Linear",provider:"linear",healthStatus:"ok",healthCode:null,checkedAt:null},
+    ];
+    let selected=false; let attempts=0; let rejectFirst!:(cause:Error)=>void;
+    vi.stubGlobal("fetch",vi.fn((input:RequestInfo|URL,options?:RequestInit)=>{
+      const path=String(input);
+      if(path==="/api/me") return response(me);
+      if(path==="/api/config") return response(config);
+      if(path==="/api/companions") return response({companions:[companion]});
+      if(path==="/api/companions/ada") return response({companion,messages:[],runs:[],activity:[]});
+      if(path==="/api/plugins") return response({accounts,catalog:[]});
+      if(path==="/api/companions/ada/plugins"&&!options?.method) return response({accounts:selected?[accounts[0]]:[]});
+      if(path==="/api/companions/ada/plugins/github"&&options?.method==="PUT") {
+        attempts+=1;
+        if(attempts===1) return new Promise<Response>((_resolve,reject)=>{rejectFirst=reject;});
+        selected=true; return response({ok:true});
+      }
+      throw new Error(`Unexpected request: ${path}`);
+    }));
+    const user=userEvent.setup(); render(<App/>);
+    const github=await screen.findByRole("checkbox",{name:/Work GitHub/});
+    const linear=screen.getByRole("checkbox",{name:/Work Linear/});
+    fireEvent.click(github);
+    fireEvent.click(github);
+    await waitFor(()=>expect(github).toBeDisabled()); expect(linear).toBeDisabled();
+    rejectFirst(new Error("Selection unavailable."));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Selection unavailable.");
+    expect(github).not.toBeChecked();
+    await user.click(github);
+    await waitFor(()=>expect(github).toBeChecked());
+    expect(attempts).toBe(2);
+  });
+
   it("links a temporary specialist beneath the task that created it without adding it to Team", async () => {
     window.history.replaceState({}, "", "/companions/ada");
     const ready = { ...companion, status: "ready" as const };
@@ -380,6 +469,7 @@ describe("first Companion flow", () => {
 
     await user.click(screen.getByRole("button", { name: "Send message" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("File storage is temporarily unavailable.");
+    expect(screen.getByRole("button", { name: "Cancel" })).toBeInTheDocument();
     expect(composer).toHaveValue("Review the brief");
     expect(screen.getByText("brief.txt")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Send message" }));
@@ -607,7 +697,7 @@ it("preserves the configured default model when editing only a Companion identit
  await user.click(screen.getByRole("button",{name:"Save changes"}));
  await waitFor(()=>expect(fetchMock.mock.calls.some(([,options])=>options?.method==="PATCH")).toBe(true));
  const update=fetchMock.mock.calls.find(([,options])=>options?.method==="PATCH");
- expect(JSON.parse(update![1]!.body as string)).toMatchObject({name:"Ada renamed",modelId:null});
+ expect(JSON.parse(update![1]!.body as string)).toEqual({name:"Ada renamed"});
 });
 
 

@@ -198,6 +198,19 @@ test('active specialist operations protect their source and artifacts from idle 
  expect(calls).toEqual([]);
 });
 
+test('an explicit source handoff archives despite its active specialist operation',async()=>{
+ const source=await fixture(undefined,'Handoff source',{specialist:true});
+ await db`INSERT INTO specialist_drafts(template_id,companion_id,base_revision,name) VALUES(${source.draftId},${source.id},1,'Handoff source')`;
+ const operationId=crypto.randomUUID();
+ await db`INSERT INTO specialist_operations(id,template_id,owner_id,generation,kind,fingerprint,snapshot_name,source_snapshot_name,status)
+  VALUES(${operationId},${source.draftId},${source.ownerId},1,'test','fingerprint',${'image-'+operationId},${'source-'+operationId},'capturing')`;
+ await db`UPDATE companions SET status='ready',prepare_requested=false,box_id='source-box',archive_requested_at='2026-09-07 10:00:00+00' WHERE id=${source.id}`;
+ const calls:string[]=[];
+ await progressIdleMachines(db,{archive:async companion=>{calls.push(companion.id);return true;}},{now:new Date('2026-09-07T10:01:00Z')});
+ expect(calls).toEqual([source.id]);
+ expect((await db`SELECT status,archived_at FROM companions WHERE id=${source.id}`)[0]).toMatchObject({status:'archived',archived_at:new Date('2026-09-07T10:01:00Z')});
+});
+
 test('account pressure archives a completed unleased specialist before the ordinary idle deadline',async()=>{
  const idle=await fixture(undefined,'Idle slot',{specialist:true}),waiting=await fixture(idle.ownerId,'Waiting work',{temporary:true});
  await configureOfferMachineLimits(idle.ownerId,{active:1,startsPerHour:10,queue:20});

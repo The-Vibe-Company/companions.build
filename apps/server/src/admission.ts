@@ -235,15 +235,16 @@ export async function progressIdleMachines(sql:any,provider:IdleMachineProvider,
   AND c.prepare_requested=false AND NOT c.desktop_taken AND c.desktop_paused_at IS NULL
   AND NOT EXISTS(SELECT 1 FROM runs r WHERE r.companion_id=c.id AND r.dispatched AND r.status IN ('preparing','running'))
   AND NOT EXISTS(SELECT 1 FROM template_candidates t WHERE t.source_companion_id=c.id AND t.status IN ('queued','capturing','ready'))
-  AND NOT EXISTS(SELECT 1 FROM specialist_operations o JOIN specialist_drafts d ON d.template_id=o.template_id
-   WHERE o.status IN ('queued','freezing','capturing','preparing','running') AND (d.companion_id=c.id OR o.image_companion_id=c.id OR o.test_companion_id=c.id))
+  AND (c.archive_requested_at IS NOT NULL OR NOT EXISTS(SELECT 1 FROM specialist_operations o JOIN specialist_drafts d ON d.template_id=o.template_id
+   WHERE o.status IN ('queued','freezing','capturing','preparing','running') AND (d.companion_id=c.id OR o.image_companion_id=c.id OR o.test_companion_id=c.id)))
   AND (c.archive_requested_at IS NOT NULL OR EXISTS(SELECT 1 FROM machine_admission_requests a WHERE a.companion_id=c.id AND a.state='cancelling') OR (
    COALESCE(c.keep_alive_until,'-infinity')<=${now} AND (
     GREATEST(COALESCE(c.machine_activity_at,c.ready_at,c.created_at),COALESCE((SELECT max(COALESCE(r.finished_at,r.started_at,r.created_at)) FROM runs r WHERE r.companion_id=c.id),'-infinity'))<=${cutoff}
     OR EXISTS(SELECT 1 FROM machine_admission_requests waiting WHERE waiting.owner_id=c.owner_id AND waiting.state='queued' AND waiting.waiting_reason='active_limit')
    )
-  )) ORDER BY COALESCE(c.archive_requested_at,c.machine_activity_at,c.ready_at,c.created_at),c.id LIMIT 50`;
+ )) ORDER BY COALESCE(c.archive_requested_at,c.machine_activity_at,c.ready_at,c.created_at),c.id LIMIT 50`;
  for(const companion of candidates){
+  const explicitlyRequested=!!companion.archive_requested_at;
   if(options.canArchive&&!await options.canArchive(companion))continue;
   const waitingRuns=await sql`SELECT * FROM runs WHERE companion_id=${companion.id} AND status='needs_input'`;
   if(options.filesDurable&&!(await Promise.all(waitingRuns.map((run:any)=>options.filesDurable!(run)))).every(Boolean))continue;
@@ -251,8 +252,8 @@ export async function progressIdleMachines(sql:any,provider:IdleMachineProvider,
    const [row]=await tx`SELECT id FROM companions c WHERE c.id=${companion.id} AND c.retired_at IS NULL AND c.archived_at IS NULL
     AND c.prepare_requested=false AND NOT c.desktop_taken AND c.desktop_paused_at IS NULL
     AND NOT EXISTS(SELECT 1 FROM runs r WHERE r.companion_id=c.id AND r.dispatched AND r.status IN ('preparing','running'))
-    AND NOT EXISTS(SELECT 1 FROM specialist_operations o JOIN specialist_drafts d ON d.template_id=o.template_id
-     WHERE o.status IN ('queued','freezing','capturing','preparing','running') AND (d.companion_id=c.id OR o.image_companion_id=c.id OR o.test_companion_id=c.id)) FOR UPDATE`;
+    AND (${explicitlyRequested} OR NOT EXISTS(SELECT 1 FROM specialist_operations o JOIN specialist_drafts d ON d.template_id=o.template_id
+     WHERE o.status IN ('queued','freezing','capturing','preparing','running') AND (d.companion_id=c.id OR o.image_companion_id=c.id OR o.test_companion_id=c.id))) FOR UPDATE`;
    if(!row)return false;await tx`UPDATE companions SET archive_requested_at=COALESCE(archive_requested_at,${now}) WHERE id=${companion.id}`;return true;
   });
   if(!requested)continue;
@@ -268,8 +269,8 @@ export async function progressIdleMachines(sql:any,provider:IdleMachineProvider,
    const [current]=await sql`SELECT id FROM companions c WHERE c.id=${companion.id} AND c.retired_at IS NULL AND c.archive_requested_at IS NOT NULL
     AND c.prepare_requested=false AND NOT c.desktop_taken AND c.desktop_paused_at IS NULL
     AND NOT EXISTS(SELECT 1 FROM runs r WHERE r.companion_id=c.id AND r.dispatched AND r.status IN ('preparing','running'))
-    AND NOT EXISTS(SELECT 1 FROM specialist_operations o JOIN specialist_drafts d ON d.template_id=o.template_id
-     WHERE o.status IN ('queued','freezing','capturing','preparing','running') AND (d.companion_id=c.id OR o.image_companion_id=c.id OR o.test_companion_id=c.id))`;
+    AND (${explicitlyRequested} OR NOT EXISTS(SELECT 1 FROM specialist_operations o JOIN specialist_drafts d ON d.template_id=o.template_id
+     WHERE o.status IN ('queued','freezing','capturing','preparing','running') AND (d.companion_id=c.id OR o.image_companion_id=c.id OR o.test_companion_id=c.id)))`;
    if(!current)throw new AdmissionConflict('Idle archive authority changed.');
   };
   try{

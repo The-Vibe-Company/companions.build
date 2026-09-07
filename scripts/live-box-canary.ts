@@ -17,6 +17,7 @@ async function api(path: string, body?: unknown): Promise<any> {
 }
 const journal = Bun.file(process.env.CANARY_STATE_FILE??".local/box-canary.json");
 const state = await journal.exists() ? await journal.json() : { firstMessageId: crypto.randomUUID(), wakeMessageId: crypto.randomUUID() };
+state.creationId??=crypto.randomUUID();
 const save = () => Bun.write(journal, JSON.stringify(state, null, 2));
 // Re-run an intentional wake without reusing a completed message's identity.
 if (process.argv.includes("--wake-only") && state.wake) {
@@ -26,7 +27,7 @@ if (process.argv.includes("--wake-only") && state.wake) {
 }
 await save();
 if (!state.companionId) {
-  const { companion } = await api("/companions", { name: "Box coding companion", provider: "box", instructions: "You are a careful coding teammate. Use tools to verify your work." });
+  const { companion } = await api("/companions", { clientCreationId:state.creationId,name: "Box coding companion", provider: "box", instructions: "You are a careful coding teammate. Use tools to verify your work." });
   state.companionId = companion.id; await save();
 }
 state.companionId = z.string().uuid().parse(state.companionId);

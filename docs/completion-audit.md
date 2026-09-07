@@ -54,13 +54,13 @@ hosted acceptance. See `validation-v0.md` for dated evidence.
   command IDs and compare-and-swap hashes, and pass local filesystem and Linux binary tests. They
   pass live acceptance on an independently verified V12 image: duplicate installation operation,
   exact exported bytes, daemon journal and discovery/use on the following turn are checked.
-  See `measurements/box-gateway-v12-2026-09-07.json`. V12 deployment remains held for its desktop failure.
+  See `measurements/box-gateway-v12-2026-09-07.json`. Its first viewer attempt timed out during provider provisioning; the same Box later passed without manual repair.
 - Client activation remains blocked until the model gateway reaches a verified Box distribution.
   The gateway and run-scoped, revocable credentials are implemented; a compiled Linux Pi agent
   completed real GLM calls without a global provider key in its environment. A fresh verified V12
   Box then passed first turn and archive/wake with new file creation. Provider-reported usage
   entered the ledger once, and a completed run's token was rejected before a provider claim.
-  The V12 desktop canary failed, so the candidate remains undeployed. The hosted V10
+  The V12 viewer initially timed out during provider provisioning, then passed without manual repair; actual GUI takeover also preserves headless work and chat. Hosted rollout remains pending. The hosted V10
   deployment still uses the previous credential path and must not activate clients.
 - V11 distribution publication was rejected during live acceptance: the source contained the
   expected agent SHA-256 immediately after installation, but stop/resume restored the exact V10

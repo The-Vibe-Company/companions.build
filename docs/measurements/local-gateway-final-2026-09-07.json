@@ -1,0 +1,110 @@
+{
+  "status": "passed",
+  "run": "b5c9b2d03c18",
+  "seconds": 47.299,
+  "steps": [
+    {
+      "name": "database",
+      "exitCode": 0,
+      "seconds": 0.237
+    },
+    {
+      "name": "storage",
+      "exitCode": 0,
+      "seconds": 0.177
+    },
+    {
+      "name": "storage-bucket",
+      "exitCode": 0,
+      "seconds": 0.233
+    },
+    {
+      "name": "install",
+      "exitCode": 0,
+      "seconds": 0.136
+    },
+    {
+      "name": "web-install",
+      "exitCode": 0,
+      "seconds": 0.132
+    },
+    {
+      "name": "typecheck",
+      "exitCode": 0,
+      "seconds": 2.299
+    },
+    {
+      "name": "agent-unit",
+      "exitCode": 0,
+      "seconds": 1.559
+    },
+    {
+      "name": "distribution-content-linux",
+      "exitCode": 0,
+      "seconds": 0.854
+    },
+    {
+      "name": "agent-build",
+      "exitCode": 0,
+      "seconds": 0.285
+    },
+    {
+      "name": "system",
+      "exitCode": 0,
+      "seconds": 30.497
+    },
+    {
+      "name": "web-tests",
+      "exitCode": 0,
+      "seconds": 3.038
+    },
+    {
+      "name": "web-build",
+      "exitCode": 0,
+      "seconds": 2.998
+    },
+    {
+      "name": "postgres-restore-seed",
+      "exitCode": 0,
+      "seconds": 0.313
+    },
+    {
+      "name": "postgres-backup",
+      "exitCode": 0,
+      "seconds": 0.135
+    },
+    {
+      "name": "postgres-backup-copy",
+      "exitCode": 0,
+      "seconds": 0.022
+    },
+    {
+      "name": "postgres-crash",
+      "exitCode": 0,
+      "seconds": 0.235
+    },
+    {
+      "name": "postgres-recovery",
+      "exitCode": 0,
+      "seconds": 0.187
+    },
+    {
+      "name": "postgres-restore-copy",
+      "exitCode": 0,
+      "seconds": 0.042
+    },
+    {
+      "name": "postgres-restore",
+      "exitCode": 0,
+      "seconds": 0.282
+    },
+    {
+      "name": "postgres-restore-verify",
+      "exitCode": 0,
+      "seconds": 0.186
+    }
+  ],
+  "date": "2026-09-07",
+  "applicationSourceCommit": "e1ca0d2",
+  "scope": "Final integrated local verification, including explicit desktop-provisioning canary diagnostics and truthful desktop UI labels; isolated PostgreSQL17/MinIO/LinuxPi, server tests, web tests/build and dump/crash/restore. Not hosted acceptance."
+}

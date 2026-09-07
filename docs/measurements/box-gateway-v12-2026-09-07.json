@@ -28,8 +28,16 @@
       "newFileVerified": true
     },
     "archiveSeconds": 33.807371790999994,
-    "desktopVerified": false,
-    "desktopFailure": "desktop_TIMEOUT"
+    "desktopVerified": true,
+    "desktopInitialAttempt": {
+      "result": "desktop_TIMEOUT",
+      "apiState": "202 preparing",
+      "providerState": "provisioning",
+      "noManualRepair": true,
+      "laterApiSuccess": true,
+      "providerNoVncDependencyFailureAt": "2026-09-07T04:28:28Z",
+      "providerNoVncStartedAt": "2026-09-07T04:33:13Z"
+    }
   },
   "gateway": {
     "date": "2026-09-07T04:29:22.357Z",
@@ -48,7 +56,7 @@
   },
   "limits": [
     "Single fresh Box sample; few-second target remains unproven.",
-    "Desktop acceptance failed and blocks deployment of this candidate.",
+    "The first viewer attempt exceeded 60 s. Provider noVNC later became ready without product/provider repair; the same canary then passed. This latency remains a provider limitation.",
     "Local control plane exposed only through a scoped HTTPS model relay; this is not hosted production acceptance.",
     "Provider tokens are verified usage evidence, not a configured commercial price or invoice."
   ],
@@ -60,5 +68,25 @@
     "nextTurnDiscoveryVerified": true,
     "daemonJournalVerified": true,
     "scope": "Real Pi/GLM on the same verified V12 Box; skill package discovered on the following turn."
+  },
+  "desktopCoordination": {
+    "guiConfirmed": true,
+    "headlessFileAndNetworkContinued": true,
+    "chatSettledDuringTakeover": true,
+    "explicitRelease": true
+  },
+  "browser": {
+    "passedAt": "2026-09-07T04:43:19.082Z",
+    "applicationOpenedPopup": true,
+    "https": true,
+    "rfbConnected": true,
+    "takeoverConfirmedInUi": true,
+    "mouseAndKeyboardSent": true,
+    "releaseConfirmedInUi": true,
+    "viewerCanvas": {
+      "width": 1280,
+      "height": 900
+    },
+    "settingsWindowVisuallyVerified": true
   }
 }

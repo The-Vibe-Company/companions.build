@@ -16,7 +16,7 @@ Authenticated routes are:
 
 A trigger draft contains `name`, `prompt`, `source` (`generic`, `github`, or `sentry`), `mode` (`direct` or `filter`), optional `filter` (the `filterCode` alias is also accepted), up to five `filterRequests`, optional `problemPath`, optional `providerAccountId`, provider `target`, and `enabled`. GitHub targets require `repo`, accept `branch` (default `main`) and normally use `events: ["workflow_run"]`. Sentry targets require `organization` and `project` and normally use `events: ["event.created"]`.
 
-Public projections include registration state and the webhook URL but never a signing secret or provider credential. Generic creation returns its signing secret exactly once. Generic senders use either `Authorization: Bearer <secret>` or `X-Companions-Signature: sha256=<HMAC-SHA256(raw body)>`. GitHub uses `X-Hub-Signature-256`; Sentry uses `Sentry-Hook-Signature`. Comparisons are constant-time and happen on the raw bounded body before JSON parsing.
+Public projections include registration state and the webhook URL but never a signing secret or provider credential. Generic creation returns its signing secret exactly once. Generic senders use either `Authorization: Bearer <secret>` or `X-Companions-Signature: sha256=<HMAC-SHA256(raw body)>`. GitHub uses `X-Hub-Signature-256`; Sentry uses `X-ServiceHook-Signature`. Comparisons are constant-time and happen on the raw bounded body before JSON parsing.
 
 GitHub and Sentry definitions immediately reconcile a remote hook through the selected owner connection. GitHub updates an existing URL so the local and remote HMAC secret cannot drift. Sentry adopts the secret returned by its service-hook API. A missing, ambiguous, expired, or unreadable OAuth connection yields `registrationStatus: "needs_connection"`; the product does not claim registration succeeded. Deleting a managed trigger first deletes the exact remote hook and keeps the local row when provider cleanup is uncertain.
 
@@ -29,12 +29,14 @@ The adapters follow the provider contracts for [GitHub repository webhooks](http
 The worker calls `processTriggerInbox({ enqueueBackground })`. It reclaims a stale evaluation lease, resolves declared provider reads, runs the filter, and persists the decision. A false or failed filter never invokes `enqueueBackground`. The callback contract matches the automation module:
 
 ```ts
-({ companionId, clientMessageId, content, source: "trigger" }) => Promise<string | null>
+({ companionId, clientMessageId, content, source: "trigger" }, transaction: Database) => Promise<string | null>
 ```
+
+Production passes `enqueueBackgroundInTransaction`. The callback must use the supplied PostgreSQL transaction: the queued run and its batch link commit together, so dispatch cannot observe a run without its payload context. A failed link checkpoint rolls back admission; retries retain the same batch identity.
 
 The batch UUID is the stable `clientMessageId`, so retries cannot create duplicate runs. `triggerBatchContext(runId)` returns the accepted event payloads for dispatch-time context. The executor must load this projection immediately before a trigger run starts; this lets later events enrich a still-queued batch without rewriting a run already being dispatched.
 
-`problemPath` is a bounded dot path to a scalar event identity. Sentry defaults to `data.issue.id`; GitHub defaults to `workflow_run.id`; otherwise the payload digest keeps distinct problems separate. Distinct accepted events join an existing queued batch. Once its run is active, at most one queued follow-up batch is created. `processTriggerInbox()` calls `syncTriggerBatches()` against durable run state before grouping.
+`problemPath` is a bounded dot path to a scalar event identity. Sentry defaults to `group.id`; GitHub defaults to `workflow_run.id`; otherwise the payload digest keeps distinct problems separate. Distinct accepted events join an existing queued batch. Once its run is active, at most one queued follow-up batch is created. `processTriggerInbox()` refreshes batch projections, then locks and checks the actual run again inside the grouping transaction after asynchronous filtering. Once admission has begun, later events create a follow-up instead of changing the context already staged for that run.
 
 ## Code filters and provider reads
 

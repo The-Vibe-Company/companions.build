@@ -1,7 +1,8 @@
 import { beforeAll, afterAll, describe, expect, test } from "bun:test";
 import { createHmac } from "node:crypto";
-import { db, migrate } from "../src/store";
-import { handleTriggers, handleWebhook, migrateTriggers, processTriggerInbox, triggerProviderAdapters, reconcileTriggerRegistration } from "../src/triggers";
+import { db, migrate, createCompanion } from "../src/store";
+import { handleTriggers, handleWebhook, migrateTriggers, processTriggerInbox, triggerProviderAdapters, reconcileTriggerRegistration, triggerBatchContext } from "../src/triggers";
+import {enqueueBackgroundInTransaction} from "../src/automations";
 import { encrypt } from "../src/config";
 
 const OWNER = `trigger-owner-${crypto.randomUUID()}`;
@@ -72,7 +73,7 @@ describe("durable trigger intake", () => {
     await handleWebhook(webhook(created.trigger.id, created.secret, { issue: { id: "same" }, occurrence: 1 }));
     await handleWebhook(webhook(created.trigger.id, created.secret, { issue: { id: "same" }, occurrence: 2 }));
     const calls: any[] = [];
-    const enqueueBackground = async (input: any) => { calls.push(input); return crypto.randomUUID(); };
+    const enqueueBackground = async (input: any,tx:any) => { calls.push(input); return enqueueBackgroundInTransaction(input,tx); };
     await processTriggerInbox({ enqueueBackground });
     await processTriggerInbox({ enqueueBackground });
     expect(calls).toHaveLength(1);
@@ -82,8 +83,7 @@ describe("durable trigger intake", () => {
     expect(rows[0].batch_id).toBe(rows[1].batch_id);
 
     const [{ run_id: activeRun }] = await db`SELECT run_id FROM trigger_batches WHERE id=${rows[0].batch_id}`;
-    await db`INSERT INTO runs(id,companion_id,client_message_id,content,status,dispatched)
-      VALUES(${activeRun},${COMPANION},${crypto.randomUUID()},'active trigger','running',true)`;
+    await db`UPDATE runs SET status='running',dispatched=true WHERE id=${activeRun}`;
     await handleWebhook(webhook(created.trigger.id, created.secret, { issue: { id: "same" }, occurrence: 3 }));
     await handleWebhook(webhook(created.trigger.id, created.secret, { issue: { id: "same" }, occurrence: 4 }));
     await processTriggerInbox({ enqueueBackground });
@@ -162,7 +162,7 @@ test('Sentry native service-hook signature admits only the first event of a new 
  };
  const response=await handleTriggers(new Request(`http://control/api/companions/${COMPANION}/triggers`,{method:'POST',body:JSON.stringify({name:'Only new issues',prompt:'Investigate',source:'sentry',mode:'direct',providerAccountId:accountId,target:{organization:'acme',project:'web'}})}),OWNER,{fetchImpl:fetchImpl as typeof fetch});
  const {trigger}=await response!.json() as any;const firstSeen=new Date(Date.now()+100).toISOString();let enqueued=0;
- const enqueueBackground=async()=>{enqueued++;const id=crypto.randomUUID();await db`INSERT INTO runs(id,companion_id,client_message_id,content) VALUES(${id},${COMPANION},${crypto.randomUUID()},'Native Sentry')`;return id;};
+ const enqueueBackground=async(input:any,tx:any)=>{enqueued++;return enqueueBackgroundInTransaction(input,tx);};
  for(const eventID of ['first-event','repeat-event']){
   const body=JSON.stringify({group:{id:'123',firstSeen},event:{eventID}});
   const result=await handleWebhook(new Request(`http://control/api/webhooks/${trigger.id}`,{method:'POST',body,headers:{'X-ServiceHook-Signature':createHmac('sha256',secret).update(body).digest('hex')}}));
@@ -188,4 +188,68 @@ test('concurrent registration retries create one remote hook and reconcile the s
  const results=await Promise.all([0,1].map(()=>reconcileTriggerRegistration(OWNER,COMPANION,created.trigger.id,{fetchImpl})));
  expect(posts).toBe(1);expect(results.every((result:any)=>result.registrationStatus==='registered')).toBe(true);
  expect((await db`SELECT remote_hook_id FROM triggers WHERE id=${created.trigger.id}`)[0].remote_hook_id).toBe('77');
+});
+
+async function atomicFixture(){
+ const c=await createCompanion(OWNER,{name:'Atomic trigger',provider:'local'});
+ const response=await handleTriggers(new Request(`http://control/api/companions/${c.id}/triggers`,{method:'POST',body:JSON.stringify({name:'Atomic delivery',prompt:'Investigate',source:'generic',mode:'filter',filterCode:'return true',problemPath:'issue.id'})}),OWNER);
+ expect(response?.status).toBe(201);const created=await response!.json() as any;return {companionId:c.id,...created};
+}
+function barrier(){let release!:()=>void;const promise=new Promise<void>(resolve=>{release=resolve;});return {promise,release};}
+
+test('a queued run is invisible until its payload batch link commits in the same transaction',async()=>{
+ const f=await atomicFixture(),entered=barrier(),hold=barrier();let runId:string|null=null;
+ await handleWebhook(webhook(f.trigger.id,f.secret,{issue:{id:'atomic'},nonce:'payload-present'}));
+ const work=processTriggerInbox({runFilterImpl:async()=>true,enqueueBackground:async(input,tx)=>{
+  runId=await enqueueBackgroundInTransaction(input,tx);entered.release();await hold.promise;return runId;
+ }});
+ try{
+  await entered.promise;
+  expect(await db`SELECT id FROM runs WHERE companion_id=${f.companionId}`).toHaveLength(0);
+  expect(await db`SELECT run_id FROM trigger_batches WHERE trigger_id=${f.trigger.id} AND enqueue_status='sent'`).toHaveLength(0);
+ }finally{hold.release();await work;}
+ expect(await db`SELECT id FROM runs WHERE companion_id=${f.companionId}`).toHaveLength(1);
+ expect((await triggerBatchContext(runId!)).map((row:any)=>row.payload)).toEqual([{issue:{id:'atomic'},nonce:'payload-present'}]);
+});
+
+test('failure at the batch link checkpoint rolls back run admission and retry retains one batch identity',async()=>{
+ const f=await atomicFixture();await handleWebhook(webhook(f.trigger.id,f.secret,{issue:{id:'checkpoint'}}));
+ await db.unsafe(`CREATE FUNCTION reject_trigger_link() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN
+  IF NEW.trigger_id='${f.trigger.id}'::uuid AND NEW.enqueue_status='sent' THEN RAISE EXCEPTION 'injected batch checkpoint failure'; END IF; RETURN NEW; END $$;
+  CREATE TRIGGER reject_trigger_link BEFORE UPDATE ON trigger_batches FOR EACH ROW EXECUTE FUNCTION reject_trigger_link()`);
+ try{await processTriggerInbox({enqueueBackground:enqueueBackgroundInTransaction,runFilterImpl:async()=>true});}
+ finally{await db.unsafe('DROP TRIGGER reject_trigger_link ON trigger_batches; DROP FUNCTION reject_trigger_link()');}
+ expect(await db`SELECT id FROM runs WHERE companion_id=${f.companionId}`).toHaveLength(0);
+ const [batch]=await db`SELECT id,run_id,enqueue_status FROM trigger_batches WHERE trigger_id=${f.trigger.id}`;
+ expect(batch).toMatchObject({run_id:null,enqueue_status:'error'});
+ await db`UPDATE trigger_batches SET next_enqueue_at=now() WHERE id=${batch.id}`;
+ await processTriggerInbox({enqueueBackground:enqueueBackgroundInTransaction});
+ const [accepted]=await db`SELECT id,client_message_id FROM runs WHERE companion_id=${f.companionId}`;
+ expect(accepted.client_message_id).toBe(batch.id);expect(await db`SELECT id FROM runs WHERE companion_id=${f.companionId}`).toHaveLength(1);
+ expect(await triggerBatchContext(accepted.id)).toHaveLength(1);
+ await processTriggerInbox({enqueueBackground:enqueueBackgroundInTransaction});
+ expect(await db`SELECT id FROM runs WHERE companion_id=${f.companionId}`).toHaveLength(1);
+});
+
+test('an event evaluated across run admission creates a follow-up instead of changing the staged batch',async()=>{
+ const f=await atomicFixture();
+ await handleWebhook(webhook(f.trigger.id,f.secret,{issue:{id:'same'},occurrence:1}));
+ await processTriggerInbox({enqueueBackground:enqueueBackgroundInTransaction,runFilterImpl:async()=>true});
+ let [current]=await db`SELECT id FROM runs WHERE companion_id=${f.companionId}`;let previous:string|undefined;
+ for(const occurrence of [2,3]){
+  await handleWebhook(webhook(f.trigger.id,f.secret,{issue:{id:'same'},occurrence}));
+  const entered=barrier(),hold=barrier();
+  const work=processTriggerInbox({enqueueBackground:enqueueBackgroundInTransaction,runFilterImpl:async()=>{entered.release();await hold.promise;return true;}});
+  try{
+   await entered.promise;
+   if(previous)await db`UPDATE runs SET status='succeeded',finished_at=now() WHERE id=${previous}`;
+   await db`UPDATE runs SET status='preparing' WHERE id=${current.id}`;
+   expect((await triggerBatchContext(current.id)).map((d:any)=>d.payload.occurrence)).toEqual([occurrence-1]);
+  }finally{hold.release();await work;}
+  expect((await triggerBatchContext(current.id)).map((d:any)=>d.payload.occurrence)).toEqual([occurrence-1]);
+  const [followup]=await db`SELECT r.id FROM runs r JOIN trigger_batches b ON b.run_id=r.id WHERE b.trigger_id=${f.trigger.id} AND r.status='queued'`;
+  expect(followup.id).not.toBe(current.id);expect((await triggerBatchContext(followup.id)).map((d:any)=>d.payload.occurrence)).toEqual([occurrence]);
+  previous=current.id;current=followup;
+ }
+ expect(await db`SELECT id FROM runs WHERE companion_id=${f.companionId}`).toHaveLength(3);
 });

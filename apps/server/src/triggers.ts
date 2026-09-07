@@ -345,7 +345,7 @@ export async function resolveFilterRequests(row: Pick<TriggerRow, "ownerId" | "f
   return result;
 }
 
-export interface EnqueueBackground { (input: { companionId: string; clientMessageId: string; content: string; source: "trigger" }): Promise<string | null> }
+export interface EnqueueBackground { (input: { companionId: string; clientMessageId: string; content: string; source: "trigger" }, transaction: Database): Promise<string | null> }
 
 async function sourceMatches(trigger: TriggerRow, payload: unknown, eventName: string | null,database:Database=db,fetchImpl:typeof fetch=fetch) {
   if(trigger.source==='sentry'){
@@ -370,17 +370,23 @@ async function flushPendingBatch(database: Database, enqueueBackground: EnqueueB
     next_enqueue_at=now()+interval '2 minutes',updated_at=now() WHERE b.id=(SELECT id FROM trigger_batches
       WHERE enqueue_status IN ('pending','error') AND enqueue_attempts<5 AND next_enqueue_at<=now()
       ORDER BY next_enqueue_at,id FOR UPDATE SKIP LOCKED LIMIT 1)
-    RETURNING b.id,b.companion_id AS "companionId",(SELECT prompt FROM triggers WHERE id=b.trigger_id) AS prompt,
-      (SELECT name FROM triggers WHERE id=b.trigger_id) AS name`) as { id: string; companionId: string; prompt: string; name: string }[];
+    RETURNING b.id,b.enqueue_attempts AS attempt,b.companion_id AS "companionId",(SELECT prompt FROM triggers WHERE id=b.trigger_id) AS prompt,
+      (SELECT name FROM triggers WHERE id=b.trigger_id) AS name`) as { id: string; attempt:number; companionId: string; prompt: string; name: string }[];
   const batch = batches[0]; if (!batch) return false;
   try {
-    const runId = await enqueueBackground({ companionId: batch.companionId, clientMessageId: batch.id,
-      content: `${batch.prompt}\n\nTriggered by ${batch.name}. Load persisted trigger batch ${batch.id} before acting.`, source: "trigger" });
-    if (!runId) throw new Error("companion missing");
-    await database.unsafe(`UPDATE trigger_batches SET enqueue_status='sent',run_id=$2,updated_at=now() WHERE id=$1`, [batch.id, runId]);
+    await database.begin(async tx=>{
+      const [claimed]=await tx.unsafe(`SELECT id FROM trigger_batches WHERE id=$1 AND enqueue_attempts=$2
+        AND enqueue_status IN ('pending','error') FOR UPDATE`,[batch.id,batch.attempt]);
+      if(!claimed)return; // A later claimant or successful admission already won.
+      const runId = await enqueueBackground({ companionId: batch.companionId, clientMessageId: batch.id,
+        content: `${batch.prompt}\n\nTriggered by ${batch.name}. Load persisted trigger batch ${batch.id} before acting.`, source: "trigger" },tx as Database);
+      if (!runId) throw new Error("companion missing");
+      // The executor must never see a queued run before its payload batch is linked.
+      await tx.unsafe(`UPDATE trigger_batches SET enqueue_status='sent',run_id=$2,updated_at=now() WHERE id=$1`, [batch.id, runId]);
+    });
   } catch {
     await database.unsafe(`UPDATE trigger_batches SET enqueue_status='error',status=CASE WHEN enqueue_attempts>=5 THEN 'finished' ELSE status END,
-      next_enqueue_at=now()+interval '5 seconds',updated_at=now() WHERE id=$1`, [batch.id]);
+      next_enqueue_at=now()+interval '5 seconds',updated_at=now() WHERE id=$1 AND enqueue_attempts=$2 AND enqueue_status<>'sent'`, [batch.id,batch.attempt]);
   }
   return true;
 }
@@ -419,9 +425,23 @@ export async function processTriggerInbox(dependencies: { database?: Database; e
     }
     const batchId = await database.begin(async tx => {
       await tx.unsafe(`SELECT id FROM triggers WHERE id=$1 FOR UPDATE`, [trigger.id]);
-      const existing = await tx.unsafe(`SELECT id FROM trigger_batches WHERE trigger_id=$1 AND problem_key=$2 AND status='queued' LIMIT 1`, [trigger.id, delivery.problemKey]) as { id: string }[];
-      const id = existing[0]?.id ?? crypto.randomUUID();
-      if (!existing[0]) await tx.unsafe(`INSERT INTO trigger_batches(id,trigger_id,companion_id,problem_key) VALUES($1,$2,$3,$4)`, [id, trigger.id, trigger.companionId, delivery.problemKey]);
+      const batches=await tx.unsafe(`SELECT id,run_id,status FROM trigger_batches WHERE trigger_id=$1 AND problem_key=$2
+        AND status IN ('queued','running') ORDER BY id FOR UPDATE`,[trigger.id,delivery.problemKey]) as {id:string;run_id:string|null;status:string;actual?:string}[];
+      // Lock the real run so executor admission cannot cross this decision. A filter
+      // may have awaited provider reads long after the initial projection sync.
+      for(const batch of batches){
+        if(!batch.run_id){batch.actual='queued';continue;}
+        const [run]=await tx.unsafe(`SELECT status FROM runs WHERE id=$1 AND companion_id=$2 FOR UPDATE`,[batch.run_id,trigger.companionId]);
+        if(!run)throw new TriggerError('Trigger task could not be found.',409,'batch_run_missing');
+        batch.actual=run.status==='queued'?'queued':['preparing','running','needs_input'].includes(run.status)?'running':'finished';
+      }
+      // Retire a stale running projection first, before its successor becomes running.
+      for(const status of ['finished','running','queued'])for(const batch of batches){
+        if(batch.actual===status&&batch.status!==status){await tx.unsafe(`UPDATE trigger_batches SET status=$2,updated_at=now() WHERE id=$1`,[batch.id,status]);batch.status=status;}
+      }
+      const existing=batches.find(batch=>batch.actual==='queued');
+      const id = existing?.id ?? crypto.randomUUID();
+      if (!existing) await tx.unsafe(`INSERT INTO trigger_batches(id,trigger_id,companion_id,problem_key) VALUES($1,$2,$3,$4)`, [id, trigger.id, trigger.companionId, delivery.problemKey]);
       await tx.unsafe(`UPDATE trigger_deliveries SET status='enqueued',decision='accepted',batch_id=$2,decided_at=now() WHERE id=$1`, [delivery.id, id]);
       return id;
     });

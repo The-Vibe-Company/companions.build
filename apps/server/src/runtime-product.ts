@@ -5,7 +5,9 @@ import {agentRequest} from './machines';
 import {machinePlugins} from './plugins';
 import {filesForAgent,storeAgentOutput} from './files';
 import {createObjectStorage} from './storage';
-import {decrypt} from './config';
+import {config,decrypt} from './config';
+import {createSoftwareBoxMachines} from './software-box';
+import {createVerifiedSoftwareResult} from './software-results';
 import {lifecycleControlHandlers,ownerMayStartWork} from './lifecycle';
 import {recordUsage} from './billing';
 import {stageTriggerContext} from './trigger-control';
@@ -28,6 +30,7 @@ async function syncConfiguration(run:any,endpoint:string,token:string,observedGe
 }
 export const productHooks:ExecutorHooks={
  canStartWork:ownerMayStartWork,
+ ...(config.boxKey?{software:{machines:createSoftwareBoxMachines(config.boxKey),canStartWork:ownerMayStartWork,onReady:createVerifiedSoftwareResult}}:{}),
  async canPrepareRun(run){
   if(!run.attachment_count)return true;
   const [row]=await db`SELECT count(*)::int AS count FROM attachments WHERE companion_id=${run.companion_id} AND run_id=${run.id} AND kind='user_upload'`;

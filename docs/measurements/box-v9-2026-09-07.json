@@ -1,0 +1,36 @@
+{
+  "date": "2026-09-07",
+  "distribution": "companions-agent-v9-20260907",
+  "archiveSha256": "536063eb427fb77466db07a8f02f871e435613e533e7754c0c316b23a48668f7",
+  "bun": "1.4.2",
+  "pi": "0.85.0",
+  "freshSnapshotWithoutManualRepair": true,
+  "createAdmissionMs": 15.56425,
+  "providerCreateToReadySeconds": 43.962,
+  "creationHadTransientPreviewError": true,
+  "firstTask": {
+    "admissionMs": 16.612750000000002,
+    "totalSeconds": 13.772518708,
+    "preparationSeconds": 0.403,
+    "executionSeconds": 13.315
+  },
+  "wake": {
+    "admissionMs": 14.209125000001222,
+    "totalSeconds": 40.712963625,
+    "preparationSeconds": 16.708,
+    "executionSeconds": 23.519,
+    "newFileVerified": true
+  },
+  "archiveSeconds": 2.6227231669999984,
+  "desktop": {
+    "guiConfirmed": true,
+    "headlessFileAndNetworkContinued": true,
+    "chatSettledDuringTakeover": true,
+    "explicitRelease": true
+  },
+  "limits": [
+    "One owned Box acceptance; not a load or tail-latency measurement.",
+    "Creation timing uses safe runtime phase markers; initial observer stopped on transient preview error and was reconciled without a Box mutation.",
+    "Few-second cold creation target is not met."
+  ]
+}

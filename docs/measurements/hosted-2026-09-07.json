@@ -1,0 +1,28 @@
+{
+  "date": "2026-09-07",
+  "commit": "f45b7a44249f9cf541cefc9d0d0b95fe8c7de020",
+  "provider": "Railway",
+  "services": {
+    "api": "running",
+    "executor": "running",
+    "worker": "running",
+    "postgres": "running",
+    "minio": "running"
+  },
+  "databaseMajor": 18,
+  "checks": {
+    "health": 200,
+    "web": 200,
+    "unauthenticatedCompanions": 401,
+    "unauthenticatedEvents": 401,
+    "privateStoragePutGetDelete": true,
+    "mobileSignInWidth": 390,
+    "mobileSignInBrowserErrors": 0
+  },
+  "limits": [
+    "No real email sent: delivery/auth consent validation remains pending.",
+    "No Stripe prices configured: production activation remains unavailable.",
+    "No hosted live agent task exercised yet.",
+    "No backup restore or sustained load acceptance yet."
+  ]
+}

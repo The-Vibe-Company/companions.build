@@ -64,6 +64,17 @@ describe("Companion API client", () => {
     );
   });
 
+  it("shows the private-beta explanation returned by authentication", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ code: "PRIVATE_BETA_REQUIRED", message: "Private beta is available by invitation only." }), {
+        status: 403, headers: { "Content-Type": "application/json" },
+      }),
+    ));
+    await expect(api.requestMagicLink("visitor@example.test")).rejects.toEqual(
+      expect.objectContaining({ message: "Private beta is available by invitation only.", status: 403 }),
+    );
+  });
+
   it("declares attachments before uploading each file with a stable client id", async () => {
     const fetchMock = vi.fn((path: RequestInfo | URL, _options?: RequestInit) => {
       if (String(path).endsWith("/messages")) return Promise.resolve(new Response(JSON.stringify({ runId: "run-files" }), { status: 202, headers: { "content-type": "application/json" } }));

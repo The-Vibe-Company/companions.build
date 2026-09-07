@@ -1,0 +1,21 @@
+scripts/verify_test.py
+  s_9604d1144930ab::t_2ec29e4896035b 125-137
+scripts/verify.py
+  s_9604d1144930ab::t_bb1afa1d287d88 8,75,312-333,387,425-426
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "8831c2a6cc2ed465bae6d3466bcf343282005bfe",
+  "prompts": {},
+  "sessions": {
+    "s_9604d1144930ab": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a07d28-c099-7e50-b6d2-edf218c193d5",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "StanGirard <stan@quivr.app>"
+    }
+  }
+}

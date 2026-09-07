@@ -68,10 +68,10 @@ docker run --env-file production.env companions.build worker
 a 64-character hexadecimal `COMPANIONS_ENCRYPTION_KEY`. Configure SMTP for magic-link login and S3
 for chat files. Box, model-provider, OAuth, and Stripe credentials are required only for the product
 surfaces enabled in that deployment; absence remains visible as unavailable and is not simulated.
-Only the API role needs an exposed port. The worker role needs access to a dedicated Docker daemon
-with the repository's pinned filter image preloaded when code-filter triggers are enabled. Do not
-mount an unrelated shared host daemon. `LOCAL_RUNTIME=0` is the image default; a hosted executor
-uses Box rather than attempting to launch local agent containers.
+Only the API role needs an exposed port. Trigger filters run inside the image's bounded QuickJS
+WebAssembly runtime, so API, executor, and worker services do not need a Docker socket.
+`LOCAL_RUNTIME=0` is the image default; a hosted executor uses Box rather than attempting to launch
+local agent containers.
 
 Run the isolated image acceptance (it creates and removes its own PostgreSQL container and network):
 

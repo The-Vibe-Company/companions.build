@@ -24,6 +24,7 @@
     "cron-parser": "5.4.0",
     "nodemailer": "7.0.6",
     "pg": "8.16.3",
+    "quickjs-emscripten": "0.32.0",
     "semver": "7.8.5",
     "zod": "4.5.4"
   },

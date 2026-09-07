@@ -158,7 +158,6 @@ try:
     run([bun, "install", "--frozen-lockfile"])
     run([bun, "install", "--frozen-lockfile"], cwd=ROOT / "apps/web")
     run([bun, "scripts/build-agent.ts"])
-    run([sys.executable, "scripts/filter-build.py"])
     run([bun, "apps/server/src/migrate.ts"])
     env["COMPANIONS_SCHEMA_PREPARED"] = "1"
     for args, cwd in [([bun, "apps/server/src/api.ts"], ROOT), ([bun, "apps/server/src/executor.ts"], ROOT), ([bun, "apps/server/src/worker.ts"], ROOT),

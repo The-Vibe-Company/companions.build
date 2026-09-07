@@ -67,6 +67,12 @@
       "portableSoftwareBuilds": 0,
       "portableSoftwareBaseSelections": 1
     },
+    "completeNonemptyTableInventory": {
+      "companions_schema_state": 1,
+      "portable_software_bases": 1,
+      "portable_software_base_selection": 1
+    },
+    "allOtherPublicTablesEmpty": true,
     "selectedSoftwareBase": {
       "id": "companions-v12-ubuntu-noble-amd64",
       "providerSnapshot": "companions-agent-v12-20260907",

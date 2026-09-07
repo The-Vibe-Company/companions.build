@@ -7,6 +7,7 @@ test -x /lib/systemd/systemd-socket-proxyd
 getent group companions-desktop-client >/dev/null || groupadd --system companions-desktop-client
 id companions-agent >/dev/null 2>&1 || useradd --system --no-create-home --shell /usr/sbin/nologin companions-agent
 usermod -a -G companions-desktop-client companions-agent
+python3 /opt/companions/retire-legacy.py
 install -m 755 /opt/companions/desktop-capture.py /usr/local/bin/companions-desktop-capture
 install -m 755 /opt/companions/desktop-quiesce.py /usr/local/bin/companions-desktop-quiesce
 install -m 755 /opt/companions/desktop-state.py /usr/local/bin/companions-desktop-state
@@ -50,7 +51,9 @@ WantedBy=multi-user.target
 UNIT
 cat > /etc/systemd/system/companions-agent-proxy.socket <<'UNIT'
 [Socket]
-ListenStream=127.0.0.1:8787
+# Box private preview reaches the guest address. Bearer auth remains on the daemon;
+# the isolated headless veth cannot connect to host listeners through INPUT policy.
+ListenStream=0.0.0.0:8787
 [Install]
 WantedBy=sockets.target
 UNIT

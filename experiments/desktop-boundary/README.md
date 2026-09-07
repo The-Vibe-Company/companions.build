@@ -57,6 +57,7 @@ docker run --rm --platform linux/amd64 --sysctl net.ipv4.ip_forward=1 \
   --cap-add SYS_ADMIN --cap-add NET_ADMIN --security-opt seccomp=unconfined \
   --security-opt apparmor=unconfined \
   --mount type=bind,src="$PWD/packages/box/linux/launch-headless.py",dst=/launcher.py,readonly \
+  --mount type=bind,src="$PWD/packages/box/linux/retire-legacy.py",dst=/opt/companions/retire-legacy.py,readonly \
   --mount type=bind,src="$PWD/experiments/desktop-boundary/network-restart.py",dst=/test.py,readonly \
   companions-desktop-boundary:production python3 /test.py
 ```
@@ -66,3 +67,16 @@ The mount acceptance also checks relative paths (`/etc/../home`, `/etc/../tmp`) 
 a distinct bind mount entered with chroot before private masks are installed. Binding
 over `/` alone leaves relative symlinks able to traverse the covered root. The test
 uses the production desktop-state bridge for both GET and PUT reconciliation.
+Legacy retirement and mixed ownership have their own optional Linux proof:
+
+```sh
+docker run --rm --platform linux/amd64 \
+  --mount type=bind,src="$PWD/packages/box/linux/retire-legacy.py",dst=/retire-legacy.py,readonly \
+  --mount type=bind,src="$PWD/experiments/desktop-boundary/legacy-retirement.py",dst=/test.py,readonly \
+  companions-desktop-boundary:production python3 /test.py
+```
+
+It uses real users, ownership changes, sockets and files, with fixture systemd responses. It tests
+refusal while the old service is active, offline masking, a root-directory-only partial migration,
+retained history bytes, no second recursive chown, and explicit failure on changed entry ownership.
+Actual user-manager stop and provider preview routing require the fresh-Box live canary.

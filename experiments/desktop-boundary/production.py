@@ -24,6 +24,9 @@ def until(check,timeout=20):
 run('useradd','--uid','1000','--create-home','user')
 run('groupadd','--system','companions-desktop-client')
 run('useradd','--system','--no-create-home','--groups','companions-desktop-client','companions-agent')
+# This fixture has no systemd user manager; GUI/Pi processes below are real.
+Path('/usr/local/bin/systemctl').write_text('#!/bin/sh\n[ "$1" = is-active ] || exit 91\necho inactive\nexit 3\n')
+os.chmod('/usr/local/bin/systemctl',0o755)
 Path('/home/user/browser-secret').write_text('desktop-private')
 for path in ['/run/companions-desktop','/run/companions-desktop-admin','/var/lib/companions-desktop']:
     Path(path).mkdir(parents=True,exist_ok=True); os.chown(path,1000,1000)

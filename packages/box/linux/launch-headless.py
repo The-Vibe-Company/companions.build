@@ -3,7 +3,6 @@
 import ipaddress
 import json
 import os
-import pwd
 from pathlib import Path
 import re
 import subprocess
@@ -20,9 +19,12 @@ directory = Path(state)
 directory.mkdir(parents=True, exist_ok=True)
 if directory.resolve() != directory:
     raise SystemExit('UNSAFE_STATE_DIRECTORY')
-# The same absolute path is retained inside the namespace: Pi history/cwd identities do not reset.
-if directory.stat().st_uid != pwd.getpwnam('companions-agent').pw_uid:
-    run('chown', '-R', '--no-dereference', 'companions-agent:companions-agent', state)
+# Stop/mask the previous desktop-user service before the once-only recursive
+# ownership migration. State paths and Pi history identities remain unchanged.
+retirement = subprocess.run(['python3', '/opt/companions/retire-legacy.py', state], stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True, timeout=75)
+if retirement.returncode:
+    code = retirement.stderr.strip()
+    raise SystemExit(code if re.fullmatch(r'[A-Z_]{1,80}', code) else 'LEGACY_RETIREMENT_FAILED')
 namespace = Path('/run/netns/companions-agent')
 # A service restart owns these fixed product interfaces. Refuse to disturb a surviving
 # invocation, then rebuild only its empty namespace so a partial previous setup recovers.
@@ -78,7 +80,6 @@ for source in ['/run/systemd/resolve/resolv.conf', '/etc/resolv.conf']:
 Path('/run/companions-headless-resolv.conf').write_text(''.join('nameserver '+value+'\n' for value in (resolvers or ['1.1.1.1'])))
 os.environ['DESKTOP_AGENT_SOCKET'] = '/run/companions-desktop/agent.sock'
 os.environ['DESKTOP_BOUNDARY_VERSION'] = '1'
-os.environ['HOME'] = state
 os.environ.pop('DISPLAY', None)
 os.environ.pop('XAUTHORITY', None)
 os.environ.pop('DBUS_SESSION_BUS_ADDRESS', None)

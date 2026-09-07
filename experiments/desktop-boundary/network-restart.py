@@ -1,9 +1,13 @@
 """Exercise the real launcher setup repeatedly; only final exec is replaced, no Box calls."""
 import os
 import runpy
+from pathlib import Path
 import subprocess as S
 
 assert os.getuid()==0
+S.run(['useradd','--uid','1000','--create-home','user'],check=True)
+Path('/usr/local/bin/systemctl').write_text('#!/bin/sh\necho inactive\nexit 3\n')
+os.chmod('/usr/local/bin/systemctl',0o755)
 S.run(['useradd','--system','--no-create-home','companions-agent'],check=True)
 os.environ['AGENT_STATE_DIR']='/home/user/.companions'
 os.execvp=lambda *_:None

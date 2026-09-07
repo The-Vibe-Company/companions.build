@@ -79,6 +79,13 @@ Build with `python3 scripts/bun.py scripts/build-agent.ts`. Stop the executor an
 and parked tasks to finish or be explicitly cancelled. With an authenticated owner's private
 `.local/session-cookie`, run `python3 scripts/bun.py scripts/upgrade-box-desktop-boundary.ts <id>`.
 The script refuses an active executor, active tasks, changed Box identity, or an archived machine.
+The frozen installation also masks the exact legacy user service offline and removes its exact
+`default.target.wants` link. If its user bus exists, retirement uses the desktop UID's bus and
+verifies the service is stopped. Without a bus it requires an inactive user manager. The first
+headless startup recursively migrates state ownership only after retirement, then records a
+root-owned checkpoint outside the agent namespace. Later starts check the state entry points
+without rescanning all histories; changed ownership fails visibly. The authenticated daemon proxy
+binds the guest interface because Box's private preview cannot reach a loopback-only listener.
 It pins its private journal/archive, checks leadership before each remote write, stops only owned
 services and installs on the same Box. It retains Pi state paths, files and desktop intent; a
 completed journal is an idempotent no-op. Restart the executor to reconcile readiness. No request

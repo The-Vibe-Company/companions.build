@@ -51,5 +51,14 @@
     "Desktop acceptance failed and blocks deployment of this candidate.",
     "Local control plane exposed only through a scoped HTTPS model relay; this is not hosted production acceptance.",
     "Provider tokens are verified usage evidence, not a configured commercial price or invoice."
-  ]
+  ],
+  "nativeControlSkills": {
+    "passedAt": "2026-09-07T04:30:20.649Z",
+    "installThroughControlMcp": true,
+    "duplicateOperationVerified": true,
+    "exportedBytesVerified": true,
+    "nextTurnDiscoveryVerified": true,
+    "daemonJournalVerified": true,
+    "scope": "Real Pi/GLM on the same verified V12 Box; skill package discovered on the following turn."
+  }
 }

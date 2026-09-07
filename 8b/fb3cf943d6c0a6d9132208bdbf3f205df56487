@@ -1,0 +1,21 @@
+experiments/desktop-boundary/legacy-retirement.py
+  s_f946242dcf6ba9::t_d858807a3486ca 53-54,60-71
+packages/box/linux/retire-legacy.py
+  s_f946242dcf6ba9::t_6bfc1c79772935 33-38
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "8bfb3cf943d6c0a6d9132208bdbf3f205df56487",
+  "prompts": {},
+  "sessions": {
+    "s_f946242dcf6ba9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a06de4-a8a5-7cd3-b713-2a8d451f7200",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "StanGirard <stan@quivr.app>"
+    }
+  }
+}

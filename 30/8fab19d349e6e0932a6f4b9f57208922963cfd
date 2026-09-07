@@ -1,0 +1,22 @@
+apps/web/src/components/ProductPanels.test.tsx
+  s_f946242dcf6ba9::t_25f0a35d7aa91e 13-32
+apps/web/src/components/ProductPanels.tsx
+  s_f946242dcf6ba9::t_25f0a35d7aa91e 20-23,25-31,75,82
+  s_f946242dcf6ba9::t_5eb8e24eb9e596 24
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "308fab19d349e6e0932a6f4b9f57208922963cfd",
+  "prompts": {},
+  "sessions": {
+    "s_f946242dcf6ba9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a06de4-a8a5-7cd3-b713-2a8d451f7200",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "StanGirard <stan@quivr.app>"
+    }
+  }
+}

@@ -55,7 +55,7 @@ for each correspondent. Owners should authorize correspondents for that Companio
 4. Apply migrations and build the agent distribution before deploying. Roll out the new runtime
    with the mail control operations; no dependency installation happens when an agent wakes.
 
-Domain and four DNS records were created during implementation. No real recipient was sent mail
+Domain and all four DNS records were verified by Resend during implementation. No real recipient was sent mail
 as part of local validation. Production webhook activation and an authenticated delivery canary
 belong to deployment verification.
 

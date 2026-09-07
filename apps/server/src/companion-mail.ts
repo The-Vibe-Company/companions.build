@@ -191,7 +191,8 @@ export async function handleCompanionMailWebhook(request:Request):Promise<Respon
   const data=z.object({email_id:z.string().uuid(),from:senderAddress,to:z.array(email).max(100),subject:z.string().max(998).default(''),message_id:z.string().max(998).optional()}).parse(event.data);
   for(const destination of new Set(data.to)){
    const base=destination.replace(/\+[a-f0-9]{48}(?=@)/,'');
-   const [box]=await db`SELECT b.* FROM companion_mailboxes b JOIN companions c ON c.id=b.companion_id WHERE b.address=${base} AND c.retired_at IS NULL AND c.archive_requested_at IS NULL`;
+   const replyToken=destination.endsWith(`@${domain()}`)?destination.match(/^reply\+([a-f0-9]{48})@/)?.[1]:undefined;
+   const [box]=await db`SELECT b.* FROM companion_mailboxes b JOIN companions c ON c.id=b.companion_id WHERE (b.address=${base} OR EXISTS(SELECT 1 FROM companion_mail_threads t WHERE t.companion_id=b.companion_id AND t.reply_token=${replyToken??null})) AND c.retired_at IS NULL AND c.archive_requested_at IS NULL`;
    if(!box)continue;
    // Store only the metadata necessary for durable retrieval. No external effects in this handler.
    await db`INSERT INTO companion_mail_messages(id,companion_id,direction,state,provider_id,sender,recipients,subject,message_id) VALUES(${crypto.randomUUID()},${box.companion_id},'inbound','received',${data.email_id},${data.from},${[destination]}::jsonb,${data.subject},${data.message_id??null}) ON CONFLICT(companion_id,provider_id,direction) DO NOTHING`;
@@ -310,7 +311,7 @@ async function sendClaimedMail(row:any,dependencies:MailWorkerDependencies){
   const [active]=await sql`SELECT c.id FROM companions c JOIN companion_mail_messages m ON m.companion_id=c.id WHERE m.id=${row.id} AND m.state='sending' AND c.retired_at IS NULL AND c.archive_requested_at IS NULL`;
   if(!active){await releaseUnsentClaim(row,sql,'cancelled','companion_unavailable');return;}
   const [parent]=await sql`SELECT message_id FROM companion_mail_messages WHERE thread_id=${row.thread_id} AND direction='inbound' AND message_id IS NOT NULL ORDER BY received_at DESC LIMIT 1`;
-  const replyTo=row.sender.replace('@',`+${row.reply_token}@`);
+  const replyTo=`reply+${row.reply_token}@${domain()}`;
   await dependencies.assertActive?.();
   submitted=true;
   const response=await (dependencies.fetch??fetch)('https://api.resend.com/emails',{method:'POST',redirect:'error',signal:AbortSignal.timeout(20_000),headers:{authorization:`Bearer ${dependencies.apiKey??process.env.RESEND_API_KEY}`,'content-type':'application/json','idempotency-key':`companion-mail/${row.id}`},body:JSON.stringify({from:row.sender,to:row.recipients,cc:row.cc,bcc:row.bcc,subject:row.subject,text:row.body_text,html:row.body_html,reply_to:replyTo,headers:{'Auto-Submitted':parent?'auto-replied':'auto-generated',...(parent?{'In-Reply-To':parent.message_id,'References':parent.message_id}:{})},attachments:row.attachments.map((a:any)=>({filename:a.filename,content:a.content,content_type:a.contentType})),tags:[{name:'companion_mail_id',value:row.id}]})});

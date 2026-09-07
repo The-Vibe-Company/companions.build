@@ -50,7 +50,7 @@ describe("CreateCompanion", () => {
     render(<CreateCompanion config={config} onCreated={vi.fn()} />);
     await enterBasics(user);
     await user.type(screen.getByLabelText("Your account alias"), "stan");
-    await user.type(screen.getByLabelText("Companion email name"), "ada");
+    expect(screen.getByLabelText("Companion email name")).toHaveValue("ada");
     await user.click(screen.getByRole("button", { name: "Create companion" }));
     await waitFor(() => expect(inbox).toHaveBeenCalledWith("companion-1", "ada"));
     expect(alias.mock.invocationCallOrder[0]).toBeLessThan(create.mock.invocationCallOrder[0]);

@@ -171,7 +171,8 @@ test('thread-only reply grants accept the recipient reply but not unrelated new 
  await tickCompanionMail({apiKey:'test',fetch:async()=>Response.json({id:crypto.randomUUID()})});
  const [thread]=await db`SELECT reply_token FROM companion_mail_threads WHERE id=${outgoing.threadId}`;
  const [box]=await db`SELECT address FROM companion_mailboxes WHERE companion_id=${companionId}`;
- const replyAddress=box.address.replace('@',`+${thread.reply_token}@`);
+ const replyAddress=`reply+${thread.reply_token}@mail.companions.build`;
+ expect(replyAddress.split('@')[0].length).toBeLessThanOrEqual(64);
  const replyId=crypto.randomUUID(),otherId=crypto.randomUUID();
  for(const [id,address] of [[replyId,replyAddress],[otherId,box.address]])await handleCompanionMailWebhook(signed({type:'email.received',data:{email_id:id,from:'paul@example.com',to:[address],subject:'Reply'}}));
  await tickCompanionMail({apiKey:'test',verifySender:async()=>true,fetch:async(input:string|URL|Request)=>String(input).includes('raw.resend.com')?new Response('signed'):Response.json({from:'paul@example.com',text:'Reply content',headers:{},attachments:[],raw:{download_url:'https://raw.resend.com/test'}})});

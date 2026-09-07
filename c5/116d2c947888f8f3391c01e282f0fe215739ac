@@ -1,0 +1,22 @@
+apps/web/src/App.tsx
+  s_f946242dcf6ba9::t_174cf0698a30e6 88-89,92,373,486,519,571-572,580,583,590,594
+apps/web/src/App.test.tsx
+  s_f946242dcf6ba9::t_174cf0698a30e6 260,269,279-285,289-305
+  s_f946242dcf6ba9::t_84de8d995d1897 306-307
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "c5116d2c947888f8f3391c01e282f0fe215739ac",
+  "prompts": {},
+  "sessions": {
+    "s_f946242dcf6ba9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a06de4-a8a5-7cd3-b713-2a8d451f7200",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "StanGirard <stan@quivr.app>"
+    }
+  }
+}

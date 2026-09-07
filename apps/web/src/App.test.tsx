@@ -574,6 +574,7 @@ describe("first Companion flow", () => {
   });
 
   it("requests a Better Auth magic link and offers the local Mailpit inbox", async () => {
+    window.history.replaceState({}, "", "/login");
     const fetchMock = vi.fn((input: RequestInfo | URL, options?: RequestInit) => {
       const path = String(input);
       if (path === "/api/me") return response({ error: "Authentication required" }, 401);
@@ -591,6 +592,20 @@ describe("first Companion flow", () => {
       method: "POST",
       body: JSON.stringify({ email: "alex@example.com", callbackURL: "/" }),
     }));
+  });
+
+  it("opens the real private-beta login from the public landing page", async () => {
+    window.history.replaceState({}, "", "/");
+    vi.stubGlobal("fetch", vi.fn((input: RequestInfo | URL) => {
+      if (String(input) === "/api/me") return response({ error: "Authentication required" }, 401);
+      throw new Error(`Unexpected request: ${String(input)}`);
+    }));
+    const user = userEvent.setup();
+    render(<App />);
+    expect(await screen.findByRole("heading", { name: "A companion that keeps your product running." })).toBeInTheDocument();
+    await user.click(screen.getAllByRole("button", { name: /Log in to private beta/ })[0]);
+    expect(window.location.pathname).toBe("/login");
+    expect(await screen.findByLabelText("Email")).toBeInTheDocument();
   });
 
   it("completes OAuth in a popup, refreshes owned connections, and disables unavailable providers",async()=>{

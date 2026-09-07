@@ -58,6 +58,7 @@ const TeamPanel = lazy(() => import("@/components/TeamPanel").then(module => ({ 
 const CreateTeamWizard = lazy(() => import("@/components/CreateTeamWizard").then(module => ({ default: module.CreateTeamWizard })));
 import { ProviderMark } from "@/components/ProviderMark";
 import { SettingsSheet, type SettingsSheetHandle } from "@/components/SettingsSheet";
+import { LandingPage } from "@/components/LandingPage";
 
 const LIST_INTERVAL = 8_000;
 const MAX_CHAT_FILES = 5;
@@ -722,7 +723,13 @@ export function App() {
     void loadList();
   }
 
-  if (authRequired) return <AccessGate />;
+  function openLogin() {
+    window.history.pushState({}, "", "/login");
+    acceptedLocation.current = "/login";
+    setCurrentPath("/login");
+  }
+
+  if (authRequired) return currentPath === "/" ? <LandingPage onLogin={openLogin} /> : <AccessGate />;
   if (loading) return <LoadingApp />;
   if (!config || !user) {
     return (

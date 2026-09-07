@@ -1,0 +1,27 @@
+docs/specs/specialists-implementation-review.md
+  s_895cd30c8c0144::t_bf29da8d28a917 63-93
+apps/server/src/companion-mail.ts
+  s_895cd30c8c0144::t_6a4e2f6507fcf2 116,118,264
+apps/server/test/companion-mail.test.ts
+  s_895cd30c8c0144::t_cb7848aa6496f9 2,196-213
+apps/web/src/components/SpecialistDraftPanel.test.tsx
+  s_895cd30c8c0144::t_7db044d666ae29 1,94-124
+apps/web/src/components/SpecialistDraftPanel.tsx
+  s_895cd30c8c0144::t_58b1a466ffb029 37,49,53,103,133-135,142
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "c4845201f523796972432cb45f6eb5a67fcf6a1f",
+  "prompts": {},
+  "sessions": {
+    "s_895cd30c8c0144": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a07d31-b106-7d00-912b-601ce8884ca0",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "StanGirard <stan@quivr.app>"
+    }
+  }
+}

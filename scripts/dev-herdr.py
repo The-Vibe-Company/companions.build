@@ -26,7 +26,8 @@ def herdr(*args):
     result = subprocess.run(['herdr', *args], text=True, capture_output=True)
     if result.returncode:
         raise RuntimeError('Herdr command failed: ' + ' '.join(args[:2]))
-    return json.loads(result.stdout).get('result', {})
+    # pane run is intentionally silent on success in Herdr 0.8.2.
+    return json.loads(result.stdout).get('result', {}) if result.stdout.strip() else {}
 
 
 def atomic(path, content, mode=0o600):
@@ -109,12 +110,18 @@ def workspace():
             pane = live.get(owned.get('pane_id'))
             # Do not send commands into a reused, moved, or repurposed pane.
             if pane and pane.get('tab_id') == owned.get('tab_id'):
-                continue
-            created = herdr('tab', 'create', '--workspace', wid, '--cwd', str(ROOT),
-                            '--label', 'companions ' + role, '--no-focus')
-            pid = created['root_pane']['pane_id']
-            saved['panes'][role] = {'pane_id': pid, 'tab_id': created['tab']['tab_id']}
-            atomic(state_path, json.dumps(saved, indent=2) + '\n')
+                info = herdr('pane', 'process-info', '--pane', owned['pane_id'])['process_info']
+                if info.get('foreground_process_group_id') != info.get('shell_pid'):
+                    continue
+                pid = owned['pane_id']
+            else:
+                created = herdr('tab', 'create', '--workspace', wid, '--cwd', str(ROOT),
+                                '--label', 'companions ' + role, '--no-focus')
+                pid = created['root_pane']['pane_id']
+                saved['panes'][role] = {'pane_id': pid, 'tab_id': created['tab']['tab_id']}
+                atomic(state_path, json.dumps(saved, indent=2) + '\n')
+                # Let the new interactive shell initialize before submitting input.
+                time.sleep(.5)
             command = [sys.executable, str(Path(__file__).resolve()), 'watch'] if role == 'Services' else [str(ROOT / 'dev'), 'menu']
             herdr('pane', 'run', pid, shlex.join(command))
     result = dev('up')

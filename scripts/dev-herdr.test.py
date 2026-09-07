@@ -56,6 +56,8 @@ class WorkspaceTests(unittest.TestCase):
                     return {'pane': {'workspace_id': 'w9'}}
                 if args[:2] == ('pane', 'list'):
                     return {'panes': live}
+                if args[:2] == ('pane', 'process-info'):
+                    return {'process_info': {'foreground_process_group_id': 200, 'shell_pid': 100}}
                 if args[:2] == ('tab', 'create'):
                     number = len(live) + 1
                     pane = {'pane_id': f'w9:p{number}', 'tab_id': f'w9:t{number}'}

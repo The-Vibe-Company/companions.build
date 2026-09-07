@@ -28,7 +28,7 @@ export function validateMailDraft(value:unknown){
  return input;
 }
 export async function renderCompanionMail(text:string){return render(createElement('html',null,createElement('body',null,createElement('div',{style:{fontFamily:'Arial, sans-serif',fontSize:'16px',lineHeight:'1.6',whiteSpace:'pre-wrap'}},text))));}
-function publicMessage(row:any){return {id:row.id,threadId:row.thread_id,direction:row.direction,state:row.state,sender:row.sender,to:row.recipients,cc:row.cc,bcc:row.bcc,subject:row.subject,text:row.body_text,html:row.body_html,attachments:row.attachments.map((a:any,index:number)=>({id:a.id??null,index,filename:a.filename,contentType:a.contentType,size:Buffer.from(a.content,'base64').length})),createdAt:row.received_at,sendAfter:row.send_after,errorCode:row.error_code,runId:row.run_id};}
+function publicMessage(row:any){return {id:row.id,threadId:row.thread_id,direction:row.direction,state:row.state,sender:row.sender,to:row.recipients,cc:row.cc,bcc:row.bcc,subject:row.subject,text:row.body_text,html:row.body_html,attachments:row.attachments.map((a:any,index:number)=>({id:a.id??null,index,filename:a.filename,contentType:a.contentType,size:a.size??Buffer.from(a.content,'base64').length})),createdAt:row.received_at,sendAfter:row.send_after,errorCode:row.error_code,runId:row.run_id};}
 export async function mailQuota(ownerId:string,sql:Database=db){
  const [row]=await sql`SELECT COALESCE((SELECT used FROM companion_mail_quota WHERE owner_id=${ownerId} AND day=(now() AT TIME ZONE 'UTC')::date),0)::int AS used,(date_trunc('day',now() AT TIME ZONE 'UTC')+interval '1 day') AT TIME ZONE 'UTC' AS reset`;
  return {used:row.used,limit:50,resetsAt:row.reset};
@@ -112,10 +112,11 @@ export async function handleCompanionMail(request:Request,ownerId:string):Promis
    return json({alias:account?.alias??null,domain:domain(),configured:Boolean(process.env.RESEND_API_KEY&&process.env.RESEND_WEBHOOK_SECRET),quota:await mailQuota(ownerId)});
   }
   const companionId=z.string().uuid().parse(match![1]);
-  const [companion]=await db`SELECT id FROM companions WHERE id=${companionId} AND owner_id=${ownerId} AND retired_at IS NULL AND archive_requested_at IS NULL`;
+  const [companion]=await db`SELECT id,temporary FROM companions WHERE id=${companionId} AND owner_id=${ownerId} AND retired_at IS NULL AND archive_requested_at IS NULL`;
   if(!companion)return json({error:'Companion not found.'},404);
   if(!match![2]){
    if(request.method==='PUT'){
+    if(companion.temporary)throw new CompanionMailError('Temporary specialists cannot own an email address.');
     const input=z.object({localName}).strict().parse(await request.json());
     const [account]=await db`SELECT alias FROM companion_mail_accounts WHERE owner_id=${ownerId}`;
     if(!account)throw new CompanionMailError('Choose an account alias first.');
@@ -125,7 +126,7 @@ export async function handleCompanionMail(request:Request,ownerId:string):Promis
    }else if(request.method!=='GET')return json({error:'Method not allowed.'},405);
    const [mailbox]=await db`SELECT address,local_name AS "localName" FROM companion_mailboxes WHERE companion_id=${companionId}`;
    const senders=await db`SELECT email FROM companion_mail_senders WHERE companion_id=${companionId} ORDER BY email`;
-   const messages=await db`SELECT * FROM companion_mail_messages WHERE companion_id=${companionId} AND state<>'ignored' ORDER BY received_at DESC LIMIT 100`;
+   const messages=await db`SELECT id,thread_id,direction,state,sender,recipients,cc,bcc,subject,body_text,body_html,received_at,send_after,error_code,run_id,COALESCE((SELECT jsonb_agg((a-'content')||jsonb_build_object('size',octet_length(decode(a->>'content','base64')))) FROM jsonb_array_elements(attachments) a),'[]'::jsonb) AS attachments FROM companion_mail_messages WHERE companion_id=${companionId} AND state<>'ignored' ORDER BY received_at DESC LIMIT 100`;
    return json({mailbox:mailbox??null,configured:Boolean(process.env.RESEND_API_KEY&&process.env.RESEND_WEBHOOK_SECRET),senders:senders.map((s:any)=>s.email),messages:messages.map(publicMessage),quota:await mailQuota(ownerId)});
   }
   if(match![2]==='senders'&&!match![3]&&['PUT','DELETE'].includes(request.method)){
@@ -198,7 +199,7 @@ export async function handleCompanionMailWebhook(request:Request):Promise<Respon
  }catch{return json({error:'Invalid email event.'},400);}
 }
 
-export type MailWorkerDependencies={database?:Database;fetch?:(input:string|URL|Request,init?:RequestInit)=>Promise<Response>;apiKey?:string;assertActive?:()=>Promise<void>};
+export type MailWorkerDependencies={database?:Database;fetch?:(input:string|URL|Request,init?:RequestInit)=>Promise<Response>;apiKey?:string;assertActive?:()=>Promise<void>;verifySender?:typeof verifyMailSender};
 async function providerGet(path:string,dependencies:MailWorkerDependencies){
  const response=await (dependencies.fetch??fetch)(`https://api.resend.com${path}`,{headers:{authorization:`Bearer ${dependencies.apiKey??process.env.RESEND_API_KEY}`},signal:AbortSignal.timeout(20_000),redirect:'error'});
  if(!response.ok)throw new CompanionMailError('Email provider request failed.');
@@ -226,7 +227,7 @@ async function fetchIncoming(row:any,dependencies:MailWorkerDependencies){
   const rawResponse=await(dependencies.fetch??fetch)(rawUrl,{redirect:'error',signal:AbortSignal.timeout(20_000)});
   if(!rawResponse.ok)throw new CompanionMailError('Raw email retrieval failed.');
   const raw=await boundedBody(rawResponse,16*1024*1024);
-  if(!await verifyMailSender(raw,sender)){await sql`UPDATE companion_mail_messages SET state='ignored',error_code='sender_not_authenticated' WHERE id=${row.id} AND state='fetching'`;return;}
+  if(!await (dependencies.verifySender??verifyMailSender)(raw,sender)){await sql`UPDATE companion_mail_messages SET state='ignored',error_code='sender_not_authenticated' WHERE id=${row.id} AND state='fetching'`;return;}
   const attachments:any[]=[];
   const metadata=Array.isArray(data.attachments)?data.attachments:[];
   if(metadata.length>5||metadata.reduce((n:number,a:any)=>n+Number(a.size??0),0)>10*1024*1024)throw new CompanionMailError('Attachments exceed the size limit.');
@@ -283,13 +284,14 @@ export async function claimMailSend(sql:Database=db){
   if(quota.used+count>50){await tx`UPDATE companion_mail_messages SET state='quota_exceeded',error_code='daily_recipient_limit' WHERE id=${row.id}`;return null;}
   await tx`UPDATE companion_mail_quota SET used=used+${count} WHERE owner_id=${candidate.owner_id} AND day=(now() AT TIME ZONE 'UTC')::date`;
   await tx`UPDATE companion_mail_messages SET state='sending',attempted_at=now() WHERE id=${row.id}`;
-  return row;
+  return {...row,owner_id:candidate.owner_id};
  });
 }
 async function sendClaimedMail(row:any,dependencies:MailWorkerDependencies){
  const sql=dependencies.database??db;
  try{
   await dependencies.assertActive?.();
+  if(!await ownerMayStartWork(row.owner_id)){await sql`UPDATE companion_mail_messages SET state='failed',error_code='subscription_required' WHERE id=${row.id} AND state='sending'`;return;}
   const [parent]=await sql`SELECT message_id FROM companion_mail_messages WHERE thread_id=${row.thread_id} AND direction='inbound' AND message_id IS NOT NULL ORDER BY received_at DESC LIMIT 1`;
   const replyTo=row.sender.replace('@',`+${row.reply_token}@`);
   const response=await (dependencies.fetch??fetch)('https://api.resend.com/emails',{method:'POST',redirect:'error',signal:AbortSignal.timeout(20_000),headers:{authorization:`Bearer ${dependencies.apiKey??process.env.RESEND_API_KEY}`,'content-type':'application/json','idempotency-key':`companion-mail/${row.id}`},body:JSON.stringify({from:row.sender,to:row.recipients,cc:row.cc,bcc:row.bcc,subject:row.subject,text:row.body_text,html:row.body_html,reply_to:replyTo,headers:{'Auto-Submitted':parent?'auto-replied':'auto-generated',...(parent?{'In-Reply-To':parent.message_id,'References':parent.message_id}:{})},attachments:row.attachments.map((a:any)=>({filename:a.filename,content:a.content,content_type:a.contentType})),tags:[{name:'companion_mail_id',value:row.id}]})});
@@ -329,11 +331,21 @@ export async function mailFilesForRun(companionId:string,runId:string,sql:Databa
 function controlMessage(message:any){const {html:_,text:__,...summary}=message;return summary;}
 export async function handleCompanionMailControl(context:{ownerId:string;companionId:string;runId:string;source:string;explicitAuthorization?:boolean},operation:string,value:any){
  const {ownerId,companionId,runId,source}=context;
+ if(operation==='mail_account'||operation==='mail_activate'){
+  if(source!=='chat')throw new CompanionMailError('Only the owner chat may configure email identities.');
+  const account=operation==='mail_account';
+  const input=account?z.object({alias:alias.optional()}).strict().parse(value):z.object({localName}).strict().parse(value);
+  const mutate=!account||'alias' in input&&Boolean(input.alias);
+  const response=await handleCompanionMail(new Request(account?'http://localhost/api/mail/account':`http://localhost/api/companions/${companionId}/mail`,{method:mutate?'PUT':'GET',...(mutate?{headers:{'content-type':'application/json'},body:JSON.stringify(input)}:{})}),ownerId);
+  if(!response)throw new CompanionMailError('Mailbox unavailable.');
+  const result=await response.json();if(!response.ok)throw new CompanionMailError(result.error||'Mail request failed.');
+  return account?result:{mailbox:result.mailbox,configured:result.configured};
+ }
  if(operation==='mail_send'&&value?.id){
   const input=z.object({id:z.string().uuid(),sendAt:z.iso.datetime().optional(),explicitAuthorization:z.boolean().optional()}).strict().parse(value);
   const [row]=await db`SELECT * FROM companion_mail_messages WHERE id=${input.id} AND companion_id=${companionId} AND direction='outbound'`;
   if(!row)throw new CompanionMailError('Mail draft not found.');
-  let permitted=source==='chat'&&context.explicitAuthorization===true&&row.run_id===runId;
+  let permitted=source==='chat'&&context.explicitAuthorization===true;
   if(source==='email'){
    const ctx=await emailRunContext(companionId,runId);
    permitted=Boolean(ctx&&row.run_id===runId&&row.thread_id===ctx.threadId&&recipients({to:row.recipients,cc:row.cc,bcc:row.bcc}).every(address=>address===ctx.sender)&&!input.sendAt);
@@ -349,7 +361,7 @@ export async function handleCompanionMailControl(context:{ownerId:string;compani
   const message=await createMailDraft(companionId,mailDraftInput.parse(draftValue),{kind:source==='email'?'email':'owner',runId,send:operation==='mail_send'});
   if(operation==='mail_send'&&source!=='email'){
    // Background tasks may use only permanently authorized recipients. Main chat must
-   // carry the explicit-owner-intent flag verified by the control bridge.
+   // represent an explicit owner instruction in the chat tool call.
    let permitted=source==='chat'&&context.explicitAuthorization===true;
    if(source!=='chat'){
     const input=validateMailDraft(draftValue);

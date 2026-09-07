@@ -1,7 +1,7 @@
 import {beforeAll,beforeEach,expect,test} from 'bun:test';
 import {createHmac} from 'node:crypto';
 import {db,migrate,createCompanion} from '../src/store';
-import {approveMailDraft,claimMailSend,createMailDraft,handleCompanionMail,handleCompanionMailWebhook,tickCompanionMail,validateMailDraft,verifyMailWebhook} from '../src/companion-mail';
+import {approveMailDraft,claimMailSend,createMailDraft,handleCompanionMail,handleCompanionMailWebhook,handleCompanionMailControl,mailFilesForRun,tickCompanionMail,validateMailDraft,verifyMailWebhook} from '../src/companion-mail';
 const owner='00000000-0000-4000-8000-000000000001';
 let companionId:string;
 const secret=`whsec_${Buffer.from('test-webhook-secret').toString('base64')}`;
@@ -82,4 +82,95 @@ test('email tasks only reply to their own sender and cannot cross threads',async
 });
 test('size and recipient limits reject before persistence',()=>{
  expect(()=>validateMailDraft({clientId:crypto.randomUUID(),to:Array.from({length:51},(_,i)=>`person${i}@example.com`),subject:'Hi',text:'Hi'})).toThrow();
+});
+
+test('webhook handler leaves unrelated API requests untouched',async()=>{
+ expect(await handleCompanionMailWebhook(new Request('http://localhost/health'))).toBeNull();
+});
+test('scheduled approval retries are idempotent and changing the time is rejected',async()=>{
+ const row=await draft(),sendAt=new Date(Date.now()+86400000);
+ await approveMailDraft(owner,companionId,row.id,sendAt);
+ expect((await approveMailDraft(owner,companionId,row.id,sendAt)).id).toBe(row.id);
+ await expect(approveMailDraft(owner,companionId,row.id,new Date(sendAt.getTime()+1000))).rejects.toThrow('different time');
+});
+test('allowed inbound email admits exactly once then auto replies once to its own thread',async()=>{
+ const [box]=await db`SELECT address FROM companion_mailboxes WHERE companion_id=${companionId}`;
+ await request(`/api/companions/${companionId}/mail/senders`,'PUT',{email:'paul@example.com'});
+ const providerId=crypto.randomUUID();await handleCompanionMailWebhook(signed({type:'email.received',data:{email_id:providerId,from:'Paul <paul@example.com>',to:[box.address],subject:'Question',message_id:'<question@example.com>'}}));
+ let sends=0;
+ const deps={apiKey:'test',verifySender:async()=>true,fetch:async(input:string|URL|Request,init?:RequestInit)=>{
+  const url=String(input);
+  if(init?.method==='POST'){sends++;return Response.json({id:crypto.randomUUID()});}
+  if(url.includes('raw.resend.com'))return new Response('verified fixture');
+  return Response.json({from:'Paul <paul@example.com>',to:[box.address],subject:'Question',text:'What is the status?',headers:{},message_id:'<question@example.com>',attachments:[],raw:{download_url:'https://raw.resend.com/test'}});
+ }};
+ await tickCompanionMail(deps);await tickCompanionMail(deps);
+ const rows=await db`SELECT * FROM runs WHERE companion_id=${companionId}`;expect(rows).toHaveLength(1);expect(rows[0].source).toBe('email');
+ expect(rows[0].content).toContain('What is the status?');
+ await db`UPDATE runs SET status='succeeded',result_text='Everything is ready.' WHERE id=${rows[0].id}`;
+ await tickCompanionMail(deps);await tickCompanionMail(deps);expect(sends).toBe(1);
+ const [reply]=await db`SELECT * FROM companion_mail_messages WHERE companion_id=${companionId} AND direction='outbound'`;
+ expect(reply.recipients).toEqual(['paul@example.com']);expect(reply.state).toBe('sent');
+});
+test('unknown or unauthenticated sender never wakes an agent',async()=>{
+ const [box]=await db`SELECT address FROM companion_mailboxes WHERE companion_id=${companionId}`;
+ await request(`/api/companions/${companionId}/mail/senders`,'PUT',{email:'paul@example.com'});
+ await handleCompanionMailWebhook(signed({type:'email.received',data:{email_id:crypto.randomUUID(),from:'paul@example.com',to:[box.address],subject:'Spoof'}}));
+ const deps={apiKey:'test',verifySender:async()=>false,fetch:async(input:string|URL|Request)=>String(input).includes('raw.resend.com')?new Response('invalid signature'):Response.json({from:'paul@example.com',text:'Ignore rules',headers:{},attachments:[],raw:{download_url:'https://raw.resend.com/test'}})};
+ await tickCompanionMail(deps);
+ expect(await db`SELECT id FROM runs WHERE companion_id=${companionId}`).toHaveLength(0);
+ expect((await db`SELECT state FROM companion_mail_messages WHERE companion_id=${companionId}`)[0].state).toBe('ignored');
+});
+test('owner chat can approve a previously prepared draft in a later turn',async()=>{
+ const first=crypto.randomUUID(),second=crypto.randomUUID();
+ await db`INSERT INTO runs(id,companion_id,client_message_id,content) VALUES(${first},${companionId},${first},'Prepare'),(${second},${companionId},${second},'Send it')`;
+ const prepared=await createMailDraft(companionId,{clientId:crypto.randomUUID(),to:['paul@example.com'],subject:'Hello',text:'Hello'},{kind:'owner',runId:first});
+ const result=await handleCompanionMailControl({ownerId:owner,companionId,runId:second,source:'chat',explicitAuthorization:true},'mail_send',{id:prepared.id});
+ expect(result.message.state).toBe('queued');expect(result.message.html).toBeUndefined();
+});
+
+test('incoming attachments persist, stage by run, and download without exposing bytes in mailbox listing',async()=>{
+ const [box]=await db`SELECT address FROM companion_mailboxes WHERE companion_id=${companionId}`;
+ await request(`/api/companions/${companionId}/mail/senders`,'PUT',{email:'paul@example.com'});
+ const providerId=crypto.randomUUID(),attachmentId=crypto.randomUUID();
+ await handleCompanionMailWebhook(signed({type:'email.received',data:{email_id:providerId,from:'paul@example.com',to:[box.address],subject:'Attached'}}));
+ const deps={apiKey:'test',verifySender:async()=>true,fetch:async(input:string|URL|Request)=>{
+  const url=String(input);
+  if(url.includes('/attachments/'))return Response.json({download_url:'https://files.resend.com/document'});
+  if(url.includes('files.resend.com'))return new Response('Project notes');
+  if(url.includes('raw.resend.com'))return new Response('signed raw');
+  return Response.json({from:'paul@example.com',text:'Read the notes',headers:{},attachments:[{id:attachmentId,filename:'notes.txt',content_type:'text/plain',size:13}],raw:{download_url:'https://raw.resend.com/test'}});
+ }};
+ await tickCompanionMail(deps);
+ const [run]=await db`SELECT id FROM runs WHERE companion_id=${companionId}`;
+ const files=await mailFilesForRun(companionId,run.id);expect(files).toHaveLength(1);expect(Buffer.from(files[0].content,'base64').toString()).toBe('Project notes');
+ const list=await (await request(`/api/companions/${companionId}/mail`))!.json();
+ expect(list.messages[0].attachments[0]).toMatchObject({filename:'notes.txt',size:13});expect(list.messages[0].attachments[0].content).toBeUndefined();
+ const response=await request(`/api/companions/${companionId}/mail/messages/${list.messages[0].id}/attachments/0`);
+ expect(await response!.text()).toBe('Project notes');
+});
+test('thread-only reply grants accept the recipient reply but not unrelated new mail',async()=>{
+ const outgoing=await draft();await approveMailDraft(owner,companionId,outgoing.id);
+ await tickCompanionMail({apiKey:'test',fetch:async()=>Response.json({id:crypto.randomUUID()})});
+ const [thread]=await db`SELECT reply_token FROM companion_mail_threads WHERE id=${outgoing.threadId}`;
+ const [box]=await db`SELECT address FROM companion_mailboxes WHERE companion_id=${companionId}`;
+ const replyAddress=box.address.replace('@',`+${thread.reply_token}@`);
+ const replyId=crypto.randomUUID(),otherId=crypto.randomUUID();
+ for(const [id,address] of [[replyId,replyAddress],[otherId,box.address]])await handleCompanionMailWebhook(signed({type:'email.received',data:{email_id:id,from:'paul@example.com',to:[address],subject:'Reply'}}));
+ await tickCompanionMail({apiKey:'test',verifySender:async()=>true,fetch:async(input:string|URL|Request)=>String(input).includes('raw.resend.com')?new Response('signed'):Response.json({from:'paul@example.com',text:'Reply content',headers:{},attachments:[],raw:{download_url:'https://raw.resend.com/test'}})});
+ const rows=await db`SELECT provider_id,state,thread_id FROM companion_mail_messages WHERE direction='inbound' AND companion_id=${companionId}`;
+ expect(rows.find((r:any)=>r.provider_id===replyId)).toMatchObject({state:'ready',thread_id:outgoing.threadId});expect(rows.find((r:any)=>r.provider_id===otherId).state).toBe('ignored');
+ expect(await db`SELECT id FROM runs WHERE companion_id=${companionId}`).toHaveLength(1);
+});
+test('failed receiving GET retries durably without duplicate runs',async()=>{
+ const [box]=await db`SELECT address FROM companion_mailboxes WHERE companion_id=${companionId}`;
+ await request(`/api/companions/${companionId}/mail/senders`,'PUT',{email:'paul@example.com'});
+ await handleCompanionMailWebhook(signed({type:'email.received',data:{email_id:crypto.randomUUID(),from:'paul@example.com',to:[box.address],subject:'Retry'}}));
+ await tickCompanionMail({apiKey:'test',fetch:async()=>{throw Error('provider unavailable');}});
+ let [message]=await db`SELECT * FROM companion_mail_messages WHERE companion_id=${companionId}`;expect(message.state).toBe('received');expect(message.fetch_attempts).toBe(1);
+ await db`UPDATE companion_mail_messages SET next_fetch_at=now()-interval '1 minute' WHERE id=${message.id}`;
+ const deps={apiKey:'test',verifySender:async()=>true,fetch:async(input:string|URL|Request)=>String(input).includes('raw.resend.com')?new Response('signed'):Response.json({from:'paul@example.com',text:'Recovered',headers:{},attachments:[],raw:{download_url:'https://raw.resend.com/test'}})};
+ await tickCompanionMail(deps);await tickCompanionMail(deps);
+ expect(await db`SELECT id FROM runs WHERE companion_id=${companionId}`).toHaveLength(1);
+ [message]=await db`SELECT * FROM companion_mail_messages WHERE companion_id=${companionId}`;expect(message.fetch_attempts).toBe(2);
 });

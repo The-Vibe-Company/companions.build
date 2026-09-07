@@ -159,10 +159,7 @@ export function SettingsSheet({ embedded = false, active = true, activity, compu
             {error && <p className="field-error" role="alert">{error}</p>}
             <div className="sheet-actions"><span role="status">{saving ? 'Saving…' : saved ? 'Changes saved' : dirty ? 'Unsaved changes' : ''}</span><Button type="submit" disabled={saving || !name.trim() || !dirty}>{saving ? <LoaderCircle className="spin" /> : <Check />}Save changes</Button></div>
           </form>}
-          {embedded && page === 'identity' && <>
-            <section className="settings-block"><h3>Applications</h3>{connections}</section>
-            <details className="settings-delivery" onToggle={event => setDeliveryExpanded(event.currentTarget.open)}><summary><span>Client delivery</span><ChevronRight/></summary>{deliveryExpanded && <DeliverySettings companionId={detail.companion.id}/>}</details>
-          </>}
+          {embedded && page === 'identity' && <details className="settings-delivery" onToggle={event => setDeliveryExpanded(event.currentTarget.open)}><summary><span>Client delivery</span><ChevronRight/></summary>{deliveryExpanded && <DeliverySettings companionId={detail.companion.id}/>}</details>}
           {embedded && page === 'identity' && <button type="button" className="settings-delete-entry" disabled={saving || deleting} onClick={() => { setDeleteError(''); goToPage('delete'); }}><Trash2 />Delete companion</button>}
           {page === 'activity' && activity}
           {active && page === 'computer' && computer}

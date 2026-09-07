@@ -532,13 +532,13 @@ function CompanionConnections({ companionId }: { companionId: string }) {
 }
 
 function CompanionView({ detail, models, onRefresh, onUnauthorized, onMenu, onOpenCompanion, onDeleted }: { detail: CompanionDetail; models: Array<{ id: string; name: string }>; onDeleted: (ids: string[]) => void; onRefresh: () => Promise<void>; onUnauthorized: () => void; onMenu: () => void; onOpenCompanion: (id: string) => void }) {
-  type CompanionSection = 'chat' | 'automations' | 'team' | 'activity' | 'computer' | 'settings';
+  type CompanionSection = 'chat' | 'automations' | 'team' | 'activity' | 'computer' | 'applications' | 'settings';
   const finished = Boolean(detail.companion.retiredAt);
   const readView = (): CompanionSection => {
     const value = new URLSearchParams(window.location.search).get('view');
     if (finished) return value === 'activity' ? value : 'chat';
     if (value === 'computer' && detail.companion.provider !== 'box') return 'chat';
-    return value === 'team' || value === 'automations' || value === 'activity' || value === 'computer' || value === 'settings' ? value : 'chat';
+    return value === 'team' || value === 'automations' || value === 'activity' || value === 'computer' || value === 'applications' || value === 'settings' ? value : 'chat';
   };
   const [view, setView] = useState(readView);
   const [settingsVisited, setSettingsVisited] = useState(() => readView() === 'settings');
@@ -565,7 +565,7 @@ function CompanionView({ detail, models, onRefresh, onUnauthorized, onMenu, onOp
           {!!detail.questions?.length && !finished && <Button variant="ghost" size="sm" onClick={() => changeView('chat')} aria-label="Answer pending questions"><CircleAlert /><span>Needs you</span></Button>}
         </div>
       </header>
-      <nav className="companion-sections" aria-label="Companion sections">{(finished ? [['chat', 'Discussion'], ['activity', 'Activity']] as const : [['chat', 'Discussion'], ['automations', 'Automations'], ['team', 'Team'], ['activity', 'Activity'], ...(detail.companion.provider === 'box' ? [['computer', 'Computer']] as const : []), ['settings', 'Settings']] as const).map(([key, label]) => <button key={key} aria-current={view === key ? 'page' : undefined} onClick={() => changeView(key)}>{label}</button>)}</nav>
+      <nav className="companion-sections" aria-label="Companion sections">{(finished ? [['chat', 'Discussion'], ['activity', 'Activity']] as const : [['chat', 'Discussion'], ['automations', 'Automations'], ['team', 'Team'], ['activity', 'Activity'], ...(detail.companion.provider === 'box' ? [['computer', 'Computer']] as const : []), ['applications', 'Applications'], ['settings', 'Settings']] as const).map(([key, label]) => <button key={key} aria-current={view === key ? 'page' : undefined} onClick={() => changeView(key)}>{label}</button>)}</nav>
       <div className="workspace-body" hidden={view !== 'chat'}>
         <Chat detail={detail} onRefresh={onRefresh} onUnauthorized={onUnauthorized} onOpenCompanion={onOpenCompanion} readOnly={finished} />
       </div>
@@ -573,7 +573,8 @@ function CompanionView({ detail, models, onRefresh, onUnauthorized, onMenu, onOp
       {!finished && view === 'team' && <section className="companion-page" aria-label="Team"><Suspense fallback={<div className="companion-page-inner" role="status">Opening your team…</div>}><TeamPanel companion={detail.companion} onOpenCompanion={onOpenCompanion}/></Suspense></section>}
       {view === 'activity' && <section className="companion-page" aria-label="Activity"><ActivityPanel embedded detail={detail} onOpenCompanion={onOpenCompanion} /></section>}
       {!finished && view === 'computer' && <section className="companion-page" aria-label="Computer"><DesktopSheet embedded companion={detail.companion} onClose={() => changeView('chat')} onRefresh={onRefresh} /></section>}
-      {!finished && settingsVisited && <div className="companion-page" hidden={view !== 'settings'}><SettingsSheet embedded active={view === 'settings'} detail={detail} models={models} onClose={() => changeView('chat')} onSaved={onRefresh} onDeleted={onDeleted} connections={<CompanionConnections companionId={detail.companion.id} />} onActivity={() => changeView('activity')} onDesktop={() => changeView('computer')} /></div>}
+      {!finished && view === 'applications' && <section className="companion-page" aria-label="Applications"><div className="companion-page-inner"><header className="section-intro"><h2>Applications</h2><p>Choose which connected accounts {detail.companion.name} can use.</p></header><CompanionConnections companionId={detail.companion.id} /></div></section>}
+      {!finished && settingsVisited && <div className="companion-page" hidden={view !== 'settings'}><SettingsSheet embedded active={view === 'settings'} detail={detail} models={models} onClose={() => changeView('chat')} onSaved={onRefresh} onDeleted={onDeleted} connections={null} onActivity={() => changeView('activity')} onDesktop={() => changeView('computer')} /></div>}
     </main>
   );
 }

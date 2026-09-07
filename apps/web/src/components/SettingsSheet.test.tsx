@@ -94,12 +94,12 @@ it('prevents duplicate deletion and closing while the request is pending', async
 });
 
 
-it('renders one settings page with compact appearance and preserves drafts across delete confirmation', async () => {
+it('renders one settings page without applications and preserves drafts across delete confirmation', async () => {
   const user=userEvent.setup();
   render(<SettingsSheet embedded detail={detail} models={[]} connections={<p>Choose connected apps</p>} onDeleted={vi.fn()} onClose={vi.fn()} onSaved={vi.fn()} onActivity={vi.fn()} onDesktop={vi.fn()}/>);
   expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   expect(screen.queryByRole('navigation',{name:'Settings sections'})).not.toBeInTheDocument();
-  expect(screen.getByText('Choose connected apps')).toBeInTheDocument();
+  expect(screen.queryByText('Choose connected apps')).not.toBeInTheDocument();
   expect(document.querySelector('.settings-appearance')).not.toHaveAttribute('open');
   await user.clear(screen.getByLabelText('Name'));
   await user.type(screen.getByLabelText('Name'),'Mila draft');

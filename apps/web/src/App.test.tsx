@@ -242,6 +242,8 @@ describe("first Companion flow", () => {
       if (path === "/api/companions/browser") {
         return response({ companion: browserCompanion, messages: [], runs: [], activity: [] });
       }
+      if (path === "/api/plugins") return response({ accounts: [], catalog: [] });
+      if (path === "/api/companions/ada/plugins") return response({ accounts: [] });
       throw new Error(`Unexpected request: ${path}`);
     });
     vi.stubGlobal("fetch", fetchMock);
@@ -263,6 +265,9 @@ describe("first Companion flow", () => {
     expect(screen.getByRole("region", { name: "Companion settings" })).toBeInTheDocument();
     expect(screen.getByLabelText("Name")).toHaveValue("Ada");
     await user.click(screen.getByRole("button", { name: "Discussion" }));
+    await user.click(screen.getByRole("button", { name: "Applications" }));
+    expect(window.location.search).toBe("?view=applications");
+    expect(screen.getByRole("region", { name: "Applications" })).toHaveTextContent("Choose which connected accounts Ada can use.");
 
     await user.click(screen.getByRole("button", { name: /Browser Ready/ }));
     const browserComposer = await screen.findByRole("textbox", { name: "Message Browser" });

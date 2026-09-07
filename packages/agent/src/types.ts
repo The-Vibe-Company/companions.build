@@ -24,6 +24,8 @@ export interface RunInput {
   instructions: string;
   modelId?:string;
   lane?: RunLane;
+  /** Short-lived, run-bound credential. It is intentionally never written to the run journal. */
+  modelGateway?: {token:string};
 }
 
 export interface RunExecutor {

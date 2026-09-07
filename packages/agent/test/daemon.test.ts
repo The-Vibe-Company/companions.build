@@ -61,6 +61,20 @@ describe("agent daemon protocol", () => {
     expect(app.executor.calls).toHaveLength(1);
   });
 
+  test("a run-bound gateway token is required in gateway mode, rotates across retries, and is never journaled",async()=>{
+    const previous=process.env.MODEL_GATEWAY_URL;process.env.MODEL_GATEWAY_URL="https://models.companions.build/api/model-gateway";
+    try{
+      const app=daemon(),first="first-run-scoped-token",rotated="rotated-run-token";
+      const body=(token:string)=>JSON.stringify({content:"hello",instructions:"",modelGateway:{token}});
+      expect((await app.daemon.fetch(request(`/runs/${id}`,{method:"PUT",body:JSON.stringify({content:"hello",instructions:""})}))).status).toBe(400);
+      expect((await app.daemon.fetch(request(`/runs/${id}`,{method:"PUT",body:body(first)}))).status).toBe(202);
+      expect((await app.daemon.fetch(request(`/runs/${id}`,{method:"PUT",body:body(rotated)}))).status).toBe(200);
+      expect(app.executor.calls[0]!.input.modelGateway).toEqual({token:first});
+      const bytes=await Array.fromAsync(new Bun.Glob("**/*").scan({cwd:app.state,onlyFiles:true})).then(paths=>Promise.all(paths.map(path=>Bun.file(`${app.state}/${path}`).arrayBuffer())));
+      expect(bytes.some(value=>Buffer.from(value).includes(first)||Buffer.from(value).includes(rotated))).toBe(false);
+    }finally{if(previous===undefined)delete process.env.MODEL_GATEWAY_URL;else process.env.MODEL_GATEWAY_URL=previous;}
+  });
+
   test("background rejects another id as busy without persisting it", async () => {
     const app = daemon();
     await app.daemon.fetch(request(`/runs/${id}`, { method: "PUT", body: JSON.stringify({ content: "one", instructions: "", lane: "background" }) }));

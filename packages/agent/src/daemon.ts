@@ -2,6 +2,7 @@ import { timingSafeEqual } from "node:crypto";
 import { join } from "node:path";
 import { RunJournal } from "./journal";
 import type { RunExecutor, RunInput, RunLane } from "./types";
+import { parseModelGatewayCredential } from "./model-gateway";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -56,7 +57,9 @@ export class AgentDaemon {
       }
       if (value.lane !== undefined && value.lane !== "main" && value.lane !== "background") return json({ error: "INVALID_REQUEST" }, 400);
       if(value.modelId!==undefined&&(typeof value.modelId!=="string"||!value.modelId.length||value.modelId.length>200))return json({error:"INVALID_REQUEST"},400);
-      input = { ...(value.modelId?{modelId:value.modelId}:{}),content: value.content, instructions: value.instructions, lane: value.lane ?? "main" };
+      const modelGateway=parseModelGatewayCredential(value.modelGateway),gatewayRequired=!!process.env.MODEL_GATEWAY_URL?.trim();
+      if((gatewayRequired&&!modelGateway)||(!gatewayRequired&&value.modelGateway!==undefined))return json({error:"INVALID_REQUEST"},400);
+      input = { ...(value.modelId?{modelId:value.modelId}:{}),...(modelGateway?{modelGateway}:{}),content: value.content, instructions: value.instructions, lane: value.lane ?? "main" };
     } catch { return json({ error: "INVALID_REQUEST" }, 400); }
 
     const existing = this.journal.get(id);

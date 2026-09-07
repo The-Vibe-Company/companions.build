@@ -3,8 +3,9 @@ import { join } from "node:path";
 import { InMemoryCredentialStore, Type } from "@earendil-works/pi-ai";
 import { createAgentSession, DefaultResourceLoader, ModelRuntime, SessionManager, SettingsManager } from "@earendil-works/pi-coding-agent";
 import { scriptedModel, scriptedHumanTool } from "./scripted-model";
-import { takeProviderApiKey } from "./environment";
+import { clearProviderSecrets, takeProviderApiKey } from "./environment";
 import { SharedMemory } from "./memory";
+import { configureModelGateway, withModelGatewayRequest } from "./model-gateway";
 import type { RunExecutor, RunInput, RunLane, RunProgress } from "./types";
 
 type Session = Awaited<ReturnType<typeof createAgentSession>>["session"];
@@ -15,6 +16,7 @@ type ActiveExecution = {
   parked: boolean;
   publishText?: string;
   progress:RunProgress;
+  modelGateway?:RunInput["modelGateway"];
   onProgress?:(progress:RunProgress)=>void;
 };
 
@@ -33,17 +35,19 @@ export class PiExecutor implements RunExecutor {
   private readonly provider: string;
   private readonly modelId: string;
   private readonly memory: SharedMemory;
+  private readonly gatewayUrl?: string;
   private readonly active = new Map<string, ActiveExecution>();
   toolsFactory?: PiToolsFactory;
   private readonly cancelled = new Set<string>();
 
-  private constructor(stateDir: string, modelRuntime: ModelRuntime, provider: string, modelId: string) {
+  private constructor(stateDir: string, modelRuntime: ModelRuntime, provider: string, modelId: string, gatewayUrl?:string) {
     this.cwd = join(stateDir, "workspace");
     this.agentDir = join(stateDir, "pi");
     this.sessionsDir = join(stateDir, "sessions");
     this.modelRuntime = modelRuntime;
     this.provider = provider;
     this.modelId = modelId;
+    this.gatewayUrl = gatewayUrl;
     for (const path of [this.cwd, this.agentDir, this.sessionsDir]) mkdirSync(path, { recursive: true });
     this.memory = new SharedMemory(this.cwd);
   }
@@ -53,8 +57,9 @@ export class PiExecutor implements RunExecutor {
     const testMode = process.env.AGENT_TEST_MODE === "1";
     const provider = testMode ? "companion-test" : requiredEnvironment("MODEL_PROVIDER");
     const modelId = testMode ? "scripted" : requiredEnvironment("MODEL_ID");
-    const providerApiKey = takeProviderApiKey(provider);
-    if (!testMode && !providerApiKey) throw new Error("MISSING_MODEL_API_KEY");
+    const rawGatewayUrl=process.env.MODEL_GATEWAY_URL?.trim();
+    const providerApiKey = rawGatewayUrl ? (clearProviderSecrets(),undefined) : takeProviderApiKey(provider);
+    if (!testMode && !rawGatewayUrl && !providerApiKey) throw new Error("MISSING_MODEL_API_KEY");
     const modelRuntime = await ModelRuntime.create({
       credentials: new InMemoryCredentialStore(), modelsPath: null,
       modelsStorePath: join(stateDir, "models.json"), allowModelNetwork: false, refreshOnCreate: false,
@@ -66,9 +71,10 @@ export class PiExecutor implements RunExecutor {
           cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 100000, maxTokens: 1000 }],
       });
     }
-    if (providerApiKey) await modelRuntime.setRuntimeApiKey(provider, providerApiKey);
+    const gatewayUrl=rawGatewayUrl?await configureModelGateway(modelRuntime,provider,rawGatewayUrl,testMode):undefined;
+    if (!gatewayUrl&&providerApiKey) await modelRuntime.setRuntimeApiKey(provider, providerApiKey);
     if (!modelRuntime.getModel(provider, modelId)) throw new Error("MODEL_NOT_FOUND");
-    return new PiExecutor(stateDir, modelRuntime, provider, modelId);
+    return new PiExecutor(stateDir, modelRuntime, provider, modelId,gatewayUrl);
   }
 
   async execute(id: string, input: RunInput, onProgress?:(progress:RunProgress)=>void): Promise<{ text: string; publishToChat: boolean }> {
@@ -80,8 +86,10 @@ export class PiExecutor implements RunExecutor {
       id, lane, controller: new AbortController(), session: null, submissions: new Set(),
       accepting: true, ready: undefined!,
       preflight, preflightDone, parked: false, onProgress,
+      modelGateway:input.modelGateway,
       progress:{previewText:"",usage:{input:0,output:0,cacheRead:0,cacheWrite:0,totalTokens:0,costUsd:0}},
     };
+    if(this.gatewayUrl&&!input.modelGateway)throw new Error("MODEL_GATEWAY_CREDENTIAL_REQUIRED");
     this.active.set(id, execution);
     if (this.cancelled.has(id)) execution.controller.abort();
     let externalTools: PiSessionTools | undefined;
@@ -147,8 +155,9 @@ export class PiExecutor implements RunExecutor {
       if (!first) await execution.preflight;
       if (execution.controller.signal.aborted) throw new Error("RUN_CANCELLED");
       if (!execution.accepting) throw new Error("PI_RESPONSE_SETTLED");
-      await session.prompt(content, { streamingBehavior: "steer",
+      const prompt=()=>session.prompt(content, { streamingBehavior: "steer",
         ...(first ? { preflightResult: () => execution.preflightDone() } : {}) });
+      await (this.gatewayUrl?withModelGatewayRequest(execution.id,execution.modelGateway!,prompt):prompt());
     })();
     execution.submissions.add(work);
     // Both branches remove it; avoid an unhandled rejected finally promise.

@@ -56,10 +56,12 @@ export function takeProviderApiKey(provider: string): string | undefined {
   // This prevents normal Pi shell children from inheriting control/model secrets. It is not an
   // isolation boundary against malicious same-user or root inspection of daemon memory/processes;
   // the Box or container remains that trust boundary.
-  for (const name of new Set([...Object.values(PROVIDER_API_KEYS).flat(), ...EXTRA_SECRET_NAMES])) {
-    delete process.env[name];
-  }
+  clearProviderSecrets();
   return value;
+}
+
+export function clearProviderSecrets(): void {
+  for (const name of new Set([...Object.values(PROVIDER_API_KEYS).flat(), ...EXTRA_SECRET_NAMES])) delete process.env[name];
 }
 
 export const providerSecretEnvironmentNames = Object.freeze([

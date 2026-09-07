@@ -1,0 +1,44 @@
+apps/server/src/admission.sql
+  s_895cd30c8c0144::t_04e69cdc3c25b6 1-40
+apps/server/src/admission.ts
+  s_895cd30c8c0144::t_3e139e53804220 25-26,29,31-40,177,189,201
+  s_895cd30c8c0144::t_668c437d99ba5c 51-53,60-62,180
+  s_895cd30c8c0144::t_c9653d4b6e8b81 27-28,30
+  s_895cd30c8c0144::t_fff9a09094d63d 197-198
+  s_895cd30c8c0144::t_f1000658edc458 179
+  s_895cd30c8c0144::t_840b2bdf3a64dd 210
+  s_895cd30c8c0144::t_d9e14581ff82d1 70,115-127
+  s_895cd30c8c0144::t_04e69cdc3c25b6 1-24,41-50,54-59,63-69,71-114,128-131,141-143,145-176,178,181-188,190-196,199-200,202-209,211-219
+  s_895cd30c8c0144::t_4b3daee1af3803 132-140,144
+apps/server/src/executor.ts
+  s_895cd30c8c0144::t_a947ecc0090f0a 128,150,353-355
+apps/server/test/admission.test.ts
+  s_895cd30c8c0144::t_6c3d459f774dac 6-7,15,35,37,40-51,109-116
+  s_895cd30c8c0144::t_bc7a73f64f195e 63,77,89
+  s_895cd30c8c0144::t_f0fc6f1dd1d729 1-5,8-9,11-14,16-34,36,38-39,52-62,64-76,78-88,90-100,102-108,117-124,153
+  s_895cd30c8c0144::t_0de3d9a1c615b5 10,125-152
+  s_895cd30c8c0144::t_d9e14581ff82d1 101
+apps/server/src/delegation.ts
+  s_895cd30c8c0144::t_68113c9c39bca4 8,27,30
+apps/server/src/lifecycle.ts
+  s_895cd30c8c0144::t_668c437d99ba5c 303-305
+  s_895cd30c8c0144::t_5deb85189918bb 117,148,198
+  s_895cd30c8c0144::t_3e139e53804220 32-33,128
+  s_895cd30c8c0144::t_5da7a66ab25413 15,58-64,90
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "0edf21321d13ff47548a43b40a5b666e2cc7c0dc",
+  "prompts": {},
+  "sessions": {
+    "s_895cd30c8c0144": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a07d31-b106-7d00-912b-601ce8884ca0",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "StanGirard <stan@quivr.app>"
+    }
+  }
+}

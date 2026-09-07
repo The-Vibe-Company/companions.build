@@ -1,0 +1,24 @@
+apps/web/src/components/TeamPanel.test.tsx
+  s_f946242dcf6ba9::t_353850bef2fe3d 38-64
+  s_f946242dcf6ba9::t_e75fc86b966a7e 67
+  s_f946242dcf6ba9::t_1b1037d2fdeee9 15-37,65-66,68-142
+apps/web/src/components/TeamPanel.tsx
+  s_f946242dcf6ba9::t_e9bd18c505818e 16,31-37,39-41,48-54,57,59-60,63-65,69-94
+  s_f946242dcf6ba9::t_859ec0e8c3953f 58
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "45aa2adea3e869e8a449bace6990bff0696f4033",
+  "prompts": {},
+  "sessions": {
+    "s_f946242dcf6ba9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a06de4-a8a5-7cd3-b713-2a8d451f7200",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "StanGirard <stan@quivr.app>"
+    }
+  }
+}

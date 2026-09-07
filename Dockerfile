@@ -13,6 +13,7 @@ COPY apps/server ./apps/server
 COPY packages ./packages
 COPY scripts/build-agent.ts ./scripts/build-agent.ts
 COPY scripts/lib/pinned-bun.ts ./scripts/lib/pinned-bun.ts
+COPY scripts/lib/agent-release.ts ./scripts/lib/agent-release.ts
 RUN bun run --cwd apps/web build && bun scripts/build-agent.ts
 
 FROM oven/bun:1.4.2-alpine@sha256:d888c0ae6c86d7866ff10c5aafdd9077b36aee6455b33dd270fb93c0dd5cef6f

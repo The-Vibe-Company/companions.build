@@ -161,3 +161,26 @@ environment, source Box, snapshot, or credential field. Child processes receive 
 and fixed apt, dpkg, and npm argv. The helper does not run Pi or capture a provider snapshot. The later
 runtime stage may snapshot only after the helper reports `verified`, then persist that provider effect
 under its own durable observation and fencing contract.
+
+The distribution build accepts the optional operator argument `--software-config <absolute-path>`.
+Without it, the normal agent distribution is built unchanged and portable-software preparation is
+unavailable. With it, the build compiles `/opt/companions/companion-software-builder` and emits a
+canonical descriptor plus the public APT keyring. The immutable distribution digest binds the
+ordinary agent files, compiled builder bytes, descriptor payload, and keyring bytes; the final
+descriptor carries that digest without hashing itself recursively.
+
+Runtime writes a root-owned mode-0600 request at
+`/var/lib/companions-software/builds/<build-id>/request.json`, then invokes the fixed CLI as
+`companion-software-builder run|status <build-id> <request-digest>`. The request contains only
+`{version:1, aptRoots, npmRoots}`. Before installation, `run` refuses any Companion environment,
+identity, or state in the clean Box and stops the exact Companion desktop, agent, and proxy units.
+After verification it enables the baseline units without starting them and fsyncs a capture seal.
+`readyForCapture` is true only when that seal, the helper journal, manifest digest, request digest,
+and compiled distribution descriptor still agree. The runtime then validates and records
+`bundleDirectory/manifest.json`; the path itself is Box-local and is never persisted. Provider
+snapshot capture remains a separate runtime checkpoint.
+
+The operator registration command validates the completed locally owned template journal, archive
+SHA-256, current descriptor, compiled builder and keyring hashes, and reconstructed distribution
+digest before it calls the internal immutable-base registration and selection functions. It never
+creates, names, or contacts a provider resource.

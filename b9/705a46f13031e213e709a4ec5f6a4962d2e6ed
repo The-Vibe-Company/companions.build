@@ -1,0 +1,23 @@
+.env.example
+  s_f946242dcf6ba9::t_0a3cc6954ea702 43-46
+README.md
+  s_f946242dcf6ba9::t_a9299a5d87562c 68,76-83
+docs/v0.md
+  s_f946242dcf6ba9::t_6bb93c6f467793 160
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "b9705a46f13031e213e709a4ec5f6a4962d2e6ed",
+  "prompts": {},
+  "sessions": {
+    "s_f946242dcf6ba9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a06de4-a8a5-7cd3-b713-2a8d451f7200",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "StanGirard <stan@quivr.app>"
+    }
+  }
+}

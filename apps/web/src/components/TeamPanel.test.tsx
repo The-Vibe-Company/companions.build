@@ -12,6 +12,34 @@ const writer = { id: "t2", name: "Writer", instructions: "Turn findings into cle
 beforeEach(() => vi.unstubAllGlobals());
 
 describe("TeamPanel", () => {
+  it("persists an account override for one specialist on one team", async () => {
+    let connections = [{ slot: "github", required: true, defaultAccountId: "gh-default", overridden: false, accountId: "gh-default", label: "personal", provider: "github" }];
+    const fetchMock = vi.fn((input: RequestInfo | URL, options?: RequestInit) => {
+      const path = String(input);
+      if (path === "/api/templates") return response({ templates: [researcher] });
+      if (path === "/api/companions/c1/templates") return response({ templates: [{ templateId: "t1", maxChildren: 2, name: "Researcher", revision: 2 }] });
+      if (path === "/api/companions/c1/replicas") return response({ replicas: [] });
+      if (path === "/api/templates/t1/revisions") return response({ revisions: [{ ...researcher, snapshotName: null, createdAt: new Date().toISOString() }] });
+      if (path === "/api/companions/c1/plugins") return response({ accounts: [{ id: "gh-work", serverId: "github", provider: "github", label: "Acme work", healthStatus: "ok", healthCode: null, checkedAt: null }] });
+      if (path === "/api/companions/c1/specialists/t1/connections" && !options?.method) return response({ connections });
+      if (path === "/api/companions/c1/specialists/t1/connections" && options?.method === "PATCH") {
+        const body = JSON.parse(String(options.body));
+        connections = [{ ...connections[0], overridden: true, accountId: body.accountId, label: "Acme work" }];
+        return response({ connections });
+      }
+      throw new Error(`Unexpected ${path}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+    render(<TeamPanel companion={companion} onOpenCompanion={vi.fn()} />);
+    await user.click(await screen.findByText("Profile settings"));
+    const account = await screen.findByRole("combobox", { name: "github account" });
+    expect(account).toHaveValue("__default__");
+    await user.selectOptions(account, "gh-work");
+    await waitFor(() => expect(account).toHaveValue("gh-work"));
+    expect(fetchMock).toHaveBeenCalledWith("/api/companions/c1/specialists/t1/connections", expect.objectContaining({ method: "PATCH", body: JSON.stringify({ slot: "github", accountId: "gh-work" }) }));
+  });
+
   it("refreshes external permission and replica changes while mounted", async () => {
     let authorized = [{ templateId: "t1", maxChildren: 2, name: "Researcher", revision: 2 }];
     let replicas: Companion[] = [];

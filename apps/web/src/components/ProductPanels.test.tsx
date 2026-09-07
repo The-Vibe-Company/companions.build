@@ -10,6 +10,48 @@ beforeEach(() => { vi.unstubAllGlobals(); window.history.replaceState({}, "", "/
 afterEach(() => vi.useRealTimers());
 
 describe("account delivery", () => {
+  it("shows persisted specialist admission limits and cancels a queued request", async () => {
+    let requests = [{ id: "request-1", companionId: "c1", state: "waiting", waitingReason: "Waiting for an active slot", kind: "test" }];
+    const fetchMock = vi.fn((input: RequestInfo | URL, options?: RequestInit) => {
+      const path = String(input);
+      if (path === "/api/billing") return response({ configured: true, mode: "beta", plan: "beta", active: true, status: null, currentPeriodEnd: null, cancelAtPeriodEnd: false, portalAvailable: false, usage: [] });
+      if (path === "/api/deliveries") return response({ sent: [], received: [] });
+      if (path === "/api/maintenance") return response({ companions: [] });
+      if (path === "/api/account/specialist-limits" && !options?.method) return response({ limits: { active: 2, startsPerHour: 8, queue: 10 }, requests });
+      if (path === "/api/account/specialist-requests/request-1/cancel" && options?.method === "POST") { requests = []; return response({ ok: true }); }
+      throw new Error(`Unexpected ${path}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+    render(<AccountProduct user={{ id: "u1", name: "Alex", email: "alex@example.com" }} onSignOut={vi.fn()} />);
+    expect(await screen.findByText("Waiting for an active slot")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(screen.queryByText("Waiting for an active slot")).not.toBeInTheDocument());
+  });
+
+  it("requires an explicit choice before copying a prepared specialist disk", async () => {
+    const bodies: any[] = [];
+    const prepared = { id: "t1", name: "Developer", instructions: "Build software", avatar: { shape: 0, color: 4, face: 0 }, revision: 1, sourceCompanionId: null, hasSnapshot: true };
+    const fetchMock = vi.fn((input: RequestInfo | URL, options?: RequestInit) => {
+      const path = String(input);
+      if (path === "/api/templates") return response({ templates: [prepared] });
+      if (path === "/api/companions/c1/templates/t1" && options?.method === "PUT") return response({ templateId: "t1", maxChildren: 2 });
+      if (path === "/api/deliveries" && options?.method === "POST") { bodies.push(JSON.parse(String(options.body))); return response({ delivery: { status: "pending", skillsStatus: "ready", skillsError: null, softwareStatus: "ready", softwareError: null } }); }
+      throw new Error(`Unexpected ${path}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+    render(<DeliverySettings companionId="c1" />);
+    await user.type(screen.getByRole("textbox", { name: "Client email" }), "client@example.com");
+    await user.click(await screen.findByRole("checkbox", { name: "Developer" }));
+    const diskChoice = screen.getByRole("checkbox", { name: /Include prepared specialist disks/ });
+    expect(diskChoice).not.toBeChecked();
+    await user.click(diskChoice);
+    await user.click(screen.getByRole("button", { name: "Send invitation" }));
+    await screen.findByText("Invitation ready.");
+    expect(bodies[0]).toMatchObject({ templateIds: ["t1"], includeSpecialistDisks: true });
+  });
+
   it.each([true,false])("shows private beta access accurately without offering Checkout (active=%s)",async active=>{
     vi.stubGlobal("fetch",vi.fn((input:RequestInfo|URL)=>{
       if(String(input)==="/api/billing")return response({configured:true,mode:"beta",plan:active?"beta":"inactive",active,status:null,currentPeriodEnd:null,cancelAtPeriodEnd:false,portalAvailable:false,usage:[]});

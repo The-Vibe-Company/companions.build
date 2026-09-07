@@ -10,6 +10,49 @@ const earlier = { revision: 1, name: "Research partner", instructions: "Find pri
 beforeEach(() => vi.unstubAllGlobals());
 
 describe("SpecialistLibrary", () => {
+  it("opens a persisted draft companion for configuration", async () => {
+    const onOpenDraft = vi.fn();
+    const draft = { templateId: "t1", companionId: "draft-companion", generation: 2, name: "Researcher", instructions: researcher.instructions, initScript: "", status: "editing", lastTest: null, publication: null };
+    const fetchMock = vi.fn((input: RequestInfo | URL, options?: RequestInit) => {
+      const path = String(input);
+      if (path === "/api/templates") return response({ templates: [{ ...researcher, hasPublished: false, draftCompanionId: "draft-companion" }] });
+      if (path === "/api/templates/t1/draft" && options?.method === "POST") return response({ draft });
+      throw new Error(`Unexpected ${path}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+    render(<SpecialistLibrary onOpenDraft={onOpenDraft} />);
+
+    expect(await screen.findByText("Draft", { selector: ".specialist-library__version" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Configure" }));
+    await waitFor(() => expect(onOpenDraft).toHaveBeenCalledWith("draft-companion", "t1"));
+    const posted = JSON.parse(String((fetchMock.mock.calls.find(([path, options]) => String(path) === "/api/templates/t1/draft" && (options as RequestInit)?.method === "POST")?.[1] as RequestInit).body));
+    expect(posted.commandId).toEqual(expect.any(String));
+  });
+
+  it("creates a private draft and opens its chat", async () => {
+    const onOpenDraft = vi.fn();
+    const draft = { templateId: "new-template", companionId: "new-draft", generation: 1, name: "Analyst", instructions: "Analyze product data", initScript: "", status: "editing", lastTest: null, publication: null };
+    const fetchMock = vi.fn((input: RequestInfo | URL, options?: RequestInit) => {
+      const path = String(input);
+      if (path === "/api/templates" && options?.method === "POST") return response({ draft });
+      if (path === "/api/templates") return response({ templates: [] });
+      throw new Error(`Unexpected ${path}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+    render(<SpecialistLibrary onOpenDraft={onOpenDraft} />);
+    await screen.findByText("No specialists yet");
+    await user.click(screen.getByRole("button", { name: "New specialist" }));
+    await user.type(screen.getByRole("textbox", { name: "Name" }), "Analyst");
+    await user.type(screen.getByRole("textbox", { name: "Role" }), "Analyze product data");
+    await user.click(screen.getByRole("button", { name: "Create specialist" }));
+
+    await waitFor(() => expect(onOpenDraft).toHaveBeenCalledWith("new-draft", "new-template"));
+    const posted = JSON.parse(String((fetchMock.mock.calls.find(([path, options]) => String(path) === "/api/templates" && (options as RequestInit)?.method === "POST")?.[1] as RequestInit).body));
+    expect(posted).toMatchObject({ draft: true, name: "Analyst", instructions: "Analyze product data", commandId: expect.any(String) });
+  });
+
   it("edits a profile with its current revision and exposes real provider access semantics", async () => {
     let current = researcher;
     const fetchMock = vi.fn((input: RequestInfo | URL, options?: RequestInit) => {

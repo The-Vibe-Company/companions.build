@@ -54,10 +54,12 @@ import { RoutineSettings, TriggerSettings } from "@/components/AutomationPanels"
 const CreateCompanion = lazy(() => import("@/components/CreateCompanion").then(module => ({ default: module.CreateCompanion })));
 const TaskActivity = lazy(() => import("@/components/TaskActivity").then(module => ({ default: module.TaskActivity })));
 const SpecialistLibrary = lazy(() => import("@/components/SpecialistLibrary").then(module => ({ default: module.SpecialistLibrary })));
+const SpecialistDraftPanel = lazy(() => import("@/components/SpecialistDraftPanel").then(module => ({ default: module.SpecialistDraftPanel })));
 const TeamPanel = lazy(() => import("@/components/TeamPanel").then(module => ({ default: module.TeamPanel })));
 const CreateTeamWizard = lazy(() => import("@/components/CreateTeamWizard").then(module => ({ default: module.CreateTeamWizard })));
 import { ProviderMark } from "@/components/ProviderMark";
 import { SettingsSheet, type SettingsSheetHandle } from "@/components/SettingsSheet";
+import { SpecialistImprovements } from "@/components/SpecialistImprovements";
 import { LandingPage } from "@/components/LandingPage";
 
 const LIST_INTERVAL = 8_000;
@@ -326,6 +328,7 @@ function Chat({ detail, onRefresh, onUnauthorized, onOpenCompanion, readOnly = f
               {activeRun.status === "queued" ? "Queued" : activeRun.status === "preparing" ? "Preparing" : `${detail.companion.name} is working`}
             </div>
           )}
+          {!readOnly && <SpecialistImprovements companionId={detail.companion.id}/>}
         </ConversationContent>
         <ConversationScrollButton aria-label="Scroll to latest message" />
       </Conversation>
@@ -372,6 +375,7 @@ type NavigationGuard = (action: () => void, updateHistory?: boolean) => boolean;
 
 function CompanionView({ detail, models, onRefresh, onUnauthorized, onMenu, onOpenCompanion, onDeleted, onRegisterNavigationGuard, onLocationChange, refreshVersion, onNavigate }: { onNavigate: (path: string) => void; detail: CompanionDetail; models: Array<{ id: string; name: string }>; onDeleted: (ids: string[]) => void; onRefresh: () => Promise<void>; onUnauthorized: () => void; onMenu: () => void; onOpenCompanion: (id: string) => void; onRegisterNavigationGuard: (guard: NavigationGuard | null) => void; onLocationChange: (location: string) => void; refreshVersion: number }) {
   const finished = Boolean(detail.companion.retiredAt);
+  const specialistTemplateId = new URLSearchParams(window.location.search).get("specialist");
   const readView = (): CompanionSection => {
     const value = new URLSearchParams(window.location.search).get('view');
     if (finished) return value === 'activity' ? value : 'chat';
@@ -410,6 +414,7 @@ function CompanionView({ detail, models, onRefresh, onUnauthorized, onMenu, onOp
       <CompanionHeader detail={detail} section={view} refreshVersion={refreshVersion} onSection={changeView} onMenu={onMenu} />
       <div className="workspace-body" hidden={view !== 'chat'}>
         <Chat detail={detail} onRefresh={onRefresh} onUnauthorized={onUnauthorized} onOpenCompanion={onOpenCompanion} readOnly={finished} />
+        {specialistTemplateId && !finished && <Suspense fallback={<aside className="specialist-draft specialist-draft--loading" role="status" aria-label="Loading specialist configuration"/>}><SpecialistDraftPanel templateId={specialistTemplateId} companionId={detail.companion.id} onClose={() => onNavigate("/specialists")} onConnections={() => onNavigate("/connections")} /></Suspense>}
       </div>
       {!finished && view === 'automations' && <section className="companion-page" aria-label="Automations"><div className="companion-page-inner"><header className="section-intro"><h2>A little help, on repeat.</h2><p>Set the timing. Your companion takes it from there.</p></header><div className="automation-group"><RoutineSettings companionId={detail.companion.id}/></div><div className="automation-group" id="events"><TriggerSettings companionId={detail.companion.id}/></div></div></section>}
       {!finished && view === 'team' && <section className="companion-page" aria-label="Team"><Suspense fallback={<div className="companion-page-inner" role="status">Opening your team…</div>}><TeamPanel companion={detail.companion} refreshVersion={refreshVersion} onOpenCompanion={onOpenCompanion}/></Suspense></section>}
@@ -764,7 +769,7 @@ export function App() {
       {teamCreateOpen ? <main className="team-onboarding" id="main-content"><Suspense fallback={<div className="companion-page-inner" role="status">Opening team creation…</div>}><CreateTeamWizard config={config} companions={companions.filter(item => !item.temporary && !item.retiredAt)} onCancel={() => setTeamCreateOpen(false)} onCreated={companion => { handleCreated(companion); window.history.replaceState({}, '', `/companions/${companion.id}?view=team`); }} /></Suspense></main> : currentPath === "/account" && !createOpen ? (
         <AccountPage user={user} onSignOut={signOut} onMenu={() => setSidebarOpen(true)} />
       ) : currentPath === "/specialists" && !createOpen ? (
-        <Suspense fallback={<main className="detail-loading" id="main-content" role="status">Opening specialists…</main>}><SpecialistLibrary onMenu={() => setSidebarOpen(true)} /></Suspense>
+        <Suspense fallback={<main className="detail-loading" id="main-content" role="status">Opening specialists…</main>}><SpecialistLibrary onMenu={() => setSidebarOpen(true)} onOpenDraft={(companionId, templateId) => navigate(`/companions/${companionId}?specialist=${encodeURIComponent(templateId)}`)} /></Suspense>
       ) : currentPath === "/connections" && !createOpen ? (
         <ConnectionsPage onMenu={() => setSidebarOpen(true)} />
       ) : companions.length === 0 || createOpen ? (

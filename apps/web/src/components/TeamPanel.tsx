@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { Check, ChevronDown, CopyPlus, LoaderCircle, Plus, RotateCw, UserRoundMinus, X } from "lucide-react";
-import { workspaceApi, type AgentTemplate, type AgentTemplateRevision, type Companion, type CompanionTemplatePermission } from "@/api";
+import { workspaceApi, type AgentTemplate, type AgentTemplateRevision, type Companion, type CompanionTemplatePermission, type PluginAccount, type SpecialistConnection } from "@/api";
 import { AvatarPicker, CompanionAvatar, DEFAULT_AVATAR, type CompanionAvatarValue } from "@/components/CompanionAvatar";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -107,7 +107,7 @@ export function TeamPanel({ companion, onOpenCompanion, refreshVersion = 0 }: { 
         hasSnapshot: false,
       },
     })), [permissions, templates]);
-  const available = useMemo(() => templates.filter(template => !team.some(member => member.profile.id === template.id)), [team, templates]);
+  const available = useMemo(() => templates.filter(template => template.hasPublished !== false && !team.some(member => member.profile.id === template.id)), [team, templates]);
 
   useEffect(() => {
     if (adding !== "existing") return;
@@ -236,6 +236,7 @@ function SpecialistRow({ companionId, member, busy, setBusy, onError, onReload }
   onReload: () => Promise<AgentTemplate[] | null>;
 }) {
   const [assigning, setAssigning] = useState(false);
+  const [advancedOpen, setAdvancedOpen] = useState(false);
   const [prompt, setPrompt] = useState("");
   const [revisions, setRevisions] = useState<AgentTemplateRevision[] | null>(null);
   const [restoreRevision, setRestoreRevision] = useState("");
@@ -322,7 +323,7 @@ function SpecialistRow({ companionId, member, busy, setBusy, onError, onReload }
   return <article className="team-member">
     <div className="team-person"><CompanionAvatar name={member.profile.name} avatar={member.profile.avatar} size={48} /><div><strong>{member.profile.name}</strong><p>{member.profile.instructions || "Focused specialist profile."}</p></div><Button variant="outline" size="sm" onClick={() => setAssigning(value => !value)} aria-expanded={assigning} aria-controls={`assign-${member.profile.id}`}>Assign a task</Button></div>
     {assigning && <form className="team-task" id={`assign-${member.profile.id}`} onSubmit={assign}><div className="field"><label htmlFor={`task-${member.profile.id}`}>What should {member.profile.name} do?</label><Textarea autoFocus id={`task-${member.profile.id}`} rows={3} value={prompt} onChange={event => setPrompt(event.target.value)} /></div><div className="team-form-actions"><Button type="submit" disabled={!prompt.trim() || !!busy}>{busy === `spawn:${member.profile.id}` ? <LoaderCircle className="spin" /> : <CopyPlus />}Start task</Button><Button type="button" variant="ghost" disabled={!!busy} onClick={() => setAssigning(false)}>Cancel</Button></div></form>}
-    <details className="team-advanced" onToggle={event => { if (event.currentTarget.open) void loadRevisions(); }}><summary>Profile settings</summary><div className="team-advanced-content">
+    <details className="team-advanced" onToggle={event => { setAdvancedOpen(event.currentTarget.open); if (event.currentTarget.open) void loadRevisions(); }}><summary>Profile settings</summary><div className="team-advanced-content">
       <form className="team-profile-edit" onSubmit={saveProfile}>
         <p>Changes update this shared profile and apply to future uses.</p>
         <div className="field"><label htmlFor={`profile-name-${member.profile.id}`}>Profile name</label><input id={`profile-name-${member.profile.id}`} maxLength={80} disabled={saving} value={editName} onChange={event => { setEditName(event.target.value); setEditSaved(false); }} /></div>
@@ -332,11 +333,56 @@ function SpecialistRow({ companionId, member, busy, setBusy, onError, onReload }
         {editSaved && <p className="team-save-status" role="status">Profile saved.</p>}
         <Button type="submit" disabled={!editName.trim() || saving || !!busy}>{saving ? <LoaderCircle className="spin" /> : <Check />}Save profile</Button>
       </form>
+      {advancedOpen && <TeamConnectionOverrides companionId={companionId} templateId={member.profile.id}/>}
       <label>Simultaneous copies<select value={member.permission.maxChildren} disabled={!!busy} onChange={event => void changeLimit(Number(event.target.value))}>{limits.map(value => <option key={value} value={value}>{value}</option>)}</select></label>
       {revisionError ? <div className="team-revision-error"><span role="alert">{revisionError}</span><Button type="button" variant="outline" size="sm" disabled={revisionLoading} onClick={() => void loadRevisions()}>{revisionLoading ? <LoaderCircle className="spin" /> : <RotateCw />}Retry history</Button></div> : revisions === null ? <span className="team-muted">Loading version history…</span> : revisions.length > 1 ? <div className="team-restore"><label>Earlier version<select value={restoreRevision} onChange={event => setRestoreRevision(event.target.value)}>{revisions.filter(item => item.revision !== member.profile.revision).map(item => <option value={item.revision} key={item.revision}>Version {item.revision} · {item.name}</option>)}</select></label><Button type="button" variant="outline" size="sm" disabled={!restoreRevision || !!busy} onClick={() => void restore()}>{busy === `restore:${member.profile.id}` ? <LoaderCircle className="spin" /> : <RotateCw />}Restore</Button></div> : <span className="team-muted">Version {member.profile.revision} is the only saved version.</span>}
       <Button className="team-remove" type="button" variant="ghost" size="sm" disabled={!!busy} onClick={() => void changeLimit(0)}><UserRoundMinus />Remove from team</Button>
     </div></details>
   </article>;
+}
+
+function TeamConnectionOverrides({ companionId, templateId }: { companionId: string; templateId: string }) {
+  const [connections, setConnections] = useState<SpecialistConnection[]>([]);
+  const [accounts, setAccounts] = useState<PluginAccount[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [pending, setPending] = useState("");
+  const [error, setError] = useState("");
+  const mounted = useRef(true);
+
+  const load = useCallback(async () => {
+    setLoading(true); setError("");
+    try {
+      const [slots, granted] = await Promise.all([workspaceApi.specialistConnections(companionId, templateId), workspaceApi.companionPlugins(companionId)]);
+      if (!mounted.current) return;
+      setConnections(slots.connections); setAccounts(granted.accounts);
+    } catch (cause) { if (mounted.current) setError(errorText(cause)); }
+    finally { if (mounted.current) setLoading(false); }
+  }, [companionId, templateId]);
+
+  useEffect(() => { mounted.current = true; void load(); return () => { mounted.current = false; }; }, [load]);
+
+  async function update(connection: SpecialistConnection, value: string) {
+    if (pending) return;
+    setPending(connection.slot); setError("");
+    try {
+      const result = value === "__default__"
+        ? await workspaceApi.updateSpecialistConnection(companionId, templateId, { slot: connection.slot, accountId: null, useDefault: true })
+        : await workspaceApi.updateSpecialistConnection(companionId, templateId, { slot: connection.slot, accountId: value || null });
+      if (mounted.current) setConnections(result.connections);
+    } catch (cause) { if (mounted.current) setError(errorText(cause)); }
+    finally { if (mounted.current) setPending(""); }
+  }
+
+  if (loading) return <div className="team-connections team-connections--loading" role="status">Loading specialist accounts…</div>;
+  if (!connections.length && !error) return null;
+  return <section className="team-connections" aria-label="Specialist accounts"><div><strong>Accounts for this team</strong><p>Use the specialist default or replace it only for this coordinator.</p></div>
+    {connections.map(connection => {
+      const compatible = accounts.filter(account => account.provider === connection.provider);
+      const value = connection.overridden ? connection.accountId ?? "" : "__default__";
+      return <label key={connection.slot}><span>{connection.provider}<small>{connection.required && !connection.accountId ? "Required · connect an account before assigning work" : connection.label ?? "No account selected"}</small></span><select aria-label={`${connection.provider} account`} value={value} disabled={Boolean(pending)} onChange={event => void update(connection, event.target.value)}><option value="__default__">Specialist default{connection.defaultAccountId ? "" : " (not connected)"}</option>{compatible.map(account => <option key={account.id} value={account.id}>{account.label}</option>)}</select></label>;
+    })}
+    {error && <div className="team-revision-error"><span role="alert">{error}</span><Button type="button" variant="outline" size="sm" onClick={() => void load()}><RotateCw/>Retry accounts</Button></div>}
+  </section>;
 }
 
 export default TeamPanel;

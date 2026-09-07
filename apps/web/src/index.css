@@ -402,6 +402,9 @@ svg { width: 1rem; height: 1rem; stroke-width: 1.8; }
 .account-row { display: flex; align-items: center; gap: 14px; margin: 28px 0; padding: 18px 0; border-block: 1px solid var(--border); }
 .large-initial { display: grid; width: 48px; height: 48px; place-items: center; border-radius: 50%; background: var(--foreground); color: var(--background); font-weight: 700; }
 .account-row strong, .account-row small { display: block; }
+.capacity-limit { display: grid; grid-template-columns: minmax(0, 1fr) 90px auto; align-items: center; gap: 10px; padding: 14px 0; border-bottom: 1px solid var(--border); }
+.capacity-limit label { font-size: .8rem; font-weight: 600; }
+.capacity-limit input { width: 100%; min-height: 38px; border: 1px solid var(--input); border-radius: 8px; padding: 6px 9px; background: var(--card); color: var(--foreground); }
 .account-row small { margin-top: 3px; color: var(--muted-foreground); }
 .quiet-empty { display: grid; min-height: 260px; place-items: center; align-content: center; gap: 7px; margin-top: 32px; border-block: 1px solid var(--border); color: var(--muted-foreground); text-align: center; }
 .quiet-empty svg { width: 24px; height: 24px; margin-bottom: 6px; }

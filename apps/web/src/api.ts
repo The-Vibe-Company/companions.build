@@ -275,13 +275,62 @@ export type DeliverySoftwareStatus = "pending" | "ready" | "error";
 interface DeliveryState { status: "pending" | "accepted" | "revoked"; skillsStatus: DeliverySkillsStatus; skillsError: string | null; softwareStatus: DeliverySoftwareStatus; softwareError: string | null; maintenanceRequested: boolean; expiresAt: string; acceptedAt: string | null; companionId: string | null }
 export interface DeliverySent extends DeliveryState { id: string; clientEmail: string }
 export interface DeliveryReceived extends DeliveryState { id: string; name: string }
-export interface AgentTemplate { id: string; name: string; instructions: string; avatar: CompanionAvatarValue; revision: number; sourceCompanionId: string | null; softwareBuildId?: string | null; softwareResultId?: string | null; hasSnapshot: boolean }
+export interface AgentTemplate { id: string; name: string; instructions: string; avatar: CompanionAvatarValue; revision: number; sourceCompanionId: string | null; softwareBuildId?: string | null; softwareResultId?: string | null; hasSnapshot: boolean; hasPublished?: boolean; draftCompanionId?: string | null }
 export interface CompanionTemplatePermission { templateId: string; maxChildren: number; name: string; revision: number }
 export interface AgentTemplateRevision { revision: number; name: string; instructions: string; avatar: CompanionAvatarValue; snapshotName: string | null; sourceCompanionId: string | null; softwareBuildId?: string | null; softwareResultId?: string | null; createdAt: string }
 export interface TemplateSoftwareStatus { templateId: string; templateRevision: number; build: null | { id: string; status: "queued" | "creating" | "resolving" | "installing" | "verifying" | "capturing" | "ready" | "failed"; verified: boolean; errorCode: string | null }; result: null | { id: string; verified: true } }
 export interface MaintenanceCompanion { id: string; name: string; avatar?: CompanionAvatarValue; status: string; error: string | null; grantId: string }
 export interface MaintenanceDetail { id: string; name: string; instructions: string; avatar?: CompanionAvatarValue; modelId: string | null; status: string; error: string | null; readyAt: string | null }
 export interface MaintenanceAction { id: string; operation: string; createdAt: string; status: string; error: string | null }
+export interface SpecialistTest {
+  id: string;
+  generation: number;
+  status: RunStatus | "ready";
+  createdAt: string;
+  prompt?: string | null;
+  error?: string | null;
+  assessment?: "satisfactory" | "needs_changes" | null;
+}
+export interface SpecialistPublication {
+  id: string;
+  status: "queued" | "capturing" | "preparing" | "running" | "succeeded" | "failed";
+  createdAt?: string | null;
+  version?: number | null;
+  error?: string | null;
+}
+export interface SpecialistDraft {
+  templateId: string;
+  companionId: string;
+  generation: number;
+  name: string;
+  instructions: string;
+  initScript: string;
+  status: "draft" | "editing" | "testing" | "publishing" | "error";
+  lastTest?: SpecialistTest | null;
+  publication?: SpecialistPublication | null;
+}
+export interface SpecialistConnection {
+  slot: string;
+  required: boolean;
+  defaultAccountId: string | null;
+  overridden: boolean;
+  accountId: string | null;
+  label: string | null;
+  provider: string;
+}
+export interface SpecialistImprovement {
+  id: string;
+  templateId: string;
+  summary: string;
+  recipe: string | null;
+  status: "pending" | "applied" | "rejected" | "unavailable";
+  baseRevision: number;
+  sourceCompanionId: string;
+}
+export interface AccountSpecialistLimits {
+  limits: { active: number; startsPerHour: number; queue: number };
+  requests: Array<{ id: string; companionId: string | null; state: string; waitingReason: string | null; kind: string }>;
+}
 
 export const workspaceApi = {
   plugins: () => request<PluginsResponse>("/api/plugins"),
@@ -309,18 +358,33 @@ export const workspaceApi = {
   checkout: () => request<{ url: string }>("/api/billing/checkout", { method: "POST" }),
   billingPortal: () => request<{ url: string }>("/api/billing/portal", { method: "POST" }),
   deliveries: () => request<{ sent: DeliverySent[]; received: DeliveryReceived[] }>("/api/deliveries"),
-  createDelivery: (input: { clientDeliveryId: string; companionId: string; clientEmail: string; templateIds: string[]; maintenanceRequested: boolean; includeSkills?: boolean }) => request<{ delivery: DeliverySent }>("/api/deliveries", { method: "POST", body: JSON.stringify(input) }),
+  createDelivery: (input: { clientDeliveryId: string; companionId: string; clientEmail: string; templateIds: string[]; maintenanceRequested: boolean; includeSkills?: boolean; includeSpecialistDisks: boolean }) => request<{ delivery: DeliverySent }>("/api/deliveries", { method: "POST", body: JSON.stringify(input) }),
   acceptDelivery: (id: string, grantMaintenance: boolean) => request<{ companionId: string; accepted: boolean }>(`/api/deliveries/${id}/accept`, { method: "POST", body: JSON.stringify({ grantMaintenance }) }),
   revokeDelivery: (id: string) => request<{ revoked: true }>(`/api/deliveries/${id}`, { method: "DELETE" }),
   revokeMaintenance: (id: string) => request<{ revoked: true }>(`/api/deliveries/${id}/maintenance`, { method: "DELETE" }),
   templates: () => request<{ templates: AgentTemplate[] }>("/api/templates"),
   companionTemplates: (companionId: string) => request<{ templates: CompanionTemplatePermission[] }>(`/api/companions/${companionId}/templates`),
   createTemplate: (input: Pick<AgentTemplate, "name" | "instructions" | "avatar">) => request<{ id: string; revision: number }>("/api/templates", { method: "POST", body: JSON.stringify(input) }),
+  createTemplateDraft: (input: Pick<AgentTemplate, "name" | "instructions" | "avatar">, commandId = crypto.randomUUID()) => request<{ draft: SpecialistDraft }>("/api/templates", { method: "POST", body: JSON.stringify({ ...input, draft: true, commandId }) }),
+  openTemplateDraft: (id: string, commandId = crypto.randomUUID()) => request<{ draft: SpecialistDraft }>(`/api/templates/${id}/draft`, { method: "POST", body: JSON.stringify({ commandId }) }),
+  templateDraft: (id: string) => request<{ draft: SpecialistDraft }>(`/api/templates/${id}/draft`),
+  updateTemplateDraft: (id: string, input: { expectedGeneration: number; name?: string; instructions?: string; initScript?: string }) => request<{ draft: SpecialistDraft }>(`/api/templates/${id}/draft`, { method: "PATCH", body: JSON.stringify(input) }),
+  testTemplateDraft: (id: string, input: { expectedGeneration: number; prompt: string }, commandId = crypto.randomUUID()) => request<{ draft: SpecialistDraft }>(`/api/templates/${id}/draft/test`, { method: "POST", body: JSON.stringify({ ...input, commandId }) }),
+  assessTemplateTest: (id: string, testId: string, assessment: "satisfactory" | "needs_changes", commandId = crypto.randomUUID()) => request<{ draft: SpecialistDraft }>(`/api/templates/${id}/draft/test/${testId}/assessment`, { method: "POST", body: JSON.stringify({ commandId, assessment }) }),
+  publishTemplateDraft: (id: string, expectedGeneration: number, commandId = crypto.randomUUID()) => request<{ draft?: SpecialistDraft; publication?: SpecialistPublication; publicationId?: string; status?: SpecialistPublication["status"] }>(`/api/templates/${id}/draft/publish`, { method: "POST", body: JSON.stringify({ commandId, expectedGeneration, contentReviewed: true }) }),
   updateTemplate: (id: string, input: Pick<AgentTemplate, "name" | "instructions" | "avatar" | "revision">) => request<{ id: string; revision: number }>(`/api/templates/${id}`, { method: "PATCH", body: JSON.stringify({ name: input.name, instructions: input.instructions, avatar: input.avatar, expectedRevision: input.revision }) }),
   templateRevisions: (id: string) => request<{ revisions: AgentTemplateRevision[] }>(`/api/templates/${id}/revisions`),
   templateSoftwareStatus: (id: string) => request<TemplateSoftwareStatus>(`/api/templates/${id}/software/status`),
   rollbackTemplate: (id: string, targetRevision: number, expectedRevision: number) => request<{ id: string; revision: number }>(`/api/templates/${id}/rollback`, { method: "POST", body: JSON.stringify({ targetRevision, expectedRevision }) }),
   setTemplatePermission: (companionId: string, templateId: string, maxChildren: number) => request<{ templateId: string; maxChildren: number }>(`/api/companions/${companionId}/templates/${templateId}`, { method: "PUT", body: JSON.stringify({ maxChildren }) }),
+  specialistConnections: (companionId: string, templateId: string) => request<{ connections: SpecialistConnection[] }>(`/api/companions/${companionId}/specialists/${templateId}/connections`),
+  updateSpecialistConnection: (companionId: string, templateId: string, input: { slot: string; accountId: string | null; useDefault?: boolean }) => request<{ connections: SpecialistConnection[] }>(`/api/companions/${companionId}/specialists/${templateId}/connections`, { method: "PATCH", body: JSON.stringify(input) }),
+  specialistImprovements: (companionId: string) => request<{ improvements: SpecialistImprovement[] }>(`/api/companions/${companionId}/specialist-improvements`),
+  applySpecialistImprovement: (id: string, commandId = crypto.randomUUID()) => request<{ improvement: SpecialistImprovement }>(`/api/specialist-improvements/${id}/apply`, { method: "POST", body: JSON.stringify({ commandId }) }),
+  rejectSpecialistImprovement: (id: string, commandId = crypto.randomUUID()) => request<{ improvement: SpecialistImprovement }>(`/api/specialist-improvements/${id}/reject`, { method: "POST", body: JSON.stringify({ commandId }) }),
+  specialistLimits: () => request<AccountSpecialistLimits>("/api/account/specialist-limits"),
+  updateSpecialistActiveLimit: (active: number | null) => request<unknown>("/api/account/specialist-limits", { method: "PATCH", body: JSON.stringify({ active }) }),
+  cancelSpecialistRequest: (id: string) => request<unknown>(`/api/account/specialist-requests/${id}/cancel`, { method: "POST" }),
   replicas: (companionId: string) => request<{ replicas: Companion[] }>(`/api/companions/${companionId}/replicas`),
   spawnReplica: (companionId: string, templateId: string, prompt: string, clientCommandId: string = crypto.randomUUID()) => request<{ companionId: string; runId: string }>(`/api/companions/${companionId}/replicas`, { method: "POST", body: JSON.stringify({ clientCommandId, templateId, prompt }) }),
   prepare: (companionId: string) => request<unknown>(`/api/companions/${companionId}/prepare`, { method: "POST" }),

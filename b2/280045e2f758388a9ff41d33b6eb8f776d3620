@@ -1,0 +1,25 @@
+.env.example
+  s_f946242dcf6ba9::t_b96a642f62c895 8-11
+README.md
+  s_f946242dcf6ba9::t_b96a642f62c895 76-82
+apps/server/test/model-gateway-dispatch.test.ts
+  s_f946242dcf6ba9::t_9b36fbf59eff4d 1-40
+docs/measurements/hosted-2026-09-07.json
+  s_f946242dcf6ba9::t_ba0798f7e76a63 3,20-22,28-31
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "b2280045e2f758388a9ff41d33b6eb8f776d3620",
+  "prompts": {},
+  "sessions": {
+    "s_f946242dcf6ba9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a06de4-a8a5-7cd3-b713-2a8d451f7200",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "StanGirard <stan@quivr.app>"
+    }
+  }
+}

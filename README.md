@@ -150,6 +150,24 @@ python3 scripts/bun.py scripts/live-box-canary.ts --wake-only
 python3 scripts/bun.py scripts/live-desktop-canary.ts
 ```
 
+To check chat concurrency on an existing owned Box, run the manual routine canary with an
+explicit private journal (one process per journal):
+
+```sh
+CANARY_STATE_FILE=.local/box-canary.json \
+ROUTINE_CHAT_CANARY_STATE_FILE=.local/routine-chat-canary.json \
+python3 scripts/bun.py scripts/live-routine-chat-canary.ts
+```
+
+It uses the authenticated local API session and configured Box credential. It creates a disabled
+routine, invokes only its `/test` endpoint, verifies that `CHAT_OK` settles while a foreground
+30-second background command is still running, checks the final file/result, and removes its
+unchanged disabled routine. This is a paid live model test of manual routine/chat concurrency;
+it does not test clock scheduling. Restart with the same journal to reconcile the same request
+IDs. An unresolved create response is never resubmitted; an unresolved test response retains the
+disabled definition until a rerun resolves it. The journal records timings and proofs without
+credentials or provider payloads; existing workspace probe files are retained.
+
 Read [the testing guide](docs/testing.md) before interpreting a passing suite. Deterministic tests
 prove product behavior at controlled boundaries; they do not prove model quality, live OAuth,
 Stripe pricing, provider reliability, or hosted latency.

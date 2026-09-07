@@ -43,7 +43,12 @@ export function scriptedModel(model: any, context: any) {
     message.content = [{ type: "toolCall", id: `fixture-${results.length}`, name, arguments: args }];
     message.stopReason = "toolUse";
   };
-  if (text === "desktop-type-fixture" || text === "desktop-key-fixture") {
+  if (text?.includes("MAIL_LINUX_READ_ATTACHMENT")) {
+    const path = text.match(/inbox\/[a-f0-9-]+\/0-[^\s]+/)?.[0];
+    if (results.length === 0 && path) tool("read", { path });
+    else message.content = [{ type: "text", text: lastResult().includes("MAIL_LINUX_INPUT_BYTES")
+      ? "Email attachment verified in Linux: MAIL_LINUX_INPUT_BYTES" : "Email attachment missing in Linux" }];
+  } else if (text === "desktop-type-fixture" || text === "desktop-key-fixture") {
     if(results.length===0)tool(text==='desktop-type-fixture'?'desktop_type':'desktop_capture',text==='desktop-type-fixture'?{text:'a'.repeat(1000),intervalMs:100}:{});
     else if(text==='desktop-key-fixture'&&results.length===1)tool('desktop_keys',{keys:['a']});
     else message.content=[{type:'text',text:lastResult().includes('desktop_paused')?'Desktop paused; headless work can continue.':'Desktop tool returned.'}];

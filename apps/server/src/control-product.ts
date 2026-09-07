@@ -1,3 +1,4 @@
+import {handleCompanionMailControl} from './companion-mail';
 import {listTemplateRevisions,rollbackTemplate} from './templates';
 import {updateSpecialistDraft,readSpecialistDraft} from './specialist-drafts';
 import {proposeSpecialistImprovement} from './specialist-improvements';
@@ -18,6 +19,11 @@ const uuid=z.string().uuid();
 async function maintenanceRequest(ownerId:string,companionId:string,suffix:string,method='GET',body?:unknown){
  return (await handleMaintenance(new Request(`http://control/api/maintenance/companions/${companionId}${suffix}`,{method,...(body===undefined?{}:{body:JSON.stringify(body)})}),ownerId))!.json();
 }
+registerControl(Object.fromEntries(['mail_account','mail_activate','mail_status','mail_prepare','mail_send','mail_senders','mail_sender_allow','mail_sender_remove','mail_read_attachment'].map(operation=>[operation,async(context:import('./control').ControlContext,raw:unknown)=>{
+ const value=z.record(z.string(),z.unknown()).parse(raw);
+ const {explicitAuthorization,...input}=value;
+ return handleCompanionMailControl({...context,source:context.source??'chat',explicitAuthorization:explicitAuthorization===true},operation,{...input,...(operation==='mail_prepare'||operation==='mail_send'&&!input.id?{clientId:context.commandId}:{})});
+}])));
 registerControl({
  specialist_keep_alive:async(context,raw)=>{
   const {companionId}=z.object({companionId:z.string().uuid()}).parse(raw);

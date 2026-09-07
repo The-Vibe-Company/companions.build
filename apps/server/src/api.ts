@@ -1,3 +1,4 @@
+import {handleCompanionMail,handleCompanionMailWebhook} from './companion-mail';
 import {privateBetaEmails} from "./private-beta";
 import {createSpecialistDraft,openSpecialistDraft,readSpecialistDraft,updateSpecialistDraft,requestSpecialistPublication,requestSpecialistTest,assessSpecialistTest} from './specialist-drafts';
 import {specialistConnections,overrideSpecialistConnection} from './specialist-connections';
@@ -122,6 +123,8 @@ export async function handler(request: Request): Promise<Response> {
   if(url.pathname==='/api/model-gateway'||url.pathname.startsWith('/api/model-gateway/'))
     return await handleModelGateway(request)??json({error:'Not found.'},404);
   if(url.pathname === "/api/stripe/webhook") return handleStripeWebhook(request);
+  const mailWebhookResponse = await handleCompanionMailWebhook(request);
+  if(mailWebhookResponse)return mailWebhookResponse;
   const webhookResponse = await handleWebhook(request);
   if(webhookResponse) return webhookResponse;
   if (url.pathname === "/health") return json({ ok: true });
@@ -131,7 +134,7 @@ export async function handler(request: Request): Promise<Response> {
   // Reject cross-origin browser writes, including login. Vite forwards same origin.
   const origin = request.headers.get("origin");
   if (origin && ![url.origin, process.env.APP_URL ?? "http://127.0.0.1:4310", `http://localhost:${process.env.WEB_PORT ?? 4310}`].includes(origin)) return json({ error: "Origin not allowed." }, 403);
-  if (Number(request.headers.get("content-length") ?? 0) > (url.pathname.endsWith("/files") ? FILE_REQUEST_MAX_BYTES : 100_000)) return json({ error: "Request too large." }, 413);
+  if (Number(request.headers.get("content-length") ?? 0) > (url.pathname.endsWith("/files") ? FILE_REQUEST_MAX_BYTES : /\/mail\/messages$/.test(url.pathname) ? 15*1024*1024 : 100_000)) return json({ error: "Request too large." }, 413);
   try {
     if (url.pathname.startsWith("/api/auth/")) return auth.handler(request);
     if (request.method === "GET" && url.pathname === "/api/me") {
@@ -140,6 +143,8 @@ export async function handler(request: Request): Promise<Response> {
     }
     const ownerId = await requireUser(request);
     if(mutationStartsWork(url.pathname,request.method))await requireHostedActivation(ownerId);
+    const mailResponse=await handleCompanionMail(request,ownerId);
+    if(mailResponse)return mailResponse;
     const maintenanceResponse=await handleMaintenance(request,ownerId);
     if(maintenanceResponse)return maintenanceResponse;
     const billingResponse = await handleBilling(request,ownerId);

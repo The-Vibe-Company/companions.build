@@ -8,7 +8,8 @@ import "./AutomationPanels.css";
 
 const errorText = (value: unknown) => value instanceof Error ? value.message : "Something went wrong.";
 const shortDate = (value?: string | null) => value ? new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }).format(new Date(value)) : "";
-const scheduleLabel = (cron: string) => cron === "0 9 * * 1-5" ? "Weekdays at 9:00" : cron === "0 9 * * *" ? "Daily at 9:00" : cron === "0 9 * * 1" ? "Mondays at 9:00" : cron;
+const scheduleLabel = (cron: string | null) => cron === "0 9 * * 1-5" ? "Weekdays at 9:00" : cron === "0 9 * * *" ? "Daily at 9:00" : cron === "0 9 * * 1" ? "Mondays at 9:00" : cron || "Once";
+const localDateTime = (date: Date) => new Date(date.getTime() - date.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
 
 export function RoutineSettings({ companionId }: { companionId: string }) {
   return <RoutinePanel key={companionId} companionId={companionId} />;
@@ -23,6 +24,8 @@ function RoutinePanel({ companionId }: { companionId: string }) {
   const [loading, setLoading] = useState(true);
   const [openId, setOpenId] = useState("");
   const [name, setName] = useState(""); const [prompt, setPrompt] = useState(""); const [cron, setCron] = useState("0 9 * * 1-5");
+  const [scheduleKind, setScheduleKind] = useState<"recurring" | "once">("recurring");
+  const [runAt, setRunAt] = useState(() => { const date = new Date(); date.setDate(date.getDate() + 1); date.setHours(9, 0, 0, 0); return localDateTime(date); });
   const [error, setError] = useState(""); const [busy, setBusy] = useState("");
   const testIntents = useRef<Record<string, string>>({});
   const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
@@ -37,7 +40,7 @@ function RoutinePanel({ companionId }: { companionId: string }) {
   async function loadHistory(id: string) { setBusy(`history:${id}`); try { const value = await workspaceApi.routineHistory(companionId, id); setHistory(current => ({ ...current, [id]: value })); } catch (cause) { setError(errorText(cause)); } finally { setBusy(""); } }
   async function inspect(id: string) { const next = openId === id ? "" : id; setOpenId(next); if (next) await loadHistory(id); }
   async function test(id: string) { setBusy(`test:${id}`); setError(""); testIntents.current[id] ??= crypto.randomUUID(); try { await workspaceApi.testRoutine(companionId, id, testIntents.current[id]); delete testIntents.current[id]; await loadHistory(id); setOpenId(id); } catch (cause) { setError(errorText(cause)); } finally { setBusy(""); } }
-  async function create(event: FormEvent) { event.preventDefault(); setBusy("create"); setError(""); try { await workspaceApi.createRoutine(companionId, { name: name.trim(), prompt: prompt.trim(), cron, timezone, enabled: true }); setName(""); setPrompt(""); closeCreation(); await load(); } catch (cause) { setError(errorText(cause)); } finally { setBusy(""); } }
+  async function create(event: FormEvent) { event.preventDefault(); setBusy("create"); setError(""); try { await workspaceApi.createRoutine(companionId, scheduleKind === "once" ? { name: name.trim(), prompt: prompt.trim(), runAt: new Date(runAt).toISOString(), enabled: true } : { name: name.trim(), prompt: prompt.trim(), cron, timezone, enabled: true }); setName(""); setPrompt(""); closeCreation(); await load(); } catch (cause) { setError(errorText(cause)); } finally { setBusy(""); } }
   return <div className="settings-stack automation-settings">
     <div className="automation-heading"><div><h3>Routines</h3><p>Work on a schedule.</p></div><Button variant="outline" size="sm" ref={createButton} disabled={!!busy} aria-expanded={creating} aria-controls="routine-create" onClick={() => setCreating(!creating)}><Plus />New routine</Button></div>
     {error && <p className="field-error" role="alert">{error}</p>}
@@ -45,7 +48,7 @@ function RoutinePanel({ companionId }: { companionId: string }) {
     <div className="automation-list">{items.map(item => <section className="automation-card" key={item.id}>
       <div className="automation-row">
         <button className="automation-summary" disabled={!!busy} onClick={() => void inspect(item.id)} aria-expanded={openId === item.id} aria-controls={`routine-detail-${item.id}`}>
-          <span><strong>{item.name}</strong><small>{scheduleLabel(item.cron)} · {item.timezone}</small></span><ChevronDown className={cn(openId === item.id && "chevron-open")} />
+          <span><strong>{item.name}</strong><small>{item.runAt ? `Once · ${shortDate(item.runAt)}` : `${scheduleLabel(item.cron)} · ${item.timezone}`}</small></span><ChevronDown className={cn(openId === item.id && "chevron-open")} />
         </button>
         <AutomationSwitch name={item.name} enabled={item.enabled} disabled={!!busy} onChange={() => void change(`toggle:${item.id}`, () => workspaceApi.updateRoutine(companionId, item.id, { enabled: !item.enabled }))} />
       </div>
@@ -53,12 +56,12 @@ function RoutinePanel({ companionId }: { companionId: string }) {
         <p className="automation-prompt">{item.prompt}</p>
         <p className="automation-caption">{item.enabled && item.nextFireAt ? `Next run ${shortDate(item.nextFireAt)}` : item.enabled ? "Schedule enabled" : "Schedule paused"}</p>
         <div className="detail-actions"><Button variant="outline" size="sm" disabled={!!busy} onClick={() => void test(item.id)} aria-label={`Run ${item.name} now`}>{busy === `test:${item.id}` ? <LoaderCircle className="spin" /> : <Play />}Run now</Button><Button variant="ghost" size="sm" disabled={!!busy} onClick={() => void loadHistory(item.id)}><RotateCw />Refresh history</Button></div>
-        <details className="automation-section"><summary>Edit routine</summary><AutomationEditor key={`${item.name}:${item.prompt}:${item.cron}:${item.timezone}`} item={item} busy={!!busy} onSave={value => change(`edit:${item.id}`, () => workspaceApi.updateRoutine(companionId, item.id, value))} /></details>
+        <details className="automation-section"><summary>Edit routine</summary><AutomationEditor key={`${item.name}:${item.prompt}:${item.cron}:${item.runAt}:${item.timezone}`} item={item} busy={!!busy} onSave={value => change(`edit:${item.id}`, () => workspaceApi.updateRoutine(companionId, item.id, value))} /></details>
         <RoutineHistoryView value={history[item.id]} loading={busy === `history:${item.id}`} />
         <DeleteAutomation name={item.name} busy={!!busy} onDelete={() => change(`delete:${item.id}`, () => workspaceApi.deleteRoutine(companionId, item.id))} />
       </div>}
     </section>)}</div>
-    {creating && <form id="routine-create" className="inline-create" onSubmit={create}><h3>New routine</h3><div className="field"><label htmlFor="routine-name">Name</label><input autoFocus id="routine-name" value={name} onChange={event => setName(event.target.value)} placeholder="Morning brief" /></div><div className="field"><label htmlFor="routine-prompt">What should happen?</label><Textarea id="routine-prompt" value={prompt} onChange={event => setPrompt(event.target.value)} rows={3} /></div><div className="field"><label htmlFor="routine-time">When</label><select id="routine-time" value={cron} onChange={event => setCron(event.target.value)}><option value="0 9 * * 1-5">Weekdays at 9:00</option><option value="0 9 * * *">Every day at 9:00</option><option value="0 9 * * 1">Mondays at 9:00</option></select></div><Button type="submit" disabled={!name.trim() || !prompt.trim() || busy === "create"}>{busy === "create" ? <LoaderCircle className="spin" /> : <Plus />}Add routine</Button><Button type="button" variant="ghost" disabled={busy === "create"} onClick={closeCreation}>Cancel</Button></form>}
+    {creating && <form id="routine-create" className="inline-create" onSubmit={create}><h3>New routine</h3><div className="field"><label htmlFor="routine-name">Name</label><input autoFocus id="routine-name" value={name} onChange={event => setName(event.target.value)} placeholder="Morning brief" /></div><div className="field"><label htmlFor="routine-prompt">What should happen?</label><Textarea id="routine-prompt" value={prompt} onChange={event => setPrompt(event.target.value)} rows={3} /></div><div className="field"><label htmlFor="routine-kind">Schedule</label><select id="routine-kind" value={scheduleKind} onChange={event => setScheduleKind(event.target.value as "recurring" | "once")}><option value="recurring">Repeating</option><option value="once">Once</option></select></div>{scheduleKind === "once" ? <div className="field"><label htmlFor="routine-run-at">Date and time</label><input id="routine-run-at" type="datetime-local" min={localDateTime(new Date())} value={runAt} onChange={event => setRunAt(event.target.value)} /></div> : <div className="field"><label htmlFor="routine-time">When</label><select id="routine-time" value={cron} onChange={event => setCron(event.target.value)}><option value="0 9 * * 1-5">Weekdays at 9:00</option><option value="0 9 * * *">Every day at 9:00</option><option value="0 9 * * 1">Mondays at 9:00</option></select></div>}<Button type="submit" disabled={!name.trim() || !prompt.trim() || (scheduleKind === "once" && (!runAt || Date.parse(runAt) <= Date.now())) || busy === "create"}>{busy === "create" ? <LoaderCircle className="spin" /> : <Plus />}Add routine</Button><Button type="button" variant="ghost" disabled={busy === "create"} onClick={closeCreation}>Cancel</Button></form>}
   </div>;
 }
 
@@ -146,27 +149,28 @@ function DeleteAutomation({ name, busy, onDelete }: { name: string; busy: boolea
   </div>;
 }
 
-function AutomationEditor({ item, busy, onSave }: { item: Routine | Trigger; busy: boolean; onSave: (value: { name: string; prompt: string; cron?: string; timezone?: string }) => Promise<boolean> }) {
+function AutomationEditor({ item, busy, onSave }: { item: Routine | Trigger; busy: boolean; onSave: (value: { name: string; prompt: string; cron?: string; timezone?: string; runAt?: string }) => Promise<boolean> }) {
   const [name, setName] = useState(item.name);
   const [prompt, setPrompt] = useState(item.prompt);
-  const [cron, setCron] = useState("cron" in item ? item.cron : "");
-  const [timezone, setTimezone] = useState("timezone" in item ? item.timezone : "");
+  const [cron, setCron] = useState("cron" in item ? item.cron ?? "" : "");
+  const [timezone, setTimezone] = useState("timezone" in item ? item.timezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone : "");
+  const [runAt, setRunAt] = useState("runAt" in item && item.runAt ? localDateTime(new Date(item.runAt)) : "");
   async function save(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const disclosure = event.currentTarget.closest("details");
-    const saved = await onSave({ name: name.trim(), prompt: prompt.trim(), ...("cron" in item ? { cron, timezone } : {}) });
+    const saved = await onSave({ name: name.trim(), prompt: prompt.trim(), ...("cron" in item ? item.runAt ? { runAt: new Date(runAt).toISOString() } : { cron, timezone } : {}) });
     if (saved && disclosure) { disclosure.open = false; disclosure.querySelector("summary")?.focus(); }
   }
   return <form className="automation-edit" onSubmit={save}>
     <div className="field"><label htmlFor={`edit-name-${item.id}`}>Name</label><input id={`edit-name-${item.id}`} value={name} onChange={event => setName(event.target.value)} required /></div>
     <div className="field"><label htmlFor={`edit-prompt-${item.id}`}>Instructions</label><Textarea id={`edit-prompt-${item.id}`} value={prompt} onChange={event => setPrompt(event.target.value)} rows={3} required /></div>
-    {"cron" in item && <div className="field-pair">
+    {"cron" in item && item.runAt ? <div className="field"><label htmlFor={`edit-run-at-${item.id}`}>Date and time</label><input id={`edit-run-at-${item.id}`} type="datetime-local" value={runAt} onChange={event => setRunAt(event.target.value)} required /></div> : "cron" in item && <div className="field-pair">
       <div className="field"><label htmlFor={`edit-cron-${item.id}`}>Schedule</label><select id={`edit-cron-${item.id}`} value={cron} onChange={event => setCron(event.target.value)}>
-        {!["0 9 * * 1-5", "0 9 * * *", "0 9 * * 1"].includes(item.cron) && <option value={item.cron}>{item.cron}</option>}
+        {item.cron && !["0 9 * * 1-5", "0 9 * * *", "0 9 * * 1"].includes(item.cron) && <option value={item.cron}>{item.cron}</option>}
         <option value="0 9 * * 1-5">Weekdays at 9:00</option><option value="0 9 * * *">Every day at 9:00</option><option value="0 9 * * 1">Mondays at 9:00</option>
       </select></div>
       <div className="field"><label htmlFor={`edit-timezone-${item.id}`}>Time zone</label><input id={`edit-timezone-${item.id}`} value={timezone} onChange={event => setTimezone(event.target.value)} required /></div>
     </div>}
-    <Button type="submit" size="sm" disabled={busy || !name.trim() || !prompt.trim() || ("cron" in item && !timezone.trim())}>Save changes</Button>
+    <Button type="submit" size="sm" disabled={busy || !name.trim() || !prompt.trim() || ("cron" in item && (item.runAt ? !runAt : !timezone.trim()))}>Save changes</Button>
   </form>;
 }

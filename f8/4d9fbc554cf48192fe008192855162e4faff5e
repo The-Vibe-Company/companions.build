@@ -1,0 +1,27 @@
+scripts/dev-browser-test.py
+  s_9604d1144930ab::t_ab7e5d5243d418 1-70,76,81-91,102-135,137-147,151-154,156-185
+  s_9604d1144930ab::t_689e26f52acd43 71-75,77-80,136
+  s_9604d1144930ab::t_0225a4dda7b52b 92-101,148-150,155
+scripts/dev-scenario.py
+  s_9604d1144930ab::t_0225a4dda7b52b 147
+  s_9604d1144930ab::t_66dd08d01ccd39 1-143,145-146,148-149,152-173
+  s_9604d1144930ab::t_ab7e5d5243d418 144,150-151
+scripts/dev-session.py
+  s_9604d1144930ab::t_bd4e3dc71c348c 1-4,11,14-116
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "f84d9fbc554cf48192fe008192855162e4faff5e",
+  "prompts": {},
+  "sessions": {
+    "s_9604d1144930ab": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a07d28-c099-7e50-b6d2-edf218c193d5",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "StanGirard <stan@quivr.app>"
+    }
+  }
+}

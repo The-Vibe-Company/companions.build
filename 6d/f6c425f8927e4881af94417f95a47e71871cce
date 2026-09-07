@@ -1,0 +1,111 @@
+apps/server/src/specialist-connections.ts
+  s_895cd30c8c0144::t_5151f67436a307 1-4,8-10,24,27-30,32-39,43-49,52,54,57-59
+  s_895cd30c8c0144::t_53bf77ccb88708 5-7,11-23,25-26,31,40-42,50-51,53,55
+  s_895cd30c8c0144::t_b9bccb12460872 56
+apps/server/src/delivery.ts
+  s_895cd30c8c0144::t_a1f3ca9e9006ca 16,35,38,40-44,53,65,70,120,124-127
+  s_895cd30c8c0144::t_0de221b0ac3250 128-129
+apps/server/src/machines.ts
+  s_895cd30c8c0144::t_b897ddc582b354 1,120-121
+apps/server/test/specialist-drafts.test.ts
+  s_895cd30c8c0144::t_370f985e949da1 1-4,6-15,37-49
+  s_895cd30c8c0144::t_317889c6f3d8ac 5,16-36
+apps/server/src/api.ts
+  s_895cd30c8c0144::t_1bd3564e32cfdd 2,54-71
+  s_895cd30c8c0144::t_5151f67436a307 3,46-51
+  s_895cd30c8c0144::t_5d839259920afe 5,36-41,205
+  s_895cd30c8c0144::t_781e111342a7ea 4,42-45
+apps/server/src/specialist-runtime.ts
+  s_895cd30c8c0144::t_a1f3ca9e9006ca 82
+  s_895cd30c8c0144::t_faf0f65e86a76a 1-12,14-15,17-31,36-81,83-105,115-117,119-120,122-124
+  s_895cd30c8c0144::t_1e32807581e136 13,106-114,118
+  s_895cd30c8c0144::t_4c88ee8dfe43b3 16,32-35,121
+apps/server/src/control-help.ts
+  s_895cd30c8c0144::t_56acde1c021ce4 3-4
+apps/server/src/lifecycle.ts
+  s_895cd30c8c0144::t_73f298590e0a63 1,123-124
+  s_895cd30c8c0144::t_8020231e7b55e6 2-4,49,125,136-139,167-171,300
+  s_895cd30c8c0144::t_1e32807581e136 140,281,297,313
+  s_895cd30c8c0144::t_a272fa236ed2de 76
+docs/specs/specialists-configuration-and-lifecycle.md
+  s_895cd30c8c0144::t_8bf340e5161bf6 1-6,8-176,179-187,191-197,307-388,396-416,420-442,449-459
+  s_895cd30c8c0144::t_87885fd3f782b6 7,177-178,188-190,198-306,389-395,417-419,443-448,460
+apps/server/src/specialist-box.ts
+  s_895cd30c8c0144::t_a22565419d5359 13-16,28-31
+  s_895cd30c8c0144::t_db9d21a79257bb 17-19,21-24,53-65
+  s_895cd30c8c0144::t_b152137f0d281b 1-12,20,25-27,32-52,66
+packages/box/client.ts
+  s_895cd30c8c0144::t_35cfbac48d2a52 39-40
+apps/server/src/specialist-drafts.sql
+  s_895cd30c8c0144::t_a1f3ca9e9006ca 1
+  s_895cd30c8c0144::t_1e32807581e136 68-69
+  s_895cd30c8c0144::t_4c88ee8dfe43b3 20,29,59-67
+  s_895cd30c8c0144::t_73f298590e0a63 70-71
+  s_895cd30c8c0144::t_28ccc7c27172dc 2-19,21-28,30-47
+  s_895cd30c8c0144::t_01228bd2e04c4d 48-50
+  s_895cd30c8c0144::t_d5346df4e74263 51-58
+apps/server/src/templates.ts
+  s_895cd30c8c0144::t_01228bd2e04c4d 20-21,50
+  s_895cd30c8c0144::t_1bd3564e32cfdd 9
+  s_895cd30c8c0144::t_915ba66d2c7e9e 38
+  s_895cd30c8c0144::t_a09ea88d7ff599 47,66
+apps/server/test/specialist-connection-pinning.test.ts
+  s_895cd30c8c0144::t_53bf77ccb88708 1-31
+apps/server/src/specialist-drafts.ts
+  s_895cd30c8c0144::t_4c88ee8dfe43b3 38-39,93-100
+  s_895cd30c8c0144::t_ca7bed5beef3f4 33-34,37,40,44
+  s_895cd30c8c0144::t_56acde1c021ce4 13
+  s_895cd30c8c0144::t_ddf378bdf9cf16 41-43
+  s_895cd30c8c0144::t_28ccc7c27172dc 1-12,14-32,35-36,45-92,101
+apps/server/src/control-product.ts
+  s_895cd30c8c0144::t_32ee9e5b3c9825 2-4,27-44
+  s_895cd30c8c0144::t_5d839259920afe 5,22-26
+apps/server/src/runtime-product.ts
+  s_895cd30c8c0144::t_5151f67436a307 2,27
+apps/server/src/specialist-improvements.ts
+  s_895cd30c8c0144::t_781e111342a7ea 1-46
+apps/server/src/store.ts
+  s_895cd30c8c0144::t_8020231e7b55e6 6
+  s_895cd30c8c0144::t_95d123cfd62171 70
+  s_895cd30c8c0144::t_56acde1c021ce4 132
+  s_895cd30c8c0144::t_1bd3564e32cfdd 130-131
+apps/server/test/specialist-connections.test.ts
+  s_895cd30c8c0144::t_5d2ef34fd63c62 1-24
+apps/server/src/specialist-provider.ts
+  s_895cd30c8c0144::t_35cfbac48d2a52 1-40
+apps/server/src/executor.ts
+  s_895cd30c8c0144::t_01228bd2e04c4d 77,80-81
+  s_895cd30c8c0144::t_73f298590e0a63 358
+  s_895cd30c8c0144::t_bf596b4e1d14e1 156,263
+  s_895cd30c8c0144::t_4c88ee8dfe43b3 359
+apps/server/test/specialist-improvements.test.ts
+  s_895cd30c8c0144::t_5d2ef34fd63c62 1-15,17-21
+  s_895cd30c8c0144::t_a06709d8752e00 16
+docs/specs/specialists-configuration-and-lifecycle.review.md
+  s_895cd30c8c0144::t_f30abcf593b78d 5-31,35-36,181-182
+  s_895cd30c8c0144::t_bf284eb8360736 1-4,32-34,37-180,183-187
+apps/server/src/activation.ts
+  s_895cd30c8c0144::t_1bd3564e32cfdd 11
+apps/server/src/delegation.ts
+  s_895cd30c8c0144::t_8020231e7b55e6 1,19,27-28,31-34
+apps/server/src/control.ts
+  s_895cd30c8c0144::t_150052bf923df4 8,46
+apps/server/src/plugins.ts
+  s_895cd30c8c0144::t_7a899e42381eb2 67-75
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "6df6c425f8927e4881af94417f95a47e71871cce",
+  "prompts": {},
+  "sessions": {
+    "s_895cd30c8c0144": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a07d31-b106-7d00-912b-601ce8884ca0",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "StanGirard <stan@quivr.app>"
+    }
+  }
+}

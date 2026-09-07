@@ -193,8 +193,9 @@ function Sidebar({
               onClick={() => onSelect(companion.id)}
               aria-current={selectedId === companion.id ? "page" : undefined}
             >
-              <span className="rail-character"><CompanionAvatar name={companion.name} avatar={companion.avatar} sleeping={companion.status === "archived"} size={44} /><StatusDot status={companion.status} /></span>
+              <span className="rail-character"><CompanionAvatar name={companion.name} avatar={companion.avatar} sleeping={companion.status === "archived"} size={36} /><StatusDot status={companion.status} /></span>
               <span className="companion-link-copy">
+                <strong>{companion.name}</strong>
                 <small>{statusLabel(companion.status)}</small>
               </span>
               <ChevronRight className="companion-chevron" />

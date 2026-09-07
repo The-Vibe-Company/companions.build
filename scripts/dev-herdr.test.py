@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 import subprocess
 import tempfile
+import time
 import tomllib
 import unittest
 from unittest.mock import patch
@@ -53,29 +54,31 @@ class WorkspaceTests(unittest.TestCase):
             def fake(*args):
                 calls.append(args)
                 if args[:2] == ('pane', 'current'):
-                    return {'pane': {'workspace_id': 'w9'}}
+                    return {'pane': {'workspace_id': 'w9', 'pane_id': 'w9:p0', 'tab_id': 'w9:t0'}}
                 if args[:2] == ('pane', 'list'):
                     return {'panes': live}
                 if args[:2] == ('pane', 'process-info'):
                     return {'process_info': {'foreground_process_group_id': 200, 'shell_pid': 100}}
-                if args[:2] == ('tab', 'create'):
+                if args[:2] == ('pane', 'split'):
                     number = len(live) + 1
                     pane = {'pane_id': f'w9:p{number}', 'tab_id': f'w9:t{number}'}
                     live.append(pane)
-                    return {'root_pane': pane, 'tab': {'tab_id': pane['tab_id']}}
+                    return {'pane': pane}
                 return {}
-            with patch.object(MODULE, 'herdr', side_effect=fake):
+            with patch.object(MODULE, 'herdr', side_effect=fake), patch.object(MODULE.time, 'sleep'):
                 MODULE.workspace()
-                self.assertEqual(sum(call[:2] == ('pane', 'run') for call in calls), 2)
+                self.assertEqual(sum(call[:2] == ('pane', 'run') for call in calls), 1)
                 calls.clear()
                 MODULE.workspace()
-                self.assertFalse(any(call[:2] in [('pane', 'run'), ('tab', 'create')] for call in calls))
-                # Closing one owned tab creates only its replacement.
+                self.assertFalse(any(call[:2] in [('pane', 'run'), ('pane', 'split')] for call in calls))
+                # Closing the dashboard creates only its replacement in the caller's tab.
                 live.pop()
                 MODULE.workspace()
-                creates = [call for call in calls if call[:2] == ('tab', 'create')]
+                creates = [call for call in calls if call[:2] == ('pane', 'split')]
                 self.assertEqual(len(creates), 1)
                 self.assertIn('--no-focus', creates[0])
+                self.assertEqual(creates[0][2], 'w9:p0')
+                self.assertFalse(any(call[0] == 'tab' for call in calls))
                 self.assertFalse(any('close' in call or 'focus' in call for call in calls))
 
     def test_controls_outside_herdr_fail_before_effects(self):
@@ -90,6 +93,56 @@ class WorkspaceTests(unittest.TestCase):
             args = call.call_args.args
             self.assertIn('companions_tests=tests: stale', args)
             self.assertEqual(args[-2:], ('--ttl-ms', '15000'))
+
+
+class DashboardTests(unittest.TestCase):
+    def test_every_component_exposes_its_real_state_and_controls(self):
+        rows, buttons = MODULE.panel_layout({'status': 'stopped', 'services': {
+            'api': {'status': 'failed', 'url': 'http://user:password@localhost:3333/'},
+            'postgres': {'status': 'stopped', 'port': 5555},
+        }}, 45)
+        text = '\n'.join(row[0] for row in rows)
+        self.assertIn('API  failed', text)
+        self.assertIn('Port 5555', text)
+        self.assertNotIn('password', text)
+        self.assertNotIn('user:', text)
+        for service in MODULE.SERVICES:
+            for action in ('start', 'stop', 'restart'):
+                self.assertTrue(any(button['command'] == ['service', action, service] for button in buttons))
+            self.assertTrue(any(button['command'] == ['logs', service] for button in buttons))
+        self.assertTrue(any(button['command'] == ['open', 'api'] for button in buttons))
+        for button in buttons:
+            self.assertEqual(rows[button['row']][0][button['start']:button['end']], button['label'])
+
+    def test_global_buttons_use_complete_stack_commands(self):
+        rows, buttons = MODULE.panel_layout({}, 32)
+        self.assertEqual([button['command'] for button in buttons[:3]], [['up'], ['restart'], ['down']])
+        self.assertTrue(all(len(text) <= 32 for text, _ in rows if text.startswith('[')))
+
+    def test_commands_run_asynchronously_and_preserve_failures(self):
+        with tempfile.TemporaryDirectory() as tmp, patch.object(MODULE, 'ROOT', Path(tmp)):
+            script = Path(tmp) / 'dev'
+            script.write_text('#!/usr/bin/env python3\nimport time, sys\ntime.sleep(.15)\nprint("failed behavior")\nsys.exit(7)\n')
+            script.chmod(0o755)
+            command = MODULE.DashboardCommand()
+            self.assertTrue(command.start(['check', 'web']))
+            self.assertTrue(command.busy)
+            self.assertFalse(command.start(['down']))
+            command.process.wait(timeout=3)
+            command.poll()
+            self.assertEqual(command.last_code, 7)
+            self.assertIn('failed (exit 7)', command.message)
+            self.assertEqual(command.output[-1], 'failed behavior')
+            self.assertIsNone(command.stream)
+
+    def test_main_shortcut_opens_pane_without_modal_popup(self):
+        config = tomllib.loads(MODULE.updated_config('', Path('/tmp/companions-dev')))
+        shortcut = next(entry for entry in config['keys']['command'] if entry['key'] == 'prefix+d')
+        self.assertEqual(shortcut['type'], 'shell')
+        self.assertTrue(shortcut['command'].endswith(' workspace'))
+
+    def test_terminal_escape_sequences_are_not_replayed_from_logs(self):
+        self.assertEqual(MODULE.clean_display('hello\x1b[31mred\x1b[0m\x07'), 'hellored')
 
 
 if __name__ == '__main__':

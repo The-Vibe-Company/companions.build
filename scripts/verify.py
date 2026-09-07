@@ -127,11 +127,15 @@ try:
     status = "passed"
 finally:
     owned = subprocess.run(["docker", "ps", "-aq", "--filter", f"label=companions.build.verification={run_id}"], text=True, capture_output=True)
-    if owned.returncode == 0 and owned.stdout.split():
+    if owned.returncode:
+        status = "failed"
+    elif owned.stdout.split():
         cleanup = subprocess.run(["docker", "rm", "-f", "-v", *owned.stdout.split()], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         if cleanup.returncode: status = "failed"
     volumes = subprocess.run(["docker", "volume", "ls", "-q", "--filter", f"label=companions.build.verification={run_id}"], text=True, capture_output=True)
-    if volumes.returncode == 0 and volumes.stdout.split():
+    if volumes.returncode:
+        status = "failed"
+    elif volumes.stdout.split():
         cleanup = subprocess.run(["docker", "volume", "rm", *volumes.stdout.split()], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         if cleanup.returncode: status = "failed"
     report = {"status": status, "run": run_id, "seconds": round(time.monotonic()-started, 3),

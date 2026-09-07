@@ -1,0 +1,34 @@
+{
+  "date": "2026-09-07",
+  "status": "passed",
+  "run": "32ebcd074bcd",
+  "seconds": 45.426,
+  "command": "python3 scripts/verify.py --postgres 18",
+  "postgres": {
+    "major": 18,
+    "image": "postgres@sha256:4ef4dbc939d61acea57712655ddb4b4ab27419c913f94cca0cd57cb3ea3c2280",
+    "backupSha256": "c0eada40eb9cfce62790d7bc585569f283d8fd8da0a070478f0c4274d3016f49"
+  },
+  "scope": "Integrated local verification with pinned PostgreSQL 18.6, real Pi/Linux execution, server behavior tests, web tests/build and populated database backup/crash/restore. No production database mutation or provider/model request.",
+  "recoveryChecks": [
+    "Better Auth session remains valid after restore; unauthenticated access remains denied.",
+    "Companion creation retry preserves the original clientCreationId and Companion identity.",
+    "The accepted queued message survives; retry preserves clientMessageId and run identity.",
+    "Counts scoped to request identities prove one Companion, one run and one user message.",
+    "Original PostgreSQL container is killed; backup restores into a fresh separately mounted target."
+  ],
+  "routineChecks": [
+    "Real scheduler process SIGKILL before and after a committed occurrence.",
+    "Clock and chat canary recovery unit tests are included in the normal verification command."
+  ],
+  "cleanup": {
+    "ownedContainersAbsent": true,
+    "ownedVolumesAbsent": true,
+    "evidence": "Independent Docker label queries after verification returned no owned containers or volumes."
+  },
+  "limits": [
+    "Populated recovery uses controlled application fixtures, not a production-sized customer dataset.",
+    "This does not prove a production failover, object-storage backup or live commercial activation.",
+    "The verifier process started before the final listing-error guard patch; independent successful Docker queries prove cleanup for this run. The stronger restore assertions were present before its seed and verification phases."
+  ]
+}

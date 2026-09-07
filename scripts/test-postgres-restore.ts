@@ -64,10 +64,12 @@ if (operation === "seed") {
     body: JSON.stringify({ clientMessageId: state.clientMessageId, content: "Survive the database recovery." }) });
   if (retried.status !== 202 || (await retried.json() as any).runId !== state.runId) throw new Error("postgres_restore_idempotency_missing");
   const [counts] = await db`SELECT
-    (SELECT count(*)::int FROM companions WHERE id=${state.companionId} AND client_creation_id=${state.clientCreationId}) AS companions,
-    (SELECT count(*)::int FROM runs WHERE id=${state.runId} AND companion_id=${state.companionId} AND client_message_id=${state.clientMessageId}) AS runs,
-    (SELECT count(*)::int FROM messages WHERE companion_id=${state.companionId} AND run_id=${state.runId}
-      AND role='user' AND content='Survive the database recovery.') AS messages`;
+    (SELECT count(*)::int FROM companions WHERE owner_id=(SELECT id FROM "user" WHERE email=${state.email})
+      AND client_creation_id=${state.clientCreationId}) AS companions,
+    (SELECT count(*)::int FROM runs WHERE companion_id=${state.companionId} AND client_message_id=${state.clientMessageId}) AS runs,
+    (SELECT count(*)::int FROM messages m JOIN runs r ON r.id=m.run_id
+      WHERE r.companion_id=${state.companionId} AND r.client_message_id=${state.clientMessageId}
+      AND m.role='user' AND m.content='Survive the database recovery.') AS messages`;
   if (counts.companions !== 1 || counts.runs !== 1 || counts.messages !== 1) throw new Error("postgres_restore_duplicate_rows");
 }
 

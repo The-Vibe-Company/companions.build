@@ -88,8 +88,11 @@ hosted acceptance. See `validation-v0.md` for dated evidence.
   health, unauthenticated isolation and private MinIO put/get/delete checks, and its replacement
   executor acquired leadership after the previous deployment released it. A read-only dump of hosted
   PostgreSQL 18.6 also restores into an isolated local 18.6 container with matching archive SHA,
-  schema, constraints and selected V12 base. That snapshot contains no tenant/job rows, so populated
-  PostgreSQL 18 recovery remains unproven. See `measurements/hosted-postgres18-restore-2026-09-07.json`.
+  schema, constraints and selected V12 base. That hosted snapshot contains no tenant/job rows. A separate populated local PostgreSQL 18.6
+  recovery now proves Better Auth session continuity and Companion/message retry identity, including
+  exact request-scoped row counts. The integrated suite passes in 45.4 seconds. See
+  `measurements/hosted-postgres18-restore-2026-09-07.json` and
+  `measurements/local-postgres18-routines-2026-09-07.json`. Production-sized recovery remains unproven.
   Hosted agent activation and sustained load remain unproven. Personal consent and missing settings
   must not be represented as working connections.
 

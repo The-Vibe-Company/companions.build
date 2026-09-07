@@ -1,4 +1,5 @@
 import {requireHostedActivation,mutationStartsWork} from "./activation";
+import {handleModelGateway,MODEL_GATEWAY_MAX_REQUEST_BYTES} from './model-gateway';
 import {handleMaintenance} from "./maintenance";
 import {availableModels} from "./models";
 import { handleBilling, handleStripeWebhook, requireProductActivation, billingConfiguration, ProductActivationRequired } from "./billing";
@@ -76,6 +77,10 @@ async function lifecycleRoute(request:Request,ownerId:string):Promise<Response|n
 }
 export async function handler(request: Request): Promise<Response> {
   const url = new URL(request.url);
+  // Native provider protocols authenticate with a scoped run credential and enforce their
+  // own streamed body limit. They never inherit a browser cookie session or its routes.
+  if(url.pathname==='/api/model-gateway'||url.pathname.startsWith('/api/model-gateway/'))
+    return await handleModelGateway(request)??json({error:'Not found.'},404);
   if(url.pathname === "/api/stripe/webhook") return handleStripeWebhook(request);
   const webhookResponse = await handleWebhook(request);
   if(webhookResponse) return webhookResponse;
@@ -160,6 +165,7 @@ export async function handler(request: Request): Promise<Response> {
 }
 if (import.meta.main) {
   await migrateForService();
-  Bun.serve({ hostname: config.host, port: config.port, maxRequestBodySize: FILE_REQUEST_MAX_BYTES, fetch: handler });
+  Bun.serve({ hostname: config.host, port: config.port, idleTimeout:255,
+    maxRequestBodySize:Math.max(FILE_REQUEST_MAX_BYTES,MODEL_GATEWAY_MAX_REQUEST_BYTES), fetch: handler });
   console.log(`API ready at http://${config.host}:${config.port}`);
 }

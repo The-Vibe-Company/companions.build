@@ -47,7 +47,7 @@ try:
     mapping = subprocess.check_output(["docker", "port", database_name, "5432/tcp"], text=True).strip()
     env["DATABASE_URL"] = f"postgres://companions:companions@{mapping}/companions"
     for attempt in range(60):
-        if subprocess.run(["docker", "exec", database_name, "pg_isready", "-U", "companions"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode == 0: break
+        if subprocess.run(["docker", "exec", database_name, "pg_isready", "-h", "127.0.0.1", "-U", "companions"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode == 0: break
         time.sleep(.5)
     else: raise RuntimeError("PostgreSQL readiness timed out")
     storage_access_key = f"verify-{run_id}"
@@ -96,7 +96,7 @@ try:
         "--env", "POSTGRES_DB=companions", "postgres:17.6-alpine@sha256:ef257d85f76e48da1c64832459b59fcaba1a4dac97bf5d7450c77753542eee94"])
     recovery_mapping = subprocess.check_output(["docker", "port", recovery_name, "5432/tcp"], text=True).strip()
     for attempt in range(60):
-        if subprocess.run(["docker", "exec", recovery_name, "pg_isready", "-U", "companions"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode == 0: break
+        if subprocess.run(["docker", "exec", recovery_name, "pg_isready", "-h", "127.0.0.1", "-U", "companions"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode == 0: break
         time.sleep(.5)
     else: raise RuntimeError("Recovery PostgreSQL readiness timed out")
     run("postgres-restore-copy", ["docker", "cp", str(backup), f"{recovery_name}:/tmp/companions.dump"])

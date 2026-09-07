@@ -26,6 +26,7 @@ function authUrl() {
   return `http://127.0.0.1:${process.env.WEB_PORT ?? 4310}`;
 }
 function modelGatewayUrl(){
+ if(process.env.AGENT_TEST_MODE==='1')return undefined;
  const configured=process.env.MODEL_GATEWAY_URL;
  // Direct credentials are a developer-only path. Hosted clients always use the gateway.
  const value=configured??(process.env.NODE_ENV==='production'?`${authUrl().replace(/\/$/,'')}/api/model-gateway`:undefined);

@@ -3,6 +3,7 @@
 
 import importlib.util
 import json
+import subprocess
 from pathlib import Path
 import sys
 import tempfile
@@ -75,6 +76,15 @@ class ScenarioGuardTests(unittest.TestCase):
             }))
             with patch.object(self.browser, "ROOT", root), self.assertRaisesRegex(RuntimeError, "testMode=true"):
                 self.browser.load_settings()
+
+    def test_auth_navigation_failure_never_echoes_magic_link(self) -> None:
+        token = 'PRIVATE_MAGIC_TOKEN'
+        failed = subprocess.CompletedProcess([], 1, '', 'Navigation failed at ?token=' + token)
+        browser = self.browser.Browser('isolated-test', Path('/tmp'))
+        with patch.object(self.browser.subprocess, 'run', return_value=failed):
+            with self.assertRaises(RuntimeError) as error:
+                browser.run('open', 'http://app.localhost/api/auth/magic-link/verify?token=' + token, quiet=True)
+        self.assertNotIn(token, str(error.exception))
 
     def test_scenario_endpoint_rejects_embedded_credentials(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

@@ -11,9 +11,10 @@ import socket
 import subprocess
 import sys
 import time
+import uuid
 import urllib.request
 
-from dev_support import ROOT, LOCAL, lock, prepare, proxy_command, read_json, write_json
+from dev_support import ROOT, LOCAL, lock, prepare, proxy_command, read_json, write_json, terminate_process
 
 STATE = LOCAL / 'dev-state.json'
 
@@ -30,9 +31,12 @@ def status():
     state = read_json(STATE)
     if not alive(state):
         state['status'] = 'stopped' if state.get('status') == 'stopped' or not state else 'failed'
-        state['services'] = {}
+        for service in state.get('services', {}).values():
+            service['status'] = 'stopped' if state['status'] == 'stopped' else 'unknown'
     elif state.get('status') == 'ready':
         for service in state.get('services', {}).values():
+            if 'pid' not in service:
+                continue
             try:
                 os.kill(service['pid'], 0)
             except (ProcessLookupError, KeyError):
@@ -44,7 +48,61 @@ def status():
                     state['status'] = 'failed'
         except Exception:
             state['status'] = 'failed'
+    threshold = 120 if state.get('status') in ('changing', 'restarting') else 15
+    if alive(state) and state.get('heartbeat') and time.time() - state['heartbeat'] > threshold:
+        state['status'] = 'unresponsive'
+    validation = read_json(LOCAL / 'latest-validation.json')
+    if validation:
+        from validation_evidence import source_evidence
+        if validation.get('source', {}).get('fingerprint') != source_evidence(ROOT)['fingerprint']:
+            validation['status'] = 'stale'
+        elif validation.get('status') == 'running':
+            try:
+                handle = lock('verification.lock')
+            except RuntimeError:
+                pass
+            else:
+                handle.close()
+                validation['status'] = 'interrupted'
+        state['validation'] = validation
     return state
+
+SERVICES = ['api', 'web', 'executor', 'worker', 'postgres', 'storage', 's3', 'mailpit']
+
+def service_action(action, name):
+    if name == 's3': name = 'storage'
+    state = read_json(STATE)
+    if not alive(state):
+        if action == 'stop':
+            print(f'{name}: already stopped.')
+        else:
+            up(only=name)
+        return
+    with lock('dev-command.lock', blocking=True):
+        _service_action(action, name)
+
+def _service_action(action, name):
+    state = read_json(STATE)
+    if not alive(state):
+        raise RuntimeError('Supervisor stopped before admission; command not submitted.')
+    identifier = uuid.uuid4().hex
+    directory = LOCAL / 'dev-commands'
+    path = directory / (identifier + '.request.json')
+    write_json(path, {'id': identifier, 'action': action, 'service': name,
+                     'supervisor': state['pid'], 'identity': state['identity']})
+    result_path = directory / (identifier + '.result.json')
+    deadline = time.monotonic() + 100
+    while time.monotonic() < deadline:
+        result = read_json(result_path)
+        if result:
+            if result['status'] != 'passed':
+                raise RuntimeError(result['error'])
+            print(f'{name}: {action} completed.')
+            return
+        if not alive(state):
+            raise RuntimeError('Supervisor exited; command outcome unknown. Inspect status before retrying.')
+        time.sleep(.25)
+    raise RuntimeError('Command outcome unknown after timeout. Inspect status before retrying.')
 
 def local_env():
     # A development stack never inherits hosted credentials or a hosted DATABASE_URL.
@@ -77,16 +135,25 @@ def choose_base():
                 sock.close()
     raise RuntimeError('No free local port block; stop owned services or choose another worktree.')
 
-def up(direct=False):
+def up(direct=False, only=None):
     with lock('dev-command.lock', blocking=True):
         current = status()
         if alive(current):
             if current['status'] == 'ready':
                 print(current['url'])
                 return
+            if current['status'] in ('degraded', 'build-failed'):
+                for name in ['postgres', 'storage', 'mailpit', 'api', 'executor', 'worker', 'web']:
+                    service = current.get('services', {}).get(name, {})
+                    if service.get('status') != 'ready' and service.get('managed', True):
+                        _service_action('start', name)
+                print(current.get('url', 'Services started.'))
+                return
             raise RuntimeError('Stack is already starting/restarting or unhealthy. Inspect ./dev logs.')
         LOCAL.mkdir(exist_ok=True, mode=0o700)
         env = local_env()
+        if only:
+            env['COMPANIONS_DEV_COMPONENTS'] = only
         env['CONDUCTOR_PORT'] = str(choose_base())
         command = [sys.executable, str(ROOT / 'scripts/dev.py')]
         proxy = read_json(LOCAL / 'dev-options.json').get('portless', False) and not direct
@@ -95,8 +162,9 @@ def up(direct=False):
             env.update(PORTLESS_PORT=str(options.get('proxyPort', 1355)), PORTLESS_HTTPS='1' if options.get('https') else '0',
                        PORTLESS_LAN='0', PORTLESS_SYNC_HOSTS='0', PORTLESS_TAILSCALE='0', PORTLESS_FUNNEL='0', PORTLESS_NGROK='0',
                        PORTLESS_STATE_DIR=str(Path.home() / '.local/state/companions-portless'))
-            name = re.sub('[^a-z0-9-]', '-', ROOT.name.lower())[:35].strip('-') or 'worktree'
-            name += '-' + hashlib.sha256(str(ROOT).encode()).hexdigest()[:6] + '.companions'
+            label = re.sub(r'^worktree-|-[0-9a-f]{4,}$', '', ROOT.name.lower())
+            name = re.sub('[^a-z0-9-]', '-', label)[:28].strip('-') or 'worktree'
+            name += '-' + hashlib.sha256(str(ROOT).encode()).hexdigest()[:4] + '.companions'
             command = [*proxy_command(), name, *command]
         write_json(STATE, {'status': 'starting'})
         with (LOCAL / 'dev-launch.log').open('a') as output:
@@ -105,7 +173,7 @@ def up(direct=False):
         try:
             while time.monotonic() < deadline:
                 current = status()
-                if current.get('status') == 'ready':
+                if current.get('status') == 'ready' or (only and current.get('heartbeat') and current.get('services', {}).get(only, {}).get('status') == 'ready'):
                     print(current['url'])
                     return
                 if child.poll() is not None:
@@ -119,7 +187,7 @@ def up(direct=False):
             try:
                 child.wait(timeout=25)
             except subprocess.TimeoutExpired:
-                os.killpg(child.pid, signal.SIGTERM)
+                terminate_process(child)
             raise
 
 def down():
@@ -158,7 +226,13 @@ def down():
                 subprocess.run(['docker', 'stop', '--time', '3', *ids], check=True, stdout=subprocess.DEVNULL)
             if subprocess.check_output(command, text=True).strip():
                 raise RuntimeError('Owned containers remain running')
-        state.update(status='stopped', services={}, cleanup={'verified': True})
+        proxy_env = state.get('endpoints', {}).get('proxyEnv')
+        if proxy_env:
+            from dev_portless import cleanup_stale
+            cleanup_stale({**local_env(), **proxy_env})
+        for service in state.get('services', {}).values():
+            service['status'] = 'stopped'
+        state.update(status='stopped', cleanup={'verified': True})
         write_json(STATE, state)
         print('Stopped; owned containers verified stopped, disks retained.')
 
@@ -180,8 +254,9 @@ def main():
     p = subs.add_parser('up'); p.add_argument('--direct', action='store_true')
     subs.add_parser('down'); subs.add_parser('restart')
     p = subs.add_parser('status'); p.add_argument('--json', action='store_true')
-    p = subs.add_parser('logs'); p.add_argument('service', nargs='?', choices=['api', 'executor', 'worker', 'web'])
-    subs.add_parser('open')
+    p = subs.add_parser('logs'); p.add_argument('service', nargs='?', choices=SERVICES)
+    p = subs.add_parser('open'); p.add_argument('service', nargs='?', choices=SERVICES, default='web')
+    p = subs.add_parser('service'); p.add_argument('action', choices=['start', 'stop', 'restart']); p.add_argument('service', choices=SERVICES)
     for command in ['menu', 'workspace', 'herdr-install']:
         subs.add_parser(command)
     for command in ['check', 'scenario', 'browser-test']:
@@ -191,10 +266,20 @@ def main():
     elif args.command == 'down': down()
     elif args.command == 'restart': down(); up()
     elif args.command == 'setup': setup(args.portless, args.https)
+    elif args.command == 'service': service_action(args.action, args.service)
     elif args.command == 'status':
         state = status()
         print(json.dumps(state, indent=2) if args.json else f"{state['status']} · {state.get('url', 'no URL')}")
     elif args.command == 'logs':
+        if args.service in ('postgres', 'storage', 's3', 'mailpit'):
+            prefix = {'postgres': 'pg', 'storage': 'minio', 's3': 'minio', 'mailpit': 'mailpit'}[args.service]
+            owner = hashlib.sha256(str(ROOT).encode()).hexdigest()[:10]
+            name = f'companions-{prefix}-{owner}'
+            inspected = subprocess.check_output(['docker', 'inspect', name], text=True)
+            if json.loads(inspected)[0].get('Config', {}).get('Labels', {}).get('companions.build.workspace') != owner:
+                raise RuntimeError('Container ownership mismatch')
+            subprocess.run(['docker', 'logs', '--tail', '60', name], check=True)
+            return
         files = [LOCAL / 'logs' / f'{args.service}.log'] if args.service else sorted((LOCAL / 'logs').glob('*.log'))
         if not files: files = [LOCAL / 'dev-launch.log']
         for file in files:
@@ -202,8 +287,12 @@ def main():
             if file.exists(): print('\n'.join(file.read_text(errors='replace').splitlines()[-60:]))
     elif args.command == 'open':
         current = status()
-        if current['status'] != 'ready': raise RuntimeError('Run ./dev up first.')
-        subprocess.run(['open' if sys.platform == 'darwin' else 'xdg-open', current['url']], check=True)
+        url = current.get('services', {}).get(args.service, {}).get('url') or (current.get('url') if args.service == 'web' else None)
+        if not url: raise RuntimeError('This component has no browser URL. Use its logs.')
+        if args.service == 'postgres':
+            print('PostgreSQL has no web interface. Connect your database client to: ' + url)
+            return
+        subprocess.run(['open' if sys.platform == 'darwin' else 'xdg-open', url], check=True)
     else:
         scripts = {'check': 'check.py', 'scenario': 'dev-scenario.py', 'browser-test': 'dev-browser-test.py',
                    'menu': 'dev-herdr.py', 'workspace': 'dev-herdr.py', 'herdr-install': 'dev-herdr.py'}

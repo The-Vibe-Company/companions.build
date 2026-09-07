@@ -11,6 +11,10 @@ Box performance are production ready. See [the V0 status and gaps](docs/v0.md).
 
 ## Run locally
 
+For the agent development loop and the Herdr service control panel, start with
+[the worktree workflow](docs/dev-workflow.md): `./dev setup --portless`, then `./dev workspace`.
+The panel starts, stops and restarts components and exposes service URLs and validation results.
+
 Prerequisites are Python 3, Docker, and Git. The launcher downloads checksum-verified Bun 1.4.2
 inside the checkout and starts isolated PostgreSQL, MinIO, Mailpit, API, worker, executor, and web
 processes.

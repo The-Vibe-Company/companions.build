@@ -130,7 +130,7 @@ def workspace():
     return 0
 
 
-SERVICES = ('web', 'api', 'executor', 'worker', 'postgres', 'storage', 'mailpit')
+SERVICES = ('web', 'api', 'executor', 'worker', 'postgres', 'storage', 's3', 'mailpit')
 ACTIONS = [
     ('Start all', ['up']), ('Restart all', ['restart']), ('Stop all', ['down']),
     ('Open app', ['open']), ('Web tests', ['check', 'web']),
@@ -430,7 +430,7 @@ def updated_config(original, dispatch):
             raise RuntimeError(f'Herdr shortcut {key} is already configured; config left unchanged.')
     blocks = [BEGIN]
     for key, action in bindings:
-        blocks.append('\n[[keys.command]]\nkey = ' + json.dumps(key) + ('\ntype = "shell"\ncommand = ' if action == 'workspace' else '\ntype = "popup"\ncommand = ') + json.dumps(shlex.quote(str(dispatch)) + ' ' + action) + '\nwidth = "85%"\nheight = "80%"')
+        blocks.append('\n[[keys.command]]\nkey = ' + json.dumps(key) + ('\ntype = "shell"\ncommand = ' if action == 'workspace' else '\ntype = "popup"\ncommand = ') + json.dumps(shlex.quote(str(dispatch)) + ' ' + action) + ('\nwidth = "85%"\nheight = "80%"' if action != 'workspace' else ''))
     # Preserve customized sidebar rows; provide metadata through the existing token API.
     if 'spaces' not in config.get('ui', {}).get('sidebar', {}):
         blocks.append('\n[ui.sidebar.spaces]\nrows = [["state_icon", "workspace"], ["branch", "git_status"], ["$companions_app"], ["$companions_tests"]]')

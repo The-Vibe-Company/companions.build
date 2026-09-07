@@ -11,7 +11,7 @@ import socket
 import time
 import urllib.request
 from bun import ROOT, module
-from dev_support import lock, prepare, read_json, write_json, source_digest
+from dev_support import lock, prepare, read_json, write_json, source_digest, terminate_process
 
 os.chdir(ROOT)
 stack_lock = lock("dev-stack.lock")
@@ -50,6 +50,7 @@ logs.mkdir(exist_ok=True, mode=0o700)
 log_handles = []
 children = []
 managed_containers = []
+public_services = {}
 
 POSTGRES_IMAGE = "postgres:17.6-alpine@sha256:ef257d85f76e48da1c64832459b59fcaba1a4dac97bf5d7450c77753542eee94"
 MINIO_IMAGE = "minio/minio:RELEASE.2025-04-22T22-12-26Z@sha256:a1ea29fa28355559ef137d71fc570e508a214ec84ff8083e39bc5428980b015e"
@@ -60,10 +61,10 @@ def bun_command(args):
     return [args[0], "--no-env-file", *args[1:]] if args[0] == bun and env.get("COMPANIONS_DEV_LOCAL") == "1" else args
 
 def run(args, **kwargs):
-    return subprocess.run(bun_command(args), check=True, env=env, **kwargs)
+    return subprocess.run(bun_command(args), check=True, env=env, timeout=90, **kwargs)
 
 def container(name):
-    found = subprocess.run(["docker", "inspect", name], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+    found = subprocess.run(["docker", "inspect", name], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=10)
     return None if found.returncode else json.loads(found.stdout)[0]
 
 def ensure_container(name, args):
@@ -85,7 +86,7 @@ def wait_http(url, label):
                     return
         except Exception:
             time.sleep(0.5)
-    raise SystemExit(f"{label} did not become ready")
+    raise RuntimeError(f"{label} did not become ready")
 
 def service_credentials():
     path = data_dir / "dev-services.json"
@@ -103,14 +104,7 @@ def service_credentials():
 
 def stop(*_):
     for child in children:
-        if child.poll() is None:
-            os.killpg(child.pid, signal.SIGTERM)
-    for child in children:
-        try:
-            child.wait(timeout=5)
-        except subprocess.TimeoutExpired:
-            os.killpg(child.pid, signal.SIGKILL)
-            child.wait()
+        terminate_process(child, grace=5)
     # Runtime containers use the data-directory hash; services use the checkout hash.
     clean = True
     for owner in {workspace, hashlib.sha256(str(data_dir.resolve()).encode()).hexdigest()[:10]}:
@@ -124,7 +118,16 @@ def stop(*_):
         clean = clean and remaining.returncode == 0 and not remaining.stdout.strip()
     for handle in log_handles:
         handle.close()
-    state.update(status="stopped" if clean else "failed", cleanup={"verified": clean}, services={})
+    if env.get("PORTLESS_URL"):
+        from dev_portless import cleanup_stale
+        try:
+            cleanup_stale(env)
+        except RuntimeError as error:
+            clean = False
+            print(str(error), file=sys.stderr)
+    for service in state["services"].values():
+        service["status"] = "stopped"
+    state.update(status="stopped" if clean and not state.get("failure") else "failed", cleanup={"verified": clean})
     write_json(state_path, state)
 
 signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
@@ -193,46 +196,200 @@ try:
         "worker": ([bun, "apps/server/src/worker.ts"], ROOT),
         "web": ([bun, "run", "dev", "--host", "127.0.0.1", "--port", env["WEB_PORT"]], ROOT / "apps/web"),
     }
-    def start_services():
-        for name, (args, cwd) in service_commands.items():
-            handle = (logs / f"{name}.log").open("w")
+    processes = {}
+    service_handles = {}
+    log_offsets = {}
+    selected_components = env.get("COMPANIONS_DEV_COMPONENTS")
+    disabled = set(service_commands) - set(selected_components.split(",")) if selected_components else set()
+    def start_services(names=None):
+        selected = [name for name in (names or service_commands) if name not in disabled]
+        for name in selected:
+            if name in processes and processes[name].poll() is None:
+                continue
+            if processes.get(name) in children:
+                children.remove(processes[name])
+            args, cwd = service_commands[name]
+            old_handle = service_handles.pop(name, None)
+            if old_handle:
+                old_handle.close()
+                if old_handle in log_handles:
+                    log_handles.remove(old_handle)
+            handle = (logs / f"{name}.log").open("a")
+            log_offsets[name] = handle.tell()
+            service_handles[name] = handle
             log_handles.append(handle)
             child = subprocess.Popen(bun_command(args), cwd=cwd, env=env, stdout=handle, stderr=subprocess.STDOUT, start_new_session=True)
             children.append(child)
-            state["services"][name] = {"pid": child.pid, "log": str(logs / f"{name}.log"),
+            processes[name] = child
+            state["services"][name] = {"status": "starting", "pid": child.pid, "log": str(logs / f"{name}.log"),
                 "identity": subprocess.check_output(["ps", "-p", str(child.pid), "-o", "lstart="], text=True).strip(),
                 "command": subprocess.check_output(["ps", "-p", str(child.pid), "-o", "command="], text=True).strip()}
             write_json(state_path, state)
-        wait_http(f"http://127.0.0.1:{env['API_PORT']}/health", "API")
-        wait_http(f"http://127.0.0.1:{env['WEB_PORT']}", "Web")
+        if "api" in selected:
+            wait_http(f"http://127.0.0.1:{env['API_PORT']}/health", "API")
+        if "web" in selected:
+            wait_http(f"http://127.0.0.1:{env['WEB_PORT']}", "Web")
         for _ in range(120):
-            if all(child.poll() is None for child in children) and all(
-                marker in (logs / f"{name}.log").read_text()
-                for name, marker in [("executor", "Executor ready"), ("worker", "Worker ready")]
+            if all(processes[name].poll() is None for name in selected) and all(
+                marker in (logs / f"{name}.log").read_bytes()[log_offsets[name]:].decode(errors="replace")
+                for name, marker in [("executor", "Executor ready"), ("worker", "Worker ready")] if name in selected
             ):
+                for name in selected:
+                    state["services"][name]["status"] = "ready"
                 return
-            if any(child.poll() is not None for child in children):
+            if any(processes[name].poll() is not None for name in selected):
                 raise RuntimeError("A service exited during startup; see .local/logs")
             time.sleep(.25)
         raise RuntimeError("Executor/worker readiness timed out")
 
     start_services()
+    if env.get("PORTLESS_URL"):
+        from dev_portless import register_services
+        public_services = register_services(env, {"api": int(env["API_PORT"]), "storage": base+4, "s3": base+3, "mailpit": base+6})
     endpoints = {"url": env["APP_URL"], "webPort": int(env["WEB_PORT"]), "apiPort": int(env["API_PORT"]),
-                 "mailUrl": f"http://127.0.0.1:{base+6}", "basePort": base,
+                 "mailUrl": public_services.get("mailpit", f"http://127.0.0.1:{base+6}"), "basePort": base,
                  "testMode": env["AGENT_TEST_MODE"] == "1", "dataDir": str(data_dir), "workspace": workspace}
+    if public_services:
+        endpoints["services"] = public_services
+        endpoints["proxyEnv"] = {key: env[key] for key in ("PORTLESS_URL", "PORTLESS_PORT", "PORTLESS_HTTPS", "PORTLESS_STATE_DIR", "PORTLESS_SYNC_HOSTS") if key in env}
     write_json(data_dir / "dev-endpoints.json", endpoints)
     state.update(status="ready", url=env["APP_URL"], endpoints=endpoints)
     write_json(state_path, state)
     print(f"\nCompanions: {env['APP_URL']}\nSign in using the email link.", flush=True)
     if env.get("SMTP_HOST") == "127.0.0.1" and env.get("SMTP_PORT") == str(base + 5):
-        print(f"Email: http://127.0.0.1:{base+6}", flush=True)
+        print(f"Email: {endpoints['mailUrl']}", flush=True)
     print(flush=True)
     def watched_digest():
         from dev_support import digest
         return digest([*ROOT.glob("apps/server/src/**/*"), *ROOT.glob("packages/**/*"),
                        ROOT / "bun.lock", ROOT / "package.json", ROOT / "scripts/build-agent.ts", *ROOT.glob("scripts/lib/*")])
+    infrastructure = {"postgres": postgres_name, "storage": minio_name, "s3": minio_name, "mailpit": mailpit_name}
+    links = {"web": env["APP_URL"], "api": f"http://127.0.0.1:{env['API_PORT']}/health",
+             "postgres": f"postgresql://127.0.0.1:{base+2}/companions", "storage": f"http://127.0.0.1:{base+4}",
+             "s3": f"http://127.0.0.1:{base+3}", "mailpit": f"http://127.0.0.1:{base+6}"}
+    links.update(public_services)
+    if "api" in public_services:
+        links["api"] += "/health"
+    control = data_dir / "dev-commands"
+    control.mkdir(exist_ok=True, mode=0o700)
+
+    def stop_process(name):
+        child = processes.get(name)
+        if child:
+            terminate_process(child)
+        if child in children:
+            children.remove(child)
+        handle = service_handles.pop(name, None)
+        if handle:
+            handle.close()
+            if handle in log_handles:
+                log_handles.remove(handle)
+        state["services"].setdefault(name, {})["status"] = "stopped"
+
+    def refresh_state():
+        for name in service_commands:
+            child = processes.get(name)
+            status = state["services"].get(name, {}).get("status", "starting") if child and child.poll() is None else "stopped" if name in disabled else "failed"
+            state["services"].setdefault(name, {}).update(status=status)
+        for name, url in (("api", f"http://127.0.0.1:{env['API_PORT']}/health"), ("web", f"http://127.0.0.1:{env['WEB_PORT']}")):
+            child = processes.get(name)
+            if child and child.poll() is None:
+                try:
+                    with urllib.request.urlopen(url, timeout=.5) as response:
+                        healthy = response.status == 200
+                except Exception:
+                    healthy = False
+                state["services"][name]["status"] = "ready" if healthy else "unhealthy"
+        owned = [name for name in infrastructure.values() if name in managed_containers]
+        result = subprocess.run(["docker", "inspect", *owned], capture_output=True, text=True, timeout=10) if owned else None
+        containers = {item["Name"].lstrip("/"): item for item in json.loads(result.stdout)} if result and result.returncode == 0 else {}
+        for name, container_name in infrastructure.items():
+            if container_name not in managed_containers:
+                state["services"][name] = {"status": "external", "managed": False}
+                continue
+            item = containers.get(container_name, {})
+            running = item.get("State", {}).get("Running", False)
+            status = "ready" if running else "stopped" if item else "unknown"
+            if running:
+                try:
+                    if name == "postgres":
+                        healthy = subprocess.run(["docker", "exec", container_name, "pg_isready", "-h", "127.0.0.1", "-U", "companions"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=2).returncode == 0
+                    else:
+                        url = f"http://127.0.0.1:{base+3}/minio/health/live" if name in ("storage", "s3") else f"http://127.0.0.1:{base+6}/livez"
+                        with urllib.request.urlopen(url, timeout=.5) as response:
+                            healthy = response.status == 200
+                    if not healthy:
+                        status = "unhealthy"
+                except (OSError, subprocess.TimeoutExpired):
+                    status = "unhealthy"
+            state["services"][name] = {"status": status, "container": container_name, "managed": True}
+        for name in ("api", "executor", "worker"):
+            service = state["services"][name]
+            if service["status"] in ("ready", "blocked"):
+                service["status"] = "ready" if state["services"]["postgres"]["status"] in ("ready", "external") else "blocked"
+        for name, url in links.items():
+            state["services"][name]["url"] = url
+        if state["status"] != "build-failed":
+            state["status"] = "ready" if all(item["status"] in ("ready", "external") for item in state["services"].values()) else "degraded"
+        state["heartbeat"] = time.time()
+        write_json(state_path, state)
+
+    def service_action(action, name):
+        if action not in ("start", "stop", "restart") or name not in (*service_commands, *infrastructure):
+            raise RuntimeError("Unknown service action")
+        if name in infrastructure:
+            container_name = infrastructure[name]
+            details = container(container_name)
+            if container_name not in managed_containers or not details or details.get("Config", {}).get("Labels", {}).get("companions.build.workspace") != workspace:
+                raise RuntimeError("Service is external or ownership could not be verified")
+            run(["docker", action, *(["--time", "3"] if action in ("stop", "restart") else []), container_name], stdout=subprocess.DEVNULL)
+            if action != "stop":
+                if name == "postgres":
+                    for _ in range(60):
+                        if subprocess.run(["docker", "exec", container_name, "pg_isready", "-h", "127.0.0.1", "-U", "companions"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode == 0:
+                            break
+                        time.sleep(.5)
+                    else:
+                        raise RuntimeError("PostgreSQL readiness timed out")
+                else:
+                    wait_http(f"http://127.0.0.1:{base+3}/minio/health/live" if name in ("storage", "s3") else links[name] + "/livez", name)
+        else:
+            if action in ("stop", "restart"):
+                disabled.add(name)
+                stop_process(name)
+            if action in ("start", "restart"):
+                disabled.discard(name)
+                if name == "executor":
+                    prepare()
+                start_services([name])
+
+    def process_commands():
+        for path in sorted(control.glob("*.request.json")):
+            request = read_json(path)
+            result = {"status": "failed", "id": request.get("id")}
+            try:
+                if request.get("supervisor") != state["pid"] or request.get("identity") != state["identity"]:
+                    raise RuntimeError("Supervisor changed; command was not replayed")
+                name = request.get("service")
+                if name in state["services"]:
+                    state["services"][name]["status"] = {"start": "starting", "stop": "stopping", "restart": "restarting"}.get(request.get("action"), "unknown")
+                    state["status"] = "changing"
+                    write_json(state_path, state)
+                service_action(request.get("action"), request.get("service"))
+                result["status"] = "passed"
+            except (RuntimeError, subprocess.CalledProcessError):
+                result["error"] = "Service action failed; inspect service logs. No automatic retry."
+                if request.get("service") in state["services"]:
+                    state["services"][request["service"]]["status"] = "failed"
+            refresh_state()
+            write_json(path.with_name(path.name.replace(".request.json", ".result.json")), result)
+            path.unlink()
+
+    refresh_state()
     observed = watched_digest()
-    while all(child.poll() is None for child in children):
+    while True:
+        process_commands()
+        refresh_state()
         time.sleep(1)
         if env.get("COMPANIONS_DEV_WATCH", "1") == "0":
             continue
@@ -243,14 +400,7 @@ try:
         write_json(state_path, state)
         # Stop admission before changing the runtime. Durable recovery belongs to the executor.
         for child in children:
-            if child.poll() is None:
-                os.killpg(child.pid, signal.SIGTERM)
-        for child in children:
-            try:
-                child.wait(timeout=10)
-            except subprocess.TimeoutExpired:
-                os.killpg(child.pid, signal.SIGKILL)
-                child.wait()
+            terminate_process(child)
         children.clear()
         for handle in log_handles:
             handle.close()
@@ -260,24 +410,20 @@ try:
             run([bun, "apps/server/src/migrate.ts"])
             start_services()
             state["status"] = "ready"
-        except (subprocess.CalledProcessError, RuntimeError, SystemExit):
+        except (subprocess.CalledProcessError, RuntimeError):
             for child in children:
-                if child.poll() is None:
-                    os.killpg(child.pid, signal.SIGTERM)
-            for child in children:
-                try:
-                    child.wait(timeout=5)
-                except subprocess.TimeoutExpired:
-                    os.killpg(child.pid, signal.SIGKILL)
-                    child.wait()
+                terminate_process(child, grace=5)
             children.clear()
-            state.update(status="build-failed", services={})
+            state.update(status="build-failed")
             print("Reload failed; watching for the next source edit. See .local/logs and dev-launch.log.", flush=True)
-        write_json(state_path, state)
+        refresh_state()
         observed = changed
     failed_code = next((child.returncode for child in children if child.returncode is not None), 1)
     raise SystemExit(failed_code or 1)
 except KeyboardInterrupt:
     pass
+except Exception:
+    state["failure"] = "Supervisor failed; inspect .local/dev-launch.log and the service logs."
+    raise
 finally:
     stop()

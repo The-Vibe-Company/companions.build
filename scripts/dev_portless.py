@@ -37,8 +37,11 @@ def _validated_ports(ports: dict[str, int]) -> dict[str, int]:
 
 
 def _run(env: dict[str, str], *arguments: str) -> subprocess.CompletedProcess[str]:
-    return subprocess.run([*proxy_command(), *arguments], cwd=ROOT, env=env,
-                          capture_output=True, text=True)
+    try:
+        return subprocess.run([*proxy_command(), *arguments], cwd=ROOT, env=env,
+                              capture_output=True, text=True, timeout=15)
+    except subprocess.TimeoutExpired:
+        raise RuntimeError("Portless command timed out; inspect recorded route ownership before retrying") from None
 
 
 def _url(env: dict[str, str], alias: str) -> str:
@@ -91,6 +94,9 @@ def _cleanup_manifest(env: dict[str, str], manifest: dict[str, object]) -> None:
                 removed = _run(env, "alias", "--remove", name)
                 if removed.returncode:
                     failures.append(f"{name} could not be removed")
+                    continue
+                if _route_port(env, name) is not None:
+                    failures.append(f"{name} is still registered after removal")
                     continue
             aliases.remove(entry)
             manifest["aliases"] = aliases

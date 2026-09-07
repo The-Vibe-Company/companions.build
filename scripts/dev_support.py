@@ -5,9 +5,36 @@ import json
 import os
 from pathlib import Path
 import subprocess
+import signal
 
 ROOT = Path(__file__).resolve().parents[1]
 LOCAL = ROOT / '.local'
+
+def terminate_process(child, grace=10):
+    """Terminate an owned process group; process-exit races are already successful exits."""
+    if child.poll() is None:
+        try:
+            os.killpg(child.pid, signal.SIGTERM)
+        except ProcessLookupError:
+            pass
+    try:
+        child.wait(timeout=grace)
+    except subprocess.TimeoutExpired:
+        try:
+            os.killpg(child.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        child.wait(timeout=5)
+
+def run_preparation(command, cwd):
+    child = subprocess.Popen(command, cwd=cwd, start_new_session=True)
+    try:
+        code = child.wait(timeout=180)
+        if code:
+            raise subprocess.CalledProcessError(code, command)
+    except BaseException:
+        terminate_process(child)
+        raise
 
 def write_json(path, value):
     path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
@@ -53,12 +80,12 @@ def prepare(build=True):
             directory = ROOT / relative
             fingerprint = digest([directory / 'package.json', directory / 'bun.lock'])
             if cache.get(key) != fingerprint or not (directory / 'node_modules').is_dir():
-                subprocess.run([bun, 'install', '--frozen-lockfile'], cwd=directory, check=True)
+                run_preparation([bun, '--no-env-file', 'install', '--frozen-lockfile'], directory)
                 cache[key] = fingerprint
         if build:
             fingerprint = source_digest()
             if cache.get('agent') != fingerprint or not (ROOT / 'dist/agent/companion-agent').exists():
-                subprocess.run([bun, 'scripts/build-agent.ts'], cwd=ROOT, check=True)
+                run_preparation([bun, '--no-env-file', 'scripts/build-agent.ts'], ROOT)
                 cache['agent'] = fingerprint
         write_json(LOCAL / 'dev-build.json', cache)
         return bun

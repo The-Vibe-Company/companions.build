@@ -5,6 +5,7 @@ from pathlib import Path
 import subprocess
 import tempfile
 import unittest
+from contextlib import nullcontext
 from unittest.mock import patch
 
 spec = importlib.util.spec_from_file_location('dev_cli', Path(__file__).with_name('dev-cli.py'))
@@ -35,7 +36,7 @@ class IsolationTests(unittest.TestCase):
             self.assertFalse(cli.alive({'pid': 999, 'identity': 'same start'}))
 
     def test_dead_supervisor_cannot_report_ready(self):
-        with patch.object(cli, 'read_json', return_value={'status': 'ready', 'services': {'api': {'pid': 9}}}), patch.object(cli, 'alive', return_value=False):
+        with patch.object(cli, 'read_json', side_effect=[{'status': 'ready', 'services': {'api': {'pid': 9}}}, {}]), patch.object(cli, 'alive', return_value=False):
             self.assertEqual(cli.status()['status'], 'failed')
 
     def test_lock_excludes_a_second_process_and_releases_after_exit(self):
@@ -49,6 +50,24 @@ class IsolationTests(unittest.TestCase):
             handle.close()
             available = subprocess.run(['python3', '-c', code, path], capture_output=True)
             self.assertEqual(available.returncode, 0)
+
+    def test_start_all_resumes_only_stopped_components(self):
+        state = {'status': 'degraded', 'url': 'http://app.localhost', 'services': {
+            name: {'status': 'stopped' if name == 'worker' else 'ready'}
+            for name in cli.SERVICES}}
+        with patch.object(cli, 'status', return_value=state), patch.object(cli, 'alive', return_value=True), \
+             patch.object(cli, 'lock', return_value=nullcontext()), patch.object(cli, '_service_action') as action:
+            cli.up()
+        action.assert_called_once_with('start', 'worker')
+
+    def test_process_exit_race_does_not_interrupt_shutdown(self):
+        import dev_support
+        from unittest.mock import Mock
+        child = Mock(pid=999)
+        child.poll.return_value = None
+        with patch.object(dev_support.os, 'killpg', side_effect=ProcessLookupError):
+            dev_support.terminate_process(child)
+        child.wait.assert_called_once_with(timeout=10)
 
 if __name__ == '__main__':
     unittest.main()

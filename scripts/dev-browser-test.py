@@ -74,7 +74,9 @@ class Browser:
                 return "" if quiet else result.stdout
             detail = (result.stderr or result.stdout).strip()
             if "Resource temporarily unavailable" not in detail or attempt == 3:
-                raise RuntimeError(f"agent-browser {' '.join(arguments[:2])} failed: {detail[-600:]}")
+                if quiet:
+                    raise RuntimeError("Authenticated browser navigation failed; token details withheld")
+                raise RuntimeError(f"agent-browser {arguments[0]} failed: {detail[-600:]}")
             time.sleep(0.5)
         raise AssertionError("unreachable")
 
@@ -124,6 +126,7 @@ def main() -> None:
     started = datetime.now(timezone.utc)
     artifact_dir = ROOT / ".artifacts/browser-tests" / f"{started.strftime('%Y%m%dT%H%M%SZ')}-{str(uuid.uuid4())[:8]}-{args.test}"
     artifact_dir.mkdir(parents=True, exist_ok=False)
+    artifact_dir.chmod(0o700)
     result: dict[str, object] = {"test": args.test, "status": "failed", "startedAt": started.isoformat(),
                                 "artifactDir": str(artifact_dir.relative_to(ROOT))}
     browser = Browser(f"companions-{uuid.uuid4().hex}", artifact_dir)
@@ -138,7 +141,7 @@ def main() -> None:
         link = magic_link(mail_url, email, old_ids, base)
         # The one-time token is never copied into output or artifacts.
         browser.run("open", link, quiet=True)
-        browser.wait_text("companions.build", timeout=20)
+        browser.wait_text("Your companions.", timeout=20)
         browser.run("open", str(scenario["url"]))
         browser.wait_text("The note was written and read back.", timeout=30)
         browser.run("fill", "textarea", "write-note")

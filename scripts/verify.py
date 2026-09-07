@@ -153,6 +153,11 @@ class Verifier:
         self.steps.append({"name": label, "status": "skipped", "reason": reason, "seconds": 0})
 
     def prepare_dependencies(self):
+        from dev_support import lock
+        with lock('prepare.lock', blocking=True):
+            self._prepare_dependencies()
+
+    def _prepare_dependencies(self):
         stamp_path = ROOT / ".local/verification-dependencies.json"
         try:
             stamps = json.loads(stamp_path.read_text())

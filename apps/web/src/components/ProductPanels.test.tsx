@@ -10,6 +10,20 @@ beforeEach(() => { vi.unstubAllGlobals(); window.history.replaceState({}, "", "/
 afterEach(() => vi.useRealTimers());
 
 describe("account delivery", () => {
+  it.each([true,false])("shows private beta access accurately without offering Checkout (active=%s)",async active=>{
+    vi.stubGlobal("fetch",vi.fn((input:RequestInfo|URL)=>{
+      if(String(input)==="/api/billing")return response({configured:true,mode:"beta",plan:active?"beta":"inactive",active,status:null,currentPeriodEnd:null,cancelAtPeriodEnd:false,portalAvailable:false,usage:[]});
+      if(String(input)==="/api/deliveries")return response({sent:[],received:[]});
+      if(String(input)==="/api/maintenance")return response({companions:[]});
+      throw new Error("Unexpected request");
+    }));
+    render(<AccountProduct user={{id:"u1",name:"Alex",email:"alex@example.com"}} onSignOut={vi.fn()}/>);
+    expect(await screen.findByText(active?"Private beta access enabled":"Private beta access unavailable")).toBeInTheDocument();
+    expect(screen.queryByRole("button",{name:"Subscribe"})).not.toBeInTheDocument();
+    expect(screen.queryByText("No subscription")).not.toBeInTheDocument();
+    expect(screen.getByText(active?"No subscription required for access.":"This account is not on the private beta list.")).toBeInTheDocument();
+  });
+
   it("presents customer usage without internal lifecycle audit events", async () => {
     vi.stubGlobal("fetch", vi.fn((input: RequestInfo | URL) => {
       if (String(input) === "/api/billing") return response({ configured: true, mode: "stripe", plan: "subscription", active: true, status: "active", currentPeriodEnd: null, cancelAtPeriodEnd: false, portalAvailable: true, usage: [

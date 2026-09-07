@@ -73,3 +73,21 @@ open only after an executor observes `ready`, advance through subsequent fenced 
 close after `archived` or `missing` is observed. Durable operation IDs prevent duplicate minutes
 after worker or executor restart. Revocation stops new paid work while cleanup and final metering
 continue. Operator distribution-build Boxes are outside these tenant intervals.
+
+## Private beta
+
+An operator can set `PRIVATE_BETA_EMAILS` to exact comma- or newline-separated email addresses on
+API, executor and worker. Matching trims whitespace and ignores letter case; it does not expand
+wildcards, domains or plus-address aliases. An unset variable preserves normal subscription
+activation. An explicitly empty variable closes the beta to everyone.
+
+When configured, only listed users with a currently verified email may start work, regardless of
+an existing Stripe subscription. Admission reads the current user row and current allowlist;
+revocation also denies existing authenticated sessions. Sign-in requests outside the list send no
+mail, and a previously issued magic link cannot create an account or session after revocation.
+Changing deployment environment variables requires restarting each service with the new list.
+
+The account page reports private beta entitlement separately from subscriptions and does not offer
+Checkout. Usage recorded during beta is durably excluded from Stripe delivery, including after beta ends.
+Pre-beta pending usage is retained and delivery pauses while beta is enabled. Existing subscription
+portal access remains intact; this switch does not cancel an existing recurring subscription. It is not `BILLING_TEST_MODE`.

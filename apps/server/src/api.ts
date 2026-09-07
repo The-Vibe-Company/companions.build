@@ -1,3 +1,4 @@
+import {privateBetaEmails} from "./private-beta";
 import {requireHostedActivation,mutationStartsWork} from "./activation";
 import {handleModelGateway,MODEL_GATEWAY_MAX_REQUEST_BYTES} from './model-gateway';
 import {handleMaintenance} from "./maintenance";
@@ -123,7 +124,7 @@ export async function handler(request: Request): Promise<Response> {
     if (url.pathname === "/api/companions") {
       if (request.method === "GET") return json({ companions: await listCompanions(ownerId) });
       if (request.method === "POST") {
-        if(billingConfiguration().mode === "stripe" || process.env.NODE_ENV === "production") await requireProductActivation(ownerId);
+        if(privateBetaEmails() !== null || billingConfiguration().mode === "stripe" || process.env.NODE_ENV === "production") await requireProductActivation(ownerId);
         const input = z.object({ clientCreationId:idSchema.optional(),prepare:z.boolean().default(true),name: z.string().trim().min(1).max(80), instructions: z.string().max(20_000).optional(), provider: z.enum(["local", "box"]), avatar: avatarSchema.optional(), templateId:idSchema.optional(), templateRevision:z.number().int().positive().optional() }).parse(await request.json());
         if (input.provider === "box" && (!config.boxKey || !config.boxTemplate)) return json({ error: "Box needs an API key and a prepared template." }, 409);
         if (input.provider === "local" && !config.localAvailable) return json({ error: "Local runtime is disabled." }, 409);

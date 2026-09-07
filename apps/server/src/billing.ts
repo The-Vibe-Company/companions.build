@@ -1,3 +1,4 @@
+import {privateBetaAccess,privateBetaEmails,PRIVATE_BETA_MESSAGE} from "./private-beta";
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { z } from "zod";
 import { db } from "./store";
@@ -117,6 +118,10 @@ export async function billingOverview(ownerId: string) {
   const account = await billingAccountState(ownerId);
   const usage = await db`SELECT category,unit,sum(quantity)::text AS quantity FROM usage_ledger WHERE owner_id=${ownerId} GROUP BY category,unit ORDER BY category,unit`;
   const entitled = hasEntitlement(account);
+  const beta = await privateBetaAccess(ownerId, db);
+  if (beta !== null) return { configured:true, mode:"beta" as const, plan:beta ? "beta" as const : "inactive" as const, active:beta,
+    status:account?.status ?? null,currentPeriodEnd:account?.currentPeriodEnd ?? null,cancelAtPeriodEnd:account?.cancelAtPeriodEnd ?? false,
+    portalAvailable:mode === "stripe" && !!account?.customerId,usage };
   return { configured: mode !== "unconfigured", mode, plan: entitled ? "subscription" : "inactive", active: mode === "test" || (mode === "stripe" && entitled), status: account?.status ?? null, currentPeriodEnd: account?.currentPeriodEnd ?? null, cancelAtPeriodEnd: account?.cancelAtPeriodEnd ?? false, portalAvailable: mode === "stripe" && !!account?.customerId, usage };
 }
 
@@ -132,6 +137,8 @@ function hasEntitlement(account: Awaited<ReturnType<typeof billingAccountState>>
 }
 
 export async function productActivation(ownerId: string, sql:any=db) {
+  const beta = await privateBetaAccess(ownerId, sql);
+  if (beta !== null) return {allowed:beta,reason:beta ? null : PRIVATE_BETA_MESSAGE};
   const mode = billingConfiguration().mode;
   const allowed = mode === "test" || (mode === "stripe" && hasEntitlement(await billingAccountState(ownerId,sql)));
   return { allowed, reason: allowed ? null : mode === "unconfigured" ? "Billing is not configured." : "An active subscription is required." };
@@ -149,8 +156,9 @@ export async function recordUsage(raw: UsageInput) {
     if (!owned) throw new Error("Usage Companion does not belong to this account");
   }
   const occurredAt = input.occurredAt ?? new Date();
-  const [row] = await db`INSERT INTO usage_ledger (id,owner_id,companion_id,operation_id,category,quantity,unit,metadata,occurred_at)
-    VALUES (${crypto.randomUUID()},${input.ownerId},${input.companionId ?? null},${input.operationId},${input.category},${input.quantity},${input.unit},${input.metadata ?? {}},${occurredAt})
+  const beta = privateBetaEmails() !== null;
+  const [row] = await db`INSERT INTO usage_ledger (id,owner_id,companion_id,operation_id,category,quantity,unit,metadata,occurred_at,stripe_delivery_status)
+    VALUES (${crypto.randomUUID()},${input.ownerId},${input.companionId ?? null},${input.operationId},${input.category},${input.quantity},${input.unit},${input.metadata ?? {}},${occurredAt},${beta ? "skipped" : "pending"})
     ON CONFLICT (owner_id,operation_id) DO NOTHING RETURNING id`;
   if (!row) {
     const [existing] = await db`SELECT companion_id IS NOT DISTINCT FROM ${input.companionId ?? null}::uuid
@@ -160,6 +168,7 @@ export async function recordUsage(raw: UsageInput) {
     if (!existing?.matches) throw new UsageConflict("Usage identifier was already used with different billing data");
     return { recorded: false, delivery: "duplicate" as const };
   }
+  if(beta)return {recorded:true,delivery:"skipped" as const};
   const mode = billingConfiguration().mode;
   const [account] = await db`SELECT stripe_customer_id FROM billing_accounts WHERE owner_id=${input.ownerId}`;
   if (mode !== "stripe" || input.category === "box_lifecycle") {
@@ -177,7 +186,7 @@ export async function recordUsage(raw: UsageInput) {
 }
 
 export async function flushPendingUsage(ownerId: string, limit = 100) {
-  if (billingConfiguration().mode !== "stripe") return { sent: 0, pending: 0 };
+  if (privateBetaEmails() !== null || billingConfiguration().mode !== "stripe") return { sent: 0, pending: 0 };
   const [account] = await db`SELECT stripe_customer_id FROM billing_accounts WHERE owner_id=${ownerId}`;
   if (!account?.stripe_customer_id) return { sent: 0, pending: 0 };
   const rows = await db`SELECT id,operation_id,quantity::text,occurred_at,category,unit FROM usage_ledger WHERE owner_id=${ownerId} AND stripe_delivery_status='pending' ORDER BY created_at,id LIMIT ${Math.max(1, Math.min(limit, 500))}`;
@@ -284,6 +293,7 @@ export async function handleBilling(request: Request, ownerId: string) {
   const url = new URL(request.url);
   if (url.pathname === "/api/billing" && request.method === "GET") return json(await billingOverview(ownerId));
   if (url.pathname === "/api/billing/checkout" && request.method === "POST") {
+    if (privateBetaEmails() !== null) return json({error:"Subscriptions are not required during private beta."},409);
     const mode = billingConfiguration().mode;
     if (mode === "unconfigured") return json({ error: "Billing is not configured." }, 503);
     if (mode === "test") return json({ url: `${process.env.APP_URL ?? "http://127.0.0.1:4310"}/account?billing=test` });

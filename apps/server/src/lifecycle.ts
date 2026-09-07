@@ -1,3 +1,4 @@
+import {privateBetaEmails} from "./private-beta";
 import {tracePreparation} from './preparation-trace';
 import {progressRetirements} from './retirement';
 import {handoffDelegationFiles} from './files';
@@ -14,7 +15,7 @@ import { progressDeliverySkillsForCompanion, stageDeliverySkills, templateSkillE
 export const SUBSCRIPTION_REQUIRED='subscription_required: An active subscription is required to start new work.';
 /** Unconfigured local development remains usable; hosted execution fails closed. */
 export async function ownerMayStartWork(ownerId:string){
- if(process.env.NODE_ENV!=='production'&&billingConfiguration().mode!=='stripe')return true;
+ if(privateBetaEmails()===null&&process.env.NODE_ENV!=='production'&&billingConfiguration().mode!=='stripe')return true;
  return (await productActivation(ownerId)).allowed;
 }
 const terminal=['succeeded','failed','cancelled','interrupted'];

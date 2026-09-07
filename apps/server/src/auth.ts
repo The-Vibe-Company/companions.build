@@ -1,3 +1,5 @@
+import {APIError,createAuthMiddleware,getSessionFromCtx} from "better-auth/api";
+import {betaEmailAllowed,privateBetaEmails,PRIVATE_BETA_MESSAGE} from "./private-beta";
 import { betterAuth } from "better-auth";
 import { magicLink } from "better-auth/plugins";
 import { Pool } from "pg";
@@ -15,6 +17,7 @@ const mailer = createMailAdapter({
 });
 
 async function sendMagicLink(message: DeliveredMagicLink) {
+  assertBetaEmail(message.email);
   if (testDelivery) return testDelivery(message);
   await mailer.send({
     to: message.email,
@@ -23,7 +26,34 @@ async function sendMagicLink(message: DeliveredMagicLink) {
   });
 }
 
+function assertBetaEmail(email:string) {
+  if (!betaEmailAllowed(email)) throw new APIError("FORBIDDEN",{code:"PRIVATE_BETA_REQUIRED",message:PRIVATE_BETA_MESSAGE});
+}
 export const auth = betterAuth({
+  hooks: {before:createAuthMiddleware(async ctx => {
+    if (typeof ctx.body?.email === "string") assertBetaEmail(ctx.body.email);
+    if (typeof ctx.body?.newEmail === "string") assertBetaEmail(ctx.body.newEmail);
+    if(privateBetaEmails()!==null && ctx.path!=="/sign-out") {
+      const session=await getSessionFromCtx(ctx,{disableCookieCache:true,disableRefresh:true});
+      if(session?.user){
+        const result=await pool.query('SELECT email,"emailVerified" FROM "user" WHERE id=$1',[session.user.id]);
+        const user=result.rows[0];
+        if(!user || !user.emailVerified || !betaEmailAllowed(user.email))throw new APIError("FORBIDDEN",{code:"PRIVATE_BETA_REQUIRED",message:PRIVATE_BETA_MESSAGE});
+      }
+    }
+  })},
+  databaseHooks: {
+    user: {
+      create: {before:async user => {assertBetaEmail(user.email);}},
+      update: {before:async user => {if(user.email)assertBetaEmail(user.email);}},
+    },
+    session: {create: {before:async session => {
+      if(privateBetaEmails()===null)return;
+      const result=await pool.query('SELECT email,"emailVerified" FROM "user" WHERE id=$1',[session.userId]);
+      const user=result.rows[0];
+      if(!user || !user.emailVerified || !betaEmailAllowed(user.email)) throw new APIError("FORBIDDEN",{code:"PRIVATE_BETA_REQUIRED",message:PRIVATE_BETA_MESSAGE});
+    }}},
+  },
   appName: "companions.build",
   baseURL: config.authUrl,
   basePath: "/api/auth",
@@ -57,8 +87,16 @@ export class AuthenticationRequired extends Error {
 }
 
 export async function sessionUser(request: Request) {
-  const session = await auth.api.getSession({ headers: request.headers });
-  return session?.user ?? null;
+  let session;
+  try { session = await auth.api.getSession({ headers: request.headers }); }
+  catch(error) { if(error instanceof APIError && error.body?.code==="PRIVATE_BETA_REQUIRED")return null;throw error; }
+  if (!session?.user) return null;
+  if (privateBetaEmails() !== null) {
+    const result=await pool.query('SELECT email,"emailVerified" FROM "user" WHERE id=$1',[session.user.id]);
+    const user=result.rows[0];
+    if(!user || !user.emailVerified || !betaEmailAllowed(user.email))return null;
+  }
+  return session.user;
 }
 
 /** Resolve the authenticated personal account for a product route. */

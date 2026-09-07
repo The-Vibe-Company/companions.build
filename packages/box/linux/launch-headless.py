@@ -1,6 +1,7 @@
 #!/usr/bin/python3
 """Root service entrypoint. Build-time installation only; no dependency work at agent wake."""
 import ipaddress
+import json
 import os
 import pwd
 from pathlib import Path
@@ -31,9 +32,12 @@ if namespace.exists():
         raise SystemExit('HEADLESS_PREVIOUS_INVOCATION_ALIVE')
     run('ip', 'netns', 'delete', 'companions-agent')
 for interface in ['cmp-agent', 'cmp-peer']:
-    present = subprocess.run(['ip', 'link', 'show', interface], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    if present.returncode == 0:
-        run('ip', 'link', 'delete', interface)
+    # netns deletion tears down its veth asynchronously. The device can disappear
+    # between show and delete; only the confirmed postcondition decides success.
+    subprocess.run(['ip', 'link', 'delete', interface], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    links = json.loads(subprocess.check_output(['ip', '-j', 'link', 'show'], text=True))
+    if any(link.get('ifname') == interface for link in links):
+        raise SystemExit('HEADLESS_INTERFACE_DELETE_FAILED')
 run('ip', 'netns', 'add', 'companions-agent')
 run('ip', 'link', 'add', 'cmp-agent', 'type', 'veth', 'peer', 'name', 'cmp-peer')
 run('ip', 'link', 'set', 'cmp-peer', 'netns', 'companions-agent')

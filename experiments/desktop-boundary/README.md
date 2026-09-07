@@ -48,3 +48,15 @@ The independent build-distribution replacement proof uses the same local image:
 command with fixture systemd responses and a real process mapping the old executable. It verifies
 active-unit refusal, atomic replacement, failed-install retry and removal of only obsolete
 product distribution copies; it makes no Box calls and does not run host systemd.
+
+The namespace restart regression exercises 100 real launcher network setups (only the final daemon
+exec is replaced) and also injects a deletion failure that leaves an interface present:
+
+```sh
+docker run --rm --platform linux/amd64 --sysctl net.ipv4.ip_forward=1 \
+  --cap-add SYS_ADMIN --cap-add NET_ADMIN --security-opt seccomp=unconfined \
+  --security-opt apparmor=unconfined \
+  --mount type=bind,src="$PWD/packages/box/linux/launch-headless.py",dst=/launcher.py,readonly \
+  --mount type=bind,src="$PWD/experiments/desktop-boundary/network-restart.py",dst=/test.py,readonly \
+  companions-desktop-boundary:production python3 /test.py
+```

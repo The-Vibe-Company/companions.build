@@ -1,5 +1,5 @@
 import {beforeAll,afterEach,expect,test} from 'bun:test';
-import {db,migrate,createCompanion,acceptMessage} from '../src/store';
+import {db,migrate,createCompanion,acceptMessage,detail} from '../src/store';
 import {acquireExecutor} from '../src/executor';
 import {migrateLifecycle,progressLifecycle,handleLifecycle,type LifecycleMachines} from '../src/lifecycle';
 import {saveTemplate,allowTemplate,adoptTemplate,LifecycleConflict} from '../src/templates';
@@ -58,6 +58,18 @@ test('duplicate spawn returns the same child and pins its template revision',asy
  await expect(spawnChild(owner,id,null,command,{...input,prompt:'Changed'})).rejects.toBeInstanceOf(LifecycleConflict);
  await saveTemplate(owner,{id:template.id,expectedRevision:1,name:'Changed',instructions:'New brief'});
  expect((await db`SELECT instructions,model_id,template_revision FROM companions WHERE id=${first.companionId}`)[0]).toMatchObject({instructions:'Use the supplied brief.',model_id:'specialist-model',template_revision:1});
+});
+
+test('parent detail projects its task-linked temporary specialist without crossing owners',async()=>{
+ const {id,template}=await setup(),parentRun=await acceptMessage(owner,id,crypto.randomUUID(),'Investigate this');
+ const command=crypto.randomUUID(),delegated=await spawnChild(owner,id,parentRun!,command,{templateId:template.id,prompt:'Research'});
+ await db`UPDATE companions SET status='ready',retired_at=now() WHERE id=${delegated.companionId}`;
+ const state=await detail(owner,id);
+ expect(state?.specialists).toEqual([{
+  delegationId:command,parentRunId:parentRun,childRunId:delegated.runId,
+  companion:{id:delegated.companionId,name:'Developer',avatar:{shape:0,color:0,face:0},status:'ready',retiredAt:expect.any(String)},
+ }]);
+ expect(await detail(other,id)).toBeNull();
 });
 
 test('open desktop persists a wake without chat; confirmed takeover survives browser closure and releases',async()=>{

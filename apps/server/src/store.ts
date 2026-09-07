@@ -60,11 +60,19 @@ export async function createCompanion(ownerId: string, input: { name: string; in
 export async function detail(ownerId: string, id: string) {
   const [companion] = await db.unsafe(`SELECT ${companionColumns} FROM companions WHERE id=$1 AND owner_id=$2`, [id, ownerId]);
   if (!companion) return null;
-  const [messages, runs] = await Promise.all([
+  const [messages, runs, specialists] = await Promise.all([
     db`SELECT id,role,content,created_at AS "createdAt",run_id AS "runId" FROM messages WHERE companion_id=${id} ORDER BY created_at,id`,
     db`SELECT id,status,error,lane,source,result_text AS "resultText",preview_text AS "previewText",publish_to_chat AS "publishToChat",response_root_id AS "responseRootId",created_at AS "createdAt",prepared_at AS "preparedAt",finished_at AS "finishedAt" FROM runs WHERE companion_id=${id} ORDER BY created_at,id`,
+    db`SELECT d.id AS "delegationId",d.parent_run_id AS "parentRunId",d.run_id AS "childRunId",
+      jsonb_build_object('id',child.id,'name',child.name,'avatar',child.avatar,'status',child.status,'retiredAt',child.retired_at) AS companion
+      FROM delegations d
+      JOIN companions parent ON parent.id=d.parent_id AND parent.owner_id=${ownerId}
+      JOIN runs parent_run ON parent_run.id=d.parent_run_id AND parent_run.companion_id=parent.id
+      JOIN companions child ON child.id=d.target_id AND child.owner_id=parent.owner_id AND child.parent_id=parent.id AND child.temporary
+      WHERE d.parent_id=${id} AND d.parent_run_id IS NOT NULL
+      ORDER BY d.created_at,d.id`,
   ]);
-  return { companion, messages, runs, activity: runs.filter((run:any)=>run.lane === "background") };
+  return { companion, messages, runs, specialists, activity: runs.filter((run:any)=>run.lane === "background") };
 }
 export class Conflict extends Error {}
 export async function acceptMessage(ownerId: string, companionId: string, clientMessageId: string, content: string, attachmentCount = 0) {

@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { SQL } from "bun";
 import { config } from "../src/config";
-import { createCompanion, db, migrate } from "../src/store";
+import { acceptMessage, createCompanion, db, migrate } from "../src/store";
 import { CompanionEventHub, handleCompanionEvents } from "../src/events";
 
 const owner = "00000000-0000-4000-8000-000000000001";
@@ -45,6 +45,29 @@ test("database notifications expose committed cross-process changes and omit rol
   try { await executorConnection`UPDATE companions SET name='Executor event name' WHERE id=${companion.id}`; }
   finally { await executorConnection.close(); }
   await eventually(() => expect(received).toEqual(["invalidate", "invalidate"]));
+  unsubscribe();
+});
+
+test("delegation creation, child progress and retirement invalidate the parent snapshot", async () => {
+  const parent = await createCompanion(owner, { name: "Parent events", instructions: "", provider: "local" });
+  const child = await createCompanion(owner, { name: "Researcher", instructions: "", provider: "local" });
+  await db`UPDATE companions SET parent_id=${parent.id},temporary=true WHERE id=${child.id}`;
+  const parentRun = await acceptMessage(owner, parent.id, crypto.randomUUID(), "Delegate this");
+  const childRun = await acceptMessage(owner, child.id, crypto.randomUUID(), "Research this");
+  const hub = new CompanionEventHub(db as any);
+  hubs.push(hub);
+  await hub.start();
+  const received: string[] = [];
+  const unsubscribe = hub.subscribe(parent.id, owner, kind => received.push(kind));
+
+  await db`INSERT INTO delegations(id,parent_id,parent_run_id,target_id,run_id) VALUES(${crypto.randomUUID()},${parent.id},${parentRun},${child.id},${childRun})`;
+  await eventually(() => expect(received).toEqual(["invalidate"]));
+  received.length = 0;
+  await db`UPDATE runs SET status='running' WHERE id=${childRun}`;
+  await eventually(() => expect(received).toEqual(["invalidate"]));
+  received.length = 0;
+  await db`UPDATE companions SET retired_at=now() WHERE id=${child.id}`;
+  await eventually(() => expect(received).toEqual(["invalidate"]));
   unsubscribe();
 });
 

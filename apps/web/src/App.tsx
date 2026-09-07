@@ -80,6 +80,21 @@ function StatusDot({ status }: { status: Companion["status"] }) {
   return <span className={cn("status-dot", `status-dot--${status}`)} aria-hidden="true" />;
 }
 
+function SpecialistsForRun({ detail, runId, onOpen }: { detail: CompanionDetail; runId: string; onOpen: (id: string) => void }) {
+  const specialists = detail.specialists?.filter(item => item.parentRunId === runId) ?? [];
+  if (!specialists.length) return null;
+  return <div className="task-specialists" aria-label="Specialists for this task">
+    {specialists.map(({ delegationId, companion }) => {
+      const status = companion.retiredAt ? "archived" : companion.status;
+      return <button type="button" key={delegationId} className="task-specialist" onClick={() => onOpen(companion.id)} aria-label={`Open ${companion.name}'s chat`}>
+        <CompanionAvatar name={companion.name} avatar={companion.avatar} size={28} />
+        <span><strong>{companion.name}</strong><small><StatusDot status={status} />{statusLabel(status)}</small></span>
+        <ChevronRight />
+      </button>;
+    })}
+  </div>;
+}
+
 function AccessGate() {
   const [email, setEmail] = useState("");
   const [error, setError] = useState("");
@@ -319,7 +334,7 @@ function Sidebar({
   );
 }
 
-function ActivityPanel({ detail, onClose }: { detail: CompanionDetail; onClose: () => void }) {
+function ActivityPanel({ detail, onClose, onOpenCompanion }: { detail: CompanionDetail; onClose: () => void; onOpenCompanion: (id: string) => void }) {
   const latestRuns = detail.runs.slice().reverse().slice(0, 8);
   return (
     <aside className="activity-panel" aria-label="Activity">
@@ -345,6 +360,7 @@ function ActivityPanel({ detail, onClose }: { detail: CompanionDetail; onClose: 
               {run.error && <p className="run-error">{run.error}</p>}
               {run.lane === "background" && run.resultText && <div className="task-result"><MessageResponse>{run.resultText}</MessageResponse></div>}
               {run.lane === "background" && detail.files?.some(file => file.runId === run.id) && <div className="message-files">{detail.files.filter(file => file.runId === run.id).map(file => <a key={file.id} href={file.url} target="_blank" rel="noreferrer"><FileText /><span>{file.name}</span></a>)}</div>}
+              {run.lane === "background" && <SpecialistsForRun detail={detail} runId={run.id} onOpen={onOpenCompanion} />}
             </div>
           </div>
         ))}
@@ -353,7 +369,7 @@ function ActivityPanel({ detail, onClose }: { detail: CompanionDetail; onClose: 
   );
 }
 
-function Chat({ detail, onRefresh, onUnauthorized }: { detail: CompanionDetail; onRefresh: () => Promise<void>; onUnauthorized: () => void }) {
+function Chat({ detail, onRefresh, onUnauthorized, onOpenCompanion }: { detail: CompanionDetail; onRefresh: () => Promise<void>; onUnauthorized: () => void; onOpenCompanion: (id: string) => void }) {
   const [draft, setDraft] = useState("");
   const [files, setFiles] = useState<File[]>([]);
   const [sending, setSending] = useState(false);
@@ -446,6 +462,7 @@ function Chat({ detail, onRefresh, onUnauthorized }: { detail: CompanionDetail; 
               {message.role === "assistant" && <span className="message-author">{detail.companion.name}</span>}
               <MessageContent><MessageResponse>{message.content}</MessageResponse></MessageContent>
               {message.files?.length ? <div className="message-files">{message.files.map((file) => <a key={file.id} href={file.url} target="_blank" rel="noreferrer"><FileText /><span>{file.name}</span></a>)}</div> : null}
+              {message.role === "user" && <SpecialistsForRun detail={detail} runId={message.runId} onOpen={onOpenCompanion} />}
               <time className="message-time" dateTime={message.createdAt}>{readableDate(message.createdAt)}</time>
             </Message>
           ))}
@@ -546,7 +563,7 @@ function SettingsSheet({ detail, models, onClose, onSaved }: { detail: Companion
   </div>;
 }
 
-function CompanionView({ detail, models, onRefresh, onUnauthorized, onMenu }: { detail: CompanionDetail; models: Array<{ id: string; name: string }>; onRefresh: () => Promise<void>; onUnauthorized: () => void; onMenu: () => void }) {
+function CompanionView({ detail, models, onRefresh, onUnauthorized, onMenu, onOpenCompanion }: { detail: CompanionDetail; models: Array<{ id: string; name: string }>; onRefresh: () => Promise<void>; onUnauthorized: () => void; onMenu: () => void; onOpenCompanion: (id: string) => void }) {
   const [desktopOpen, setDesktopOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [activityOpen, setActivityOpen] = useState(false);
@@ -571,9 +588,9 @@ function CompanionView({ detail, models, onRefresh, onUnauthorized, onMenu }: { 
         </div>
       </header>
       <div className="workspace-body">
-        <Chat detail={detail} onRefresh={onRefresh} onUnauthorized={onUnauthorized} />
+        <Chat detail={detail} onRefresh={onRefresh} onUnauthorized={onUnauthorized} onOpenCompanion={onOpenCompanion} />
       </div>
-      {activityOpen && <div className="activity-layer"><button className="sheet-scrim" onClick={() => setActivityOpen(false)} aria-label="Close activity" /><ActivityPanel detail={detail} onClose={() => setActivityOpen(false)} /></div>}
+      {activityOpen && <div className="activity-layer"><button className="sheet-scrim" onClick={() => setActivityOpen(false)} aria-label="Close activity" /><ActivityPanel detail={detail} onClose={() => setActivityOpen(false)} onOpenCompanion={(id) => { setActivityOpen(false); onOpenCompanion(id); }} /></div>}
       {settingsOpen && <SettingsSheet detail={detail} models={models} onClose={() => setSettingsOpen(false)} onSaved={onRefresh} />}
       {desktopOpen && <DesktopSheet companion={detail.companion} onClose={() => setDesktopOpen(false)} onRefresh={onRefresh} />}
     </main>
@@ -844,7 +861,7 @@ export function App() {
       ) : !selectedId ? (
         <Home companions={companions} onSelect={selectCompanion} onCreate={() => setCreateOpen(true)} onMenu={() => setSidebarOpen(true)} />
       ) : detail && detail.companion.id === selectedId ? (
-        <CompanionView key={detail.companion.id} detail={detail} models={config.models ?? [{ id: config.model, name: config.model }]} onRefresh={loadDetail} onUnauthorized={() => setAuthRequired(true)} onMenu={() => setSidebarOpen(true)} />
+        <CompanionView key={detail.companion.id} detail={detail} models={config.models ?? [{ id: config.model, name: config.model }]} onRefresh={loadDetail} onUnauthorized={() => setAuthRequired(true)} onMenu={() => setSidebarOpen(true)} onOpenCompanion={selectCompanion} />
       ) : (
         <main className="detail-loading" id="main-content"><LoaderCircle className="spin" /><span>Opening Companion…</span></main>
       )}

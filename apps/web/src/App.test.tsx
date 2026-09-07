@@ -235,6 +235,51 @@ describe("first Companion flow", () => {
     expect(browserComposer).toHaveValue("");
   });
 
+  it("links a temporary specialist beneath the task that created it without adding it to Team", async () => {
+    window.history.replaceState({}, "", "/companions/ada");
+    const ready = { ...companion, status: "ready" as const };
+    const specialist = { ...ready, id: "specialist", name: "Researcher", temporary: true, parentId: "ada", retiredAt: companion.createdAt };
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      const path = String(input);
+      if (path === "/api/me") return response(me);
+      if (path === "/api/config") return response(config);
+      if (path === "/api/companions") return response({ companions: [ready] });
+      if (path === "/api/companions/ada") return response({
+        companion: ready,
+        messages: [{ id: "message-parent", role: "user", content: "Compare the vendors", createdAt: companion.createdAt, runId: "run-parent" }],
+        runs: [
+          { id: "run-parent", status: "succeeded", error: null, createdAt: companion.createdAt },
+          { id: "run-background", lane: "background", status: "running", error: null, createdAt: companion.createdAt },
+        ],
+        specialists: [
+          { delegationId: "delegation-1", parentRunId: "run-parent", childRunId: "run-child", companion: { id: specialist.id, name: specialist.name, avatar: specialist.avatar, status: specialist.status, retiredAt: specialist.retiredAt } },
+          { delegationId: "delegation-2", parentRunId: "run-background", childRunId: "run-analyst", companion: { id: "analyst", name: "Analyst", avatar: specialist.avatar, status: "preparing", retiredAt: null } },
+        ],
+        activity: [],
+      });
+      if (path === "/api/companions/specialist") return response({ companion: specialist, messages: [], runs: [], specialists: [], activity: [] });
+      throw new Error(`Unexpected request: ${path}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup(); render(<App />);
+
+    expect(await screen.findByText("Compare the vendors")).toBeInTheDocument();
+    const specialistLink = screen.getByRole("button", { name: "Open Researcher's chat" });
+    expect(specialistLink).toHaveTextContent("Researcher");
+    expect(specialistLink).toHaveTextContent("Sleeping");
+    expect(screen.getAllByRole("img", { name: "Ada, Companion" })).toHaveLength(2);
+    expect(screen.queryByRole("button", { name: /Researcher.*Sleeping/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Open Analyst's chat" })).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Activity" }));
+    expect(screen.getByRole("button", { name: "Open Analyst's chat" })).toHaveTextContent("Preparing");
+    expect(screen.getAllByRole("button", { name: "Open Researcher's chat" })).toHaveLength(1);
+    await user.click(screen.getAllByRole("button", { name: "Close activity" }).at(-1)!);
+
+    await user.click(specialistLink);
+    expect(await screen.findByRole("textbox", { name: "Message Researcher" })).toBeInTheDocument();
+    expect(window.location.pathname).toBe("/companions/specialist");
+  });
+
   it("drops files through the durable upload path and preserves the draft for an exact retry", async () => {
     window.history.replaceState({}, "", "/companions/ada");
     const ready = { ...companion, status: "ready" as const };

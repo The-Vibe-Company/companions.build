@@ -30,14 +30,14 @@ type Checkpoint=<T>(body:(tx:any)=>Promise<T>)=>Promise<T>;
 /** Retired rows remain eligible until archive is observed, even with active/parked runs. */
 export async function progressRetirements(sql:any,companionId:string|null,machine:Pick<LifecycleMachines,'archive'|'snapshotStatus'>,
  assertLeader:EffectGuard,checkpoint:Checkpoint,onArchived:(tx:any,companion:any)=>Promise<void>){
- const pending=await sql`SELECT * FROM companions WHERE (${companionId}::uuid IS NULL OR id=${companionId})
+ const pending=await sql`SELECT *,archive_requested_at::text AS retirement_token FROM companions WHERE (${companionId}::uuid IS NULL OR id=${companionId})
   AND retired_at IS NOT NULL AND archive_requested_at IS NOT NULL
   AND (archived_at IS NULL OR archived_at<archive_requested_at) ORDER BY archive_requested_at,id LIMIT 50`;
  for(const companion of pending){
   async function guard(){
    await assertLeader();
    const [current]=await sql`SELECT id FROM companions WHERE id=${companion.id} AND owner_id=${companion.owner_id}
-    AND retired_at IS NOT NULL AND archive_requested_at=${companion.archive_requested_at}
+    AND retired_at IS NOT NULL AND archive_requested_at::text=${companion.retirement_token}
     AND box_id IS NOT DISTINCT FROM ${companion.box_id}`;
    if(!current)throw new ExecutionStopped('Retirement authority changed');
    await assertLeader();
@@ -61,7 +61,7 @@ export async function progressRetirements(sql:any,companionId:string|null,machin
    await checkpoint(async(tx:any)=>{
     const [done]=await tx`UPDATE companions SET archived_at=now(),status='archived',endpoint_secret=null,prepare_requested=false,desktop_paused_at=null,error=null
       WHERE id=${companion.id} AND owner_id=${companion.owner_id} AND retired_at IS NOT NULL
-      AND archive_requested_at=${companion.archive_requested_at} AND box_id IS NOT DISTINCT FROM ${companion.box_id}
+      AND archive_requested_at::text=${companion.retirement_token} AND box_id IS NOT DISTINCT FROM ${companion.box_id}
       AND (archived_at IS NULL OR archived_at<archive_requested_at) RETURNING id`;
     if(!done)return;
     await tx`UPDATE runs SET status='cancelled',cancel_requested=true,error='Companion was removed.',finished_at=COALESCE(finished_at,now())

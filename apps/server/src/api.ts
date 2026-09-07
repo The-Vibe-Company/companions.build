@@ -18,6 +18,7 @@ import { handleFiles, filesForThread, FILE_REQUEST_MAX_BYTES } from "./files";
 import { handleAutomations } from "./automation-routes";
 import { avatarSchema, configureCompanion } from "./control";
 import { handleCompanionEvents } from "./events";
+import { serveStaticWeb } from "./static-web";
 
 const idSchema = z.string().uuid();
 const json = (body: unknown, status = 200, headers: Record<string, string> = {}) => Response.json(body, { status, headers: { "Cache-Control": "no-store", ...headers } });
@@ -69,6 +70,8 @@ export async function handler(request: Request): Promise<Response> {
   const origin = request.headers.get("origin");
   if (origin && ![url.origin, process.env.APP_URL ?? "http://127.0.0.1:4310", `http://localhost:${process.env.WEB_PORT ?? 4310}`].includes(origin)) return json({ error: "Origin not allowed." }, 403);
   if (Number(request.headers.get("content-length") ?? 0) > (url.pathname.endsWith("/files") ? FILE_REQUEST_MAX_BYTES : 100_000)) return json({ error: "Request too large." }, 413);
+  const apiPath = url.pathname === "/api" || url.pathname.startsWith("/api/");
+  if (!apiPath) return await serveStaticWeb(request, config.webDist) ?? json({ error: "Not found." }, 404);
   try {
     if (url.pathname.startsWith("/api/auth/")) return auth.handler(request);
     if (request.method === "GET" && url.pathname === "/api/me") {
@@ -142,6 +145,6 @@ export async function handler(request: Request): Promise<Response> {
 }
 if (import.meta.main) {
   await migrateForService();
-  Bun.serve({ hostname: "127.0.0.1", port: config.port, maxRequestBodySize: FILE_REQUEST_MAX_BYTES, fetch: handler });
-  console.log(`API ready at http://127.0.0.1:${config.port}`);
+  Bun.serve({ hostname: config.host, port: config.port, maxRequestBodySize: FILE_REQUEST_MAX_BYTES, fetch: handler });
+  console.log(`API ready at http://${config.host}:${config.port}`);
 }

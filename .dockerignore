@@ -1,0 +1,11 @@
+.git
+.env
+.env.*
+.local
+.local-*
+.artifacts
+**/node_modules
+**/dist
+**/.DS_Store
+__pycache__
+*.pyc

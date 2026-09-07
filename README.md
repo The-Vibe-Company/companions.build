@@ -50,6 +50,35 @@ executor, and worker with `COMPANIONS_SCHEMA_PREPARED=1`. Each service verifies 
 fingerprint before becoming ready. A service launched on its own without that flag still performs
 the idempotent, advisory-locked migration and skips DDL when the current fingerprint is present.
 
+## Run the production container
+
+The root image builds the Vite client and frozen Linux agent with Bun 1.4.2. It defaults to the
+`api` role on `0.0.0.0:$PORT` and serves the client from the same origin. Run `migrate` once for a
+release, then launch `api`, `executor`, and `worker` as separate services from the same image:
+
+```sh
+docker build -t companions.build .
+docker run --rm --env-file production.env companions.build migrate
+docker run --env-file production.env -p 3000:3000 companions.build api
+docker run --env-file production.env companions.build executor
+docker run --env-file production.env companions.build worker
+```
+
+`production.env` must provide `DATABASE_URL`, the public HTTPS `APP_URL`, `BETTER_AUTH_SECRET`, and
+a 64-character hexadecimal `COMPANIONS_ENCRYPTION_KEY`. Configure SMTP for magic-link login and S3
+for chat files. Box, model-provider, OAuth, and Stripe credentials are required only for the product
+surfaces enabled in that deployment; absence remains visible as unavailable and is not simulated.
+Only the API role needs an exposed port. The worker role needs access to a dedicated Docker daemon
+with the repository's pinned filter image preloaded when code-filter triggers are enabled. Do not
+mount an unrelated shared host daemon. `LOCAL_RUNTIME=0` is the image default; a hosted executor
+uses Box rather than attempting to launch local agent containers.
+
+Run the isolated image acceptance (it creates and removes its own PostgreSQL container and network):
+
+```sh
+bun scripts/test-production-container.ts
+```
+
 ## Run on Box
 
 Prepare the frozen runtime once, then create Box-backed Companions from it:

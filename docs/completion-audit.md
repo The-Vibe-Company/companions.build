@@ -49,15 +49,24 @@ hosted acceptance. See `validation-v0.md` for dated evidence.
 - File attachment supports the file chooser and drag-and-drop; the mobile browser drop path is
   checked. Temporary specialists now appear under their originating chat/background task; retired
   specialist transcripts are read-only and labelled Finished. Mobile fixture navigation is checked.
-- Native Pi skill installation is proven through ordinary tools, but dedicated control MCP
-  list/install/edit/remove operations from the capability table are absent.
+- Native Pi skill installation is proven through ordinary tools. Dedicated control MCP
+  list/install/edit/remove operations now wrap the bounded local Pi package helpers, use stable
+  command IDs and compare-and-swap hashes, and pass local filesystem and Linux binary tests. They
+  still need a fresh immutable agent distribution and live Box acceptance before this path is
+  considered provider-validated.
+- Client activation remains blocked on model credential isolation. The current machine environment
+  places the selected global provider API key inside each Box. A dedicated, authenticated model
+  gateway is in progress; provider keys must be removed from Box environments before any client is
+  activated, and the replacement needs end-to-end model and revocation acceptance.
 - Full OAuth provider tool/revocation matrix, managed trigger registration, hosted concurrent load,
   real email delivery and Stripe subscription/meter acceptance still lack complete live evidence.
   Software build Box time now enters the existing ledger through fenced observed intervals;
   retries and final partial minutes are covered by PostgreSQL tests.
-  A PostgreSQL 17 dump/kill/restore proof now preserves the authenticated session, durable queued
-  turn and retry identity through the real API. The five-service Railway deployment passes health, unauthenticated isolation and private MinIO
-  put/get/delete checks; hosted agent activation still awaits billing configuration. Personal
+  A local PostgreSQL 17 dump/kill/restore proof now preserves the authenticated session, durable
+  queued turn and retry identity through the real API. The five-service Railway deployment passes
+  health, unauthenticated isolation and private MinIO put/get/delete checks, and its replacement
+  executor acquired leadership after the previous deployment released it. A PostgreSQL 18 restore
+  on the hosted deployment, hosted agent activation and sustained load remain unproven. Personal
   consent and missing settings must not be represented as working connections.
 
 The desktop isolation protects normal product paths and blocks direct headless access to the shared

@@ -1,4 +1,4 @@
-import {test,expect} from 'bun:test';
+import {test,expect,spyOn} from 'bun:test';
 import {createHash} from 'node:crypto';
 import {mintModelGatewayToken,verifyModelGatewayToken} from '../src/model-gateway-token';
 import {config} from '../src/config';
@@ -17,6 +17,16 @@ test('model access binds one run and companion, expires and rejects tampering',(
  expect(()=>mintModelGatewayToken(companionId,runId,secret,Date.now()+7*3600_000)).toThrow('MODEL_GATEWAY_TOKEN_INVALID');
  const previous=config.authSecret;
  try{config.authSecret='other-server-secret';expect(verifyModelGatewayToken(token)).toBeNull();}finally{config.authSecret=previous;}
+});
+
+test('separate API and executor clocks tolerate small skew without extending expired access',()=>{
+ const now=Date.now(),clock=spyOn(Date,'now').mockReturnValue(now);
+ try{
+  const token=mintModelGatewayToken(crypto.randomUUID(),crypto.randomUUID(),'synthetic');
+  clock.mockReturnValue(now-5_000);expect(verifyModelGatewayToken(token)).not.toBeNull();
+  clock.mockReturnValue(now-61_000);expect(verifyModelGatewayToken(token)).toBeNull();
+  clock.mockReturnValue(now+6*3600_000);expect(verifyModelGatewayToken(token)).toBeNull();
+ }finally{clock.mockRestore();}
 });
 
 test('gateway Box environment contains no global provider credential for every supported provider',()=>{

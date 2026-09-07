@@ -122,6 +122,19 @@ class VerifyTest(unittest.TestCase):
         self.assertTrue(first["dirty"])
         self.assertNotEqual(first["fingerprint"], second["fingerprint"])
 
+    def test_failure_diagnostics_keep_exit_facts_and_only_sanitized_startup_codes(self):
+        runner = verify.Verifier(arguments())
+        responses = [
+            subprocess.CompletedProcess([], 0, "owned-container\n", ""),
+            subprocess.CompletedProcess([], 0, '{"Status":"exited","ExitCode":1,"OOMKilled":false,"Error":"private-value"}', ""),
+            subprocess.CompletedProcess([], 0, "private-value\nSTARTUP_PI_EACCES\n", "provider private-value"),
+        ]
+        with mock.patch.object(verify.subprocess, "run", side_effect=responses), mock.patch("builtins.print") as output:
+            runner.diagnose_owned_resources()
+        self.assertEqual(runner.container_diagnostics, [{"container": "owned-container", "Status": "exited",
+            "ExitCode": 1, "OOMKilled": False, "startupCodes": ["STARTUP_PI_EACCES"]}])
+        self.assertNotIn("private-value", str(output.call_args_list))
+
 
 if __name__ == "__main__":
     unittest.main()

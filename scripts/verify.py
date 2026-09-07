@@ -5,6 +5,7 @@ import fcntl
 import hashlib
 import json
 import os
+import re
 from pathlib import Path
 import secrets
 import shlex
@@ -71,6 +72,7 @@ class Verifier:
         self.started = time.monotonic()
         self.status = "failed"
         self.failure = None
+        self.container_diagnostics = []
         self.source_changed = False
         self.backup_sha256 = None
         self.cleanup = {"status": "pending", "containers": {}, "volumes": {}}
@@ -307,6 +309,28 @@ class Verifier:
             self.run_restore_check()
         self.status = "passed"
 
+    def diagnose_owned_resources(self):
+        """Keep safe crash facts before cleanup, never container configuration or raw logs."""
+        if self.args.profile not in ("server", "agent", "full"):
+            return
+        try:
+            selected = subprocess.run(["docker", "ps", "-aq", "--filter", f"label={self.verification_label}"],
+                                      capture_output=True, text=True, timeout=10)
+            for identifier in selected.stdout.split() if selected.returncode == 0 else []:
+                observed = subprocess.run(["docker", "inspect", "--format", "{{json .State}}", identifier],
+                                          capture_output=True, text=True, timeout=10)
+                if observed.returncode:
+                    continue
+                state = json.loads(observed.stdout)
+                record = {"container": identifier, **{key: state.get(key) for key in ("Status", "ExitCode", "OOMKilled")}}
+                logs = subprocess.run(["docker", "logs", "--tail", "20", identifier], capture_output=True, text=True, timeout=10)
+                record["startupCodes"] = [line for line in (logs.stdout + "\n" + logs.stderr).splitlines()
+                                          if re.fullmatch(r"STARTUP_[A-Z0-9_]{1,100}", line)]
+                self.container_diagnostics.append(record)
+                print("Owned container diagnostic: " + json.dumps(record), flush=True)
+        except (OSError, ValueError, subprocess.TimeoutExpired):
+            print("Owned container diagnostics unavailable; continuing cleanup", flush=True)
+
     def clean_owned_resources(self):
         if self.args.profile not in ("server", "agent", "full"):
             self.cleanup = {"status": "passed", "containers": {"found": 0, "removed": 0, "remaining": 0},
@@ -360,7 +384,7 @@ class Verifier:
             "reproduction": self.reproduction,
             "postgres": {"major": int(self.args.postgres), "image": self.postgres_image,
                          **({"backupSha256": self.backup_sha256} if self.backup_sha256 else {})},
-            "steps": self.steps, "cleanup": self.cleanup,
+            "steps": self.steps, "cleanup": self.cleanup, "containerDiagnostics": self.container_diagnostics,
             **({"failure": self.failure} if self.failure else {})}
         (self.artifacts / "summary.json").write_text(json.dumps(report, indent=2) + "\n")
         self.publish_latest(self.status)
@@ -398,6 +422,8 @@ def main(argv=None):
             verifier.failure = {"type": type(error).__name__, "message": str(error)}
             print(f"ERROR: {error}", file=sys.stderr, flush=True)
         finally:
+            if verifier.failure:
+                verifier.diagnose_owned_resources()
             verifier.clean_owned_resources()
             verifier.write_report()
             signal.signal(signal.SIGTERM, previous_sigterm)

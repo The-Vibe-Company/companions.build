@@ -54,10 +54,18 @@ hosted acceptance. See `validation-v0.md` for dated evidence.
   command IDs and compare-and-swap hashes, and pass local filesystem and Linux binary tests. They
   still need a fresh immutable agent distribution and live Box acceptance before this path is
   considered provider-validated.
-- Client activation remains blocked on model credential isolation. The current machine environment
-  places the selected global provider API key inside each Box. A dedicated, authenticated model
-  gateway is in progress; provider keys must be removed from Box environments before any client is
-  activated, and the replacement needs end-to-end model and revocation acceptance.
+- Client activation remains blocked until the model gateway reaches a verified Box distribution.
+  The gateway and run-scoped, revocable credentials are implemented; a compiled Linux Pi agent
+  completed real GLM calls without a global provider key in its environment. Provider-reported
+  usage entered the ledger once, and a completed run's token was rejected. The hosted V10
+  deployment still uses the previous credential path and must not activate clients.
+- V11 distribution publication was rejected during live acceptance: the source contained the
+  expected agent SHA-256 immediately after installation, but stop/resume restored the exact V10
+  binary; a fresh Box from the named V11 snapshot also contained V10. Provider `ready` did not
+  establish artifact integrity. The replacement publication protocol must pin an immutable local
+  archive, verify installed bytes and verify every distribution file on a fresh restored Box
+  before registration or deployment. The next release uses a fresh source Box. This observation
+  does not establish the underlying provider/filesystem cause.
 - Full OAuth provider tool/revocation matrix, managed trigger registration, hosted concurrent load,
   real email delivery and Stripe subscription/meter acceptance still lack complete live evidence.
   Software build Box time now enters the existing ledger through fenced observed intervals;

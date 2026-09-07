@@ -145,8 +145,27 @@ export async function progressLifecycle(sql:any=db,hooks:LifecycleHooks={},machi
     await checkpoint(async()=>{}); // Fence each provider attempt, including subsequent readiness polls.
     const endpoint=reusable?decrypt(companion.endpoint_secret):await machine.prepare(companion,async id=>{await checkpoint(async(tx:any)=>{await tx`UPDATE companions SET box_id=${id} WHERE id=${companion.id}`;});companion.box_id=id;},async()=>{await checkpoint(async(tx:any)=>{await tx`UPDATE companions SET config_digest=${digest} WHERE id=${companion.id}`;});},beforePrepareEffect);
     if(!endpoint)return;
-    try{await assertLeader();const health=await tracePreparation(companion.id,'lifecycle_health',()=>machine.health(endpoint,decrypt(companion.agent_secret)),value=>value?.ready?'ready':'not_ready');if(!health?.ready)throw Error('agent_not_ready');companion.desktop_boundary_version=health.desktopBoundaryVersion===1?1:0;}
-    catch{await checkpoint(async(tx:any)=>{await tx`UPDATE companions SET endpoint_secret=null WHERE id=${companion.id}`;});return;}
+    async function health(){
+     await assertLeader();
+     const value=await tracePreparation(companion.id,'lifecycle_health',()=>machine.health(endpoint!,decrypt(companion.agent_secret)),value=>value?.ready?'ready':'not_ready');
+     if(!value?.ready)throw Error('agent_not_ready');return value;
+    }
+    try{
+     let observed;
+     try{observed=await health();}
+     catch(error){
+      // A newly prepared private preview can lag the service. Retry its health
+      // once inside this independent job before repeating env/start/host work.
+      // Invalid warm endpoints still enter ordinary repair immediately.
+      const deadline=new Date(companion.preparation_started_at).getTime()+5*60_000;
+      // Reserve both the delay and agentRequest's two-second health timeout.
+      if(reusable||Date.now()+2_250>=deadline)throw error;
+      await Bun.sleep(250);await beforePrepareEffect();
+      if(Date.now()+2_000>=deadline)throw error;
+      observed=await health();
+     }
+     companion.desktop_boundary_version=observed.desktopBoundaryVersion===1?1:0;
+    }catch(error){if(error instanceof ExecutionStopped)throw error;await checkpoint(async(tx:any)=>{await tx`UPDATE companions SET endpoint_secret=null WHERE id=${companion.id}`;});return;}
     const execution={sql,assertLeader,checkpoint};
     await stageDeliverySkills(companion.id,endpoint,decrypt(companion.agent_secret),hooks.deliverySkills,execution);
     const portable=await progressDeliverySkillsForCompanion(sql,companion.id,endpoint,decrypt(companion.agent_secret),hooks.deliverySkills,execution);

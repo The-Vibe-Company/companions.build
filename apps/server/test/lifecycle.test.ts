@@ -4,8 +4,8 @@ import {acquireExecutor} from '../src/executor';
 import {migrateLifecycle,progressLifecycle,handleLifecycle,type LifecycleMachines} from '../src/lifecycle';
 import {saveTemplate,allowTemplate,adoptTemplate,LifecycleConflict} from '../src/templates';
 import {spawnChild,delegateTask,delegationStatus} from '../src/delegation';
-import {dataDir} from '../src/config';
-import {prepareLocal,pauseMachine} from '../src/machines';
+import {dataDir,encrypt} from '../src/config';
+import {prepareLocal,pauseMachine,environmentDigest,ExecutionStopped} from '../src/machines';
 import {join} from 'node:path';
 import {migrateDeliverySkills,type DeliverySkillDependencies} from '../src/delivery-skills';
 import {createHash} from 'node:crypto';
@@ -234,3 +234,61 @@ test('usage delivery retries with the same persisted ID without repeating machin
  await expect(pauseMachine(companion,true)).rejects.toThrow('desktop_isolation_upgrade_required');
  expect(await writer.exited).toBe(0);expect(await Bun.file(marker).text()).toBe('done');
 },15_000);
+
+
+test('a fresh preview health retry avoids repeating machine configuration',async()=>{
+ const id=await parent(),f=fake(),lock=await leader();let checks=0;
+ f.machine.health=async()=>{checks++;if(checks===1)throw Error('preview temporarily unavailable');return {ready:true};};
+ try{
+  await db`UPDATE companions SET prepare_requested=true WHERE id=${id}`;
+  await progressLifecycle(lock.sql,{},f.machine);
+  expect(checks).toBe(2);expect(f.calls.filter(call=>call.startsWith('prepare '))).toHaveLength(1);
+  expect((await db`SELECT status,prepare_requested FROM companions WHERE id=${id}`)[0]).toMatchObject({status:'ready',prepare_requested:false});
+ }finally{await lock.close();}
+});
+
+test('two failed fresh health checks leave ordinary machine repair available',async()=>{
+ const id=await parent(),f=fake(),lock=await leader();let checks=0,healthy=false;
+ f.machine.health=async()=>{checks++;return {ready:healthy};};
+ try{
+  await db`UPDATE companions SET prepare_requested=true WHERE id=${id}`;
+  await progressLifecycle(lock.sql,{},f.machine);
+  expect(checks).toBe(2);
+  expect((await db`SELECT status,endpoint_secret,prepare_requested FROM companions WHERE id=${id}`)[0]).toMatchObject({status:'preparing',endpoint_secret:null,prepare_requested:true});
+  healthy=true;await progressLifecycle(lock.sql,{},f.machine);
+  expect(checks).toBe(3);expect(f.calls.filter(call=>call.startsWith('prepare '))).toHaveLength(2);
+  expect((await db`SELECT status FROM companions WHERE id=${id}`)[0].status).toBe('ready');
+ }finally{await lock.close();}
+});
+
+test('an invalid warm endpoint is cleared immediately without a fresh-preview retry',async()=>{
+ const id=await parent(),f=fake(),lock=await leader();let checks=0;
+ f.machine.health=async()=>{checks++;throw Error('expired warm preview');};
+ try{
+  const [row]=await db`SELECT agent_secret FROM companions WHERE id=${id}`;
+  await db`UPDATE companions SET prepare_requested=true,status='ready',box_id='known',endpoint_secret=${encrypt('http://expired')},config_digest=${environmentDigest(row.agent_secret)} WHERE id=${id}`;
+  await progressLifecycle(lock.sql,{},f.machine);
+  expect(checks).toBe(1);expect(f.calls).toEqual([]);
+  expect((await db`SELECT endpoint_secret FROM companions WHERE id=${id}`)[0].endpoint_secret).toBeNull();
+ }finally{await lock.close();}
+});
+
+for(const change of ['leader','revocation','deadline'] as const)test(`fresh-preview retry stops after ${change} changes during first health`,async()=>{
+ const id=await parent(),f=fake(),lock=await leader();let checks=0,allowed=true,prepared:any;
+ const original=f.machine.prepare;f.machine.prepare=async(...args)=>{prepared=args[0];return original(...args);};
+ f.machine.health=async()=>{
+  checks++;
+  if(change==='leader')await lock.sql`SELECT pg_advisory_unlock(721440139)`;
+  if(change==='revocation')allowed=false;
+  if(change==='deadline')prepared.preparation_started_at=new Date(Date.now()-6*60_000);
+  throw Error('preview unavailable');
+ };
+ try{
+  await db`UPDATE companions SET prepare_requested=true WHERE id=${id}`;
+  const progress=progressLifecycle(lock.sql,{canStartWork:async()=>allowed},f.machine);
+  if(change==='leader')await expect(progress).rejects.toThrow('Executor ownership required');
+  else if(change==='revocation')await expect(progress).rejects.toBeInstanceOf(ExecutionStopped);
+  else await progress;
+  expect(checks).toBe(1);expect((await db`SELECT ready_at FROM companions WHERE id=${id}`)[0].ready_at).toBeNull();
+ }finally{await lock.close();}
+});

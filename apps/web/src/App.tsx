@@ -1,6 +1,5 @@
 import {
   Box,
-  CalendarClock,
   Check,
   ChevronRight,
   CircleAlert,
@@ -534,7 +533,13 @@ function CompanionConnections({ companionId }: { companionId: string }) {
 
 function CompanionView({ detail, models, onRefresh, onUnauthorized, onMenu, onOpenCompanion, onDeleted }: { detail: CompanionDetail; models: Array<{ id: string; name: string }>; onDeleted: (ids: string[]) => void; onRefresh: () => Promise<void>; onUnauthorized: () => void; onMenu: () => void; onOpenCompanion: (id: string) => void }) {
   type CompanionSection = 'chat' | 'automations' | 'team' | 'activity' | 'computer' | 'settings';
-  const readView = (): CompanionSection => { const value = new URLSearchParams(window.location.search).get('view'); return value === 'team' || value === 'automations' || value === 'activity' || value === 'computer' || value === 'settings' ? value : 'chat'; };
+  const finished = Boolean(detail.companion.retiredAt);
+  const readView = (): CompanionSection => {
+    const value = new URLSearchParams(window.location.search).get('view');
+    if (finished) return value === 'activity' ? value : 'chat';
+    if (value === 'computer' && detail.companion.provider !== 'box') return 'chat';
+    return value === 'team' || value === 'automations' || value === 'activity' || value === 'computer' || value === 'settings' ? value : 'chat';
+  };
   const [view, setView] = useState(readView);
   const [settingsVisited, setSettingsVisited] = useState(() => readView() === 'settings');
   useEffect(() => { const restore = () => { const restoredView = readView(); setView(restoredView); if (restoredView === 'settings') setSettingsVisited(true); }; window.addEventListener('popstate', restore); return () => window.removeEventListener('popstate', restore); }, []);
@@ -546,7 +551,6 @@ function CompanionView({ detail, models, onRefresh, onUnauthorized, onMenu, onOp
     if (next === 'settings') setSettingsVisited(true);
     setView(next);
   }
-  const finished = Boolean(detail.companion.retiredAt);
   const displayedStatus = finished ? "archived" : detail.companion.status;
 
   return (
@@ -558,7 +562,7 @@ function CompanionView({ detail, models, onRefresh, onUnauthorized, onMenu, onOp
           <div><h1>{detail.companion.name}</h1><span><StatusDot status={displayedStatus} />{finished ? "Finished" : statusLabel(displayedStatus)}</span></div>
         </button>
         <div className="header-actions">
-          {(finished || detail.runs.some(run => isActiveRun(run.status)) || !!detail.questions?.length) && <Button variant="ghost" size="sm" onClick={() => changeView('activity')} aria-label="Activity"><CalendarClock /><span>{detail.questions?.length ? 'Needs you' : 'Activity'}</span></Button>}
+          {!!detail.questions?.length && !finished && <Button variant="ghost" size="sm" onClick={() => changeView('chat')} aria-label="Answer pending questions"><CircleAlert /><span>Needs you</span></Button>}
         </div>
       </header>
       <nav className="companion-sections" aria-label="Companion sections">{(finished ? [['chat', 'Discussion'], ['activity', 'Activity']] as const : [['chat', 'Discussion'], ['automations', 'Automations'], ['team', 'Team'], ['activity', 'Activity'], ...(detail.companion.provider === 'box' ? [['computer', 'Computer']] as const : []), ['settings', 'Settings']] as const).map(([key, label]) => <button key={key} aria-current={view === key ? 'page' : undefined} onClick={() => changeView(key)}>{label}</button>)}</nav>

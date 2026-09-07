@@ -316,7 +316,7 @@ describe("first Companion flow", () => {
     expect(screen.queryByRole("textbox", { name: "Message Researcher" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Desktop" })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Edit Researcher's personality" })).toBeDisabled();
-    expect(screen.getAllByRole("button", { name: "Activity" })).toHaveLength(2);
+    expect(screen.getAllByRole("button", { name: "Activity" })).toHaveLength(1);
     expect(window.location.pathname).toBe("/companions/specialist");
   });
 

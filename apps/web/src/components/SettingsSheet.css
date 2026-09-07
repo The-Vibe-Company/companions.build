@@ -22,7 +22,7 @@
 .settings-page .identity-form .avatar-picker { max-width:480px; }
 @media(max-width:760px) { .settings-page { padding:16px 20px 32px; } }
 
-.activity-panel--embedded { display:block; width:100%; max-width:800px; margin:0 auto; flex:auto; border:0; padding:0; overflow:visible; }
+.activity-panel.activity-panel--embedded { display:block; width:100%; max-width:800px; margin:0 auto; flex:auto; border:0; padding:0; overflow:visible; }
 .companion-page>.activity-panel--embedded { padding:32px 24px; }
 .settings-page .activity-panel--embedded .activity-heading { display:none; }
 .settings-page { max-width:760px; }

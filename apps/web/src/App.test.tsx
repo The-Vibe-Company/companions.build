@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "./App";
@@ -419,9 +419,11 @@ describe("first Companion flow", () => {
     expect(screen.getByRole("button",{name:"Unavailable"})).toBeDisabled();
     completed=true;window.dispatchEvent(new MessageEvent("message",{origin:window.location.origin,source:popup as unknown as Window,data:{type:"companions:plugin-oauth",status:"connected"}}));
     expect(await screen.findByText("Connection added.")).toBeInTheDocument();
-    await user.click(await screen.findByRole("button",{name:"Disconnect Linear"}));
+    await user.click(await screen.findByRole("button",{name:"Manage Linear"}));
+    await user.click(screen.getByRole("button",{name:"Disconnect"}));
+    await user.click(screen.getByRole("button",{name:"Confirm disconnect Linear"}));
     expect(await screen.findByText("Connection removed.")).toBeInTheDocument();
-    await waitFor(()=>expect(screen.queryByRole("button",{name:"Disconnect Linear"})).not.toBeInTheDocument());
+    await waitFor(()=>expect(screen.queryByRole("button",{name:"Manage Linear"})).not.toBeInTheDocument());
   });
 
   it("checks connection health, shows safe persisted states, and reuses OAuth for recovery",async()=>{
@@ -451,11 +453,13 @@ describe("first Companion flow", () => {
     expect(await screen.findByText("Authorization needed",{exact:false})).toBeInTheDocument();
     expect(screen.getByText("Checked inside a Companion when used")).toBeInTheDocument();
     expect(screen.queryByRole("button",{name:"Check Local tools"})).not.toBeInTheDocument();
-    await user.click(screen.getByRole("button",{name:"Check Linear work"}));
-    expect(await screen.findByText("Connection ready",{exact:false})).toBeInTheDocument();
-    expect(screen.getByText("Connection ready",{exact:false}).textContent).toContain(" · ");
+    expect(screen.queryByRole("button",{name:"Check connection"})).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button",{name:"Manage Linear work"}));
+    await user.click(screen.getByRole("button",{name:"Check connection"}));
+    expect(await screen.findByText(/^Linear work: Connection ready/)).toBeInTheDocument();
+    expect(screen.getByText(/^Connection ready/).textContent).toContain(" · ");
     expect(screen.getByText("Linear work")).toBeInTheDocument();
-    expect(screen.getByRole("button",{name:"Disconnect Linear work"})).toBeInTheDocument();
+    expect(screen.getByRole("button",{name:"Manage Linear work"})).toBeInTheDocument();
     await user.click(screen.getByRole("button",{name:"Reconnect"}));
     await waitFor(()=>expect(popup.location.href).toBe("https://oauth.example/reconnect"));
     expect(fetchMock).toHaveBeenCalledWith("/api/plugins/connect",expect.objectContaining({method:"POST",body:JSON.stringify({serverId:"io.github.github/github-mcp-server",label:"GitHub"})}));
@@ -600,4 +604,37 @@ it("opens automations directly, preserves the chat draft, and restores sections 
   await user.click(screen.getByRole("button", { name: /^Ada, Companion Ada/ }));
   expect(await screen.findByRole("textbox", { name: "Message Ada" })).toHaveValue("Keep this thought");
   expect(fetchMock.mock.calls.every(([path]) => !String(path).endsWith("/prepare"))).toBe(true);
+});
+
+// The disclosure uses ordinary buttons, so Tab follows the browser's native order.
+it("operates connection actions by keyboard and closes on Escape, outside focus and pointer", async () => {
+  const { ConnectionActions } = await import("./components/ConnectionActions");
+  const check = vi.fn(), disconnect = vi.fn();
+  const user = userEvent.setup();
+  render(<><ConnectionActions label="Work account" busy={false} onCheck={check} onDisconnect={disconnect}/><button>Outside</button></>);
+  const manage = screen.getByRole("button", { name: "Manage Work account" });
+  manage.focus();
+  await user.keyboard("{Enter}");
+  expect(manage).toHaveAttribute("aria-expanded", "true");
+  act(() => screen.getByRole("button", { name: "Check connection" }).focus());
+  expect(screen.getByRole("button", { name: "Check connection" })).toHaveFocus();
+  await user.keyboard("{Escape}");
+  expect(manage).toHaveFocus();
+  expect(manage).toHaveAttribute("aria-expanded", "false");
+  await user.click(manage);
+  await user.click(screen.getByRole("button", { name: "Disconnect" }));
+  expect(disconnect).not.toHaveBeenCalled();
+  expect(screen.getByRole("button", { name: "Keep connected" })).toHaveFocus();
+  await user.keyboard("{Escape}");
+  expect(manage).toHaveFocus();
+  await user.click(manage);
+  expect(screen.queryByRole("button", { name: "Confirm disconnect Work account" })).not.toBeInTheDocument();
+  act(() => screen.getByRole("button", { name: "Outside" }).focus());
+  expect(screen.getByRole("button", { name: "Outside" })).toHaveFocus();
+  expect(manage).toHaveAttribute("aria-expanded", "false");
+  await user.click(manage);
+  fireEvent.pointerDown(document.body);
+  expect(manage).toHaveAttribute("aria-expanded", "false");
+  expect(check).not.toHaveBeenCalled();
+  expect(disconnect).not.toHaveBeenCalled();
 });

@@ -1,0 +1,14 @@
+.connection-actions { position: relative; flex-shrink: 0; }
+.connection-actions > summary { display: flex; width: 44px; min-height: 44px; align-items: center; justify-content: center; border-radius: 8px; cursor: pointer; list-style: none; color: var(--muted-foreground); }
+.connection-actions > summary::-webkit-details-marker { display: none; }
+.connection-actions > summary:hover, .connection-actions[open] > summary { color: var(--foreground); background: var(--muted); }
+.connection-actions > summary[aria-disabled="true"] { opacity: .5; cursor: wait; }
+.connection-actions > summary:focus-visible, .connection-actions-panel button:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+.connection-actions-panel { position: absolute; z-index: 20; top: calc(100% + 4px); right: 0; width: 260px; max-width: calc(100vw - 48px); padding: 6px; background: var(--card); color: var(--foreground); border: 1px solid var(--border); border-radius: 10px; box-shadow: 0 8px 24px color-mix(in oklab, var(--foreground) 8%, transparent); }
+.connection-actions-panel > button { display: flex; align-items: center; gap: 10px; width: 100%; min-height: 44px; padding: 10px; text-align: left; font-size: .875rem; border-radius: 5px; }
+.connection-actions-panel > button:hover { background: var(--muted); }
+.connection-actions-confirm { padding: 10px; overflow-wrap: anywhere; }
+.connection-actions-confirm strong { display: block; font-size: .875rem; }
+.connection-actions-confirm p { margin: 8px 0 14px; color: var(--muted-foreground); font-size: .8125rem; line-height: 1.5; }
+.connection-actions-confirm > div { display: flex; flex-wrap: wrap; gap: 6px; }
+.connection-actions-confirm button { min-height: 44px; }

@@ -1,0 +1,210 @@
+import { type FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Box, Check, ChevronRight, Computer, LoaderCircle, Plus, UsersRound } from "lucide-react";
+import {
+  api,
+  workspaceApi,
+  type AgentTemplate,
+  type AppConfig,
+  type Companion,
+  type PluginAccount,
+  type PluginServer,
+} from "@/api";
+import { AccountTiles } from "@/components/ApplicationAccess";
+import {
+  AVATAR_COLORS,
+  CompanionAvatar,
+  DEFAULT_AVATAR,
+  type CompanionAvatarValue,
+} from "@/components/CompanionAvatar";
+import { Button } from "@/components/ui/button";
+import { Textarea } from "@/components/ui/textarea";
+import { cn } from "@/lib/utils";
+import "./CreateCompanion.css";
+
+type CreateCompanionProps = {
+  config: AppConfig;
+  onCreated: (companion: Companion) => void;
+  compact?: boolean;
+};
+
+type FrozenCreation = Parameters<typeof api.createCompanion>[0];
+
+function failureMessage(cause: unknown, fallback: string) {
+  return cause instanceof Error ? cause.message : fallback;
+}
+
+export function CreateCompanion({ config, onCreated, compact = false }: CreateCompanionProps) {
+  const firstProvider: "local" | "box" = config.boxAvailable ? "box" : "local";
+  const [name, setName] = useState("");
+  const [instructions, setInstructions] = useState("");
+  const [provider, setProvider] = useState<"local" | "box">(firstProvider);
+  const [avatar, setAvatar] = useState<CompanionAvatarValue>(DEFAULT_AVATAR);
+  const [templates, setTemplates] = useState<AgentTemplate[]>([]);
+  const [accounts, setAccounts] = useState<PluginAccount[]>([]);
+  const [catalog, setCatalog] = useState<PluginServer[]>([]);
+  const [sourceTemplateId, setSourceTemplateId] = useState("");
+  const [accountIds, setAccountIds] = useState<Set<string>>(() => new Set());
+  const [specialistIds, setSpecialistIds] = useState<Set<string>>(() => new Set());
+  const [loadingSetup, setLoadingSetup] = useState(true);
+  const [setupError, setSetupError] = useState("");
+  const [attempted, setAttempted] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState("");
+  const creationId = useRef(crypto.randomUUID());
+  const frozenCreation = useRef<FrozenCreation | null>(null);
+  const createdCompanion = useRef<Companion | null>(null);
+  const completedAccounts = useRef(new Set<string>());
+  const completedSpecialists = useRef(new Set<string>());
+  const submissionPending = useRef(false);
+
+  const loadSetup = useCallback(async () => {
+    setLoadingSetup(true);
+    setSetupError("");
+    try {
+      const [templateResult, pluginResult] = await Promise.all([workspaceApi.templates(), workspaceApi.plugins()]);
+      setTemplates(templateResult.templates);
+      setAccounts(pluginResult.accounts);
+      setCatalog(pluginResult.catalog);
+    } catch (cause) {
+      setSetupError(failureMessage(cause, "Could not load setup choices."));
+    } finally {
+      setLoadingSetup(false);
+    }
+  }, []);
+
+  useEffect(() => { void loadSetup(); }, [loadSetup]);
+
+  const sourceTemplate = templates.find(template => template.id === sourceTemplateId);
+  const sourceNeedsBox = Boolean(sourceTemplate?.hasSnapshot || sourceTemplate?.softwareBuildId || sourceTemplate?.softwareResultId);
+  const selectionLocked = attempted || submitting;
+  const selectedAccountIds = useMemo(() => accountIds, [accountIds]);
+
+  function chooseSourceTemplate(id: string) {
+    if (selectionLocked) return;
+    setSourceTemplateId(id);
+    const template = templates.find(item => item.id === id);
+    if (!template) return;
+    setName(template.name);
+    setInstructions(template.instructions);
+    setAvatar(template.avatar);
+    if ((template.hasSnapshot || template.softwareBuildId || template.softwareResultId) && config.boxAvailable) setProvider("box");
+  }
+
+  function toggleAccount(id: string) {
+    if (selectionLocked) return;
+    setAccountIds(current => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }
+
+  function toggleSpecialist(id: string) {
+    if (selectionLocked) return;
+    setSpecialistIds(current => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }
+
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    if (!name.trim() || !instructions.trim() || loadingSetup || setupError || submissionPending.current) return;
+    submissionPending.current = true;
+    setAttempted(true);
+    setSubmitting(true);
+    setError("");
+    if (!frozenCreation.current) {
+      frozenCreation.current = {
+        name: name.trim(),
+        instructions: instructions.trim(),
+        provider,
+        avatar,
+        prepare: false,
+        clientCreationId: creationId.current,
+        ...(sourceTemplate ? { templateId: sourceTemplate.id, templateRevision: sourceTemplate.revision } : {}),
+      };
+    }
+    try {
+      if (!createdCompanion.current) {
+        const result = await api.createCompanion(frozenCreation.current);
+        createdCompanion.current = result.companion;
+      }
+      const companion = createdCompanion.current;
+      for (const accountId of accountIds) {
+        if (completedAccounts.current.has(accountId)) continue;
+        await workspaceApi.selectPlugin(companion.id, accountId);
+        completedAccounts.current.add(accountId);
+      }
+      for (const templateId of specialistIds) {
+        if (completedSpecialists.current.has(templateId)) continue;
+        await workspaceApi.setTemplatePermission(companion.id, templateId, 2);
+        completedSpecialists.current.add(templateId);
+      }
+      onCreated(companion);
+    } catch (cause) {
+      setError(failureMessage(cause, "Could not finish creating this companion."));
+    } finally {
+      submissionPending.current = false;
+      setSubmitting(false);
+    }
+  }
+
+  const canCreate = Boolean(name.trim() && instructions.trim() && !loadingSetup && !setupError && (config.localAvailable || config.boxAvailable));
+
+  return <form className={cn("create-companion", compact && "create-companion--compact")} onSubmit={submit}>
+    <section className="create-companion-preview" aria-label="Companion preview">
+      <CompanionAvatar name={name.trim() || "Your companion"} avatar={avatar} size={compact ? 150 : 184}/>
+      <div className="create-companion-preview-copy">
+        <h2>{name.trim() || "Your companion"}</h2>
+        <p>{instructions.trim() || "What would you like them to take care of?"}</p>
+      </div>
+      <fieldset disabled={selectionLocked} className="create-avatar-choice create-avatar-colors">
+        <legend>Color</legend>
+        <div>{AVATAR_COLORS.map((color, index) => <button key={color} type="button" aria-label={`Color ${index + 1}`} aria-pressed={avatar.color === index} onClick={() => setAvatar(current => ({ ...current, color: index }))}><span style={{ background: color }}/></button>)}</div>
+      </fieldset>
+      <fieldset disabled={selectionLocked} className="create-avatar-choice create-avatar-icons">
+        <legend>Shape</legend>
+        <div>{Array.from({ length: 8 }, (_, shape) => <button key={shape} type="button" aria-label={`Shape ${shape + 1}`} aria-pressed={avatar.shape === shape} onClick={() => setAvatar(current => ({ ...current, shape }))}><CompanionAvatar name={`Shape ${shape + 1}`} avatar={{ ...avatar, shape, face: 0 }} size={32}/></button>)}</div>
+      </fieldset>
+      <fieldset disabled={selectionLocked} className="create-avatar-choice create-avatar-icons">
+        <legend>Face</legend>
+        <div>{Array.from({ length: 5 }, (_, face) => <button key={face} type="button" aria-label={`Face ${face + 1}`} aria-pressed={avatar.face === face} onClick={() => setAvatar(current => ({ ...current, face }))}><CompanionAvatar name={`Face ${face + 1}`} avatar={{ ...avatar, face }} size={32}/></button>)}</div>
+      </fieldset>
+    </section>
+
+    <section className="create-companion-fields">
+      <header><span>New companion</span><h1>Who are you bringing on?</h1></header>
+      <div className="create-companion-basics">
+        <div className="field"><label htmlFor="create-companion-name">Name</label><input id="create-companion-name" value={name} maxLength={80} disabled={selectionLocked} onChange={event => setName(event.target.value)} placeholder="Ada" autoFocus={!compact}/></div>
+        <div className="field"><label htmlFor="create-companion-purpose">Purpose</label><Textarea id="create-companion-purpose" value={instructions} maxLength={20_000} disabled={selectionLocked} onChange={event => setInstructions(event.target.value)} placeholder="Research customer questions and turn the findings into clear briefs." rows={3}/></div>
+      </div>
+
+      {loadingSetup ? <div className="create-setup-state" role="status"><LoaderCircle className="spin"/>Loading accounts and specialists…</div> : setupError ? <div className="create-setup-state create-setup-error" role="alert"><p>{setupError}</p><Button type="button" variant="outline" onClick={() => void loadSetup()}>Try again</Button></div> : <>
+        <section className="create-option-section"><div className="create-section-heading"><h2>Apps &amp; accounts</h2><span>{accountIds.size} selected</span></div>
+          {accounts.length ? <AccountTiles accounts={accounts} catalog={catalog} selectedIds={selectedAccountIds} disabled={selectionLocked} onToggle={toggleAccount}/> : <p className="create-empty-option">Connected accounts will appear here when they are available.</p>}
+        </section>
+        <section className="create-option-section"><div className="create-section-heading"><h2>Team</h2><span>{specialistIds.size} selected</span></div>
+          {templates.length ? <div className="create-specialist-list">{templates.map(template => {
+            const selected = specialistIds.has(template.id);
+            return <label key={template.id} className={cn("create-specialist", selected && "create-specialist--selected")}><input type="checkbox" checked={selected} disabled={selectionLocked} onChange={() => toggleSpecialist(template.id)}/><CompanionAvatar name={template.name} avatar={template.avatar} size={32}/><span>{template.name}<small>v{template.revision}</small></span>{selected && <Check aria-hidden="true"/>}</label>;
+          })}</div> : <p className="create-empty-option">Create a specialist profile to add a team here.</p>}
+        </section>
+      </>}
+
+      <details className="create-companion-advanced"><summary>Advanced <span>computer and starting profile</span><ChevronRight/></summary>
+        {templates.length > 0 && <div className="field"><label htmlFor="create-source-template">Start from</label><select id="create-source-template" value={sourceTemplateId} disabled={selectionLocked} onChange={event => chooseSourceTemplate(event.target.value)}><option value="">Blank companion</option>{templates.map(template => { const needsBox = Boolean(template.hasSnapshot || template.softwareBuildId || template.softwareResultId); return <option key={template.id} value={template.id} disabled={needsBox && !config.boxAvailable}>{template.name} · v{template.revision}{needsBox && !config.boxAvailable ? " · cloud unavailable" : ""}</option>; })}</select><span className="field-hint">Pins this companion to the profile version shown. Team access is selected separately above.</span></div>}
+        <fieldset className="create-provider-picker" disabled={selectionLocked}><legend>Computer</legend>
+          <label className={cn(provider === "local" && "is-selected", (!config.localAvailable || sourceNeedsBox) && "is-disabled")}><input type="radio" name="create-provider" checked={provider === "local"} disabled={!config.localAvailable || sourceNeedsBox} onChange={() => setProvider("local")}/><Computer/><span><strong>Local</strong><small>Runs on this machine</small></span>{provider === "local" && <Check/>}</label>
+          <label className={cn(provider === "box" && "is-selected", !config.boxAvailable && "is-disabled")}><input type="radio" name="create-provider" checked={provider === "box"} disabled={!config.boxAvailable} onChange={() => setProvider("box")}/><Box/><span><strong>Box</strong><small>Persistent cloud computer</small></span>{provider === "box" && <Check/>}</label>
+        </fieldset>
+      </details>
+      {attempted && !submitting && error && <p className="create-lock-note">Setup is locked so retrying cannot create a different companion.</p>}
+      {error && <p className="field-error" role="alert">{error}</p>}
+      <Button className="create-companion-submit" type="submit" disabled={!canCreate || submitting}>
+        {submitting ? <LoaderCircle className="spin"/> : error ? <><Plus/>Retry setup</> : <><UsersRound/>Create companion</>}
+      </Button>
+    </section>
+  </form>;
+}

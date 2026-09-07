@@ -1,8 +1,8 @@
-import { beforeAll, test, expect } from "bun:test";
+import { beforeAll, test, expect, spyOn } from "bun:test";
 import { db, migrate, createCompanion, acceptMessage, detail, cancel, Conflict } from "../src/store";
 import { acquireExecutor, tick } from "../src/executor";
 import { handler } from "../src/api";
-import { encrypt } from "../src/config";
+import { config, encrypt } from "../src/config";
 import { lifecycleControlHandlers } from "../src/lifecycle";
 import { setMagicLinkDeliveryForTests } from "../src/auth";
 
@@ -153,4 +153,25 @@ test("human desktop ownership survives forged agent release and only its owner c
   expect(Number((await state()).desktop_generation)).toBe(2);
   expect((await post("/desktop-release")).status).toBe(202);
   expect(Number((await state()).desktop_generation)).toBe(2);
+});
+
+
+test("desktop URLs require a live owned Companion and never contact retired or archiving Boxes", async () => {
+  const cookie = await signIn(`desktop-viewer-${crypto.randomUUID()}@example.com`);
+  const headers = { cookie, "content-type": "application/json" };
+  const ownerId = (await (await handler(new Request("http://127.0.0.1:4310/api/me", { headers }))).json() as any).user.id;
+  const { BoxClient } = await import("../../../packages/box/client");
+  const previous = config.boxKey; config.boxKey = "synthetic-desktop-key";
+  const desktop = spyOn(BoxClient.prototype, "desktop").mockResolvedValue("https://fixture.invalid/vnc.html?_token=synthetic");
+  try {
+    for (const state of ["ready", "retired", "archiving", "foreign"] as const) {
+      const companion = await createCompanion(state === "foreign" ? owner : ownerId, { name: "Desktop fixture", instructions: "", provider: "box" });
+      await db`UPDATE companions SET status='ready',box_id='bx_fixture',retired_at=${state === "retired" ? new Date() : null},
+        archive_requested_at=${state === "archiving" ? new Date() : null} WHERE id=${companion.id}`;
+      desktop.mockClear();
+      const response = await handler(new Request(`http://127.0.0.1:4310/api/companions/${companion.id}/desktop`, { method: "POST", headers, body: "{}" }));
+      expect(response.status).toBe(state === "ready" ? 200 : 404);
+      expect(desktop).toHaveBeenCalledTimes(state === "ready" ? 1 : 0);
+    }
+  } finally { desktop.mockRestore(); config.boxKey = previous; }
 });

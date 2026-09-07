@@ -1,0 +1,19 @@
+{
+  "date": "2026-09-07",
+  "status": "passed",
+  "verificationRun": "3ae968b54ab2",
+  "seconds": 44.493,
+  "checks": [
+    "Only explicit provider provisioning responses produce a pending desktop state. Malformed/error replies fail without provider payload leakage.",
+    "Desktop URL requests explicitly require private access.",
+    "Retired, archiving and foreign Companions cause no provider desktop call through the authenticated API.",
+    "Full local PostgreSQL18/PiLinux/server/web/backup-restore suite passes.",
+    "Owned verification containers and volumes are absent after success and the preceding typecheck failure."
+  ],
+  "liveBoxesWoken": 0,
+  "limits": [
+    "This does not correct or prove resolution of intermittent provider noVNC service startup.",
+    "Provider desktop response shapes follow the official documented contract; authenticated API rejection is verified with a stubbed provider boundary."
+  ],
+  "providerContract": "https://docs.ascii.dev/box/api/reference/agent/get-desktop-streaming-url"
+}

@@ -79,10 +79,12 @@ export class BoxClient {
     return url.href;
   }
   async desktop(id: string) {
-    const data = await this.request(`/boxes/${encodeURIComponent(id)}/desktop?vnc=1`, "POST", {});
-    if (!data.success || typeof data.desktopUrl !== "string") throw new BoxError("desktop_preparing");
-    const url = new URL(data.desktopUrl);
-    if (url.protocol !== "https:") throw new BoxError("desktop_invalid");
+    const data = await this.request(`/boxes/${encodeURIComponent(id)}/desktop?vnc=1`, "POST", { publicAccess: false });
+    if (data?.provisioning === true && data.success !== true && !data.desktopUrl) throw new BoxError("desktop_preparing");
+    if (data?.success !== true || data.provisioning === true || typeof data.desktopUrl !== "string") throw new BoxError("desktop_invalid");
+    let url: URL;
+    try { url = new URL(data.desktopUrl); } catch { throw new BoxError("desktop_invalid"); }
+    if (url.protocol !== "https:" || url.username || url.password) throw new BoxError("desktop_invalid");
     return url.href;
   }
   async snapshot(id: string, name: string) { return this.request("/named-snapshots", "POST", { boxId: id, name }); }

@@ -115,3 +115,32 @@ test("Box service tracing keeps one guarded command and reports its internal pha
   if(previousTrace===undefined)delete process.env.COMPANIONS_TRACE_PREPARATION;else process.env.COMPANIONS_TRACE_PREPARATION=previousTrace;
  }
 });
+
+
+test("desktop access stays private and only explicit provisioning remains pending", async () => {
+  const replies = [
+    { ok: true, provisioning: true },
+    { ok: true, success: false, provisioning: true, desktopUrl: null },
+    { ok: true, success: true, desktopUrl: "https://fixture.on.ascii.dev/vnc.html?_token=synthetic" },
+  ];
+  const calls: any[] = [];
+  const client = new BoxClient("synthetic-secret", (async (_url: any, init: any) => {
+    calls.push(JSON.parse(init.body)); return Response.json(replies.shift());
+  }) as typeof fetch);
+  await expect(client.desktop("owned-box")).rejects.toThrow("desktop_preparing");
+  await expect(client.desktop("owned-box")).rejects.toThrow("desktop_preparing");
+  expect(await client.desktop("owned-box")).toBe("https://fixture.on.ascii.dev/vnc.html?_token=synthetic");
+  expect(calls).toEqual([{ publicAccess: false }, { publicAccess: false }, { publicAccess: false }]);
+});
+
+test("invalid desktop provider replies fail visibly without leaking payloads or pretending to prepare", async () => {
+  for (const reply of [null, {}, { success: false }, { provisioning: "true" },
+    { success: true }, { success: true, desktopUrl: "provider-private-payload" },
+    { success: true, desktopUrl: "http://fixture.invalid/?_token=private" },
+    { success: true, desktopUrl: "https://user:private@fixture.invalid/" },
+    { success: true, provisioning: true, desktopUrl: "https://fixture.invalid/" },
+  ]) {
+    const client = new BoxClient("synthetic-secret", (async () => Response.json(reply)) as unknown as typeof fetch);
+    await expect(client.desktop("owned-box")).rejects.toThrow("desktop_invalid");
+  }
+});

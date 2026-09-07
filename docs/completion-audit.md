@@ -55,6 +55,11 @@ hosted acceptance. See `validation-v0.md` for dated evidence.
   passed desktop acceptance without manual repair. The cause of that intermittent service
   readiness remains unresolved. All owned test Boxes were archived after validation, and the
   local stack/tunnel stopped: `measurements/test-resource-shutdown-2026-09-07.json`.
+- Desktop responses now distinguish explicit provider provisioning from malformed/error replies.
+  Requests require private access; retired, archiving and foreign Companions are rejected before
+  any provider desktop call. The integrated PostgreSQL18 suite passes without waking a Box.
+  See `measurements/desktop-response-boundary-2026-09-07.json`. This does not resolve the
+  intermittent noVNC service startup above.
 - Real V12 main/background execution through the model gateway passes: a manual invocation of a
   disabled routine ran for 43.8 seconds while chat completed in 4.8 seconds, 29.6 seconds before the
   background task. Its independent file and all 3 provider ledger entries were verified; the routine

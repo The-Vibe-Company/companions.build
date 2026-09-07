@@ -143,7 +143,7 @@ export async function handler(request: Request): Promise<Response> {
       }
       if (match[2] === "cancel" && request.method === "POST") return await cancel(ownerId, id) ? json({ ok: true }) : json({ error: "Companion not found." }, 404);
       if (match[2] === "desktop" && request.method === "POST") {
-        const [row] = await db`SELECT box_id,status FROM companions WHERE id=${id} AND owner_id=${ownerId} AND provider='box'`;
+        const [row] = await db`SELECT box_id,status FROM companions WHERE id=${id} AND owner_id=${ownerId} AND provider='box' AND retired_at IS NULL AND archive_requested_at IS NULL`;
         if (!row) return json({error:"Companion not found."},404);
         if(row.status !== "ready" || !config.boxKey) {await handleLifecycle({operation:"open_desktop",companionId:id},ownerId);return json({preparing:true},202);}
         return json({ url: await new BoxClient(config.boxKey).desktop(row.box_id) });

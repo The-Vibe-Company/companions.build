@@ -97,6 +97,41 @@ describe("SpecialistLibrary", () => {
     expect(role).toHaveValue("Draft that must survive");
   });
 
+  it("keeps the editor baseline when a passive refresh discovers a newer revision", async () => {
+    const versionOne = { ...researcher, revision: 1 };
+    let current = versionOne;
+    let submittedRevision: number | undefined;
+    const fetchMock = vi.fn((input: RequestInfo | URL, options?: RequestInit) => {
+      const path = String(input);
+      if (path === "/api/templates" && !options?.method) return response({ templates: [current] });
+      if (path === "/api/templates/t1/revisions") return response({ revisions: [{ ...versionOne, snapshotName: null, createdAt: "2026-02-01T00:00:00.000Z" }] });
+      if (path === "/api/templates/t1" && options?.method === "PATCH") {
+        submittedRevision = JSON.parse(String(options.body)).expectedRevision;
+        return response({ error: "This profile changed elsewhere. Reload and try again." }, 409);
+      }
+      throw new Error(`Unexpected ${path}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+    const view = render(<SpecialistLibrary refreshVersion={0} />);
+
+    await user.click(await screen.findByRole("button", { name: "Edit" }));
+    const role = screen.getByRole("textbox", { name: "Role" });
+    await user.clear(role);
+    await user.type(role, "My unsaved version one draft");
+    current = { ...versionOne, name: "Changed elsewhere", instructions: "Concurrent edit", revision: 2 };
+    view.rerender(<SpecialistLibrary refreshVersion={1} />);
+
+    expect(await screen.findByText("Changed elsewhere", { selector: ".specialist-library__summary strong" })).toBeInTheDocument();
+    expect(role).toHaveValue("My unsaved version one draft");
+    expect(screen.getByText("Version 1", { selector: ".specialist-editor__history span" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("This profile changed elsewhere. Reload and try again.");
+    expect(submittedRevision).toBe(1);
+    expect(role).toHaveValue("My unsaved version one draft");
+  });
+
   it("refreshes after an ambiguous create instead of posting a duplicate", async () => {
     let createAttempted = false;
     const created = { ...researcher, id: "created", name: "Analyst", instructions: "Analyze product data", revision: 1 };

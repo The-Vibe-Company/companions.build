@@ -109,6 +109,7 @@ function SpecialistEditor({ template, onCancel, onReload }: { template: AgentTem
   const [name, setName] = useState(template.name);
   const [instructions, setInstructions] = useState(template.instructions);
   const [avatar, setAvatar] = useState(template.avatar);
+  const [baselineRevision, setBaselineRevision] = useState(template.revision);
   const [revisions, setRevisions] = useState<AgentTemplateRevision[] | null>(null);
   const [targetRevision, setTargetRevision] = useState("");
   const [historyError, setHistoryError] = useState("");
@@ -124,9 +125,9 @@ function SpecialistEditor({ template, onCancel, onReload }: { template: AgentTem
       const result = await workspaceApi.templateRevisions(template.id);
       if (id !== request.current) return;
       setRevisions(result.revisions);
-      setTargetRevision(String(result.revisions.find(item => item.revision !== template.revision)?.revision ?? ""));
+      setTargetRevision(String(result.revisions.find(item => item.revision !== baselineRevision)?.revision ?? ""));
     } catch (cause) { if (id === request.current) setHistoryError(errorText(cause)); }
-  }, [template.id, template.revision]);
+  }, [template.id, baselineRevision]);
   useEffect(() => { void loadHistory(); return () => { request.current += 1; }; }, [loadHistory]);
 
   async function save(event: FormEvent) {
@@ -134,10 +135,11 @@ function SpecialistEditor({ template, onCancel, onReload }: { template: AgentTem
     if (busyRef.current || !name.trim()) return;
     busyRef.current = true; setSaving(true); setError(""); setSaved(false);
     try {
-      await workspaceApi.updateTemplate(template.id, { name: name.trim(), instructions: instructions.trim(), avatar, revision: template.revision });
+      const result = await workspaceApi.updateTemplate(template.id, { name: name.trim(), instructions: instructions.trim(), avatar, revision: baselineRevision });
+      setBaselineRevision(result.revision);
       const profiles = await onReload(true);
       const refreshed = profiles?.find(item => item.id === template.id);
-      if (refreshed) { setName(refreshed.name); setInstructions(refreshed.instructions); setAvatar(refreshed.avatar); }
+      if (refreshed) { setName(refreshed.name); setInstructions(refreshed.instructions); setAvatar(refreshed.avatar); setBaselineRevision(refreshed.revision); }
       setSaved(true);
     } catch (cause) { setError(errorText(cause)); }
     finally { busyRef.current = false; setSaving(false); }
@@ -147,10 +149,11 @@ function SpecialistEditor({ template, onCancel, onReload }: { template: AgentTem
     if (!targetRevision || busyRef.current) return;
     busyRef.current = true; setSaving(true); setError(""); setSaved(false);
     try {
-      await workspaceApi.rollbackTemplate(template.id, Number(targetRevision), template.revision);
+      const result = await workspaceApi.rollbackTemplate(template.id, Number(targetRevision), baselineRevision);
+      setBaselineRevision(result.revision);
       const profiles = await onReload(true);
       const refreshed = profiles?.find(item => item.id === template.id);
-      if (refreshed) { setName(refreshed.name); setInstructions(refreshed.instructions); setAvatar(refreshed.avatar); }
+      if (refreshed) { setName(refreshed.name); setInstructions(refreshed.instructions); setAvatar(refreshed.avatar); setBaselineRevision(refreshed.revision); }
       setSaved(true);
     } catch (cause) { setError(errorText(cause)); }
     finally { busyRef.current = false; setSaving(false); }
@@ -160,7 +163,7 @@ function SpecialistEditor({ template, onCancel, onReload }: { template: AgentTem
     <div className="specialist-editor__grid"><label>Name<input value={name} maxLength={80} disabled={saving} onChange={event => { setName(event.target.value); setSaved(false); }}/></label><label>Role<Textarea value={instructions} rows={3} maxLength={20_000} disabled={saving} onChange={event => { setInstructions(event.target.value); setSaved(false); }}/></label></div>
     <ProviderAccess />
     <details className="specialist-editor__appearance"><summary><CompanionAvatar name="Appearance preview" avatar={avatar} size={30}/>Change appearance<ChevronDown /></summary><AvatarPicker value={avatar} onChange={value => { setAvatar(value); setSaved(false); }}/></details>
-    <div className="specialist-editor__history"><div><span>Version {template.revision}</span>{historyError ? <Button type="button" variant="ghost" size="sm" onClick={() => void loadHistory()}><RotateCw />Retry history</Button> : revisions === null ? <span>Loading history…</span> : revisions.length < 2 ? <span>First saved version</span> : <><label htmlFor={`history-${template.id}`}>Earlier version</label><select id={`history-${template.id}`} value={targetRevision} disabled={saving} onChange={event => setTargetRevision(event.target.value)}>{revisions.filter(item => item.revision !== template.revision).map(item => <option key={item.revision} value={item.revision}>Version {item.revision} · {item.name}</option>)}</select><Button type="button" variant="outline" size="sm" disabled={!targetRevision || saving} onClick={() => void restore()}><RotateCw />Restore</Button></>}</div></div>
+    <div className="specialist-editor__history"><div><span>Version {baselineRevision}</span>{historyError ? <Button type="button" variant="ghost" size="sm" onClick={() => void loadHistory()}><RotateCw />Retry history</Button> : revisions === null ? <span>Loading history…</span> : revisions.length < 2 ? <span>First saved version</span> : <><label htmlFor={`history-${template.id}`}>Earlier version</label><select id={`history-${template.id}`} value={targetRevision} disabled={saving} onChange={event => setTargetRevision(event.target.value)}>{revisions.filter(item => item.revision !== baselineRevision).map(item => <option key={item.revision} value={item.revision}>Version {item.revision} · {item.name}</option>)}</select><Button type="button" variant="outline" size="sm" disabled={!targetRevision || saving} onClick={() => void restore()}><RotateCw />Restore</Button></>}</div></div>
     {error && <p className="field-error" role="alert">{error}</p>}{saved && <p className="specialist-editor__saved" role="status">Profile saved.</p>}
     <div className="specialist-editor__actions"><Button type="button" variant="outline" disabled={saving} onClick={onCancel}>Cancel</Button><Button type="submit" disabled={saving || !name.trim()}>{saving ? <LoaderCircle className="spin"/> : <Check />}{saving ? "Saving…" : "Save"}</Button></div>
   </form>;

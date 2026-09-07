@@ -1,0 +1,27 @@
+apps/server/src/runtime-product.ts
+  s_f946242dcf6ba9::t_bd21497a0c73c8 8-10,33
+docs/billing-delivery.md
+  s_f946242dcf6ba9::t_7257e88967cc92 36-40
+docs/completion-audit.md
+  s_f946242dcf6ba9::t_906060b62c779c 11-13,24-25,31-33,40-42,53-55
+docs/measurements/box-v9-2026-09-07.json
+  s_f946242dcf6ba9::t_b8b6fe016474dd 1-36
+docs/measurements/hosted-2026-09-07.json
+  s_f946242dcf6ba9::t_fb9ccc0ffa6c3a 1-28
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "449e12810cfeace9ef4297f9824df9cb5b578d9a",
+  "prompts": {},
+  "sessions": {
+    "s_f946242dcf6ba9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a06de4-a8a5-7cd3-b713-2a8d451f7200",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "StanGirard <stan@quivr.app>"
+    }
+  }
+}

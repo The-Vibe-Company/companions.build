@@ -2,7 +2,7 @@ import { BoxClient, BoxError } from "../packages/box/client";
 import { config } from "../apps/server/src/config";
 import { createHash } from "node:crypto";
 import { mkdirSync, readdirSync } from "node:fs";
-import { userSystemctl } from "../packages/box/layout";
+import {templateInstallScript} from "./lib/template-install";
 
 if (!config.boxKey) throw new Error("Configure BOX_API_KEY in .env before preparing the template.");
 const name = process.argv[2] ?? "companions-agent-v0";
@@ -58,7 +58,10 @@ await box.command(state.boxId, `mkdir -p ${directory}`);
 for (let start = 0, index = 0; start < archive.length; start += 3 * 1024 * 1024, index++) {
   await box.writeFile(state.boxId, `${directory}/part-${String(index).padStart(5, "0")}`, archive.subarray(start, start + 3 * 1024 * 1024).toString("base64"), "base64");
 }
-await box.command(state.boxId, `cat ${directory}/part-* > ${directory}/agent.tar.gz && echo '${digest}  ${directory}/agent.tar.gz' | sha256sum -c - && mkdir -p /home/user/.companions-dist /home/user/.config/systemd/user && tar -xzf ${directory}/agent.tar.gz -C /home/user/.companions-dist`, 60);
+await box.command(state.boxId, `cat ${directory}/part-* > ${directory}/agent.tar.gz && echo '${digest}  ${directory}/agent.tar.gz' | sha256sum -c -`, 60);
+// Resume may have started the baked services. Stop and verify only our units before
+// exchanging complete directories; never overwrite a running executable in place.
+await box.command(state.boxId, templateInstallScript(directory,digest), 60);
 // Remove only upload directories recorded for this owned build Box. Staging archives must
 // not accumulate inside every future snapshot and make cold copies progressively heavier.
 const stagingDirectories = new Set([directory]);
@@ -69,10 +72,6 @@ for (const file of readdirSync(".local").filter(file => /^template-[a-z0-9-]+\.j
   }
 }
 await box.command(state.boxId, `rm -rf -- ${[...stagingDirectories].join(" ")}`);
-// Bake the isolated runtime and GUI broker into the immutable distribution. Wake only configures
-// identity/network/services; it never installs packages or changes a user's persistent state path.
-await box.command(state.boxId, `sudo -n mkdir -p /opt/companions && sudo -n cp -a /home/user/.companions-dist/. /opt/companions/ && sudo -n chown -R root:root /opt/companions && sudo -n sh /opt/companions/install-desktop.sh`);
-await box.command(state.boxId, `${userSystemctl("disable --now companions-agent.service")} 2>/dev/null || true`);
 state.snapshotRequestedAt = new Date().toISOString(); state.sha256 = digest;
 await Bun.write(journal, JSON.stringify(state, null, 2));
 try { await box.snapshot(state.boxId, name); }

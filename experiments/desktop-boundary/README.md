@@ -42,3 +42,9 @@ Production acceptance additionally recovers an empty, partially configured netwo
 rejects a duplicate launcher while the first daemon remains usable. The systemd broker keeps its
 runtime directory across restarts so the headless bind mount continues to reach the replacement
 socket. Broker journal tests cover closed admission after restart and durable generation recovery.
+
+The independent build-distribution replacement proof uses the same local image:
+`python3 scripts/bun.py scripts/test-template-install.ts`. It executes the generated installation
+command with fixture systemd responses and a real process mapping the old executable. It verifies
+active-unit refusal, atomic replacement, failed-install retry and removal of only obsolete
+product distribution copies; it makes no Box calls and does not run host systemd.

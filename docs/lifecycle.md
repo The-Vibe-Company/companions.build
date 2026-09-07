@@ -84,6 +84,16 @@ services and installs on the same Box. It retains Pi state paths, files and desk
 completed journal is an idempotent no-op. Restart the executor to reconcile readiness. No request
 is replayed. New base snapshots install the same helpers during the existing template build.
 
+Reusing an archived build Box can restart its enabled services. The template builder stops only
+its product units, verifies they are inactive, extracts the verified archive into an adjacent
+root-owned directory and uses Linux's atomic directory exchange before installation. It never
+truncates a running executable. Successful installation removes the exchanged old directory and
+legacy `/home/user/.companions-dist` copy, then clears only upload directories associated with that
+build Box. Failure retains staging for retry; `/home/user/.companions` and user files are untouched.
+The optional `python3 scripts/bun.py scripts/test-template-install.ts` Linux proof covers active
+unit refusal, a genuinely mapped old executable, interrupted installation, retry and cleanup.
+Systemd responses are fixtures in that test; provider service behavior remains a live canary check.
+
 ## Results, adoption and retirement
 
 Spawning locks the permanent parent before counting live children for the selected template.

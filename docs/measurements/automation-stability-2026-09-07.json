@@ -1,0 +1,218 @@
+{
+  "date": "2026-09-07",
+  "applicationCommit": "465be44",
+  "verification": {
+    "status": "passed",
+    "run": "4cb34b59b416",
+    "seconds": 48.747,
+    "postgres": {
+      "major": 18,
+      "image": "postgres@sha256:4ef4dbc939d61acea57712655ddb4b4ab27419c913f94cca0cd57cb3ea3c2280",
+      "backupSha256": "1b242216be1843476b813a946640143c0a5754a40592423ce644d269dced1a70"
+    },
+    "steps": [
+      {
+        "name": "database-volume",
+        "exitCode": 0,
+        "seconds": 0.04
+      },
+      {
+        "name": "database",
+        "exitCode": 0,
+        "seconds": 0.178
+      },
+      {
+        "name": "storage",
+        "exitCode": 0,
+        "seconds": 0.173
+      },
+      {
+        "name": "storage-bucket",
+        "exitCode": 0,
+        "seconds": 0.287
+      },
+      {
+        "name": "install",
+        "exitCode": 0,
+        "seconds": 0.126
+      },
+      {
+        "name": "web-install",
+        "exitCode": 0,
+        "seconds": 0.121
+      },
+      {
+        "name": "typecheck",
+        "exitCode": 0,
+        "seconds": 2.505
+      },
+      {
+        "name": "agent-unit",
+        "exitCode": 0,
+        "seconds": 1.492
+      },
+      {
+        "name": "distribution-content-linux",
+        "exitCode": 0,
+        "seconds": 0.8
+      },
+      {
+        "name": "agent-build",
+        "exitCode": 0,
+        "seconds": 0.276
+      },
+      {
+        "name": "system",
+        "exitCode": 0,
+        "seconds": 31.015
+      },
+      {
+        "name": "web-tests",
+        "exitCode": 0,
+        "seconds": 3.114
+      },
+      {
+        "name": "web-build",
+        "exitCode": 0,
+        "seconds": 3.269
+      },
+      {
+        "name": "postgres-restore-seed",
+        "exitCode": 0,
+        "seconds": 0.342
+      },
+      {
+        "name": "postgres-backup",
+        "exitCode": 0,
+        "seconds": 0.126
+      },
+      {
+        "name": "postgres-backup-copy",
+        "exitCode": 0,
+        "seconds": 0.039
+      },
+      {
+        "name": "postgres-crash",
+        "exitCode": 0,
+        "seconds": 0.288
+      },
+      {
+        "name": "postgres-recovery-volume",
+        "exitCode": 0,
+        "seconds": 0.019
+      },
+      {
+        "name": "postgres-recovery",
+        "exitCode": 0,
+        "seconds": 0.225
+      },
+      {
+        "name": "postgres-restore-copy",
+        "exitCode": 0,
+        "seconds": 0.035
+      },
+      {
+        "name": "postgres-restore",
+        "exitCode": 0,
+        "seconds": 0.285
+      },
+      {
+        "name": "postgres-restore-verify",
+        "exitCode": 0,
+        "seconds": 0.229
+      }
+    ]
+  },
+  "focusedSuites": {
+    "routines": {
+      "tests": 11,
+      "assertions": 69
+    },
+    "controlMcp": {
+      "tests": 5,
+      "assertions": 25
+    },
+    "triggerEvaluationRecovery": {
+      "tests": 3,
+      "assertions": 21
+    },
+    "triggers": {
+      "tests": 23,
+      "assertions": 117
+    }
+  },
+  "behavior": [
+    "A run and its accepted webhook batch commit atomically.",
+    "Grouping locks actual run state before attaching another event.",
+    "A stale evaluator cannot overwrite the current delivery decision or admit another run.",
+    "Disabled or retiring triggers cannot admit new work after the authority checkpoint.",
+    "A parked task and its active successor no longer violate a trigger projection index.",
+    "Routine edits preserve disabled state; deleted routines cannot be manually launched."
+  ],
+  "regressionEvidence": {
+    "staleEvaluationBeforeFix": "0045f9b21aa5: old worker changed accepted/enqueued to ignored/ignored",
+    "routinePatchBeforeFix": "6f63ebd99352: editing a disabled routine changed enabled to true"
+  },
+  "cleanup": {
+    "verificationContainersRemaining": 0,
+    "verificationVolumesRemaining": 0,
+    "dedicatedTriggerDatabaseRemoved": true,
+    "boxCalls": 0
+  },
+  "limits": [
+    "Provider registration tests inject GitHub/Sentry responses; live consent and hook registration remain separate.",
+    "No authenticated hosted Companion execution was performed for this change."
+  ],
+  "hosted": {
+    "applicationCommit": "465be445243cdb14bf020ca2233e1895bb162260",
+    "services": {
+      "api": {
+        "deploymentId": "09eeb5d8-228a-46a1-934b-57da17ddab46",
+        "status": "SUCCESS",
+        "sourceVerified": true
+      },
+      "worker": {
+        "deploymentId": "4021b842-2af2-4ad5-b3bf-01a82c3870d1",
+        "status": "SUCCESS",
+        "sourceVerified": true
+      },
+      "executor": {
+        "deploymentId": "e3a0ea26-a18f-4797-bf5d-a533ecc51a73",
+        "status": "SUCCESS",
+        "sourceVerified": true
+      }
+    },
+    "acceptance": {
+      "sourceVerifiedOnAllServices": true,
+      "patchOmissionPreserved": true,
+      "obsoleteRunningIndexAbsent": true,
+      "publicChecks": [
+        {
+          "path": "/health",
+          "status": 200
+        },
+        {
+          "path": "/",
+          "status": 200
+        },
+        {
+          "path": "/api/companions",
+          "status": 401
+        },
+        {
+          "path": "/api/companions/00000000-0000-4000-8000-000000000001/routines",
+          "status": 401
+        },
+        {
+          "path": "/api/companions/00000000-0000-4000-8000-000000000001/triggers",
+          "status": 401
+        },
+        {
+          "path": "/api/webhooks/00000000-0000-4000-8000-000000000001",
+          "status": 404
+        }
+      ],
+      "liveBoxesWoken": 0
+    }
+  }
+}

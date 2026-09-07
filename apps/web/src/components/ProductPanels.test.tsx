@@ -1,4 +1,4 @@
-import { act, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AccountProduct, DeliverySettings, DesktopSheet, SpecialistsSettings } from "./ProductPanels";
@@ -10,6 +10,25 @@ beforeEach(() => { vi.unstubAllGlobals(); window.history.replaceState({}, "", "/
 afterEach(() => vi.useRealTimers());
 
 describe("account delivery", () => {
+  it.each(["queued", "admitted", "cancelling"])("refreshes %s requests without replacing an unsaved capacity limit", async state => {
+    let requests = [{ id: "request-1", companionId: "c1", state, waitingReason: null, kind: "test" }];
+    vi.stubGlobal("fetch", vi.fn((input: RequestInfo | URL) => {
+      const path = String(input);
+      if (path === "/api/billing") return response({ mode: "beta", active: true, usage: [] });
+      if (path === "/api/deliveries") return response({ sent: [], received: [] });
+      if (path === "/api/maintenance") return response({ companions: [] });
+      if (path === "/api/account/specialist-limits") return response({ limits: { active: 2, startsPerHour: 8, queue: 10 }, requests });
+      throw Error(`Unexpected ${path}`);
+    }));
+    render(<AccountProduct user={{ id: "u1", name: "Alex", email: "alex@example.com" }} onSignOut={vi.fn()}/>);
+    const limit = await screen.findByRole("spinbutton", { name: "My active specialist limit" });
+    fireEvent.change(limit, { target: { value: "5" } });
+    requests = [];
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Cancel" })).not.toBeInTheDocument(), { timeout: 3_000 });
+    expect(limit).toHaveValue(5);
+    expect(screen.getByRole("button", { name: "Save" })).toBeEnabled();
+  });
+
   it("shows persisted specialist admission limits and cancels a queued request", async () => {
     let requests = [{ id: "request-1", companionId: "c1", state: "waiting", waitingReason: "Waiting for an active slot", kind: "test" }];
     const fetchMock = vi.fn((input: RequestInfo | URL, options?: RequestInit) => {

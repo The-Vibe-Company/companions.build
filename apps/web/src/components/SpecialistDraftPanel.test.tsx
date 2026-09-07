@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { SpecialistDraftPanel } from "./SpecialistDraftPanel";
@@ -25,7 +25,7 @@ describe("SpecialistDraftPanel", () => {
         return response({ draft });
       }
       if (path === "/api/templates/template-1/draft/test" && options?.method === "POST") {
-        draft = { ...draft, status: "testing", lastTest: { id: "test-1", generation: 4, status: "succeeded", createdAt: "2026-09-07T20:00:00.000Z", assessment: null } };
+        draft = { ...draft, status: "editing", lastTest: { id: "test-1", generation: 4, status: "succeeded", createdAt: "2026-09-07T20:00:00.000Z", assessment: null } };
         return response({ draft });
       }
       if (path === "/api/templates/template-1/draft/test/test-1/assessment" && options?.method === "POST") {
@@ -63,5 +63,31 @@ describe("SpecialistDraftPanel", () => {
     await user.click(screen.getByRole("button", { name: "Publish version" }));
     await waitFor(() => expect(bodies.some(item => item.path.endsWith("/publish") && item.body.contentReviewed === true && item.body.expectedGeneration === 4)).toBe(true));
     expect(await screen.findByText(/Publication preparing/)).toBeInTheDocument();
+  });
+});
+
+
+describe("draft operation controls", () => {
+  it.each(["running", "failed"])("opens the %s test transcript", async status => {
+    const onOpenCompanion = vi.fn();
+    vi.stubGlobal("fetch", vi.fn((input: RequestInfo | URL) => {
+      if (String(input).endsWith("/draft")) return response({ draft: { ...baseDraft, lastTest: { id: "test", status, companionId: "test-copy", generation: 3 } } });
+      return response({ accounts: [], catalog: [] });
+    }));
+    render(<SpecialistDraftPanel templateId="template-1" companionId="draft-1" onClose={vi.fn()} onOpenCompanion={onOpenCompanion}/>);
+    fireEvent.click(await screen.findByRole("button", { name: "Open test chat" }));
+    expect(onOpenCompanion).toHaveBeenCalledWith("test-copy");
+  });
+
+  it.each(["testing", "publishing"])("locks configuration until persisted %s finishes", async status => {
+    let draft = { ...baseDraft, status };
+    vi.stubGlobal("fetch", vi.fn((input: RequestInfo | URL) => String(input).endsWith("/draft") ? response({ draft }) : response({ accounts: [], catalog: [] })));
+    render(<SpecialistDraftPanel templateId="template-1" companionId="draft-1" onClose={vi.fn()}/>);
+    const instructions = await screen.findByRole("textbox", { name: "Instructions" });
+    expect(instructions).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Test mission" })).toBeDisabled();
+    expect(screen.getByRole("checkbox", { name: /I reviewed/ })).toBeDisabled();
+    draft = { ...draft, status: "editing" };
+    await waitFor(() => expect(instructions).toBeEnabled(), { timeout: 3_000 });
   });
 });

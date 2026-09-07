@@ -1,3 +1,4 @@
+.specialist-draft-container{display:contents}.specialist-draft-container[hidden]{display:none}
 .specialist-draft{display:flex;width:390px;max-width:42vw;min-height:0;flex:0 0 390px;flex-direction:column;border-left:1px solid var(--border);background:var(--background)}
 .specialist-draft__header{display:flex;min-height:65px;align-items:center;justify-content:space-between;padding:10px 14px 10px 20px;border-bottom:1px solid var(--border);background:var(--card)}
 .specialist-draft__header span{color:var(--muted-foreground);font-size:.68rem}.specialist-draft__header h2{margin:2px 0 0;font-size:.95rem}

@@ -63,6 +63,8 @@ export function SpecialistDraftPanel({ templateId, companionId, onClose, onConne
     return () => window.clearTimeout(timer);
   }, [draft, load]);
 
+  const operationPending = draft?.status === "testing" || draft?.status === "publishing";
+  const controlsDisabled = Boolean(busy) || operationPending;
   const dirty = Boolean(draft) && (name !== draft!.name || instructions !== draft!.instructions || initScript !== draft!.initScript);
   useEffect(() => {
     if (!draft || dirty || busy || draft.status === "testing" || draft.status === "publishing") return;
@@ -72,7 +74,7 @@ export function SpecialistDraftPanel({ templateId, companionId, onClose, onConne
 
   async function save(event: FormEvent) {
     event.preventDefault();
-    if (!draft || busy || !name.trim()) return;
+    if (!draft || controlsDisabled || !name.trim()) return;
     setBusy("save"); setError(""); setNotice("");
     try {
       const result = await workspaceApi.updateTemplateDraft(templateId, {
@@ -86,7 +88,7 @@ export function SpecialistDraftPanel({ templateId, companionId, onClose, onConne
 
   async function runTest(event: FormEvent) {
     event.preventDefault();
-    if (!draft || dirty || busy || !testPrompt.trim()) return;
+    if (!draft || dirty || controlsDisabled || !testPrompt.trim()) return;
     setBusy("test"); setError(""); setNotice("");
     try {
       const result = await workspaceApi.testTemplateDraft(templateId, { expectedGeneration: draft.generation, prompt: testPrompt.trim() });
@@ -96,7 +98,7 @@ export function SpecialistDraftPanel({ templateId, companionId, onClose, onConne
   }
 
   async function assess(assessment: "satisfactory" | "needs_changes") {
-    if (!draft?.lastTest || busy) return;
+    if (!draft?.lastTest || controlsDisabled) return;
     setBusy("assessment"); setError(""); setNotice("");
     try {
       const result = await workspaceApi.assessTemplateTest(templateId, draft.lastTest.id, assessment);
@@ -106,7 +108,7 @@ export function SpecialistDraftPanel({ templateId, companionId, onClose, onConne
   }
 
   async function publish() {
-    if (!draft || dirty || busy || !reviewed) return;
+    if (!draft || dirty || controlsDisabled || !reviewed) return;
     setBusy("publish"); setError(""); setNotice("");
     try {
       const result = await workspaceApi.publishTemplateDraft(templateId, draft.generation);
@@ -126,24 +128,24 @@ export function SpecialistDraftPanel({ templateId, companionId, onClose, onConne
     <div className="specialist-draft__content">
       <p className="specialist-draft__intro">Prepare this reusable environment in chat, then save the instructions that future copies receive.</p>
       <form className="specialist-draft__form" onSubmit={save}>
-        <label>Name<input value={name} maxLength={80} disabled={Boolean(busy)} onChange={event => { setName(event.target.value); setNotice(""); }}/></label>
-        <label>Instructions<Textarea value={instructions} rows={7} maxLength={20_000} disabled={Boolean(busy)} onChange={event => { setInstructions(event.target.value); setNotice(""); }}/></label>
-        <label>Initialization script<span className="specialist-draft__hint">Runs once when a test or intervention copy is created.</span><Textarea className="specialist-draft__script" value={initScript} rows={7} spellCheck={false} disabled={Boolean(busy)} placeholder="Optional shell script" onChange={event => { setInitScript(event.target.value); setNotice(""); }}/></label>
-        <Button type="submit" disabled={Boolean(busy) || !dirty || !name.trim()}>{busy === "save" ? <LoaderCircle className="spin"/> : <Check/>}{busy === "save" ? "Saving…" : "Save configuration"}</Button>
+        <label>Name<input value={name} maxLength={80} disabled={controlsDisabled} onChange={event => { setName(event.target.value); setNotice(""); }}/></label>
+        <label>Instructions<Textarea value={instructions} rows={7} maxLength={20_000} disabled={controlsDisabled} onChange={event => { setInstructions(event.target.value); setNotice(""); }}/></label>
+        <label>Initialization script<span className="specialist-draft__hint">Runs once when a test or intervention copy is created.</span><Textarea className="specialist-draft__script" value={initScript} rows={7} spellCheck={false} disabled={controlsDisabled} placeholder="Optional shell script" onChange={event => { setInitScript(event.target.value); setNotice(""); }}/></label>
+        <Button type="submit" disabled={controlsDisabled || !dirty || !name.trim()}>{busy === "save" ? <LoaderCircle className="spin"/> : <Check/>}{busy === "save" ? "Saving…" : "Save configuration"}</Button>
       </form>
 
       <section className="specialist-draft__section"><div className="specialist-draft__section-title"><div><h3>Apps &amp; accounts</h3><p>Select the real accounts used while preparing this draft.</p></div></div><ApplicationAccess companionId={companionId} onConnect={onConnections}/></section>
 
       <section className="specialist-draft__section"><div className="specialist-draft__section-title"><div><h3>Test a mission</h3><p>A test runs on a fresh copy of this saved generation.</p></div><span className={`specialist-draft__status specialist-draft__status--${draft.lastTest?.status ?? "none"}`}>{testStatus(draft)}</span></div>
-        {draft.lastTest && <div className="specialist-draft__test-result"><span>Generation {draft.lastTest.generation}</span>{draft.lastTest.error && <p role="alert">{draft.lastTest.error}</p>}{testFinished && <div><Button type="button" size="sm" variant={draft.lastTest.assessment === "satisfactory" ? "default" : "outline"} disabled={Boolean(busy)} onClick={() => void assess("satisfactory")}>Satisfactory</Button><Button type="button" size="sm" variant="outline" disabled={Boolean(busy)} aria-pressed={draft.lastTest.assessment === "needs_changes"} onClick={() => void assess("needs_changes")}>Needs changes</Button>{draft.lastTest.companionId && <Button type="button" size="sm" variant="ghost" onClick={() => onOpenCompanion?.(draft.lastTest!.companionId!)}>Open test chat</Button>}</div>}</div>}
-        <form className="specialist-draft__test" onSubmit={runTest}><label htmlFor={`test-${templateId}`}>Test brief</label><Textarea id={`test-${templateId}`} value={testPrompt} rows={3} disabled={Boolean(busy)} placeholder="Give the copy a concrete mission and expected result." onChange={event => setTestPrompt(event.target.value)}/>{dirty && <p>Save this configuration before testing it.</p>}<Button type="submit" variant="outline" disabled={Boolean(busy) || dirty || !testPrompt.trim()}>{busy === "test" ? <LoaderCircle className="spin"/> : <FlaskConical/>}{busy === "test" ? "Starting…" : "Test mission"}</Button></form>
+        {draft.lastTest && <div className="specialist-draft__test-result"><span>Generation {draft.lastTest.generation}</span>{draft.lastTest.error && <p role="alert">{draft.lastTest.error}</p>}{testFinished && <div><Button type="button" size="sm" variant={draft.lastTest.assessment === "satisfactory" ? "default" : "outline"} disabled={controlsDisabled} onClick={() => void assess("satisfactory")}>Satisfactory</Button><Button type="button" size="sm" variant="outline" disabled={controlsDisabled} aria-pressed={draft.lastTest.assessment === "needs_changes"} onClick={() => void assess("needs_changes")}>Needs changes</Button></div>}{draft.lastTest.companionId && <Button type="button" size="sm" variant="ghost" onClick={() => onOpenCompanion?.(draft.lastTest!.companionId!)}>Open test chat</Button>}</div>}
+        <form className="specialist-draft__test" onSubmit={runTest}><label htmlFor={`test-${templateId}`}>Test brief</label><Textarea id={`test-${templateId}`} value={testPrompt} rows={3} disabled={controlsDisabled} placeholder="Give the copy a concrete mission and expected result." onChange={event => setTestPrompt(event.target.value)}/>{dirty && <p>Save this configuration before testing it.</p>}<Button type="submit" variant="outline" disabled={controlsDisabled || dirty || !testPrompt.trim()}>{busy === "test" ? <LoaderCircle className="spin"/> : <FlaskConical/>}{busy === "test" ? "Starting…" : "Test mission"}</Button></form>
       </section>
 
       <section className="specialist-draft__section specialist-draft__publish"><div className="specialist-draft__section-title"><div><h3>Publish</h3><p>{publication ? `Publication ${publication.status}${publication.version ? ` · version ${publication.version}` : ""}.` : "Make an immutable version available to teams."}</p></div></div>
         {publication?.error && <p className="specialist-draft__publication-error" role="alert">{publication.error}</p>}
-        <label className="specialist-draft__review"><input type="checkbox" checked={reviewed} disabled={Boolean(busy) || dirty} onChange={event => setReviewed(event.target.checked)}/><span><strong>I reviewed the shared content</strong><small>The prepared disk can include browser sessions and credentials stored in files. Managed chat history and platform connections are removed.</small></span></label>
+        <label className="specialist-draft__review"><input type="checkbox" checked={reviewed} disabled={controlsDisabled || dirty} onChange={event => setReviewed(event.target.checked)}/><span><strong>I reviewed the shared content</strong><small>The prepared disk can include browser sessions and credentials stored in files. Managed chat history and platform connections are removed.</small></span></label>
         {!draft.lastTest && <p className="specialist-draft__warning">This generation has not been tested. You can still publish it.</p>}
-        <Button type="button" disabled={Boolean(busy) || dirty || !reviewed} onClick={() => void publish()}>{busy === "publish" ? <LoaderCircle className="spin"/> : <Send/>}{busy === "publish" ? "Publishing…" : "Publish version"}</Button>
+        <Button type="button" disabled={controlsDisabled || dirty || !reviewed} onClick={() => void publish()}>{busy === "publish" ? <LoaderCircle className="spin"/> : <Send/>}{busy === "publish" ? "Publishing…" : "Publish version"}</Button>
       </section>
       {error && <p className="specialist-draft__error" role="alert">{error}</p>}
       {notice && <p className="specialist-draft__notice" role="status">{notice}</p>}

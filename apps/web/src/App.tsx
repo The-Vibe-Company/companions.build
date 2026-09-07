@@ -395,6 +395,7 @@ function CompanionView({ detail, models, onRefresh, onUnauthorized, onMenu, onOp
     return value === 'team' || value === 'automations' || value === 'activity' || value === 'computer' || value === 'applications' || value === 'settings' ? value : 'chat';
   };
   const [view, setView] = useState(readView);
+  const [configurationOpen, setConfigurationOpen] = useState(true);
   const [settingsVisited, setSettingsVisited] = useState(() => readView() === 'settings');
   const settingsRef = useRef<SettingsSheetHandle>(null);
   useEffect(() => { const restore = () => { const restoredView = readView(); setView(restoredView); if (restoredView === 'settings') setSettingsVisited(true); }; window.addEventListener('popstate', restore); return () => window.removeEventListener('popstate', restore); }, []);
@@ -424,9 +425,10 @@ function CompanionView({ detail, models, onRefresh, onUnauthorized, onMenu, onOp
   return (
     <main className="workspace" id="main-content">
       <CompanionHeader detail={detail} section={view} refreshVersion={refreshVersion} onSection={changeView} onMenu={onMenu} />
+      {specialistTemplateId && !finished && view === "chat" && <Button className="self-start m-2" variant="outline" aria-expanded={configurationOpen} aria-controls="specialist-configuration" onClick={() => setConfigurationOpen(open => !open)}>{configurationOpen ? "Show draft chat" : "Show configuration"}</Button>}
       <div className="workspace-body" hidden={view !== 'chat'}>
         <Chat detail={detail} onRefresh={onRefresh} onUnauthorized={onUnauthorized} onOpenCompanion={onOpenCompanion} specialistTemplateId={specialistTemplateId} readOnly={finished} />
-        {specialistTemplateId && !finished && <Suspense fallback={<aside className="specialist-draft specialist-draft--loading" role="status" aria-label="Loading specialist configuration"/>}><SpecialistDraftPanel templateId={specialistTemplateId} companionId={detail.companion.id} onClose={() => onNavigate("/specialists")} onOpenCompanion={onOpenCompanion} /></Suspense>}
+        {specialistTemplateId && !finished && <div id="specialist-configuration" className="specialist-draft-container" hidden={!configurationOpen}><Suspense fallback={<aside className="specialist-draft specialist-draft--loading" role="status" aria-label="Loading specialist configuration"/>}><SpecialistDraftPanel templateId={specialistTemplateId} companionId={detail.companion.id} onClose={() => setConfigurationOpen(false)} onOpenCompanion={onOpenCompanion} /></Suspense></div>}
       </div>
       {!finished && view === 'automations' && <section className="companion-page" aria-label="Automations"><div className="companion-page-inner"><header className="section-intro"><h2>A little help, on repeat.</h2><p>Set the timing. Your companion takes it from there.</p></header><div className="automation-group"><RoutineSettings companionId={detail.companion.id}/></div><div className="automation-group" id="events"><TriggerSettings companionId={detail.companion.id}/></div></div></section>}
       {!finished && view === 'team' && <section className="companion-page" aria-label="Team"><Suspense fallback={<div className="companion-page-inner" role="status">Opening your team…</div>}><TeamPanel companion={detail.companion} refreshVersion={refreshVersion} onOpenCompanion={onOpenCompanion}/></Suspense></section>}
@@ -791,7 +793,7 @@ export function App() {
         <Suspense fallback={<main className="detail-loading" id="main-content" role="status">Opening specialists…</main>}><SpecialistLibrary onMenu={() => setSidebarOpen(true)} onOpenDraft={(companionId, templateId) => navigate(`/companions/${companionId}?specialist=${encodeURIComponent(templateId)}`)} /></Suspense>
       ) : currentPath === "/connections" && !createOpen ? (
         <ConnectionsPage onMenu={() => setSidebarOpen(true)} />
-      ) : companions.length === 0 || createOpen ? (
+      ) : (companions.length === 0 && !selectedId) || createOpen ? (
         <main className="onboarding" id="main-content">
           <div className="onboarding-mobile-header"><Button disabled={creationLocked} variant="ghost" size="icon" onClick={() => setSidebarOpen(true)} aria-label="Open navigation"><Menu /></Button><span className="wordmark">companions.build</span></div>
           <Suspense fallback={<div className="detail-loading" role="status">Opening creation…</div>}><CreateCompanion ownerId={user.id} onSetupLockedChange={setupLockedChange} config={config} onCreated={handleCreated} compact={companions.length > 0} /></Suspense>

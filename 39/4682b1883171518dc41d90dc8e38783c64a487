@@ -1,0 +1,29 @@
+scripts/lib/distribution-verification.test.ts
+  s_f946242dcf6ba9::t_3aa143f21154db 1-114
+scripts/lib/distribution-verification.ts
+  s_f946242dcf6ba9::t_6903a81576b984 1-105
+scripts/prepare-box-template.ts
+  s_f946242dcf6ba9::t_ece88e83a471da 1,4,6-7,24-55,57-71
+scripts/register-software-base.test.ts
+  s_f946242dcf6ba9::t_3ffcc86ff78b6f 10-42
+scripts/register-software-base.ts
+  s_f946242dcf6ba9::t_84cb99e29a0d07 5,7,30,32,40
+scripts/test-distribution-verification.ts
+  s_f946242dcf6ba9::t_d5b15014d1a93b 1-33
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "394682b1883171518dc41d90dc8e38783c64a487",
+  "prompts": {},
+  "sessions": {
+    "s_f946242dcf6ba9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a06de4-a8a5-7cd3-b713-2a8d451f7200",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "StanGirard <stan@quivr.app>"
+    }
+  }
+}

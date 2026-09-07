@@ -10,6 +10,26 @@ beforeEach(() => { vi.unstubAllGlobals(); window.history.replaceState({}, "", "/
 afterEach(() => vi.useRealTimers());
 
 describe("account delivery", () => {
+  it("presents customer usage without internal lifecycle audit events", async () => {
+    vi.stubGlobal("fetch", vi.fn((input: RequestInfo | URL) => {
+      if (String(input) === "/api/billing") return response({ configured: true, mode: "stripe", plan: "subscription", active: true, status: "active", currentPeriodEnd: null, cancelAtPeriodEnd: false, portalAvailable: true, usage: [
+        { category: "box_lifecycle", unit: "event", quantity: "9" },
+        { category: "box_seconds", unit: "second", quantity: "7385" },
+        { category: "model_tokens", unit: "token", quantity: "12345" },
+      ] });
+      if (String(input) === "/api/deliveries") return response({ sent: [], received: [] });
+      if (String(input) === "/api/maintenance") return response({ companions: [] });
+      throw new Error(`Unexpected ${String(input)}`);
+    }));
+    render(<AccountProduct user={{ id: "u1", name: "Alex", email: "alex@example.com" }} onSignOut={vi.fn()} />);
+    expect(await screen.findByText("2 hr 3 min 5 sec")).toBeInTheDocument();
+    expect(screen.getByText(new Intl.NumberFormat(undefined, { notation: "compact", maximumFractionDigits: 1 }).format(12345n))).toBeInTheDocument();
+    expect(screen.getByText("Computer time")).toBeInTheDocument();
+    expect(screen.getByText("Model usage")).toBeInTheDocument();
+    expect(screen.queryByText(/box lifecycle/i)).not.toBeInTheDocument();
+    expect(screen.getByTitle(new Intl.NumberFormat().format(12345n) + " tokens")).toBeInTheDocument();
+  });
+
   it("shows real inactive billing and sends the client maintenance choice", async () => {
     let accepted = false;
     const fetchMock = vi.fn((input: RequestInfo | URL, options?: RequestInit) => {

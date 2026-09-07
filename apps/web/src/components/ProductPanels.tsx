@@ -17,6 +17,18 @@ const deliveryState = (item: DeliverySent | DeliveryReceived) => {
   if (item.softwareStatus === "pending") return "Preparing software…";
   return "Ready for client";
 };
+const compactQuantity = new Intl.NumberFormat(undefined, { notation: "compact", maximumFractionDigits: 1 });
+const exactQuantity = new Intl.NumberFormat();
+function durationLabel(raw:string){
+  const seconds=/^\d+$/.test(raw)?BigInt(raw):0n,hours=seconds/3600n,minutes=seconds%3600n/60n,remainder=seconds%60n;
+  const parts:string[]=[];if(hours)parts.push(`${hours} hr`);if(minutes)parts.push(`${minutes} min`);if(remainder)parts.push(`${remainder} sec`);return parts.join(" ")||"0 sec";
+}
+function usagePresentation(item:BillingOverview["usage"][number]){
+  const quantity=/^\d+$/.test(item.quantity)?BigInt(item.quantity):0n;
+  if(item.category==="box_seconds")return {label:"Computer time",value:durationLabel(item.quantity),title:`${exactQuantity.format(quantity)} seconds`};
+  if(item.category==="model_tokens")return {label:"Model usage",value:compactQuantity.format(quantity),title:`${exactQuantity.format(quantity)} tokens`};
+  return {label:item.category.replaceAll("_"," "),value:exactQuantity.format(quantity),title:`${exactQuantity.format(quantity)} ${item.unit}`};
+}
 
 export function AccountProduct({ user, onSignOut }: { user: AccountUser; onSignOut: () => Promise<void> }) {
   const [billing, setBilling] = useState<BillingOverview | null>(null);
@@ -60,13 +72,14 @@ export function AccountProduct({ user, onSignOut }: { user: AccountUser; onSignO
     catch (cause) { setError(errorText(cause)); } finally { setBusy(""); }
   }
   const subscriptionActive = billing?.mode === "stripe" && billing.plan === "subscription" && billing.active;
+  const visibleUsage=billing?.usage.filter(item=>item.category!=="box_lifecycle")??[];
   return <div className="account-product">
     <section className="account-identity"><span className="large-initial">{user.email.slice(0, 1).toUpperCase()}</span><div><strong>{user.name || "Your account"}</strong><small>{user.email}</small></div><Button variant="outline" onClick={() => void onSignOut()}>Sign out</Button></section>
     {error && <p className="field-error" role="alert">{error}</p>}
     <section className="product-section" aria-labelledby="plan-title">
       <div className="section-heading"><div><CircleDollarSign /><span><h2 id="plan-title">Plan</h2><p>{billing?.mode === "test" ? "Local activation enabled" : subscriptionActive ? "Subscription active" : billing?.configured ? "Ready when you are" : "Unavailable on this installation"}</p></span></div>{(subscriptionActive || billing?.mode === "test") && <span className="status-pill status-pill--good"><Check />{billing?.mode === "test" ? "Test" : "Active"}</span>}</div>
       {billing ? <div className="plan-line"><div><strong>{billing.mode === "test" ? "Development access" : billing.plan === "subscription" ? "companions.build" : "No subscription"}</strong><small>{billing.status ? `${billing.status.replaceAll("_", " ")} · subscription + usage` : billing.mode === "test" ? "No live subscription" : "Subscription + usage appear here."}</small></div>{billing.portalAvailable ? <Button variant="outline" onClick={() => void billingAction("portal")} disabled={!!busy}>{busy === "portal" ? <LoaderCircle className="spin" /> : <ArrowUpRight />}Manage</Button> : billing.configured && !billing.active ? <Button onClick={() => void billingAction("checkout")} disabled={!!busy}>{busy === "checkout" ? <LoaderCircle className="spin" /> : <ArrowUpRight />}Subscribe</Button> : null}</div> : <div className="skeleton skeleton--row" />}
-      {!!billing?.usage.length && <div className="usage-lines">{billing.usage.map(item => <span key={`${item.category}-${item.unit}`}><strong>{Number(item.quantity).toLocaleString()}</strong><small>{item.category.replaceAll("_", " ")} · {item.unit}</small></span>)}</div>}
+      {!!visibleUsage.length && <div className="usage-lines">{visibleUsage.map(item => {const view=usagePresentation(item);return <span key={`${item.category}-${item.unit}`} title={view.title}><strong>{view.value}</strong><small>{view.label}</small></span>;})}</div>}
     </section>
     <section className="product-section" aria-labelledby="deliveries-title">
       <div className="section-heading"><div><PackageOpen /><span><h2 id="deliveries-title">Deliveries</h2><p>Companions shared with clients.</p></span></div></div>

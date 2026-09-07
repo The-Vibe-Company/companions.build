@@ -4,3 +4,11 @@
 .settings-unsaved p { max-width:32ch; font-size:1rem; line-height:1.6; }
 .settings-unsaved>div { display:flex; flex-wrap:wrap; gap:8px; }
 @media(max-width:760px) { .settings-unsaved button { min-height:44px; } }
+
+.settings-delete-entry { display:flex; align-items:center; gap:10px; margin-top:32px; padding:12px 0; color:var(--destructive); font-size:.875rem; }
+.settings-delete-entry svg { width:16px; height:16px; }
+.settings-delete-confirm { display:flex; flex-direction:column; align-items:flex-start; gap:20px; padding:20px 0; }
+.settings-delete-confirm h3 { font-size:1.25rem; font-weight:600; }
+.settings-delete-confirm p { line-height:1.6; max-width:46ch; }
+.settings-delete-confirm>div { display:flex; gap:8px; flex-wrap:wrap; }
+.settings-delete-confirm button { min-height:44px; }

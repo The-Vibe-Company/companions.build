@@ -9,7 +9,7 @@ const detail: CompanionDetail = {
   messages:[],runs:[],activity:[],
 };
 function setup() {
-  const callbacks = { onClose:vi.fn(),onSaved:vi.fn().mockResolvedValue(undefined),onActivity:vi.fn(),onDesktop:vi.fn() };
+  const callbacks = { onClose:vi.fn(),onDeleted:vi.fn(),onSaved:vi.fn().mockResolvedValue(undefined),onActivity:vi.fn(),onDesktop:vi.fn() };
   render(<SettingsSheet detail={detail} initialPage="identity" models={[]} connections={<p>Applications</p>} {...callbacks}/>);
   return { user:userEvent.setup(),...callbacks };
 }
@@ -55,4 +55,40 @@ it('guards the computer action when unsaved identity changes are kept on the set
   expect(onDesktop).not.toHaveBeenCalled();
   await user.click(screen.getByRole('button',{name:'Discard changes'}));
   expect(onDesktop).toHaveBeenCalledOnce();
+});
+
+
+it('requires explicit deletion, keeps failure visible, and retries the same companion', async () => {
+  const remove=vi.spyOn(api,'deleteCompanion').mockRejectedValueOnce(new Error('Could not delete.')).mockResolvedValue({deleted:true,companionIds:['ada','child']});
+  const {user,onDeleted}=setup();
+  await user.click(screen.getByRole('button',{name:'Back to settings'}));
+  await user.click(screen.getByRole('button',{name:'Delete companion'}));
+  expect(screen.getByRole('button',{name:'Keep companion'})).toHaveFocus();
+  expect(remove).not.toHaveBeenCalled();
+  await user.click(screen.getByRole('button',{name:'Keep companion'}));
+  expect(remove).not.toHaveBeenCalled();
+  await user.click(screen.getByRole('button',{name:'Delete companion'}));
+  await user.click(screen.getByRole('button',{name:'Delete companion'}));
+  expect(await screen.findByRole('alert')).toHaveTextContent('Could not delete.');
+  expect(onDeleted).not.toHaveBeenCalled();
+  await user.click(screen.getByRole('button',{name:'Delete companion'}));
+  await waitFor(()=>expect(onDeleted).toHaveBeenCalledWith(['ada','child']));
+  expect(remove).toHaveBeenNthCalledWith(1,'ada');
+  expect(remove).toHaveBeenNthCalledWith(2,'ada');
+});
+
+it('prevents duplicate deletion and closing while the request is pending', async () => {
+  let finish!: (value: {deleted:true;companionIds:string[]}) => void;
+  const remove=vi.spyOn(api,'deleteCompanion').mockImplementation(()=>new Promise(resolve=>{finish=resolve;}));
+  const {user,onDeleted,onClose}=setup();
+  await user.click(screen.getByRole('button',{name:'Back to settings'}));
+  await user.click(screen.getByRole('button',{name:'Delete companion'}));
+  await user.click(screen.getByRole('button',{name:'Delete companion'}));
+  expect(screen.getByRole('button',{name:'Deleting…'})).toBeDisabled();
+  expect(screen.getByRole('button',{name:'Close settings'})).toBeDisabled();
+  fireEvent(screen.getByRole('dialog'),new Event('cancel',{bubbles:true,cancelable:true}));
+  expect(onClose).not.toHaveBeenCalled();
+  expect(remove).toHaveBeenCalledOnce();
+  finish({deleted:true,companionIds:['ada']});
+  await waitFor(()=>expect(onDeleted).toHaveBeenCalledWith(['ada']));
 });

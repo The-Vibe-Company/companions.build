@@ -38,6 +38,33 @@ describe("first Companion flow", () => {
 
   afterEach(() => vi.unstubAllGlobals());
 
+  it("removes a deleted companion from navigation and returns home", async () => {
+    window.history.replaceState({}, "", "/companions/ada");
+    const ready = {...companion,status:"ready"};
+    let deleted = false;
+    const fetchMock=vi.fn((input:RequestInfo|URL,options?:RequestInit)=>{
+      const path=String(input);
+      if(path==="/api/me") return response(me);
+      if(path==="/api/config") return response(config);
+      if(path==="/api/companions") return response({companions:deleted?[{...ready,id:"june",name:"June"}]:[ready,{...ready,id:"june",name:"June"}]});
+      if(path==="/api/companions/ada" && options?.method==="DELETE") {deleted=true;return response({deleted:true,companionIds:["ada"]},202);}
+      if(path==="/api/companions/ada") return response({companion:ready,messages:[],runs:[],activity:[]});
+      if(path==="/api/plugins") return response({catalog:[],accounts:[]});
+      if(path==="/api/companions/ada/plugins") return response({accounts:[]});
+      throw new Error(`Unexpected request ${path}`);
+    });
+    vi.stubGlobal("fetch",fetchMock);
+    const user=userEvent.setup();render(<App/>);
+    await user.click(await screen.findByRole("button",{name:"Settings for Ada"}));
+    await user.click(screen.getByRole("button",{name:"Delete companion"}));
+    await user.click(screen.getByRole("button",{name:"Delete companion"}));
+    expect(await screen.findByRole("heading",{name:"Your companions."})).toBeInTheDocument();
+    expect(window.location.pathname).toBe("/");
+    expect(screen.queryByRole("textbox",{name:"Message Ada"})).not.toBeInTheDocument();
+    expect(screen.queryByRole("button",{name:/Ada, Companion/})).not.toBeInTheDocument();
+    expect(screen.getAllByRole("button",{name:/June, Companion/}).length).toBeGreaterThan(0);
+  });
+
   it("refreshes durable chat snapshots after coalesced events and closes revoked streams", async () => {
     window.history.replaceState({}, "", "/companions/ada");
     const ready = { ...companion, status: "ready" as const };

@@ -533,7 +533,7 @@ function CompanionConnections({ companionId }: { companionId: string }) {
   return <div className="settings-stack"><div className="settings-intro"><Waypoints /><div><h3>Connections</h3><p>Choose which connected accounts this Companion can use.</p></div></div>{all.length === 0 ? <p className="settings-empty">Connect an account from Connections first.</p> : all.map((account) => <label className="connection-choice" key={account.id}><span className="provider-dot">{(account.provider ?? account.label).slice(0, 1).toUpperCase()}</span><span><strong>{account.label}</strong><small>{account.provider ?? account.serverId}</small></span><input type="checkbox" checked={selectedIds.has(account.id)} onChange={() => void (selectedIds.has(account.id) ? workspaceApi.unselectPlugin(companionId, account.id) : workspaceApi.selectPlugin(companionId, account.id)).then(load)} /></label>)}{error && <p className="field-error">{error}</p>}</div>;
 }
 
-function CompanionView({ detail, models, onRefresh, onUnauthorized, onMenu, onOpenCompanion }: { detail: CompanionDetail; models: Array<{ id: string; name: string }>; onRefresh: () => Promise<void>; onUnauthorized: () => void; onMenu: () => void; onOpenCompanion: (id: string) => void }) {
+function CompanionView({ detail, models, onRefresh, onUnauthorized, onMenu, onOpenCompanion, onDeleted }: { detail: CompanionDetail; models: Array<{ id: string; name: string }>; onDeleted: (ids: string[]) => void; onRefresh: () => Promise<void>; onUnauthorized: () => void; onMenu: () => void; onOpenCompanion: (id: string) => void }) {
   const readView = () => { const value = new URLSearchParams(window.location.search).get('view'); return value === 'team' || value === 'automations' ? value : 'chat'; };
   const [view, setView] = useState(readView);
   const [automationView, setAutomationView] = useState(() => new URLSearchParams(window.location.search).get('kind') === 'events' ? 'events' : 'routines');
@@ -572,7 +572,7 @@ function CompanionView({ detail, models, onRefresh, onUnauthorized, onMenu, onOp
       {!finished && view === 'automations' && <section className="companion-page" aria-label="Automations"><div className="companion-page-inner"><header className="section-intro"><h2>A little help, on repeat.</h2><p>Set the timing. Your companion takes it from there.</p></header><nav className="automation-sections" aria-label="Automation type"><button aria-current={automationView === 'routines' ? 'page' : undefined} onClick={() => changeView('automations', 'routines')}>Routines</button><button aria-current={automationView === 'events' ? 'page' : undefined} onClick={() => changeView('automations', 'events')}>Events</button></nav>{automationView === 'routines' ? <RoutineSettings companionId={detail.companion.id}/> : <TriggerSettings companionId={detail.companion.id}/>}</div></section>}
       {!finished && view === 'team' && <section className="companion-page" aria-label="Team"><Suspense fallback={<div className="companion-page-inner" role="status">Opening your team…</div>}><TeamPanel companion={detail.companion} onOpenCompanion={onOpenCompanion}/></Suspense></section>}
       {activityOpen && <div className="activity-layer"><button className="sheet-scrim" onClick={() => setActivityOpen(false)} aria-label="Close activity" /><ActivityPanel detail={detail} onClose={() => setActivityOpen(false)} onOpenCompanion={(id) => { setActivityOpen(false); onOpenCompanion(id); }} /></div>}
-      {settingsOpen && <SettingsSheet initialPage={identityOpen ? "identity" : "home"} detail={detail} models={models} onClose={() => setSettingsOpen(false)} onSaved={onRefresh} connections={<CompanionConnections companionId={detail.companion.id} />} onActivity={() => { setSettingsOpen(false); setActivityOpen(true); }} onDesktop={() => { setSettingsOpen(false); setDesktopOpen(true); }} />}
+      {settingsOpen && <SettingsSheet initialPage={identityOpen ? "identity" : "home"} detail={detail} models={models} onClose={() => setSettingsOpen(false)} onSaved={onRefresh} onDeleted={onDeleted} connections={<CompanionConnections companionId={detail.companion.id} />} onActivity={() => { setSettingsOpen(false); setActivityOpen(true); }} onDesktop={() => { setSettingsOpen(false); setDesktopOpen(true); }} />}
       {desktopOpen && <DesktopSheet companion={detail.companion} onClose={() => setDesktopOpen(false)} onRefresh={onRefresh} />}
     </main>
   );
@@ -662,6 +662,7 @@ export function App() {
   const [authRequired, setAuthRequired] = useState(false);
   const [user, setUser] = useState<AccountUser | null>(null);
   const [currentPath, setCurrentPath] = useState(window.location.pathname);
+  const deletedIds = useRef(new Set<string>());
   const [config, setConfig] = useState<AppConfig | null>(null);
   const [companions, setCompanions] = useState<Companion[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(selectedIdFromPath);
@@ -680,7 +681,7 @@ export function App() {
   const loadList = useCallback(async () => {
     try {
       const result = await api.getCompanions();
-      setCompanions(result.companions);
+      setCompanions(result.companions.filter(item => !deletedIds.current.has(item.id)));
       setPageError("");
       return result.companions;
     } catch (cause) {
@@ -693,7 +694,7 @@ export function App() {
     if (!selectedId) return;
     try {
       const result = await api.getCompanion(selectedId);
-      setDetail(result);
+      if (!deletedIds.current.has(selectedId)) setDetail(result);
       setPageError("");
     } catch (cause) {
       handleApiError(cause);
@@ -797,6 +798,16 @@ export function App() {
     navigate("/");
   }
 
+  function handleDeleted(ids: string[]) {
+    ids.forEach(id => deletedIds.current.add(id));
+    setCompanions(current => current.filter(item => !ids.includes(item.id)));
+    setDetail(null);
+    setPageError('');
+    window.history.replaceState({}, '', '/');
+    setCurrentPath('/'); setSelectedId(null);
+    setCreateOpen(false); setTeamCreateOpen(false);
+  }
+
   function handleCreated(companion: Companion) {
     setCompanions((current) => [companion, ...current.filter(item => item.id !== companion.id)]);
     selectCompanion(companion.id);
@@ -846,7 +857,7 @@ export function App() {
       ) : !selectedId ? (
         <Home companions={companions} onSelect={selectCompanion} onCreateTeam={() => setTeamCreateOpen(true)} onCreate={() => setCreateOpen(true)} onMenu={() => setSidebarOpen(true)} />
       ) : detail && detail.companion.id === selectedId ? (
-        <CompanionView key={detail.companion.id} detail={detail} models={config.models ?? [{ id: config.model, name: config.model }]} onRefresh={loadDetail} onUnauthorized={() => setAuthRequired(true)} onMenu={() => setSidebarOpen(true)} onOpenCompanion={selectCompanion} />
+        <CompanionView onDeleted={handleDeleted} key={detail.companion.id} detail={detail} models={config.models ?? [{ id: config.model, name: config.model }]} onRefresh={loadDetail} onUnauthorized={() => setAuthRequired(true)} onMenu={() => setSidebarOpen(true)} onOpenCompanion={selectCompanion} />
       ) : (
         <main className="detail-loading" id="main-content"><LoaderCircle className="spin" /><span>Opening Companion…</span></main>
       )}

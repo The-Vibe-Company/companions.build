@@ -27,6 +27,7 @@ run('useradd','--system','--no-create-home','--groups','companions-desktop-clien
 # This fixture has no systemd user manager; GUI/Pi processes below are real.
 Path('/usr/local/bin/systemctl').write_text('#!/bin/sh\n[ "$1" = is-active ] || exit 91\necho inactive\nexit 3\n')
 os.chmod('/usr/local/bin/systemctl',0o755)
+Path('/etc/companions-desktop.env').write_text('DESKTOP_STATE_DIR=/var/lib/companions-desktop/00000000-0000-4000-8000-000000000001\n')
 Path('/home/user/browser-secret').write_text('desktop-private')
 for path in ['/run/companions-desktop','/run/companions-desktop-admin','/var/lib/companions-desktop']:
     Path(path).mkdir(parents=True,exist_ok=True); os.chown(path,1000,1000)

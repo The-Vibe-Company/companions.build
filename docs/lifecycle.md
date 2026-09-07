@@ -83,8 +83,10 @@ The frozen installation also masks the exact legacy user service offline and rem
 `default.target.wants` link. If its user bus exists, retirement uses the desktop UID's bus and
 verifies the service is stopped. Without a bus it requires an inactive user manager. The first
 headless startup recursively migrates state ownership only after retirement, then records a
-root-owned checkpoint outside the agent namespace. Later starts check the state entry points
-without rescanning all histories; changed ownership fails visibly. The authenticated daemon proxy
+root-owned checkpoint outside the agent namespace, bound to the configured Companion UUID,
+effective agent UID and state path. A cloned source checkpoint cannot suppress that migration.
+Later starts inspect the state entry points without rescanning histories; provider ownership
+resets trigger a new migration after legacy retirement. Unchanged starts perform no recursive chown. The authenticated daemon proxy
 binds the guest interface because Box's private preview cannot reach a loopback-only listener.
 It pins its private journal/archive, checks leadership before each remote write, stops only owned
 services and installs on the same Box. It retains Pi state paths, files and desktop intent; a

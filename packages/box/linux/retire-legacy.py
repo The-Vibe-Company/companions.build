@@ -8,6 +8,7 @@ import re
 import stat
 import subprocess
 import sys
+import uuid
 
 if os.getuid()!=0 or len(sys.argv)>2:
     raise SystemExit('LEGACY_RETIREMENT_REQUIRED')
@@ -67,13 +68,20 @@ if len(sys.argv)==2:
         raise SystemExit('INVALID_STATE_DIRECTORY')
     directory=Path(state);directory.mkdir(parents=True,exist_ok=True)
     if directory.resolve()!=directory:raise SystemExit('UNSAFE_STATE_DIRECTORY')
+    identity_file=Path('/etc/companions-desktop.env')
+    identity_match=re.fullmatch(r'DESKTOP_STATE_DIR=/var/lib/companions-desktop/([a-f0-9-]{36})\n?',
+                               identity_file.read_text() if identity_file.exists() else '')
+    if not identity_match:raise SystemExit('DESKTOP_IDENTITY_REQUIRED')
+    identity=str(uuid.UUID(identity_match.group(1)))
     checkpoint=checkpoints/(hashlib.sha256(state.encode()).hexdigest()+'-ownership-v1')
-    if not checkpoint.exists() or checkpoint.read_text()!=state+'\n':
-        # The root directory owner alone cannot prove a previous recursive migration
-        # completed. Write a root-owned checkpoint only after the entire subtree succeeds.
+    expected=identity+'\n'+str(agent.pw_uid)+'\n'+state+'\n'
+    # A snapshot can copy both state and its migration checkpoint. Bind trust to
+    # the configured Companion identity, and detect provider ownership resets on
+    # resume without recursively scanning every history on an ordinary wake.
+    entries=[directory,*directory.iterdir()]
+    drift=any(path.lstat().st_uid!=agent.pw_uid for path in entries)
+    if not checkpoint.exists() or checkpoint.read_text()!=expected or drift:
         subprocess.run(['chown','-R','--no-dereference','companions-agent:companions-agent',state],check=True)
-        checkpoint.write_text(state+'\n')
-    # Cheap checks of runtime entry points; no recursive scan on an ordinary wake.
-    for path in [directory,*directory.iterdir()]:
-        if path.lstat().st_uid!=agent.pw_uid:
+        if any(path.lstat().st_uid!=agent.pw_uid for path in [directory,*directory.iterdir()]):
             raise SystemExit('HEADLESS_STATE_OWNERSHIP_CHANGED')
+        checkpoint.write_text(expected)

@@ -9,6 +9,7 @@ S.run(['useradd','--uid','1000','--create-home','user'],check=True)
 Path('/usr/local/bin/systemctl').write_text('#!/bin/sh\necho inactive\nexit 3\n')
 os.chmod('/usr/local/bin/systemctl',0o755)
 S.run(['useradd','--system','--no-create-home','companions-agent'],check=True)
+Path('/etc/companions-desktop.env').write_text('DESKTOP_STATE_DIR=/var/lib/companions-desktop/00000000-0000-4000-8000-000000000001\n')
 os.environ['AGENT_STATE_DIR']='/home/user/.companions'
 os.execvp=lambda *_:None
 for iteration in range(100):

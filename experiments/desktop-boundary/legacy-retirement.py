@@ -9,6 +9,7 @@ assert os.getuid()==0
 S.run(['useradd','--uid','1000','--create-home','user'],check=True)
 S.run(['useradd','--system','--no-create-home','companions-agent'],check=True)
 agent=pwd.getpwnam('companions-agent')
+Path('/etc/companions-desktop.env').write_text('DESKTOP_STATE_DIR=/var/lib/companions-desktop/00000000-0000-4000-8000-000000000001\n')
 unit_dir=Path('/home/user/.config/systemd/user');unit_dir.mkdir(parents=True)
 unit=unit_dir/'companions-agent.service';unit.write_text('old daemon')
 wants=unit_dir/'default.target.wants';wants.mkdir();(wants/unit.name).symlink_to('../'+unit.name)
@@ -47,11 +48,11 @@ assert (state/'pi'/'sessions'/'history.jsonl').read_text()=='retained history'
 # Later starts must not invoke recursive chown again.
 Path('/usr/local/bin/chown').write_text('#!/bin/sh\nexit 88\n');os.chmod('/usr/local/bin/chown',0o755)
 result=retire();assert result.returncode==0,result.stderr
-os.chown(state/'control.sqlite',1000,1000)
-result=retire();assert result.returncode!=0 and 'HEADLESS_STATE_OWNERSHIP_CHANGED' in result.stderr
-os.chown(state/'control.sqlite',agent.pw_uid,agent.pw_gid)
-# A later unmask invalidates both shortcuts and must migrate once again.
 Path('/usr/local/bin/chown').unlink()
+os.chown(state/'control.sqlite',1000,1000)
+result=retire();assert result.returncode==0,result.stderr
+assert (state/'control.sqlite').stat().st_uid==agent.pw_uid
+# A later unmask invalidates both shortcuts and must migrate once again.
 unit.unlink();unit.write_text('old daemon reintroduced');Path('/tmp/deny-stop').touch()
 result=retire();assert result.returncode!=0 and 'LEGACY_SERVICE_STOP_FAILED' in result.stderr
 Path('/tmp/deny-stop').unlink();bus.close();bus_path.unlink()
@@ -68,4 +69,17 @@ assert not list(Path('/var/lib/companions-runtime-migrations').glob('*-ownership
 assert nested.stat().st_uid==1000
 result=retire();assert result.returncode==0,result.stderr
 assert nested.stat().st_uid==agent.pw_uid and nested.read_text()=='retained legacy append'
-print('PASS offline mask, checked user-UID stop, mixed ownership migration, unchanged histories, no repeated chown, changed ownership refusal, nested migration after legacy reintroduction')
+# A fresh clone has a different identity even when it copied a valid checkpoint
+# and all entry-point UIDs look correct. Its nested state must still be migrated.
+os.chown(nested,1000,1000)
+Path('/etc/companions-desktop.env').write_text('DESKTOP_STATE_DIR=/var/lib/companions-desktop/00000000-0000-4000-8000-000000000002\n')
+assert all(path.lstat().st_uid==agent.pw_uid for path in [state,*state.iterdir()])
+result=retire();assert result.returncode==0,result.stderr
+assert nested.stat().st_uid==agent.pw_uid and nested.read_text()=='retained legacy append'
+# Provider-style reset on a later resume: same identity/checkpoint, changed UIDs.
+for path in [state,*state.rglob('*')]:os.chown(path,1000,1000)
+result=retire();assert result.returncode==0,result.stderr
+assert all(path.lstat().st_uid==agent.pw_uid for path in [state,*state.rglob('*')])
+Path('/usr/local/bin/chown').write_text('#!/bin/sh\nexit 88\n');os.chmod('/usr/local/bin/chown',0o755)
+result=retire();assert result.returncode==0,result.stderr
+print('PASS legacy retirement, preserved histories, no repeated chown, reintroduction migration, cloned checkpoint identity, provider ownership reset on resume')

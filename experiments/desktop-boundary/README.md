@@ -78,5 +78,6 @@ docker run --rm --platform linux/amd64 \
 
 It uses real users, ownership changes, sockets and files, with fixture systemd responses. It tests
 refusal while the old service is active, offline masking, a root-directory-only partial migration,
-retained history bytes, no second recursive chown, and explicit failure on changed entry ownership.
+retained history bytes, no second recursive chown, cloned checkpoint identity, and ownership reset
+recovery on a later resume. A new identity migrates even when only nested ownership has changed.
 Actual user-manager stop and provider preview routing require the fresh-Box live canary.

@@ -1,5 +1,10 @@
 # Production plugins
 
+The production OAuth clients are dedicated to this product. Gmail uses Google Cloud project
+`companions-build-prod`; its Gmail and Gmail MCP APIs are enabled. Configure Google consent
+branding with `/about`, `/privacy` and `/terms`, which must remain public without signing in.
+Publishing the application and Google verification are separate provider-controlled steps.
+
 All curated connections return to `https://companions.build/api/plugins/callback`.
 For another deployment, use its public `APP_URL` with the same path. Keep `APP_URL`
 and `BETTER_AUTH_URL` consistent. Register the exact callback with each static

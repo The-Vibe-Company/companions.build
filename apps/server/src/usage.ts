@@ -58,6 +58,18 @@ async function recordBoxInterval(interval:any,prefix:string,companionId?:string)
 }
 /** Stable response-root IDs ensure native steering is counted once. No model request is made here. */
 export async function recordCompletedUsage(){
+ // A Box owner controls Pi and its local journal. Hosted accounting therefore uses only
+ // terminal usage independently observed by the platform gateway, including failed turns.
+ const requests=await db`SELECT id,run_id,companion_id,owner_id,provider,model_id,usage,finished_at FROM model_gateway_requests g
+  WHERE usage_verified AND finished_at IS NOT NULL AND (usage->>'totalTokens')::numeric>0
+  AND NOT EXISTS(SELECT 1 FROM usage_ledger u WHERE u.owner_id=g.owner_id AND u.operation_id='model-request:'||g.id::text)
+  ORDER BY finished_at,id LIMIT 100`;
+ for(const request of requests){
+  const quantity=Number(request.usage.totalTokens);if(!Number.isSafeInteger(quantity)||quantity<=0)continue;
+  await recordUsage({operationId:'model-request:'+request.id,ownerId:request.owner_id,companionId:request.companion_id,
+   category:'model_tokens',quantity,unit:'token',occurredAt:request.finished_at,
+   metadata:{provider:request.provider,modelId:request.model_id,runId:request.run_id}});
+ }
  const runs=await db`SELECT r.id,r.companion_id,c.owner_id,r.usage,r.finished_at FROM runs r JOIN companions c ON c.id=r.companion_id
   WHERE r.status IN ('succeeded','failed','interrupted','cancelled') AND r.usage IS NOT NULL AND r.usage_source='agent'
   AND (r.response_root_id IS NULL OR r.response_root_id=r.id)

@@ -1,0 +1,44 @@
+{
+  "date": "2026-09-07",
+  "status": "passed",
+  "scope": "Real Pi on Linux using a live GLM model through the authenticated model gateway",
+  "acceptanceCommit": "0cde5aec1822a479f1a23a52950c321de3ab3fbd",
+  "observations": {
+    "runSucceeded": true,
+    "modelCalls": 3,
+    "providerReportedTokens": 9377,
+    "modelOutputFileVerified": true,
+    "providerUsageVerified": true,
+    "workerLedgerEntriesMatchedCalls": true,
+    "workerLedgerTokensMatchedProvider": true,
+    "legacyRunLevelDoubleBillingAbsent": true,
+    "completedRunCredentialReturned403": true,
+    "completedRunCreatedNoProviderClaim": true,
+    "providerApiKeyAbsentFromDockerEnvironment": true,
+    "persistentGatewayTokenAbsentFromDockerEnvironment": true
+  },
+  "subsequentHardening": {
+    "commit": "746e8e950ae9a1b4f81f6032a0784e94f79c976c",
+    "focusedTests": 19,
+    "assertions": 256,
+    "covered": [
+      "gateway endpoint validation",
+      "bounded shared request memory",
+      "provider protocol forwarding",
+      "run-scoped authorization and terminal revocation"
+    ],
+    "liveAcceptanceRepeatedAfterHardening": false
+  },
+  "method": [
+    "The real Pi process made the model requests; the acceptance script did not call the provider directly.",
+    "PostgreSQL model request and usage-ledger rows were checked independently after the run.",
+    "A request carrying a credential for the completed run was rejected with HTTP 403 before a provider claim was created.",
+    "The Linux container environment was inspected for provider credentials and persistent model-gateway credentials."
+  ],
+  "limits": [
+    "This is one Linux run with one live GLM model, not a multi-provider, load, or latency measurement.",
+    "The later hardening commit has deterministic focused coverage but was not the commit used for this live run.",
+    "The attempted V11 snapshot reported ready but restored filesystem content matching V10, so it is invalid evidence for a fresh Box gateway acceptance.",
+    "No fresh Box gateway acceptance is claimed by this measurement."
+  ]
+}

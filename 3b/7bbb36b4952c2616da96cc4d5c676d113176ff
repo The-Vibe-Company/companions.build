@@ -1,0 +1,25 @@
+README.md
+  s_f946242dcf6ba9::t_93c6cc6c84c81a 86,95-96,102,105-117
+docs/completion-audit.md
+  s_f946242dcf6ba9::t_266b016982c54f 43-46,59-69
+docs/measurements/hosted-gateway-2026-09-07.json
+  s_f946242dcf6ba9::t_1474d0f0b64db3 1-29
+docs/v0.md
+  s_f946242dcf6ba9::t_aec42315fb216c 167
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "3b7bbb36b4952c2616da96cc4d5c676d113176ff",
+  "prompts": {},
+  "sessions": {
+    "s_f946242dcf6ba9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a06de4-a8a5-7cd3-b713-2a8d451f7200",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "StanGirard <stan@quivr.app>"
+    }
+  }
+}

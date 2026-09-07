@@ -1,0 +1,30 @@
+apps/web/src/components/CreateCompanion.test.tsx
+  s_0ff594810f62cd::t_577265c07cf05b 53
+apps/server/src/companion-mail.ts
+  s_0ff594810f62cd::t_a212ae98d64dda 194-195,314
+apps/server/test/companion-mail.test.ts
+  s_0ff594810f62cd::t_a212ae98d64dda 174-175
+apps/web/src/components/MailPanel.tsx
+  s_0ff594810f62cd::t_a212ae98d64dda 119
+  s_0ff594810f62cd::t_443d4c98214540 73-75,142,148
+docs/specs/companion-mail.md
+  s_0ff594810f62cd::t_b4299d50ebfaa1 58
+apps/web/src/components/CreateCompanion.tsx
+  s_0ff594810f62cd::t_9ca97667ec536f 85-86,303
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "033744e64964c02bdb9ee38dc14165fbff5248cf",
+  "prompts": {},
+  "sessions": {
+    "s_0ff594810f62cd": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a07d7f-3ff1-78d3-b4f4-b6d7c57a313d",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "StanGirard <stan@quivr.app>"
+    }
+  }
+}

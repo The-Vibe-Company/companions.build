@@ -1,7 +1,7 @@
 import {beforeAll,expect,test} from 'bun:test';
 import {createHash} from 'node:crypto';
-import {db,migrate} from '../src/store';
-import {addCustomPlugin,checkPluginAccount,handlePlugins,listPluginAccounts,pluginCallbackLocation,pluginConnectionAvailable,startPluginConnection} from '../src/plugins';
+import {db,migrate,createCompanion} from '../src/store';
+import {attachPlugin,machinePlugins,addCustomPlugin,checkPluginAccount,handlePlugins,listPluginAccounts,pluginCallbackLocation,pluginConnectionAvailable,startPluginConnection} from '../src/plugins';
 import {decrypt,encrypt} from '../src/config';
 import {CompanionPluginOAuthRevokedError,type CompanionPluginStoredOAuthCredential} from '../../../packages/plugins/oauth';
 
@@ -66,4 +66,29 @@ test('connection failures are expurgated, cross-owner checks do nothing, and cus
  const custom=await addCustomPlugin(owner,{label:'Local private',transport:'stdio',command:'/usr/bin/private-mcp',env:{TOKEN:'private'}});
  const endpoint=await handlePlugins(new Request(`http://local/api/plugins/accounts/${custom.id}/check`,{method:'POST'}),owner);
  expect(endpoint?.status).toBe(200);expect(await endpoint?.json()).toMatchObject({account:{id:custom.id,healthStatus:'requires_agent',healthCode:'agent_check_required'}});
+});
+
+
+test('a later provider refresh failure preserves an earlier rotated grant and still fails closed',async()=>{
+ const companion=await createCompanion(owner,{name:'Refresh isolation',provider:'local'});
+ const expired=oauthCredential(new Date(Date.now()-60_000).toISOString());
+ const accounts=[await oauthAccount(owner,expired),await oauthAccount(owner,expired)].sort();
+ for(const id of accounts)await attachPlugin(owner,companion.id,id,true);
+ let attempts=0;
+ await expect(machinePlugins(companion.id,{async refresh({credential}){
+  attempts++;
+  if(attempts===2)throw new CompanionPluginOAuthRevokedError();
+  return {...credential,accessToken:'rotated-access',refreshToken:'rotated-refresh',accessExpiresAt:new Date(Date.now()+3600_000).toISOString()};
+ }})).rejects.toThrow('revoked');
+ expect(attempts).toBe(2);
+ const rows=await db`SELECT id,credential_secret FROM plugin_accounts WHERE id IN ${db(accounts)} ORDER BY id`;
+ expect(JSON.parse(decrypt(rows[0].credential_secret))).toMatchObject({accessToken:'rotated-access',refreshToken:'rotated-refresh'});
+ expect(JSON.parse(decrypt(rows[1].credential_secret))).toMatchObject({accessToken:'private-access',refreshToken:'private-refresh'});
+ let retried=0;
+ const projected=await machinePlugins(companion.id,{async refresh({credential}){
+  retried++;expect(credential.refreshToken).toBe('private-refresh');
+  return {...credential,accessToken:'recovered-access',accessExpiresAt:new Date(Date.now()+3600_000).toISOString()};
+ }});
+ expect(retried).toBe(1);
+ expect(projected.map(plugin=>plugin.headers?.Authorization)).toEqual(['Bearer rotated-access','Bearer recovered-access']);
 });

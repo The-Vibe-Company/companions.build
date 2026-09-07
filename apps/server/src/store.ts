@@ -2,7 +2,7 @@ import { SQL } from "bun";
 import { createHash, randomBytes } from "node:crypto";
 import { config, encrypt } from "./config";
 export const db = new SQL(config.databaseUrl, { max: 8, connectionTimeout: 10 });
-const migrationNames = ["schema.sql", "auth-schema.sql", "product.sql", "plugins.sql", "storage-schema.sql", "automations.sql", "triggers.sql", "lifecycle.sql", "desktop.sql", "box-observation.sql", "billing.sql", "delivery.sql", "maintenance.sql", "delivery-skills.sql", "events.sql"] as const;
+const migrationNames = ["schema.sql", "auth-schema.sql", "product.sql", "plugins.sql", "storage-schema.sql", "automations.sql", "triggers.sql", "lifecycle.sql", "software.sql", "desktop.sql", "box-observation.sql", "billing.sql", "delivery.sql", "maintenance.sql", "delivery-skills.sql", "events.sql"] as const;
 
 async function migrationFiles() {
   return Promise.all(migrationNames.map(async name => ({ name, sql: await Bun.file(new URL(`./${name}`, import.meta.url)).text() })));

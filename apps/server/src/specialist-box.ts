@@ -20,7 +20,7 @@ for root,dirs,files in os.walk(home,topdown=True,followlinks=False):
         try:
             if policy.stat().st_size>262144: active=True; break
             with policy.open('r',encoding='utf-8') as handle:
-                if any(line.strip() and not line.strip().startswith('#') for line in handle): active=True; break
+                if any(line.strip() and not line.startswith('#') for line in handle): active=True; break
         except (OSError,UnicodeError): active=True; break
     if active: break
 print('capture_policy_requires_review' if active else 'ok')

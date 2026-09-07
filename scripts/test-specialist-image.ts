@@ -33,7 +33,7 @@ def policy_result():
 # Git ignores do not affect Box capture. Empty/comment-only policies and skipped build trees are safe.
 put(home/'.gitignore','*.secret\n')
 put(home/'.boxignore','# reviewed: no active rules\n\n')
-put(home/'projects'/'app'/'.oneignore','   # comment\n')
+put(home/'projects'/'app'/'.oneignore','# comment\n')
 put(home/'projects'/'app'/'node_modules'/'.boxignore','*\n')
 assert policy_result() == 'ok'
 put(home/'projects'/'app'/'.boxignore','dist/\n')
@@ -43,6 +43,9 @@ put(home/'projects'/'app'/'.oneignore','!dist/required.bin\n')
 assert policy_result() == 'capture_policy_requires_review'
 (home/'projects'/'app'/'.oneignore').write_text('# reviewed\n')
 assert policy_result() == 'ok'
+put(home/'projects'/'app'/'.boxignore','   # this is a pattern, not a comment\n')
+assert policy_result() == 'capture_policy_requires_review'
+(home/'projects'/'app'/'.boxignore').unlink()
 
 put(state/'workspace'/'src'/'main.ts','export const answer = 42;\n')
 put(state/'workspace'/'package-lock.json','{"dependencies":{"fixture":"1.0.0"}}\n')

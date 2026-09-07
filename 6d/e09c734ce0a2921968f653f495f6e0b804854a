@@ -1,0 +1,21 @@
+scripts/verify.py
+  s_9604d1144930ab::t_abc6958e409c8f 238-242,311
+scripts/test-distribution-verification.ts
+  s_9604d1144930ab::t_abc6958e409c8f 32-34
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "6de09c734ce0a2921968f653f495f6e0b804854a",
+  "prompts": {},
+  "sessions": {
+    "s_9604d1144930ab": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a07d28-c099-7e50-b6d2-edf218c193d5",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "StanGirard <stan@quivr.app>"
+    }
+  }
+}

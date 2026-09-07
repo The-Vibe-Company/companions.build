@@ -1,0 +1,38 @@
+docs/measurements/plugins-production-2026-09-07.json
+  s_9604d1144930ab::t_64d6b2d4832005 1-93
+README.md
+  s_9604d1144930ab::t_64d6b2d4832005 75-76
+apps/server/test/plugins.test.ts
+  s_9604d1144930ab::t_64d6b2d4832005 3-4,70-93
+  s_9604d1144930ab::t_2b57b9fcfa08ea 94
+docs/plugins-production.md
+  s_9604d1144930ab::t_64d6b2d4832005 1-53
+package.json
+  s_9604d1144930ab::t_64d6b2d4832005 14
+packages/plugins/tools.ts
+  s_9604d1144930ab::t_64d6b2d4832005 34-48
+packages/plugins/tools.test.ts
+  s_9604d1144930ab::t_64d6b2d4832005 1-73
+apps/server/src/plugins.ts
+  s_9604d1144930ab::t_64d6b2d4832005 143-152,154-156,158,161-165
+.env.example
+  s_9604d1144930ab::t_64d6b2d4832005 43-55
+scripts/verify.py
+  s_9604d1144930ab::t_29c0cb696a101c 230
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "1a1b353d0a373b7ce7cf5fffc0ed7cbd7d99e1f3",
+  "prompts": {},
+  "sessions": {
+    "s_9604d1144930ab": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a07d28-c099-7e50-b6d2-edf218c193d5",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "StanGirard <stan@quivr.app>"
+    }
+  }
+}

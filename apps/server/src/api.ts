@@ -8,7 +8,7 @@ import {listTemplateRevisions,rollbackTemplate} from "./templates";
 import { LifecycleConflict } from "./templates";
 import { z } from "zod";
 import { config } from "./config";
-import { db, migrate, listCompanions, createCompanion, detail, acceptMessage, cancel, Conflict } from "./store";
+import { db, migrateForService, listCompanions, createCompanion, detail, acceptMessage, cancel, Conflict } from "./store";
 import { BoxClient, BoxError } from "../../../packages/box/client";
 import { auth, AuthenticationRequired, requireUser, sessionUser } from "./auth";
 
@@ -141,7 +141,7 @@ export async function handler(request: Request): Promise<Response> {
   }
 }
 if (import.meta.main) {
-  await migrate();
+  await migrateForService();
   Bun.serve({ hostname: "127.0.0.1", port: config.port, maxRequestBodySize: FILE_REQUEST_MAX_BYTES, fetch: handler });
   console.log(`API ready at http://127.0.0.1:${config.port}`);
 }

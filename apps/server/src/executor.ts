@@ -1,5 +1,5 @@
 import {BoxObserver} from './box-observation';
-import { db, migrate } from "./store";
+import { db, migrateForService } from "./store";
 import { encrypt, decrypt } from "./config";
 import { prepareLocal, agentRequest, ExecutionStopped } from "./machines";
 import { SQL, type ReservedSQL } from "bun";
@@ -10,7 +10,7 @@ import { progressLifecycle, ownerMayStartWork, SUBSCRIPTION_REQUIRED, type Lifec
 // A reserved PostgreSQL session owns the lock; detached checkpoints carry its captured PID.
 // A lost connection stops this executor; another process reconciles the durable journal.
 export async function acquireExecutor() {
-  await migrate(); // The same ordered DDL and advisory lock as API and worker startup.
+  await migrateForService();
   const sql = await db.reserve();
   const [result] = await sql`SELECT pg_try_advisory_lock(721440139) AS locked`;
   if (!result.locked) { sql.release(); return null; }

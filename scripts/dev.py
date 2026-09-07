@@ -159,6 +159,8 @@ try:
     run([bun, "install", "--frozen-lockfile"], cwd=ROOT / "apps/web")
     run([bun, "scripts/build-agent.ts"])
     run([sys.executable, "scripts/filter-build.py"])
+    run([bun, "apps/server/src/migrate.ts"])
+    env["COMPANIONS_SCHEMA_PREPARED"] = "1"
     for args, cwd in [([bun, "apps/server/src/api.ts"], ROOT), ([bun, "apps/server/src/executor.ts"], ROOT), ([bun, "apps/server/src/worker.ts"], ROOT),
                       ([bun, "run", "dev", "--host", "127.0.0.1", "--port", str(base)], ROOT / "apps/web")]:
         children.append(subprocess.Popen(args, cwd=cwd, env=env, start_new_session=True))

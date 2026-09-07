@@ -7,6 +7,7 @@
     "verify:probe": "python3 experiments/pi-bun/verify.py",
     "test:probe": "python3 experiments/pi-bun/verify.py",
     "dev": "python3 scripts/dev.py",
+    "migrate": "bun apps/server/src/migrate.ts",
     "typecheck": "tsc",
     "test:server": "bun scripts/test-server.ts",
     "test:agent": "bun test packages/agent/test/daemon.test.ts packages/agent/test/environment.test.ts packages/agent/test/initialization.test.ts packages/agent/test/memory.test.ts",

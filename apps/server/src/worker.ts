@@ -1,8 +1,8 @@
 import {recordCompletedUsage} from './usage';
-import {migrate} from './store';
+import {migrateForService} from './store';
 import {processTriggerInbox} from './triggers';
 import {enqueueBackground} from './automations';
-await migrate();
+await migrateForService();
 console.log('Worker ready');
 let lastUsage=0;
 for(;;){

@@ -44,6 +44,12 @@ Google, Anthropic, OpenAI, OpenRouter, and Z.AI Coding Plan are supported. The U
 configured model catalog and stores a validated model choice per Companion. Restart the launcher
 after changing configuration.
 
+The local launcher applies the complete PostgreSQL schema before it starts any service. A hosted
+release must use the same order: run `bun run migrate` as its release command, then start API,
+executor, and worker with `COMPANIONS_SCHEMA_PREPARED=1`. Each service verifies the stored schema
+fingerprint before becoming ready. A service launched on its own without that flag still performs
+the idempotent, advisory-locked migration and skips DDL when the current fingerprint is present.
+
 ## Run on Box
 
 Prepare the frozen runtime once, then create Box-backed Companions from it:

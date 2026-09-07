@@ -2,14 +2,28 @@ import { SQL } from "bun";
 import { createHash, randomBytes } from "node:crypto";
 import { config, encrypt } from "./config";
 export const db = new SQL(config.databaseUrl, { max: 8, connectionTimeout: 10 });
+const migrationNames = ["schema.sql", "auth-schema.sql", "product.sql", "plugins.sql", "storage-schema.sql", "automations.sql", "triggers.sql", "lifecycle.sql", "desktop.sql", "box-observation.sql", "billing.sql", "delivery.sql", "maintenance.sql", "delivery-skills.sql", "events.sql"] as const;
+
+async function migrationFiles() {
+  return Promise.all(migrationNames.map(async name => ({ name, sql: await Bun.file(new URL(`./${name}`, import.meta.url)).text() })));
+}
+
+export async function migrationFingerprint() {
+  const files = await migrationFiles();
+  return createHash("sha256").update(files.map(file => `${file.name}\0${file.sql}\0`).join("")).digest("hex");
+}
+
 export async function migrate(sql = db) {
-  const schema = await Bun.file(new URL("./schema.sql", import.meta.url)).text();
-  const authSchema = await Bun.file(new URL("./auth-schema.sql", import.meta.url)).text();
-  await sql.begin(async tx => {
+  const files = await migrationFiles();
+  const fingerprint = createHash("sha256").update(files.map(file => `${file.name}\0${file.sql}\0`).join("")).digest("hex");
+  return sql.begin(async tx => {
     await tx`SELECT pg_advisory_xact_lock(721440138)`;
-    await tx.unsafe(schema);
-    await tx.unsafe(authSchema);
-    for (const name of ["product.sql", "plugins.sql", "storage-schema.sql", "automations.sql", "triggers.sql", "lifecycle.sql", "desktop.sql", "box-observation.sql", "billing.sql", "delivery.sql", "maintenance.sql", "delivery-skills.sql", "events.sql"]) await tx.unsafe(await Bun.file(new URL(`./${name}`,import.meta.url)).text());
+    const [stateTable] = await tx`SELECT to_regclass('public.companions_schema_state') AS name`;
+    if (stateTable.name) {
+      const [state] = await tx`SELECT fingerprint FROM companions_schema_state WHERE singleton=true`;
+      if (state?.fingerprint === fingerprint) return { applied: false, fingerprint };
+    }
+    for (const file of files) await tx.unsafe(file.sql);
     const localId = "00000000-0000-4000-8000-000000000001";
     if (process.env.NODE_ENV !== "production") {
       await tx`INSERT INTO "user" ("id","name","email","emailVerified","createdAt","updatedAt")
@@ -24,7 +38,32 @@ export async function migrate(sql = db) {
       await tx`UPDATE companions SET owner_id=${localId} WHERE owner_id IS NULL`;
     }
     await tx`ALTER TABLE companions ALTER COLUMN owner_id SET NOT NULL`;
+    await tx`CREATE TABLE IF NOT EXISTS companions_schema_state (
+      singleton boolean PRIMARY KEY DEFAULT true CHECK (singleton),
+      fingerprint text NOT NULL,
+      migrated_at timestamptz NOT NULL DEFAULT now()
+    )`;
+    await tx`INSERT INTO companions_schema_state (singleton,fingerprint,migrated_at) VALUES (true,${fingerprint},now())
+      ON CONFLICT (singleton) DO UPDATE SET fingerprint=EXCLUDED.fingerprint,migrated_at=EXCLUDED.migrated_at`;
+    return { applied: true, fingerprint };
   });
+}
+
+export async function assertMigrated(sql = db) {
+  const fingerprint = await migrationFingerprint();
+  const [stateTable] = await sql`SELECT to_regclass('public.companions_schema_state') AS name`;
+  if (!stateTable.name) throw new Error("Database schema has not been prepared; run bun run migrate before starting services");
+  const [state] = await sql`SELECT fingerprint FROM companions_schema_state WHERE singleton=true`;
+  if (state?.fingerprint !== fingerprint) throw new Error("Database schema is stale; run bun run migrate before starting services");
+  return fingerprint;
+}
+
+export async function migrateForService(sql = db) {
+  if (process.env.COMPANIONS_SCHEMA_PREPARED === "1") {
+    await assertMigrated(sql);
+    return;
+  }
+  await migrate(sql);
 }
 export const companionColumns = `id,name,instructions,avatar,model_id AS "modelId",provider,status,error,desktop_taken AS "desktopTaken",desktop_paused_at AS "desktopPausedAt",prepare_requested AS "prepareRequested",ready_at AS "readyAt",parent_id AS "parentId",template_id AS "templateId",template_revision AS "templateRevision",retired_at AS "retiredAt",temporary,box_id AS "boxId",created_at AS "createdAt"`;
 export async function listCompanions(ownerId: string) { return db.unsafe(`SELECT ${companionColumns} FROM companions WHERE owner_id=$1 AND retired_at IS NULL AND NOT temporary ORDER BY created_at,id`, [ownerId]); }

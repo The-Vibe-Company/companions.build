@@ -1,0 +1,147 @@
+{
+  "date": "2026-09-07",
+  "applicationCommit": "ca3ebdd",
+  "scope": "Routine deletion and Companion retirement admission",
+  "verification": {
+    "status": "passed",
+    "run": "9af5ea5cfdf2",
+    "seconds": 47.707,
+    "postgres": {
+      "major": 18,
+      "image": "postgres@sha256:4ef4dbc939d61acea57712655ddb4b4ab27419c913f94cca0cd57cb3ea3c2280",
+      "backupSha256": "48ab30775fd3b9db58666560191eaf7cd6432c4de0f85e7b949bb4cb0e522f06"
+    },
+    "steps": [
+      {
+        "name": "database-volume",
+        "exitCode": 0,
+        "seconds": 0.041
+      },
+      {
+        "name": "database",
+        "exitCode": 0,
+        "seconds": 0.282
+      },
+      {
+        "name": "storage",
+        "exitCode": 0,
+        "seconds": 0.18
+      },
+      {
+        "name": "storage-bucket",
+        "exitCode": 0,
+        "seconds": 0.23
+      },
+      {
+        "name": "install",
+        "exitCode": 0,
+        "seconds": 0.128
+      },
+      {
+        "name": "web-install",
+        "exitCode": 0,
+        "seconds": 0.12
+      },
+      {
+        "name": "typecheck",
+        "exitCode": 0,
+        "seconds": 2.385
+      },
+      {
+        "name": "agent-unit",
+        "exitCode": 0,
+        "seconds": 1.529
+      },
+      {
+        "name": "distribution-content-linux",
+        "exitCode": 0,
+        "seconds": 0.851
+      },
+      {
+        "name": "agent-build",
+        "exitCode": 0,
+        "seconds": 0.285
+      },
+      {
+        "name": "system",
+        "exitCode": 0,
+        "seconds": 30.373
+      },
+      {
+        "name": "web-tests",
+        "exitCode": 0,
+        "seconds": 3.103
+      },
+      {
+        "name": "web-build",
+        "exitCode": 0,
+        "seconds": 3.157
+      },
+      {
+        "name": "postgres-restore-seed",
+        "exitCode": 0,
+        "seconds": 0.286
+      },
+      {
+        "name": "postgres-backup",
+        "exitCode": 0,
+        "seconds": 0.13
+      },
+      {
+        "name": "postgres-backup-copy",
+        "exitCode": 0,
+        "seconds": 0.039
+      },
+      {
+        "name": "postgres-crash",
+        "exitCode": 0,
+        "seconds": 0.225
+      },
+      {
+        "name": "postgres-recovery-volume",
+        "exitCode": 0,
+        "seconds": 0.019
+      },
+      {
+        "name": "postgres-recovery",
+        "exitCode": 0,
+        "seconds": 0.222
+      },
+      {
+        "name": "postgres-restore-copy",
+        "exitCode": 0,
+        "seconds": 0.04
+      },
+      {
+        "name": "postgres-restore",
+        "exitCode": 0,
+        "seconds": 0.279
+      },
+      {
+        "name": "postgres-restore-verify",
+        "exitCode": 0,
+        "seconds": 0.225
+      }
+    ]
+  },
+  "behavior": [
+    "Deleted routines cannot admit manual tests through API or control MCP.",
+    "Disabled routines remain manually testable without rescheduling.",
+    "Concurrent deletion and manual admission serialize on the routine row.",
+    "Retiring or retired companions cannot create routines or accept scheduled/background work."
+  ],
+  "priorAttempt": {
+    "run": "4554d986c62a",
+    "status": "failed",
+    "reason": "Timeout in events test setup; the following complete isolated run passed."
+  },
+  "cleanup": {
+    "ownedVerificationContainersRemaining": 0,
+    "ownedVerificationVolumesRemaining": 0,
+    "boxCalls": 0
+  },
+  "limits": [
+    "No live provider calls were made for this change.",
+    "Webhook atomic admission is validated separately."
+  ]
+}

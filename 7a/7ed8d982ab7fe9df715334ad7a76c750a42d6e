@@ -1,0 +1,21 @@
+docs/measurements/automation-stability-2026-09-07.json
+  s_f946242dcf6ba9::t_bc72f181959f87 1-218
+docs/v0.md
+  s_f946242dcf6ba9::t_dd5e70ff6b60df 167,180-186
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "7a7ed8d982ab7fe9df715334ad7a76c750a42d6e",
+  "prompts": {},
+  "sessions": {
+    "s_f946242dcf6ba9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a06de4-a8a5-7cd3-b713-2a8d451f7200",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "StanGirard <stan@quivr.app>"
+    }
+  }
+}

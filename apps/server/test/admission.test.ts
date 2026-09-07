@@ -65,7 +65,11 @@ test('stable requests are idempotent and changed requests conflict',async()=>{
 });
 
 test('eligible requests are admitted FIFO while a blocked head does not block the next request',async()=>{
- const first=await fixture(undefined,'First',{specialist:true}),second=await fixture(first.ownerId,'Second',{temporary:true}),third=await fixture(first.ownerId,'Third',{temporary:true});
+ const first=await fixture(undefined,'First',{specialist:true}),second=await fixture(first.ownerId,'Second',{temporary:true}),third=await fixture(first.ownerId,'Third',{temporary:true}),parent=await fixture(first.ownerId,'Parent');
+ const templateId=crypto.randomUUID();
+ await db`INSERT INTO agent_templates(id,owner_id,name) VALUES(${templateId},${first.ownerId},'Eligible template')`;
+ await db`INSERT INTO template_permissions(parent_id,template_id,max_children) VALUES(${parent.id},${templateId},2)`;
+ await db`UPDATE companions SET parent_id=${parent.id},template_id=${templateId},template_revision=1 WHERE id IN (${second.id},${third.id})`;
  await effectiveAccountLimits(first.ownerId);
  await db`UPDATE machine_account_limits SET offer_active_limit=1 WHERE owner_id=${first.ownerId}`;
  const active=await requestMachineAdmission(first.ownerId,{requestId:crypto.randomUUID(),companionId:first.id,kind:'configuration'});
@@ -76,6 +80,40 @@ test('eligible requests are admitted FIFO while a blocked head does not block th
  await progressMachineAdmissions(db,{eligible:async request=>request.id===blockedId?{eligible:false,reason:'connection_required'}:{eligible:true}});
  expect((await db`SELECT state,waiting_reason FROM machine_admission_requests WHERE id=${blockedId}`)[0]).toMatchObject({state:'queued',waiting_reason:'connection_required'});
  expect((await db`SELECT state FROM machine_admission_requests WHERE id=${eligibleId}`)[0].state).toBe('admitted');
+});
+
+test('permission is revalidated inside the transaction that admits queued intervention work',async()=>{
+ const parent=await fixture(undefined,'Permission parent'),child=await fixture(parent.ownerId,'Permission child',{temporary:true});
+ const templateId=crypto.randomUUID();
+ await db`INSERT INTO agent_templates(id,owner_id,name) VALUES(${templateId},${parent.ownerId},'Permission template')`;
+ await db`INSERT INTO template_permissions(parent_id,template_id,max_children) VALUES(${parent.id},${templateId},1)`;
+ await db`UPDATE companions SET parent_id=${parent.id},template_id=${templateId},template_revision=1 WHERE id=${child.id}`;
+ await configureOfferMachineLimits(parent.ownerId,{active:0,startsPerHour:10,queue:20});
+ const request=await requestMachineAdmission(parent.ownerId,{requestId:crypto.randomUUID(),companionId:child.id,kind:'intervention'});
+ await configureOfferMachineLimits(parent.ownerId,{active:1,startsPerHour:10,queue:20});
+ let checked=false;
+ await progressMachineAdmissions(db,{eligible:async()=>{
+  if(!checked){checked=true;await db`DELETE FROM template_permissions WHERE parent_id=${parent.id} AND template_id=${templateId}`;}
+  return {eligible:true};
+ }});
+ expect((await db`SELECT state,waiting_reason FROM machine_admission_requests WHERE id=${request.id}`)[0]).toMatchObject({state:'queued',waiting_reason:'permission_required'});
+});
+
+test('all limit writers serialize with machine admission decisions',async()=>{
+ const {ownerId}=await fixture(undefined,'Serialized limits');
+ const connection=await db.reserve();
+ const expectAdmissionLocked=async(action:()=>Promise<unknown>)=>{
+  await connection`SELECT pg_advisory_lock(721440140)`;
+  let settled=false;const pending=action().finally(()=>{settled=true;});
+  await Bun.sleep(20);expect(settled).toBe(false);
+  await connection`SELECT pg_advisory_unlock(721440140)`;
+  await pending;
+ };
+ try{
+  await expectAdmissionLocked(()=>setPersonalActiveLimit(ownerId,1));
+  await expectAdmissionLocked(()=>configureOfferMachineLimits(ownerId,{active:1,startsPerHour:9,queue:19}));
+  await expectAdmissionLocked(()=>configureProviderMachineLimits({active:999,startsPerMinute:999,startsPerHour:9999,startsPerDay:99999}));
+ }finally{await connection`SELECT pg_advisory_unlock_all()`;connection.release();}
 });
 
 test('hourly starts and queue length are enforced without silently accepting overflow',async()=>{

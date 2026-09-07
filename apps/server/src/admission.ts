@@ -24,7 +24,7 @@ export async function effectiveAccountLimits(ownerId:string,sql:any=db){return s
 
 export async function setPersonalActiveLimit(ownerId:string,active:number|null,sql:any=db){
  if(active!==null&&(!Number.isInteger(active)||active<0))throw new AdmissionConflict('Invalid personal active limit.');
- return sql.begin(async(tx:any)=>{await ensureLimits(tx,ownerId);const [{offer_active_limit:offer}]=await tx`SELECT offer_active_limit FROM machine_account_limits WHERE owner_id=${ownerId}`;
+ return sql.begin(async(tx:any)=>{await tx`SELECT pg_advisory_xact_lock(${globalAdmissionLock})`;await tx`SELECT pg_advisory_xact_lock(hashtextextended(${ownerId},570))`;await ensureLimits(tx,ownerId);const [{offer_active_limit:offer}]=await tx`SELECT offer_active_limit FROM machine_account_limits WHERE owner_id=${ownerId}`;
   if(active!==null&&active>Number(offer))throw new AdmissionConflict('Personal limit cannot exceed the offer limit.');
   const [row]=await tx`UPDATE machine_account_limits SET personal_active_limit=${active},updated_at=now() WHERE owner_id=${ownerId} RETURNING owner_id`;
   return row?ensureLimits(tx,ownerId):null;});
@@ -32,19 +32,25 @@ export async function setPersonalActiveLimit(ownerId:string,active:number|null,s
 
 export async function configureOfferMachineLimits(ownerId:string,input:{active:number;startsPerHour:number;queue:number},sql:any=db){
  if(!Number.isInteger(input.active)||input.active<0||!Number.isInteger(input.startsPerHour)||input.startsPerHour<0||!Number.isInteger(input.queue)||input.queue<0)throw new AdmissionConflict('Invalid offer limits.');
- await sql`INSERT INTO machine_account_limits(owner_id,offer_active_limit,starts_per_hour_limit,queue_limit)
-  VALUES(${ownerId},${input.active},${input.startsPerHour},${input.queue}) ON CONFLICT(owner_id) DO UPDATE SET
-  offer_active_limit=EXCLUDED.offer_active_limit,starts_per_hour_limit=EXCLUDED.starts_per_hour_limit,queue_limit=EXCLUDED.queue_limit,updated_at=now()`;
- return effectiveAccountLimits(ownerId,sql);
+ return sql.begin(async(tx:any)=>{
+  await tx`SELECT pg_advisory_xact_lock(${globalAdmissionLock})`;await tx`SELECT pg_advisory_xact_lock(hashtextextended(${ownerId},570))`;
+  await tx`INSERT INTO machine_account_limits(owner_id,offer_active_limit,starts_per_hour_limit,queue_limit)
+   VALUES(${ownerId},${input.active},${input.startsPerHour},${input.queue}) ON CONFLICT(owner_id) DO UPDATE SET
+   offer_active_limit=EXCLUDED.offer_active_limit,starts_per_hour_limit=EXCLUDED.starts_per_hour_limit,queue_limit=EXCLUDED.queue_limit,updated_at=now()`;
+  return ensureLimits(tx,ownerId);
+ });
 }
 
 export async function configureProviderMachineLimits(input:{active:number;startsPerMinute:number;startsPerHour:number;startsPerDay:number},sql:any=db){
  const values=[input.active,input.startsPerMinute,input.startsPerHour,input.startsPerDay];
  if(values.some(value=>!Number.isInteger(value)||value<0))throw new AdmissionConflict('Invalid provider limits.');
- const [row]=await sql`UPDATE machine_provider_limits SET active_limit=${input.active},starts_per_minute_limit=${input.startsPerMinute},
-  starts_per_hour_limit=${input.startsPerHour},starts_per_day_limit=${input.startsPerDay},updated_at=now() WHERE singleton=true RETURNING singleton`;
- if(!row)throw new AdmissionConflict('Provider limits unavailable.');
- return input;
+ return sql.begin(async(tx:any)=>{
+  await tx`SELECT pg_advisory_xact_lock(${globalAdmissionLock})`;
+  const [row]=await tx`UPDATE machine_provider_limits SET active_limit=${input.active},starts_per_minute_limit=${input.startsPerMinute},
+   starts_per_hour_limit=${input.startsPerHour},starts_per_day_limit=${input.startsPerDay},updated_at=now() WHERE singleton=true RETURNING singleton`;
+  if(!row)throw new AdmissionConflict('Provider limits unavailable.');
+  return input;
+ });
 }
 
 async function occupancy(tx:any,ownerId?:string,specialistsOnly=false){
@@ -184,17 +190,17 @@ export async function completeMachineAdmission(ownerId:string,requestId:string,s
 export interface AdmissionEligibility {eligible:boolean;reason?:string}
 async function persistedEligibility(sql:any,request:any):Promise<AdmissionEligibility>{
  if(request.kind!=='intervention')return {eligible:true};
- const [row]=await sql`SELECT c.id,c.parent_id,c.template_id,p.parent_id AS permitted_parent
-  FROM companions c LEFT JOIN template_permissions p ON p.parent_id=c.parent_id AND p.template_id=c.template_id
-  LEFT JOIN companions parent ON parent.id=c.parent_id AND parent.owner_id=c.owner_id AND parent.retired_at IS NULL
-  WHERE c.id=${request.companion_id} AND c.owner_id=${request.owner_id} AND c.retired_at IS NULL AND parent.id IS NOT NULL`;
- if(!row)return {eligible:false,reason:'permission_required'};
- return row.permitted_parent?{eligible:true}:{eligible:false,reason:'permission_required'};
+ const [row]=await sql`SELECT c.id FROM companions c
+  JOIN template_permissions p ON p.parent_id=c.parent_id AND p.template_id=c.template_id AND p.max_children>0
+  JOIN companions parent ON parent.id=c.parent_id AND parent.owner_id=c.owner_id AND parent.retired_at IS NULL
+  WHERE c.id=${request.companion_id} AND c.owner_id=${request.owner_id} AND c.retired_at IS NULL FOR SHARE OF c,p,parent`;
+ return row?{eligible:true}:{eligible:false,reason:'permission_required'};
 }
-export async function progressMachineAdmissions(sql:any=db,options:{eligible?(request:any):Promise<AdmissionEligibility>}={}){
+export async function progressMachineAdmissions(sql:any=db,options:{eligible?(request:any,sql?:any):Promise<AdmissionEligibility>}={}){
  const pending=await sql`SELECT * FROM machine_admission_requests WHERE state='queued' ORDER BY requested_at,id LIMIT 100`;
  for(const candidate of pending){
-  const eligibility=await (options.eligible?.(candidate)??persistedEligibility(sql,candidate));
+  let eligibility=await persistedEligibility(sql,candidate);
+  if(eligibility.eligible&&options.eligible)eligibility=await options.eligible(candidate,sql);
   if(!eligibility.eligible){await sql`UPDATE machine_admission_requests SET waiting_reason=${eligibility.reason??'ineligible'} WHERE id=${candidate.id} AND state='queued'`;continue;}
   await sql.begin(async(tx:any)=>{
    await tx`SELECT pg_advisory_xact_lock(${globalAdmissionLock})`;await tx`SELECT pg_advisory_xact_lock(hashtextextended(${candidate.owner_id},570))`;
@@ -202,6 +208,9 @@ export async function progressMachineAdmissions(sql:any=db,options:{eligible?(re
    if(!current||current.state!=='queued')return;
    const [companion]=await tx`SELECT retired_at FROM companions WHERE id=${current.companion_id} AND owner_id=${current.owner_id} FOR UPDATE`;
    if(!companion||companion.retired_at){await tx`UPDATE machine_admission_requests SET state='cancelled',cancelled_at=now(),released_at=now(),waiting_reason='machine_unavailable' WHERE id=${current.id}`;return;}
+   let finalEligibility=await persistedEligibility(tx,current);
+   if(finalEligibility.eligible&&options.eligible)finalEligibility=await options.eligible(current,tx);
+   if(!finalEligibility.eligible){await tx`UPDATE machine_admission_requests SET waiting_reason=${finalEligibility.reason??'ineligible'} WHERE id=${current.id} AND state='queued'`;return;}
    await decide(tx,current,await ensureLimits(tx,current.owner_id));
   });
  }

@@ -6,6 +6,8 @@ import {AgentControl} from '../../../packages/control/agent';
 import {db,migrate,createCompanion,acceptMessage} from '../src/store';
 import {applyControl,registerControl,controlHandlers} from '../src/control';
 import {addCustomPlugin,attachPlugin,listPluginAccounts,machinePlugins,disconnectPlugin} from '../src/plugins';
+import {saveTemplate} from '../src/templates';
+import {openSpecialistDraft,readSpecialistDraft} from '../src/specialist-drafts';
 import '../src/control-product';
 import '../src/runtime-product';
 const owner='00000000-0000-4000-8000-000000000001';
@@ -46,6 +48,15 @@ test('plugin secrets are write-only and attaching another owner account is refus
  expect(JSON.stringify(await listPluginAccounts(owner))).not.toContain('synthetic-plugin-secret');
  expect((await machinePlugins(c.id))[0].headers?.Authorization).toBe('Bearer synthetic-plugin-secret');
  await disconnectPlugin(owner,account.id);expect(await machinePlugins(c.id)).toHaveLength(0);
+});
+test('plugin_select changes the specialist generation so an earlier test cannot validate new connections',async()=>{
+ const profile=await saveTemplate(owner,{name:'Connected draft'});
+ const {draft}=await openSpecialistDraft(owner,profile.id,{commandId:crypto.randomUUID()});
+ const account=await addCustomPlugin(owner,{label:'Draft account',transport:'http',url:'https://example.com/mcp'});
+ const runId=crypto.randomUUID();
+ await db`INSERT INTO runs(id,companion_id,client_message_id,content,status,dispatched,started_at) VALUES(${runId},${draft.companionId},${crypto.randomUUID()},'Configure connections','running',true,now())`;
+ await applyControl(draft.companionId,{id:crypto.randomUUID(),runId,operation:'plugin_select',input:{accountId:account.id,enabled:true}});
+ expect((await readSpecialistDraft(owner,profile.id)).draft.generation).toBe(draft.generation+1);
 });
 test('companion_create uses the durable control command as its creation identity',async()=>{
  const commandId=crypto.randomUUID(),context={ownerId:owner,companionId:crypto.randomUUID(),runId:crypto.randomUUID(),commandId,isChild:false};

@@ -58,13 +58,13 @@ release, then launch `api`, `executor`, and `worker` as separate services from t
 
 ```sh
 docker build -t companions.build .
-docker run --rm --env-file production.env companions.build migrate
-docker run --env-file production.env -p 3000:3000 companions.build api
-docker run --env-file production.env companions.build executor
-docker run --env-file production.env companions.build worker
+docker run --rm --env-file .env.production companions.build migrate
+docker run --env-file .env.production --env-file .env.api -p 3000:3000 companions.build api
+docker run --env-file .env.production --env-file .env.executor companions.build executor
+docker run --env-file .env.production --env-file .env.worker companions.build worker
 ```
 
-`production.env` must provide `DATABASE_URL`, the public HTTPS `APP_URL`, `BETTER_AUTH_SECRET`, and
+The ignored `.env.production` file holds shared configuration and must provide `DATABASE_URL`, the public HTTPS `APP_URL`, `BETTER_AUTH_SECRET`, and
 a 64-character hexadecimal `COMPANIONS_ENCRYPTION_KEY`. Configure SMTP for magic-link login and S3
 for chat files. Box, model-provider, OAuth, and Stripe credentials are required only for the product
 surfaces enabled in that deployment; absence remains visible as unavailable and is not simulated.
@@ -73,7 +73,8 @@ WebAssembly runtime, so API, executor, and worker services do not need a Docker 
 `LOCAL_RUNTIME=0` is the image default; a hosted executor uses Box rather than attempting to launch
 local agent containers.
 
-Put the selected model-provider key on the API service only. In production, model requests use
+Keep service-specific credentials in the corresponding ignored `.env.api`, `.env.executor`, and
+`.env.worker` files. Put the selected model-provider key in `.env.api` only. In production, model requests use
 `${APP_URL}/api/model-gateway` (or an explicit HTTPS `MODEL_GATEWAY_URL` ending in
 `/api/model-gateway`). The executor gives each admitted run a signed, expiring credential; Box
 receives no platform model key. The gateway checks the current run, owner and selected model before

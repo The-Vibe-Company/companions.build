@@ -18,6 +18,7 @@ import { handleWebhook, handleTriggers } from "./triggers";
 import { handlePlugins, PluginError } from "./plugins";
 import { handleFiles, filesForThread, FILE_REQUEST_MAX_BYTES } from "./files";
 import { handleAutomations } from "./automation-routes";
+import { handleTasks } from "./tasks";
 import { avatarSchema, configureCompanion } from "./control";
 import { handleCompanionEvents } from "./events";
 import { serveStaticWeb } from "./static-web";
@@ -112,6 +113,8 @@ export async function handler(request: Request): Promise<Response> {
     if(triggerResponse) return triggerResponse;
     const fileResponse = await handleFiles(request,ownerId);
     if(fileResponse) return fileResponse;
+    const taskResponse = await handleTasks(request,ownerId);
+    if(taskResponse) return taskResponse;
     const automationResponse = await handleAutomations(request,ownerId);
     if(automationResponse) return automationResponse;
     const pluginResponse = await handlePlugins(request,ownerId);

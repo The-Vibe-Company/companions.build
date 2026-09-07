@@ -299,16 +299,16 @@ function responseFile(attachment: Attachment): ThreadFile {
 export async function filesForThread(
   ownerId: string,
   companionId: string,
-  dependencies: Pick<FilesDependencies, "database"> = {},
+  dependencies: Pick<FilesDependencies, "database"> & {runId?:string} = {},
 ): Promise<ThreadFile[]> {
   if (!ownerId || !UUID.test(companionId)) throw new FileRequestError("Companion not found.", 404);
   const database = dependencies.database ?? db;
   const rows = await database.unsafe(
     `SELECT ${joinedSelectColumns} FROM attachments a JOIN companions c ON c.id=a.companion_id
-     WHERE a.companion_id=$1 AND a.owner_id=$2 AND c.owner_id=$2 ORDER BY a.created_at,a.position,a.id`,
-    [companionId, ownerId],
+     WHERE a.companion_id=$1 AND a.owner_id=$2 AND c.owner_id=$2 ${dependencies.runId ? "AND a.run_id=$3" : ""} ORDER BY a.created_at,a.position,a.id`,
+    [companionId, ownerId, ...(dependencies.runId ? [dependencies.runId] : [])],
   ) as StoredAttachment[];
-  const handoffs=await handoffRows(database,ownerId,companionId);
+  const handoffs=await handoffRows(database,ownerId,companionId,dependencies.runId??null);
   return [...rows.map(responseFile),...handoffs.map(({targetRunId,...row})=>responseFile({...publicAttachment(row),runId:targetRunId}))];
 }
 

@@ -51,7 +51,7 @@ export async function requestPreparation(ownerId:string,companionId:string,sql:a
 }
 export async function requestDesktop(ownerId:string,companionId:string,taken:boolean,sql:any=db,source:'human'|'agent'='human'){
  const [row]=await sql`UPDATE companions SET desktop_generation=desktop_generation+CASE WHEN desktop_taken<>${taken} THEN 1 ELSE 0 END,
-   desktop_taken=${taken},prepare_requested=prepare_requested OR ${taken},desktop_checked_at=null,error=null
+   desktop_taken=${taken},prepare_requested=prepare_requested OR (${taken} AND (status<>'ready' OR endpoint_secret IS NULL OR archived_at IS NOT NULL)),desktop_checked_at=null,error=null
    WHERE id=${companionId} AND owner_id=${ownerId} AND retired_at IS NULL AND archive_requested_at IS NULL
    AND NOT (${source==='agent'&&!taken} AND desktop_taken)
    RETURNING id,desktop_taken AS "taken",desktop_paused_at AS "pausedAt",desktop_generation AS generation`;
@@ -124,8 +124,11 @@ export async function progressLifecycle(sql:any=db,hooks:LifecycleHooks={},machi
  async function prepare(companion:any){
   async function beforePrepareEffect(){
    await assertLeader();
-   const [latest]=await sql`SELECT owner_id,box_id,desktop_paused_at,retired_at,archive_requested_at FROM companions WHERE id=${companion.id}`;
+   const [latest]=await sql`SELECT owner_id,box_id,desktop_paused_at,retired_at,archive_requested_at,
+    EXISTS(SELECT 1 FROM runs WHERE companion_id=${companion.id} AND dispatched AND status IN ('preparing','running','needs_input')) AS active_execution
+    FROM companions WHERE id=${companion.id}`;
    if(!latest||latest.owner_id!==companion.owner_id||latest.box_id!==companion.box_id||latest.retired_at||latest.archive_requested_at)throw new ExecutionStopped('Machine preparation authority changed');
+   if(latest.active_execution)throw new ExecutionStopped('Machine preparation waits for active work');
    if(!await (hooks.canStartWork??ownerMayStartWork)(companion.owner_id))throw new ExecutionStopped(SUBSCRIPTION_REQUIRED);
    await assertLeader();
   }
@@ -136,7 +139,10 @@ export async function progressLifecycle(sql:any=db,hooks:LifecycleHooks={},machi
     await checkpoint(async(tx:any)=>{await tx`UPDATE companions SET prepare_requested=false,preparation_started_at=null,status=CASE WHEN status='ready' THEN status ELSE 'error' END,error=${SUBSCRIPTION_REQUIRED} WHERE id=${companion.id}`;});
     companion.prepare_requested=false;
    }
-   if(companion.prepare_requested&&!companion.archive_requested_at){
+   // Keep explicit configuration intent pending until every dispatched session
+   // is settled. GUI coordination below remains available while work continues.
+   const [activity]=companion.prepare_requested?await sql`SELECT EXISTS(SELECT 1 FROM runs WHERE companion_id=${companion.id} AND dispatched AND status IN ('preparing','running','needs_input')) AS active`: [{active:false}];
+   if(companion.prepare_requested&&!companion.archive_requested_at&&!activity.active){
     if(!companion.preparation_started_at){
      await checkpoint(async(tx:any)=>{await tx`UPDATE companions SET preparation_started_at=now(),create_started_at=COALESCE(create_started_at,now()),status=CASE WHEN ${reusable} THEN status ELSE 'preparing' END,error=null WHERE id=${companion.id}`;if(!reusable)await usage(tx,companion,'starting');});
      companion.preparation_started_at=new Date();

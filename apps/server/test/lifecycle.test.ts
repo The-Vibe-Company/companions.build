@@ -4,7 +4,7 @@ import {acquireExecutor} from '../src/executor';
 import {migrateLifecycle,progressLifecycle,handleLifecycle,type LifecycleMachines} from '../src/lifecycle';
 import {saveTemplate,allowTemplate,adoptTemplate,LifecycleConflict} from '../src/templates';
 import {spawnChild,delegateTask,delegationStatus} from '../src/delegation';
-import {dataDir,encrypt} from '../src/config';
+import {dataDir,encrypt,config} from '../src/config';
 import {prepareLocal,pauseMachine,environmentDigest,ExecutionStopped} from '../src/machines';
 import {join} from 'node:path';
 import {migrateDeliverySkills,type DeliverySkillDependencies} from '../src/delivery-skills';
@@ -290,5 +290,66 @@ for(const change of ['leader','revocation','deadline'] as const)test(`fresh-prev
   else if(change==='revocation')await expect(progress).rejects.toBeInstanceOf(ExecutionStopped);
   else await progress;
   expect(checks).toBe(1);expect((await db`SELECT ready_at FROM companions WHERE id=${id}`)[0].ready_at).toBeNull();
+ }finally{await lock.close();}
+});
+
+
+for(const active of [false,true])test(`healthy GUI takeover/release ignores platform template digest drift${active?' with both lanes active':''}`,async()=>{
+ const id=await parent(),f=fake(true),lock=await leader(),previous=config.boxTemplate;
+ try{
+  config.boxTemplate='previous-platform-snapshot';
+  const [row]=await db`SELECT agent_secret FROM companions WHERE id=${id}`;
+  const staged=environmentDigest(row.agent_secret),endpoint=encrypt('http://unchanged-agent');
+  await db`UPDATE companions SET status='ready',box_id='same-box',endpoint_secret=${endpoint},config_digest=${staged},desktop_boundary_version=1,ready_at=now() WHERE id=${id}`;
+  const runs:string[]=[];
+  if(active)for(const lane of ['main','background']){
+   const run=await acceptMessage(owner,id,crypto.randomUUID(),'Keep working');runs.push(run!);
+   await db`UPDATE runs SET lane=${lane},status='running',dispatched=true,started_at=now() WHERE id=${run}`;
+  }
+  config.boxTemplate='new-platform-snapshot';expect(environmentDigest(row.agent_secret)).not.toBe(staged);
+  for(const operation of ['desktop_takeover','desktop_release']){
+   await handleLifecycle({operation,companionId:id,source:'human'},owner);
+   expect((await db`SELECT prepare_requested FROM companions WHERE id=${id}`)[0].prepare_requested).toBe(false);
+   await progressLifecycle(lock.sql,{},f.machine);
+  }
+  expect(f.calls).toEqual(['pause true','pause false']);
+  expect((await db`SELECT status,box_id,endpoint_secret,config_digest FROM companions WHERE id=${id}`)[0]).toMatchObject({status:'ready',box_id:'same-box',endpoint_secret:endpoint,config_digest:staged});
+  if(active)expect((await db`SELECT status FROM runs WHERE companion_id=${id}`).map((r:any)=>r.status)).toEqual(['running','running']);
+ }finally{config.boxTemplate=previous;await lock.close();}
+});
+
+test('explicit preparation waits for running and parked sessions while GUI remains usable',async()=>{
+ const id=await parent(),f=fake(true),lock=await leader();
+ try{
+  const [row]=await db`SELECT agent_secret FROM companions WHERE id=${id}`;
+  const staged='previous-applied-digest',endpoint=encrypt('http://still-running');
+  await db`UPDATE companions SET status='ready',box_id='same-box',endpoint_secret=${endpoint},config_digest=${staged},desktop_boundary_version=1,ready_at=now() WHERE id=${id}`;
+  const main=await acceptMessage(owner,id,crypto.randomUUID(),'Main'),background=await acceptMessage(owner,id,crypto.randomUUID(),'Background');
+  await db`UPDATE runs SET status='running',dispatched=true,started_at=now() WHERE id=${main}`;
+  await db`UPDATE runs SET lane='background',status='needs_input',dispatched=true,started_at=now() WHERE id=${background}`;
+  await handleLifecycle({operation:'prepare',companionId:id},owner);
+  await handleLifecycle({operation:'desktop_takeover',companionId:id,source:'human'},owner);
+  await progressLifecycle(lock.sql,{},f.machine);expect(f.calls).toEqual(['pause true']);
+  expect((await db`SELECT prepare_requested,preparation_started_at,config_digest FROM companions WHERE id=${id}`)[0]).toMatchObject({prepare_requested:true,preparation_started_at:null,config_digest:staged});
+  await db`UPDATE runs SET status='succeeded',finished_at=now() WHERE id=${main}`;
+  f.calls.length=0;await progressLifecycle(lock.sql,{},f.machine);expect(f.calls).toEqual(['pause true']);
+  await db`UPDATE runs SET status='succeeded',finished_at=now() WHERE id=${background}`;
+  f.calls.length=0;await progressLifecycle(lock.sql,{},f.machine);
+  expect(f.calls.filter(call=>call.startsWith('prepare '))).toHaveLength(1);
+  expect((await db`SELECT prepare_requested,config_digest FROM companions WHERE id=${id}`)[0]).toMatchObject({prepare_requested:false,config_digest:environmentDigest(row.agent_secret)});
+ }finally{await lock.close();}
+});
+
+test('an execution admitted during preparation is checked again before the next machine effect',async()=>{
+ const id=await parent(),f=fake(),lock=await leader();let effects=0;
+ f.machine.prepare=async(_companion,_checkpoint,_configured,beforeEffect)=>{
+  const run=await acceptMessage(owner,id,crypto.randomUUID(),'Concurrent admission');
+  await db`UPDATE runs SET status='running',dispatched=true,started_at=now() WHERE id=${run}`;
+  await beforeEffect!();effects++;return 'http://unexpected';
+ };
+ try{
+  await handleLifecycle({operation:'prepare',companionId:id},owner);
+  await expect(progressLifecycle(lock.sql,{},f.machine)).rejects.toBeInstanceOf(ExecutionStopped);
+  expect(effects).toBe(0);expect((await db`SELECT config_digest FROM companions WHERE id=${id}`)[0].config_digest).toBeNull();
  }finally{await lock.close();}
 });

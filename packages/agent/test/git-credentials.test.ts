@@ -1,7 +1,7 @@
 import {afterEach,describe,expect,test} from 'bun:test';
-import {mkdtempSync,readFileSync,readdirSync,rmSync} from 'node:fs';
+import {existsSync,mkdtempSync,readFileSync,readdirSync,rmSync,statSync} from 'node:fs';
 import {tmpdir} from 'node:os';
-import {join} from 'node:path';
+import {dirname,join} from 'node:path';
 import {GitCredentialBroker,runGitCredentialHelper} from '../../control/git-credentials';
 import type {MachinePlugin} from '../../plugins/catalog';
 
@@ -16,6 +16,9 @@ describe('GitCredentialBroker',()=>{
   test('serves one selected GitHub credential without persisting its token',async()=>{
     const directory=state(),broker=new GitCredentialBroker(directory),token='github-secret-fixture';
     try{
+      expect(broker.socketPath.startsWith(directory)).toBe(false);
+      expect(statSync(dirname(broker.socketPath)).mode&0o777).toBe(0o700);
+      expect(statSync(broker.socketPath).mode&0o777).toBe(0o600);
       broker.update([plugin('github-one',token)]);
       let output='';
       expect(await runGitCredentialHelper(broker.socketPath,'get',input('protocol=https\nhost=github.com\npath=owner/private.git\n\n'),value=>{output+=value;})).toBe(0);
@@ -24,7 +27,10 @@ describe('GitCredentialBroker',()=>{
         if(name.endsWith('.sock'))continue;
         expect(readFileSync(join(directory,name)).includes(token)).toBe(false);
       }
-    }finally{broker.close();}
+    }finally{
+      const runtime=dirname(broker.socketPath);broker.close();broker.close();
+      expect(existsSync(runtime)).toBe(false);
+    }
   });
 
   test('does not answer non-GitHub or non-HTTPS credential requests',async()=>{

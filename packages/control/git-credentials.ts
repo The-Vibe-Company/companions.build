@@ -1,4 +1,5 @@
-import { chmodSync, rmSync } from 'node:fs';
+import { chmodSync, mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { MachinePlugin } from '../plugins/catalog';
 
@@ -13,14 +14,22 @@ type CredentialState=
 /** Keeps GitHub OAuth credentials in memory and exposes them only over a private Unix socket. */
 export class GitCredentialBroker {
   readonly socketPath:string;
+  private readonly runtimeDir:string;
   private credential:CredentialState={kind:'unavailable'};
   private readonly server:ReturnType<typeof Bun.serve>;
+  private closed=false;
 
-  constructor(stateDir:string) {
-    this.socketPath=join(stateDir,'git-credential.sock');
-    rmSync(this.socketPath,{force:true});
-    this.server=Bun.serve({unix:this.socketPath,fetch:request=>this.handle(request)});
-    chmodSync(this.socketPath,0o600);
+  constructor(_stateDir:string) {
+    this.runtimeDir=mkdtempSync(join(tmpdir(),'companions-git-credentials-'));
+    chmodSync(this.runtimeDir,0o700);
+    this.socketPath=join(this.runtimeDir,'broker.sock');
+    try{
+      this.server=Bun.serve({unix:this.socketPath,fetch:request=>this.handle(request)});
+      chmodSync(this.socketPath,0o600);
+    }catch(error){
+      rmSync(this.runtimeDir,{recursive:true,force:true});
+      throw error;
+    }
   }
 
   update(plugins:MachinePlugin[]) {
@@ -42,9 +51,10 @@ export class GitCredentialBroker {
   }
 
   close() {
+    if(this.closed)return;this.closed=true;
     this.credential={kind:'unavailable'};
     this.server.stop(true);
-    rmSync(this.socketPath,{force:true});
+    rmSync(this.runtimeDir,{recursive:true,force:true});
   }
 
   private handle(request:Request):Response {

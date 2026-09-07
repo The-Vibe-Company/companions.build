@@ -1,7 +1,7 @@
 import {mkdtempSync,rmSync,writeFileSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
-import {restoreSpecialistWorkspace,specialistSanitization} from '../apps/server/src/specialist-box';
+import {restoreSpecialistWorkspace,specialistCapturePolicyInspection,specialistSanitization} from '../apps/server/src/specialist-box';
 
 const sourceId='11111111-1111-4111-8111-111111111111';
 const directory=mkdtempSync(join(tmpdir(),'companions-specialist-image-'));
@@ -9,6 +9,7 @@ const container=`companions-specialist-image-${crypto.randomUUID()}`;
 const image=process.env.SPECIALIST_TEST_IMAGE??'python:3.12-slim';
 
 writeFileSync(join(directory,'sanitize.py'),specialistSanitization(sourceId),{mode:0o444});
+writeFileSync(join(directory,'inspect-policy.py'),specialistCapturePolicyInspection(),{mode:0o444});
 writeFileSync(join(directory,'restore.sh'),`#!/bin/sh\nset -eu\n${restoreSpecialistWorkspace('/home/user/.companions').replace(/^sudo -n /,'')}\n`,{mode:0o555});
 writeFileSync(join(directory,'restore-child.sh'),`#!/bin/sh\nset -eu\n${restoreSpecialistWorkspace(`/home/user/.companions/agents/${sourceId}`).replace(/^sudo -n /,'')}\n`,{mode:0o555});
 writeFileSync(join(directory,'scenario.py'),String.raw`import os, pathlib, subprocess, sys
@@ -25,6 +26,23 @@ if not any(line.startswith('user:') for line in pathlib.Path('/etc/passwd').read
 def put(path,content):
     path.parent.mkdir(parents=True,exist_ok=True)
     path.write_text(content)
+
+def policy_result():
+    return subprocess.run([sys.executable,'/test/inspect-policy.py'],check=True,capture_output=True,text=True).stdout.strip()
+
+# Git ignores do not affect Box capture. Empty/comment-only policies and skipped build trees are safe.
+put(home/'.gitignore','*.secret\n')
+put(home/'.boxignore','# reviewed: no active rules\n\n')
+put(home/'projects'/'app'/'.oneignore','   # comment\n')
+put(home/'projects'/'app'/'node_modules'/'.boxignore','*\n')
+assert policy_result() == 'ok'
+put(home/'projects'/'app'/'.boxignore','dist/\n')
+assert policy_result() == 'capture_policy_requires_review'
+(home/'projects'/'app'/'.boxignore').unlink()
+put(home/'projects'/'app'/'.oneignore','!dist/required.bin\n')
+assert policy_result() == 'capture_policy_requires_review'
+(home/'projects'/'app'/'.oneignore').write_text('# reviewed\n')
+assert policy_result() == 'ok'
 
 put(state/'workspace'/'src'/'main.ts','export const answer = 42;\n')
 put(state/'workspace'/'package-lock.json','{"dependencies":{"fixture":"1.0.0"}}\n')

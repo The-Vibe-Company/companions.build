@@ -3,6 +3,29 @@ import {userSystemctl} from '../../../packages/box/layout';
 import type {SpecialistMachines} from './specialist-runtime';
 
 const quote=(value:string)=>"'"+value.replaceAll("'","'\\''")+"'";
+/** Detect provider capture policies without exposing their paths or contents. */
+export function specialistCapturePolicyInspection(){
+ return `import os,pathlib
+home=pathlib.Path('/home/user')
+skip={'node_modules','.next','target','vendor'}
+active=False
+for root,dirs,files in os.walk(home,topdown=True,followlinks=False):
+    current=pathlib.Path(root)
+    try: depth=len(current.relative_to(home).parts)
+    except ValueError: active=True; break
+    dirs[:]=[] if depth>=6 else [name for name in dirs if name not in skip and not (current/name).is_symlink()]
+    for name in ('.boxignore','.oneignore'):
+        if name not in files: continue
+        policy=current/name
+        try:
+            if policy.stat().st_size>262144: active=True; break
+            with policy.open('r',encoding='utf-8') as handle:
+                if any(line.strip() and not line.strip().startswith('#') for line in handle): active=True; break
+        except (OSError,UnicodeError): active=True; break
+    if active: break
+print('capture_policy_requires_review' if active else 'ok')
+`;
+}
 /** Static product-owned paths only. User browser state and unrelated files are deliberately retained. */
 export function specialistSanitization(sourceId:string){
  if(!/^[a-f0-9-]{36}$/.test(sourceId))throw Error('invalid_source_identity');
@@ -37,6 +60,8 @@ export function specialistBoxMachines(box:BoxClient|null):Pick<SpecialistMachine
  return {
   async freezeSpecialist(companion){
    if(!box)throw Error('box_not_configured');
+   const policy=(await box.command(companion.box_id,`sudo -n python3 -c ${quote(specialistCapturePolicyInspection())}`,30)).trim();
+   if(policy!=='ok')throw Error('capture_policy_requires_review');
    // Disable before taking the private source capture: image copies cannot boot the old identity.
    await box.command(companion.box_id,`if test -f /opt/companions/desktop-boundary.version; then sudo -n systemctl disable --now companions-agent-proxy.socket companions-agent.service companions-desktop.service; else ${userSystemctl('disable --now companions-agent.service')}; fi`);
   },

@@ -175,7 +175,7 @@ export function CreateCompanion({ config, onCreated, compact = false }: CreateCo
     </section>
 
     <section className="create-companion-fields">
-      <header><span>New companion</span><h1>Who are you bringing on?</h1></header>
+      <header><h1>{compact ? "New companion" : "Create your first Companion"}</h1></header>
       <div className="create-companion-basics">
         <div className="field"><label htmlFor="create-companion-name">Name</label><input id="create-companion-name" value={name} maxLength={80} disabled={selectionLocked} onChange={event => setName(event.target.value)} placeholder="Ada" autoFocus={!compact}/></div>
         <div className="field"><label htmlFor="create-companion-purpose">Purpose</label><Textarea id="create-companion-purpose" value={instructions} maxLength={20_000} disabled={selectionLocked} onChange={event => setInstructions(event.target.value)} placeholder="Research customer questions and turn the findings into clear briefs." rows={3}/></div>

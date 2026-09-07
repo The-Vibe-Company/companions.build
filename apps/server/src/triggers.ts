@@ -401,7 +401,7 @@ export async function processTriggerInbox(dependencies: { database?: Database; e
     const rows = await tx.unsafe(`UPDATE trigger_deliveries SET status='evaluating',attempts=attempts+1,claimed_at=now()
       WHERE id=(SELECT id FROM trigger_deliveries WHERE (status='received' OR (status='evaluating' AND claimed_at<now()-interval '5 minutes'))
         AND attempts<5 ORDER BY received_at,id FOR UPDATE SKIP LOCKED LIMIT 1)
-      RETURNING id,trigger_id AS "triggerId",payload,problem_key AS "problemKey",event_name AS "eventName"`) as { id: string; triggerId: string; payload: unknown; problemKey: string; eventName: string | null }[];
+      RETURNING id,attempts,trigger_id AS "triggerId",payload,problem_key AS "problemKey",event_name AS "eventName"`) as { id: string; attempts: number; triggerId: string; payload: unknown; problemKey: string; eventName: string | null }[];
     return rows[0] ?? null;
   });
   if (!delivery) return 0;
@@ -409,7 +409,7 @@ export async function processTriggerInbox(dependencies: { database?: Database; e
   const trigger = triggers[0] ? normalizeTrigger(triggers[0]) : null;
   delivery.payload = jsonColumn(delivery.payload);
   if (!trigger?.enabled) {
-    await database.unsafe(`UPDATE trigger_deliveries SET status='ignored',decision='ignored',decided_at=now() WHERE id=$1`, [delivery.id]);
+    await database.unsafe(`UPDATE trigger_deliveries SET status='ignored',decision='ignored',decided_at=now() WHERE id=$1 AND attempts=$2 AND status='evaluating'`, [delivery.id,delivery.attempts]);
     return 1;
   }
   try {
@@ -420,11 +420,13 @@ export async function processTriggerInbox(dependencies: { database?: Database; e
     const accepted = matches && (trigger.mode === "direct"
       || await (dependencies.runFilterImpl ?? runFilter)({ code: trigger.filterCode!, payload: delivery.payload, responses }));
     if (!accepted) {
-      await database.unsafe(`UPDATE trigger_deliveries SET status='ignored',decision='ignored',decided_at=now() WHERE id=$1`, [delivery.id]);
+      await database.unsafe(`UPDATE trigger_deliveries SET status='ignored',decision='ignored',decided_at=now() WHERE id=$1 AND attempts=$2 AND status='evaluating'`, [delivery.id,delivery.attempts]);
       return 1;
     }
     const batchId = await database.begin(async tx => {
       await tx.unsafe(`SELECT id FROM triggers WHERE id=$1 FOR UPDATE`, [trigger.id]);
+      const [owned]=await tx.unsafe(`SELECT id FROM trigger_deliveries WHERE id=$1 AND attempts=$2 AND status='evaluating' FOR UPDATE`,[delivery.id,delivery.attempts]);
+      if(!owned)return null; // A reclaimed evaluation alone may checkpoint its decision.
       const batches=await tx.unsafe(`SELECT id,run_id,status FROM trigger_batches WHERE trigger_id=$1 AND problem_key=$2
         AND status IN ('queued','running') ORDER BY id FOR UPDATE`,[trigger.id,delivery.problemKey]) as {id:string;run_id:string|null;status:string;actual?:string}[];
       // Lock the real run so executor admission cannot cross this decision. A filter
@@ -449,7 +451,7 @@ export async function processTriggerInbox(dependencies: { database?: Database; e
     return batchId ? 1 : 0;
   } catch (error) {
     const code = error instanceof TriggerError ? error.code : "filter_failed";
-    await database.unsafe(`UPDATE trigger_deliveries SET status='error',decision='error',error_code=$2,decided_at=now() WHERE id=$1`, [delivery.id, code]);
+    await database.unsafe(`UPDATE trigger_deliveries SET status='error',decision='error',error_code=$2,decided_at=now() WHERE id=$1 AND attempts=$3 AND status='evaluating'`, [delivery.id, code, delivery.attempts]);
     return 1;
   }
 }

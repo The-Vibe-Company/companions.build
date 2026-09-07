@@ -26,7 +26,7 @@ The adapters follow the provider contracts for [GitHub repository webhooks](http
 
 `handleWebhook()` only verifies, parses, and inserts `trigger_deliveries`, returning `202`. It never calls the filter, provider APIs, background enqueue callback, model, Pi, or Box. Strict redeliveries use a provider delivery identifier when present and otherwise a payload digest. Reusing an identifier with different content returns a conflict.
 
-The worker calls `processTriggerInbox({ enqueueBackground })`. It reclaims a stale evaluation lease, resolves declared provider reads, runs the filter, and persists the decision. A false or failed filter never invokes `enqueueBackground`. The callback contract matches the automation module:
+The worker calls `processTriggerInbox({ enqueueBackground })`. It reclaims a stale evaluation lease, resolves declared provider reads, runs the filter, and persists the decision. Every decision checks the captured evaluation attempt; a suspended predecessor cannot ignore, accept again, or fail a delivery already reclaimed by another worker. A false or failed filter never invokes `enqueueBackground`. The callback contract matches the automation module:
 
 ```ts
 ({ companionId, clientMessageId, content, source: "trigger" }, transaction: Database) => Promise<string | null>

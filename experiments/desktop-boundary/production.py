@@ -64,12 +64,11 @@ def events():
 threading.Thread(target=events,daemon=True).start()
 broker=S.Popen(['setpriv','--reuid=1000','--regid=companions-desktop-client','--clear-groups','/opt/companions/companion-agent','--desktop-broker'],env={**os.environ,'DISPLAY':':0'},stdout=S.DEVNULL)
 until(lambda:Path('/run/companions-desktop-admin/control.sock').exists())
-class Unix(http.client.HTTPConnection):
-    def connect(self):
-        self.sock=socket.socket(socket.AF_UNIX);self.sock.settimeout(20);self.sock.connect('/run/companions-desktop-admin/control.sock')
 def desktop(generation,taken):
-    c=Unix('localhost');c.request('PUT','/state',json.dumps({'generation':generation,'taken':taken}),{'Content-Type':'application/json'})
-    response=c.getresponse();body=json.loads(response.read());assert response.status==200,body
+    # Exercise the exact executor bridge, including its read socket, rather than a fixture-only PUT.
+    current=json.loads(S.check_output(['python3','/opt/companions/desktop-state.py']))
+    assert current['generation']<=generation
+    body=json.loads(S.check_output(['python3','/opt/companions/desktop-state.py',str(generation),'true' if taken else 'false']))
     assert body['confirmed'] and body['generation']==generation and body['taken']==taken;return body
 desktop(0,False)
 token=str(uuid.uuid4());state='/home/user/.companions'

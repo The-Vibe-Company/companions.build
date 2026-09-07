@@ -9,14 +9,22 @@ import { AgentSkills } from "../../control/skills";
 import { desktopTools } from "../../desktop/tools";
 import {runDesktopBroker} from '../../desktop/run';
 
+async function startupPhase<T>(phase:string,body:()=>T|Promise<T>):Promise<T>{
+  try{return await body();}catch(error){
+    if(error instanceof Error&&/^[A-Z0-9_]{1,80}$/.test(error.message))throw error;
+    const raw=error&&typeof error==='object'&&'code' in error?String(error.code):'';
+    const code=/^[A-Z_0-9]{1,40}$/.test(raw)?raw:'FAILED';
+    throw new Error(`STARTUP_${phase}_${code}`);
+  }
+}
 export async function startAgent() {
   const token = takeAgentToken();
   const port = parsePort(process.env.PORT);
   const stateDir = resolve(process.env.AGENT_STATE_DIR ?? "/home/user/.companions");
-  const executor = await PiExecutor.create(stateDir);
-  const control = new AgentControl(stateDir);
-  const files = new AgentFiles(stateDir);
-  const skills = new AgentSkills(stateDir);
+  const executor = await startupPhase("PI",()=>PiExecutor.create(stateDir));
+  const control = await startupPhase("CONTROL",()=>new AgentControl(stateDir));
+  const files = await startupPhase("FILES",()=>new AgentFiles(stateDir));
+  const skills = await startupPhase("SKILLS",()=>new AgentSkills(stateDir));
   const desktopSocket = process.env.DESKTOP_BOUNDARY_VERSION === "1" ? process.env.DESKTOP_AGENT_SOCKET : undefined;
   executor.toolsFactory = async context => {
     const product = await control.toolsFactory(context);
@@ -29,7 +37,7 @@ export async function startAgent() {
     }
     return await control.handleRequest(request) ?? await files.handleRequest(request) ?? await skills.handleRequest(request);
   },desktopSocket?1:0);
-  const server = Bun.serve({ hostname: "0.0.0.0", port, maxRequestBodySize: 15 * 1024 * 1024, fetch: request => daemon.fetch(request) });
+  const server = await startupPhase("SERVER",()=>Bun.serve({ hostname: "0.0.0.0", port, maxRequestBodySize: 15 * 1024 * 1024, fetch: request => daemon.fetch(request) }));
   const shutdown = () => { server.stop(true); daemon.close(); control.close(); files.close(); process.exit(0); };
   process.on("SIGTERM", shutdown);
   process.on("SIGINT", shutdown);

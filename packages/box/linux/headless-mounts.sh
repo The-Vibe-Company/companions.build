@@ -2,8 +2,16 @@
 set -eu
 # All mounts are private to the root-created process namespace. Never run directly on a host.
 mount --make-rprivate /
-mount --bind / /
-mount -o remount,bind,ro /
+if [ "$#" -eq 0 ]; then
+  # A distinct mountpoint is essential: overmounting / leaves fs.root on the
+  # covered mount, so relative symlinks can bypass the private masks.
+  ROOT=/run/companions-headless-root
+  mkdir -p "$ROOT"
+  mount --rbind / "$ROOT"
+  mount -o remount,bind,ro "$ROOT"
+  exec chroot "$ROOT" /bin/sh /opt/companions/headless-mounts.sh --inside
+fi
+[ "$1" = --inside ]
 mount -t tmpfs tmpfs /tmp
 mkdir -p /tmp/agent-state /tmp/desktop-agent
 mount --bind "$AGENT_STATE_DIR" /tmp/agent-state
@@ -28,4 +36,4 @@ mknod -m 666 /dev/random c 1 8
 mknod -m 666 /dev/urandom c 1 9
 exec setpriv --reuid=companions-agent --regid=companions-agent --init-groups \
   --inh-caps=-all --ambient-caps=-all --bounding-set=-all --no-new-privs \
-  /opt/companions/companion-agent
+  env HOME="$AGENT_STATE_DIR" /opt/companions/companion-agent

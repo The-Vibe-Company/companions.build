@@ -12,7 +12,7 @@ class UnixConnection(http.client.HTTPConnection):
     def connect(self):
         self.sock = socket.socket(socket.AF_UNIX)
         self.sock.settimeout(15)
-        self.sock.connect('/run/companions-desktop-admin/control.sock')
+        self.sock.connect('/run/companions-desktop/agent.sock' if len(sys.argv)==1 else '/run/companions-desktop-admin/control.sock')
 
 connection = UnixConnection('localhost', timeout=15)
 if len(sys.argv) == 1:

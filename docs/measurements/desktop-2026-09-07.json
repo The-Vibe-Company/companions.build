@@ -1,0 +1,15 @@
+{
+  "testedAt": "2026-09-07T00:43:42.171Z",
+  "distribution": "V6 diagnostic Box with source fixes; fresh V7 not yet accepted",
+  "realPiModel": true,
+  "guiConfirmed": true,
+  "headlessFileAndNetworkContinued": true,
+  "chatSettledDuringTakeover": true,
+  "explicitRelease": true,
+  "relativePrivatePathsDenied": true,
+  "localProductionAcceptance": ".artifacts/desktop-production-root.log",
+  "fullVerification": ".artifacts/verification/7c717f4e84e2",
+  "limitations": [
+    "This Box required manual diagnostic repairs; this is not a fresh image acceptance or a startup latency measurement."
+  ]
+}

@@ -18,7 +18,12 @@ assert denied('/tmp/.X11-unix/X0') and denied('\0/tmp/.X11-unix/X0')
 assert denied(('127.0.0.1',9222),socket.AF_INET) and denied(('100.127.250.1',9222),socket.AF_INET)
 assert denied(('::1',9222),socket.AF_INET6)
 assert Path('/proc/sys/net/ipv6/conf/all/disable_ipv6').read_text().strip()=='1'
-assert not Path('/home/user/browser-secret').exists()
+for prefix in ['', '/etc/..', '/usr/..', '/proc/self/root']:
+    assert not Path(prefix+'/home/user/browser-secret').exists()
+    assert denied(prefix+'/tmp/.X11-unix/X0')
+    assert not Path(prefix+'/run/companions-desktop-admin/control.sock').exists()
+assert Path('/etc/resolv.conf').read_text()==Path('/tmp/resolv.conf').read_text()
+assert 'nameserver ' in Path('/etc/resolv.conf').read_text()
 assert not Path('/run/companions-desktop-admin/control.sock').exists()
 assert not Path('/dev/uinput').exists()
 assert all(os.readlink('/proc/self/ns/'+name)!=outer for name,outer in json.loads(Path('/proof-outer-namespaces.json').read_text()).items())

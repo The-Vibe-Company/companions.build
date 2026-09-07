@@ -60,3 +60,9 @@ docker run --rm --platform linux/amd64 --sysctl net.ipv4.ip_forward=1 \
   --mount type=bind,src="$PWD/experiments/desktop-boundary/network-restart.py",dst=/test.py,readonly \
   companions-desktop-boundary:production python3 /test.py
 ```
+
+The mount acceptance also checks relative paths (`/etc/../home`, `/etc/../tmp`) and
+`/proc/self/root`, plus the resolver seen by the real Pi shell. The headless root is
+a distinct bind mount entered with chroot before private masks are installed. Binding
+over `/` alone leaves relative symlinks able to traverse the covered root. The test
+uses the production desktop-state bridge for both GET and PUT reconciliation.

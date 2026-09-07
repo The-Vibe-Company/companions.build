@@ -36,7 +36,7 @@ async function enterBasics(user: ReturnType<typeof userEvent.setup>) {
   await user.type(screen.getByLabelText("Purpose"), "Research the market");
 }
 
-beforeEach(() => mockSetup());
+beforeEach(() => { window.sessionStorage.clear(); mockSetup(); });
 afterEach(() => vi.restoreAllMocks());
 
 describe("CreateCompanion", () => {
@@ -84,7 +84,7 @@ describe("CreateCompanion", () => {
     expect(grantSpecialist).not.toHaveBeenCalled();
     expect(screen.getByLabelText("Name")).toBeDisabled();
 
-    await user.click(screen.getByRole("button", { name: "Retry setup" }));
+    await user.click(screen.getByRole("button", { name: "Resume setup" }));
     await waitFor(() => expect(onCreated).toHaveBeenCalledWith(companion));
     expect(create).toHaveBeenCalledOnce();
     expect(grantAccount).toHaveBeenCalledTimes(3);
@@ -106,7 +106,7 @@ describe("CreateCompanion", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent("The response was lost.");
     expect(onCreated).not.toHaveBeenCalled();
 
-    await user.click(screen.getByRole("button", { name: "Retry setup" }));
+    await user.click(screen.getByRole("button", { name: "Resume setup" }));
     await waitFor(() => expect(onCreated).toHaveBeenCalledWith(companion));
     expect(create).toHaveBeenCalledTimes(2);
     expect(create.mock.calls[0][0]).toEqual(create.mock.calls[1][0]);
@@ -133,6 +133,56 @@ describe("CreateCompanion", () => {
     }));
     expect(grantAccount).not.toHaveBeenCalled();
     expect(grantSpecialist).not.toHaveBeenCalled();
+  });
+
+  it("can open an already-created companion when an optional grant cannot finish", async () => {
+    const user = userEvent.setup();
+    const onCreated = vi.fn();
+    vi.spyOn(api, "createCompanion").mockResolvedValue({ companion });
+    vi.spyOn(workspaceApi, "selectPlugin").mockRejectedValue(new Error("This account is no longer connected."));
+    render(<CreateCompanion config={config} onCreated={onCreated}/>);
+    await enterBasics(user);
+    await user.click(screen.getByRole("checkbox", { name: "Work workspace" }));
+    await user.click(screen.getByRole("button", { name: "Create companion" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("This account is no longer connected.");
+
+    await user.click(screen.getByRole("button", { name: "Open companion and finish later" }));
+    expect(onCreated).toHaveBeenCalledWith(companion);
+  });
+
+  it("resumes the same frozen creation ID after remount for the same owner", async () => {
+    const user = userEvent.setup();
+    const create = vi.spyOn(api, "createCompanion")
+      .mockRejectedValueOnce(new Error("Connection lost."))
+      .mockResolvedValueOnce({ companion });
+    const first = render(<CreateCompanion config={config} ownerId="owner-1" onCreated={vi.fn()}/>);
+    await enterBasics(user);
+    await user.click(screen.getByRole("button", { name: "Create companion" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Connection lost.");
+    first.unmount();
+
+    const onCreated = vi.fn();
+    render(<CreateCompanion config={config} ownerId="owner-1" onCreated={onCreated}/>);
+    await screen.findByRole("heading", { name: "Linear" });
+    expect(screen.getByLabelText("Name")).toHaveValue("Ada");
+    expect(screen.getByLabelText("Name")).toBeDisabled();
+    await user.click(screen.getByRole("button", { name: "Resume setup" }));
+    await waitFor(() => expect(onCreated).toHaveBeenCalledWith(companion));
+    expect(create.mock.calls[0][0]).toEqual(create.mock.calls[1][0]);
+  });
+
+  it("does not navigate when creation resolves after the component unmounts", async () => {
+    let resolveCreate!: (value: { companion: Companion }) => void;
+    vi.spyOn(api, "createCompanion").mockReturnValue(new Promise(resolve => { resolveCreate = resolve; }));
+    const onCreated = vi.fn();
+    const user = userEvent.setup();
+    const view = render(<CreateCompanion config={config} ownerId="owner-1" onCreated={onCreated}/>);
+    await enterBasics(user);
+    await user.click(screen.getByRole("button", { name: "Create companion" }));
+    view.unmount();
+    resolveCreate({ companion });
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect(onCreated).not.toHaveBeenCalled();
   });
 
   it("keeps creation unavailable when setup choices fail and loads them on retry", async () => {

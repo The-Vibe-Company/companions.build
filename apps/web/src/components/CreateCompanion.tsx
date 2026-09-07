@@ -25,54 +25,122 @@ type CreateCompanionProps = {
   config: AppConfig;
   onCreated: (companion: Companion) => void;
   compact?: boolean;
+  ownerId?: string;
+  onSetupLockedChange?: (locked: boolean) => void;
 };
 
 type FrozenCreation = Parameters<typeof api.createCompanion>[0];
+type StoredCreation = {
+  request: FrozenCreation;
+  accountIds: string[];
+  specialistIds: string[];
+  completedAccountIds: string[];
+  completedSpecialistIds: string[];
+  createdCompanionId?: string;
+};
+
+function storageKey(ownerId: string) { return `companions.create.pending.${ownerId}`; }
+
+function readStoredCreation(ownerId?: string): StoredCreation | null {
+  if (!ownerId || typeof window === "undefined") return null;
+  try {
+    const value = JSON.parse(window.sessionStorage.getItem(storageKey(ownerId)) ?? "null") as StoredCreation | null;
+    if (!value?.request || typeof value.request.clientCreationId !== "string" || !Array.isArray(value.accountIds) || !Array.isArray(value.specialistIds)) return null;
+    return value;
+  } catch { return null; }
+}
 
 function failureMessage(cause: unknown, fallback: string) {
   return cause instanceof Error ? cause.message : fallback;
 }
 
-export function CreateCompanion({ config, onCreated, compact = false }: CreateCompanionProps) {
+export function CreateCompanion({ config, onCreated, compact = false, ownerId, onSetupLockedChange }: CreateCompanionProps) {
+  const restored = useRef(readStoredCreation(ownerId));
   const firstProvider: "local" | "box" = config.boxAvailable ? "box" : "local";
-  const [name, setName] = useState("");
-  const [instructions, setInstructions] = useState("");
-  const [provider, setProvider] = useState<"local" | "box">(firstProvider);
-  const [avatar, setAvatar] = useState<CompanionAvatarValue>(DEFAULT_AVATAR);
+  const [name, setName] = useState(restored.current?.request.name ?? "");
+  const [instructions, setInstructions] = useState(restored.current?.request.instructions ?? "");
+  const [provider, setProvider] = useState<"local" | "box">(restored.current?.request.provider ?? firstProvider);
+  const [avatar, setAvatar] = useState<CompanionAvatarValue>(restored.current?.request.avatar ?? DEFAULT_AVATAR);
   const [templates, setTemplates] = useState<AgentTemplate[]>([]);
   const [accounts, setAccounts] = useState<PluginAccount[]>([]);
   const [catalog, setCatalog] = useState<PluginServer[]>([]);
-  const [sourceTemplateId, setSourceTemplateId] = useState("");
-  const [accountIds, setAccountIds] = useState<Set<string>>(() => new Set());
-  const [specialistIds, setSpecialistIds] = useState<Set<string>>(() => new Set());
+  const [sourceTemplateId, setSourceTemplateId] = useState(restored.current?.request.templateId ?? "");
+  const [accountIds, setAccountIds] = useState<Set<string>>(() => new Set(restored.current?.accountIds ?? []));
+  const [specialistIds, setSpecialistIds] = useState<Set<string>>(() => new Set(restored.current?.specialistIds ?? []));
   const [loadingSetup, setLoadingSetup] = useState(true);
   const [setupError, setSetupError] = useState("");
-  const [attempted, setAttempted] = useState(false);
+  const [attempted, setAttempted] = useState(Boolean(restored.current));
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
-  const creationId = useRef(crypto.randomUUID());
-  const frozenCreation = useRef<FrozenCreation | null>(null);
+  const [createdId, setCreatedId] = useState(restored.current?.createdCompanionId ?? "");
+  const creationId = useRef(restored.current?.request.clientCreationId ?? crypto.randomUUID());
+  const frozenCreation = useRef<FrozenCreation | null>(restored.current?.request ?? null);
   const createdCompanion = useRef<Companion | null>(null);
-  const completedAccounts = useRef(new Set<string>());
-  const completedSpecialists = useRef(new Set<string>());
+  const completedAccounts = useRef(new Set(restored.current?.completedAccountIds ?? []));
+  const completedSpecialists = useRef(new Set(restored.current?.completedSpecialistIds ?? []));
   const submissionPending = useRef(false);
+  const mounted = useRef(true);
+  const setupLockCallback = useRef(onSetupLockedChange);
+  setupLockCallback.current = onSetupLockedChange;
+
+  function persistProgress(companionId = createdCompanion.current?.id) {
+    if (!ownerId || !frozenCreation.current) return;
+    const progress: StoredCreation = {
+      request: frozenCreation.current,
+      accountIds: [...accountIds],
+      specialistIds: [...specialistIds],
+      completedAccountIds: [...completedAccounts.current],
+      completedSpecialistIds: [...completedSpecialists.current],
+      ...(companionId ? { createdCompanionId: companionId } : {}),
+    };
+    try { window.sessionStorage.setItem(storageKey(ownerId), JSON.stringify(progress)); } catch { /* Storage is an optional recovery aid. */ }
+  }
+
+  function finishSetup(companion: Companion) {
+    if (ownerId) {
+      try { window.sessionStorage.removeItem(storageKey(ownerId)); } catch { /* Ignore unavailable storage. */ }
+    }
+    setAttempted(false);
+    setupLockCallback.current?.(false);
+    if (mounted.current) onCreated(companion);
+  }
 
   const loadSetup = useCallback(async () => {
     setLoadingSetup(true);
     setSetupError("");
     try {
       const [templateResult, pluginResult] = await Promise.all([workspaceApi.templates(), workspaceApi.plugins()]);
+      if (!mounted.current) return;
       setTemplates(templateResult.templates);
       setAccounts(pluginResult.accounts);
       setCatalog(pluginResult.catalog);
     } catch (cause) {
-      setSetupError(failureMessage(cause, "Could not load setup choices."));
+      if (mounted.current) setSetupError(failureMessage(cause, "Could not load setup choices."));
     } finally {
-      setLoadingSetup(false);
+      if (mounted.current) setLoadingSetup(false);
     }
   }, []);
 
   useEffect(() => { void loadSetup(); }, [loadSetup]);
+  useEffect(() => {
+    mounted.current = true;
+    if (restored.current) setupLockCallback.current?.(true);
+    return () => { mounted.current = false; setupLockCallback.current?.(false); };
+  }, []);
+  useEffect(() => {
+    if (!restored.current?.createdCompanionId) return;
+    void api.getCompanion(restored.current.createdCompanionId).then(result => {
+      if (!mounted.current) return;
+      createdCompanion.current = result.companion;
+      setCreatedId(result.companion.id);
+    }).catch(() => { /* Retrying the frozen create safely recovers an uncertain response. */ });
+  }, []);
+  useEffect(() => {
+    if (!attempted) return;
+    const preventClose = (event: BeforeUnloadEvent) => { event.preventDefault(); event.returnValue = ""; };
+    window.addEventListener("beforeunload", preventClose);
+    return () => window.removeEventListener("beforeunload", preventClose);
+  }, [attempted]);
 
   const sourceTemplate = templates.find(template => template.id === sourceTemplateId);
   const sourceNeedsBox = Boolean(sourceTemplate?.hasSnapshot || sourceTemplate?.softwareBuildId || sourceTemplate?.softwareResultId);
@@ -113,6 +181,7 @@ export function CreateCompanion({ config, onCreated, compact = false }: CreateCo
     if (!name.trim() || !instructions.trim() || loadingSetup || setupError || submissionPending.current) return;
     submissionPending.current = true;
     setAttempted(true);
+    setupLockCallback.current?.(true);
     setSubmitting(true);
     setError("");
     if (!frozenCreation.current) {
@@ -126,28 +195,36 @@ export function CreateCompanion({ config, onCreated, compact = false }: CreateCo
         ...(sourceTemplate ? { templateId: sourceTemplate.id, templateRevision: sourceTemplate.revision } : {}),
       };
     }
+    persistProgress();
     try {
       if (!createdCompanion.current) {
         const result = await api.createCompanion(frozenCreation.current);
         createdCompanion.current = result.companion;
+        persistProgress(result.companion.id);
+        if (!mounted.current) return;
+        setCreatedId(result.companion.id);
       }
       const companion = createdCompanion.current;
       for (const accountId of accountIds) {
         if (completedAccounts.current.has(accountId)) continue;
         await workspaceApi.selectPlugin(companion.id, accountId);
         completedAccounts.current.add(accountId);
+        persistProgress(companion.id);
+        if (!mounted.current) return;
       }
       for (const templateId of specialistIds) {
         if (completedSpecialists.current.has(templateId)) continue;
         await workspaceApi.setTemplatePermission(companion.id, templateId, 2);
         completedSpecialists.current.add(templateId);
+        persistProgress(companion.id);
+        if (!mounted.current) return;
       }
-      onCreated(companion);
+      finishSetup(companion);
     } catch (cause) {
-      setError(failureMessage(cause, "Could not finish creating this companion."));
+      if (mounted.current) setError(failureMessage(cause, "Could not finish creating this companion."));
     } finally {
       submissionPending.current = false;
-      setSubmitting(false);
+      if (mounted.current) setSubmitting(false);
     }
   }
 
@@ -202,8 +279,9 @@ export function CreateCompanion({ config, onCreated, compact = false }: CreateCo
       </details>
       {attempted && !submitting && error && <p className="create-lock-note">Setup is locked so retrying cannot create a different companion.</p>}
       {error && <p className="field-error" role="alert">{error}</p>}
+      {createdId && error && <Button type="button" variant="outline" onClick={() => createdCompanion.current && finishSetup(createdCompanion.current)}>Open companion and finish later</Button>}
       <Button className="create-companion-submit" type="submit" disabled={!canCreate || submitting}>
-        {submitting ? <LoaderCircle className="spin"/> : error ? <><Plus/>Retry setup</> : <><UsersRound/>Create companion</>}
+        {submitting ? <LoaderCircle className="spin"/> : attempted ? <><Plus/>Resume setup</> : <><UsersRound/>Create companion</>}
       </Button>
     </section>
   </form>;

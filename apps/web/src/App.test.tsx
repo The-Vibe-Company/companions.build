@@ -255,14 +255,14 @@ describe("first Companion flow", () => {
     expect(screen.queryByRole("complementary", { name: "Activity" })).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Activity" }));
     expect(screen.getByRole("complementary", { name: "Activity" })).toBeInTheDocument();
+    expect(window.location.search).toBe("?view=settings");
     expect(screen.getByRole("link", { name: "report.md" })).toHaveAttribute("href", "/api/companions/ada/files/report");
-    await user.click(screen.getAllByRole("button", { name: "Close activity" }).at(-1)!);
+    await user.click(screen.getByRole("button", { name: "Discussion" }));
+    expect(screen.getByRole("textbox", { name: "Message Ada" })).toHaveValue("Queue this next");
     await user.click(screen.getByRole("button", { name: "Edit Ada's personality" }));
-    await user.click(screen.getByRole("button", { name: "Back to settings" }));
-    expect(screen.getByRole("dialog", { name: "Make Ada yours" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Personality/ })).toBeInTheDocument();
-    expect(screen.queryByLabelText("Name")).not.toBeInTheDocument();
-    await user.click(screen.getAllByRole("button", { name: "Close settings" }).at(-1)!);
+    expect(screen.getByRole("region", { name: "Companion settings" })).toBeInTheDocument();
+    expect(screen.getByLabelText("Name")).toHaveValue("Ada");
+    await user.click(screen.getByRole("button", { name: "Discussion" }));
 
     await user.click(screen.getByRole("button", { name: /Browser Ready/ }));
     const browserComposer = await screen.findByRole("textbox", { name: "Message Browser" });
@@ -306,8 +306,8 @@ describe("first Companion flow", () => {
     expect(screen.queryByRole("button", { name: "Open Analyst's chat" })).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Activity" }));
     expect(screen.getByRole("button", { name: "Open Analyst's chat" })).toHaveTextContent("Preparing");
-    expect(screen.getAllByRole("button", { name: "Open Researcher's chat" })).toHaveLength(1);
-    await user.click(screen.getAllByRole("button", { name: "Close activity" }).at(-1)!);
+    expect(screen.queryByRole("button", { name: "Open Researcher's chat" })).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Discussion" }));
 
     await user.click(specialistLink);
     expect(await screen.findByText("Vendor landscape complete.")).toBeInTheDocument();
@@ -316,7 +316,7 @@ describe("first Companion flow", () => {
     expect(screen.queryByRole("textbox", { name: "Message Researcher" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Desktop" })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Edit Researcher's personality" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "Activity" })).toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: "Activity" })).toHaveLength(2);
     expect(window.location.pathname).toBe("/companions/specialist");
   });
 
@@ -336,8 +336,9 @@ describe("first Companion flow", () => {
     expect(await screen.findByRole("textbox", { name: "Message Ada" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Ada" }).parentElement).toHaveTextContent("Sleeping");
     await userEvent.click(screen.getByRole("button", { name: "Edit Ada's personality" }));
-    await userEvent.click(screen.getByRole("button", { name: "Back to settings" }));
-    expect(screen.getByRole("button", { name: /Open computer/ })).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "Companion settings" })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Computer" }));
+    expect(screen.getByRole("button", { name: /Open desktop/ })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Settings for Ada" })).not.toBeInTheDocument();
   });
 
@@ -595,6 +596,9 @@ it("preserves the configured default model when editing only a Companion identit
  await user.click(screen.getByText("Model preferences"));
  expect(screen.getByLabelText("Model")).toHaveValue("");
  await user.clear(screen.getByLabelText("Name"));await user.type(screen.getByLabelText("Name"),"Ada renamed");
+ await user.click(screen.getByRole("button",{name:"Discussion"}));
+ await user.click(screen.getByRole("button",{name:"Settings"}));
+ expect(screen.getByLabelText("Name")).toHaveValue("Ada renamed");
  await user.click(screen.getByRole("button",{name:"Save changes"}));
  await waitFor(()=>expect(fetchMock.mock.calls.some(([,options])=>options?.method==="PATCH")).toBe(true));
  const update=fetchMock.mock.calls.find(([,options])=>options?.method==="PATCH");

@@ -337,13 +337,13 @@ function Sidebar({
   );
 }
 
-function ActivityPanel({ detail, onClose, onOpenCompanion }: { detail: CompanionDetail; onClose: () => void; onOpenCompanion: (id: string) => void }) {
+function ActivityPanel({ detail, onClose, onOpenCompanion, embedded = false }: { detail: CompanionDetail; onClose?: () => void; onOpenCompanion: (id: string) => void; embedded?: boolean }) {
   const latestRuns = detail.runs.slice().reverse().slice(0, 8);
   return (
-    <aside className="activity-panel" aria-label="Activity">
+    <aside className={cn("activity-panel", embedded && "activity-panel--embedded")} aria-label="Activity">
       <div className="activity-heading">
         <span>Activity</span>
-        <Button variant="ghost" size="icon" onClick={onClose} aria-label="Close activity"><X /></Button>
+        {!embedded && <Button variant="ghost" size="icon" onClick={onClose} aria-label="Close activity"><X /></Button>}
       </div>
       <div className="mission-copy">
         <span>Mission</span>
@@ -533,21 +533,22 @@ function CompanionConnections({ companionId }: { companionId: string }) {
 }
 
 function CompanionView({ detail, models, onRefresh, onUnauthorized, onMenu, onOpenCompanion, onDeleted }: { detail: CompanionDetail; models: Array<{ id: string; name: string }>; onDeleted: (ids: string[]) => void; onRefresh: () => Promise<void>; onUnauthorized: () => void; onMenu: () => void; onOpenCompanion: (id: string) => void }) {
-  const readView = () => { const value = new URLSearchParams(window.location.search).get('view'); return value === 'team' || value === 'automations' ? value : 'chat'; };
+  type CompanionSection = 'chat' | 'automations' | 'team' | 'settings';
+  type SettingsPage = 'home' | 'identity' | 'connections' | 'delivery' | 'delete' | 'activity' | 'computer';
+  const readView = (): CompanionSection => { const value = new URLSearchParams(window.location.search).get('view'); return value === 'team' || value === 'automations' || value === 'settings' ? value : 'chat'; };
   const [view, setView] = useState(readView);
   const [automationView, setAutomationView] = useState(() => new URLSearchParams(window.location.search).get('kind') === 'events' ? 'events' : 'routines');
-  const [identityOpen, setIdentityOpen] = useState(false);
-  useEffect(() => { const restore = () => { setView(readView()); setAutomationView(new URLSearchParams(window.location.search).get('kind') === 'events' ? 'events' : 'routines'); }; window.addEventListener('popstate', restore); return () => window.removeEventListener('popstate', restore); }, []);
-  function changeView(next: 'chat' | 'automations' | 'team', kind = automationView) {
+  const [settingsPage, setSettingsPage] = useState<SettingsPage>('identity');
+  const [settingsVisited, setSettingsVisited] = useState(() => readView() === 'settings');
+  useEffect(() => { const restore = () => { const restoredView = readView(); setView(restoredView); if (restoredView === 'settings') setSettingsVisited(true); setAutomationView(new URLSearchParams(window.location.search).get('kind') === 'events' ? 'events' : 'routines'); }; window.addEventListener('popstate', restore); return () => window.removeEventListener('popstate', restore); }, []);
+  function changeView(next: CompanionSection, kind = automationView) {
     const url = new URL(window.location.href);
     if (next === 'chat') url.searchParams.delete('view'); else url.searchParams.set('view', next);
     if (next === 'automations' && kind === 'events') url.searchParams.set('kind', kind); else url.searchParams.delete('kind');
     if (url.pathname + url.search !== window.location.pathname + window.location.search) window.history.pushState({}, '', url.pathname + url.search);
+    if (next === 'settings') setSettingsVisited(true);
     setView(next); setAutomationView(kind);
   }
-  const [desktopOpen, setDesktopOpen] = useState(false);
-  const [settingsOpen, setSettingsOpen] = useState(false);
-  const [activityOpen, setActivityOpen] = useState(false);
   const finished = Boolean(detail.companion.retiredAt);
   const displayedStatus = finished ? "archived" : detail.companion.status;
 
@@ -555,23 +556,22 @@ function CompanionView({ detail, models, onRefresh, onUnauthorized, onMenu, onOp
     <main className="workspace" id="main-content">
       <header className="chat-header">
         <Button className="mobile-menu" variant="ghost" size="icon" onClick={onMenu} aria-label="Open navigation"><Menu /></Button>
-        <button className="header-identity identity-link" disabled={finished} aria-label={`Edit ${detail.companion.name}'s personality`} onClick={() => { setIdentityOpen(true); setSettingsOpen(true); }}>
+        <button className="header-identity identity-link" disabled={finished} aria-label={`Edit ${detail.companion.name}'s personality`} onClick={() => { setSettingsPage('identity'); changeView('settings'); }}>
           <CompanionAvatar name={detail.companion.name} avatar={detail.companion.avatar} size={38} />
           <div><h1>{detail.companion.name}</h1><span><StatusDot status={displayedStatus} />{finished ? "Finished" : statusLabel(displayedStatus)}</span></div>
         </button>
         <div className="header-actions">
-          {(finished || detail.runs.some(run => isActiveRun(run.status)) || !!detail.questions?.length) && <Button variant="ghost" size="sm" onClick={() => setActivityOpen(true)} aria-label="Activity"><CalendarClock /><span>{detail.questions?.length ? 'Needs you' : 'Activity'}</span></Button>}
+          {(finished || detail.runs.some(run => isActiveRun(run.status)) || !!detail.questions?.length) && <Button variant="ghost" size="sm" onClick={() => { setSettingsPage('activity'); changeView('settings'); }} aria-label="Activity"><CalendarClock /><span>{detail.questions?.length ? 'Needs you' : 'Activity'}</span></Button>}
         </div>
       </header>
-      {!finished && <nav className="companion-sections" aria-label="Companion sections">{([['chat', 'Discussion'], ['automations', 'Automations'], ['team', 'Team']] as const).map(([key, label]) => <button key={key} aria-current={view === key ? 'page' : undefined} onClick={() => changeView(key)}>{label}</button>)}<button className="companion-settings-access" aria-haspopup="dialog" onClick={() => { setIdentityOpen(false); setSettingsOpen(true); }}>Settings</button></nav>}
-      <div className="workspace-body" hidden={!finished && view !== 'chat'}>
+      <nav className="companion-sections" aria-label="Companion sections">{(finished ? [['chat', 'Discussion'], ['settings', 'Activity']] as const : [['chat', 'Discussion'], ['automations', 'Automations'], ['team', 'Team'], ['settings', 'Settings']] as const).map(([key, label]) => <button key={key} aria-current={view === key ? 'page' : undefined} onClick={() => changeView(key)}>{label}</button>)}</nav>
+      <div className="workspace-body" hidden={view !== 'chat'}>
         <Chat detail={detail} onRefresh={onRefresh} onUnauthorized={onUnauthorized} onOpenCompanion={onOpenCompanion} readOnly={finished} />
       </div>
       {!finished && view === 'automations' && <section className="companion-page" aria-label="Automations"><div className="companion-page-inner"><header className="section-intro"><h2>A little help, on repeat.</h2><p>Set the timing. Your companion takes it from there.</p></header><nav className="automation-sections" aria-label="Automation type"><button aria-current={automationView === 'routines' ? 'page' : undefined} onClick={() => changeView('automations', 'routines')}>Routines</button><button aria-current={automationView === 'events' ? 'page' : undefined} onClick={() => changeView('automations', 'events')}>Events</button></nav>{automationView === 'routines' ? <RoutineSettings companionId={detail.companion.id}/> : <TriggerSettings companionId={detail.companion.id}/>}</div></section>}
       {!finished && view === 'team' && <section className="companion-page" aria-label="Team"><Suspense fallback={<div className="companion-page-inner" role="status">Opening your team…</div>}><TeamPanel companion={detail.companion} onOpenCompanion={onOpenCompanion}/></Suspense></section>}
-      {activityOpen && <div className="activity-layer"><button className="sheet-scrim" onClick={() => setActivityOpen(false)} aria-label="Close activity" /><ActivityPanel detail={detail} onClose={() => setActivityOpen(false)} onOpenCompanion={(id) => { setActivityOpen(false); onOpenCompanion(id); }} /></div>}
-      {settingsOpen && <SettingsSheet initialPage={identityOpen ? "identity" : "home"} detail={detail} models={models} onClose={() => setSettingsOpen(false)} onSaved={onRefresh} onDeleted={onDeleted} connections={<CompanionConnections companionId={detail.companion.id} />} onActivity={() => { setSettingsOpen(false); setActivityOpen(true); }} onDesktop={() => { setSettingsOpen(false); setDesktopOpen(true); }} />}
-      {desktopOpen && <DesktopSheet companion={detail.companion} onClose={() => setDesktopOpen(false)} onRefresh={onRefresh} />}
+      {finished && view === 'settings' && <section className="companion-page" aria-label="Activity"><ActivityPanel embedded detail={detail} onOpenCompanion={onOpenCompanion} /></section>}
+      {!finished && settingsVisited && <div className="companion-page" hidden={view !== 'settings'}><SettingsSheet embedded active={view === 'settings'} initialPage={settingsPage} onPageChange={setSettingsPage} detail={detail} models={models} onClose={() => changeView('chat')} onSaved={onRefresh} onDeleted={onDeleted} connections={<CompanionConnections companionId={detail.companion.id} />} onActivity={() => setSettingsPage('activity')} onDesktop={() => setSettingsPage('computer')} activity={<ActivityPanel embedded detail={detail} onOpenCompanion={onOpenCompanion} />} computer={<DesktopSheet embedded companion={detail.companion} onClose={() => setSettingsPage('identity')} onRefresh={onRefresh} />} /></div>}
     </main>
   );
 }

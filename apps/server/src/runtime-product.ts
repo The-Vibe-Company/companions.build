@@ -1,3 +1,4 @@
+import {tracePreparation} from './preparation-trace';
 import {createHash} from 'node:crypto';
 import {db} from './store';
 import {agentRequest} from './machines';
@@ -34,7 +35,7 @@ export const productHooks:ExecutorHooks={
  },
  async prepareRun(run,endpoint,token,execution){
   const request=execution?.requestAgent??agentRequest;
-  const ownerId=await owner(run);await syncConfiguration(run,endpoint,token,undefined,execution);
+  const ownerId=await owner(run);await tracePreparation(run.companion_id,'plugin_configuration',()=>syncConfiguration(run,endpoint,token,undefined,execution),undefined,run.id);
   await execution?.assertActive();await stageTriggerContext(run,endpoint,token,request);
   if(run.attachment_count||run.source==='delegation'){
    const files=await filesForAgent({ownerId,companionId:run.companion_id,runId:run.id});const paths:string[]=[];

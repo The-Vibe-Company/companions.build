@@ -1,0 +1,42 @@
+import {afterEach,expect,test,spyOn} from 'bun:test';
+import {preparationState,tracePreparation} from '../src/preparation-trace';
+const companionId='00000000-0000-4000-8000-000000000001';
+const runId='00000000-0000-4000-8000-000000000002';
+const original=process.env.COMPANIONS_TRACE_PREPARATION;
+let output:ReturnType<typeof spyOn>|undefined;
+afterEach(()=>{output?.mockRestore();output=undefined;if(original===undefined)delete process.env.COMPANIONS_TRACE_PREPARATION;else process.env.COMPANIONS_TRACE_PREPARATION=original;});
+test('disabled by default: no output and operation result/error are preserved',async()=>{
+ delete process.env.COMPANIONS_TRACE_PREPARATION;
+ output=spyOn(console,'info').mockImplementation(()=>{});
+ const value={endpoint:'https://private.example/?token=secret'};
+ expect(await tracePreparation(companionId,'box_host',async()=>value)).toBe(value);
+ const error=Error('SECRET_PROVIDER_PAYLOAD');
+ await expect(tracePreparation(companionId,'box_get',async()=>{throw error;})).rejects.toBe(error);
+ preparationState(companionId,'box_setup','ready');expect(output).not.toHaveBeenCalled();
+});
+test('enabled output has only validated IDs, fixed phases/outcomes, and monotonic timings',async()=>{
+ process.env.COMPANIONS_TRACE_PREPARATION='1';const lines:string[]=[];
+ output=spyOn(console,'info').mockImplementation((line:string)=>{lines.push(line);});
+ const secret={token:'SECRET_TOKEN',url:'https://private.example/?_token=SECRET_URL',payload:'SECRET_RESPONSE'};
+ const before=performance.now();
+ expect(await tracePreparation(companionId,'box_host',async()=>secret,undefined,runId)).toBe(secret);
+ const failure=Error('SECRET_ERROR');
+ await expect(tracePreparation(companionId,'box_get',async()=>{throw failure;})).rejects.toBe(failure);
+ await tracePreparation(companionId,'box_get',async()=>secret,()=> 'SECRET_OUTCOME' as any);
+ preparationState(companionId,'box_setup','setup_pending');
+ expect(lines.join('\n')).not.toContain('SECRET');
+ const first=JSON.parse(lines[0]!);
+ expect(Object.keys(first).sort()).toEqual(['companionId','durationMs','event','outcome','phase','runId','startedMs'].sort());
+ expect(first).toMatchObject({event:'preparation_trace',companionId,runId,phase:'box_host',outcome:'ok'});
+ expect(first.startedMs).toBeGreaterThanOrEqual(before-0.001);expect(first.durationMs).toBeGreaterThanOrEqual(0);
+ expect(JSON.parse(lines[1]!).outcome).toBe('error');expect(JSON.parse(lines[2]!).outcome).toBe('error');
+ expect(JSON.parse(lines[3]!).outcome).toBe('setup_pending');
+});
+test('invalid identifiers/phases are suppressed and logging failure never changes execution',async()=>{
+ process.env.COMPANIONS_TRACE_PREPARATION='1';output=spyOn(console,'info').mockImplementation(()=>{throw Error('logger failed');});
+ expect(await tracePreparation(companionId,'box_get',async()=>42)).toBe(42);
+ output.mockClear();
+ expect(await tracePreparation('SECRET_IDENTIFIER','box_get',async()=>43)).toBe(43);
+ preparationState(companionId,'SECRET_PHASE' as any,'ready');
+ expect(output).not.toHaveBeenCalled();
+});

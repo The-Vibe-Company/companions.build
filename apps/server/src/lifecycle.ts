@@ -1,3 +1,4 @@
+import {tracePreparation} from './preparation-trace';
 import {handoffDelegationFiles} from './files';
 import { z } from 'zod';
 import { db } from './store';
@@ -144,15 +145,15 @@ export async function progressLifecycle(sql:any=db,hooks:LifecycleHooks={},machi
     await checkpoint(async()=>{}); // Fence each provider attempt, including subsequent readiness polls.
     const endpoint=reusable?decrypt(companion.endpoint_secret):await machine.prepare(companion,async id=>{await checkpoint(async(tx:any)=>{await tx`UPDATE companions SET box_id=${id} WHERE id=${companion.id}`;});companion.box_id=id;},async()=>{await checkpoint(async(tx:any)=>{await tx`UPDATE companions SET config_digest=${digest} WHERE id=${companion.id}`;});},beforePrepareEffect);
     if(!endpoint)return;
-    try{await assertLeader();const health=await machine.health(endpoint,decrypt(companion.agent_secret));if(!health?.ready)throw Error('agent_not_ready');companion.desktop_boundary_version=health.desktopBoundaryVersion===1?1:0;}
+    try{await assertLeader();const health=await tracePreparation(companion.id,'lifecycle_health',()=>machine.health(endpoint,decrypt(companion.agent_secret)),value=>value?.ready?'ready':'not_ready');if(!health?.ready)throw Error('agent_not_ready');companion.desktop_boundary_version=health.desktopBoundaryVersion===1?1:0;}
     catch{await checkpoint(async(tx:any)=>{await tx`UPDATE companions SET endpoint_secret=null WHERE id=${companion.id}`;});return;}
     const execution={sql,assertLeader,checkpoint};
     await stageDeliverySkills(companion.id,endpoint,decrypt(companion.agent_secret),hooks.deliverySkills,execution);
     const portable=await progressDeliverySkillsForCompanion(sql,companion.id,endpoint,decrypt(companion.agent_secret),hooks.deliverySkills,execution);
-    await checkpoint(async(tx:any)=>{
+    await tracePreparation(companion.id,'ready_checkpoint',()=>checkpoint(async(tx:any)=>{
      await tx`UPDATE companions SET prepare_requested=${portable.pending>0},preparation_started_at=${portable.pending>0?companion.preparation_started_at:null},status='ready',error=${portable.pending>0?'Portable skills are waiting to be exported.':null},endpoint_secret=${encrypt(endpoint)},config_digest=${digest},ready_at=now(),archived_at=null,desktop_boundary_version=${companion.desktop_boundary_version} WHERE id=${companion.id}`;
      if(!reusable)await usage(tx,companion,'ready');
-    });
+    }));
     companion.endpoint_secret=encrypt(endpoint);companion.status='ready';
    }
    if((companion.desktop_taken||companion.desktop_boundary_version===1)&&companion.endpoint_secret&&companion.status==='ready'&&!companion.archive_requested_at){

@@ -158,3 +158,20 @@ late provider response. `python3 scripts/verify.py` runs these with the existing
 Historical credentialed canaries observed the old whole-daemon freeze/resume, snapshot lookup/re-entry,
 archive/wake, and delegated-file handoff on individual Boxes; these observations are not continuous
 provider or latency guarantees. No worktree test uses live keys.
+
+## Optional preparation trace
+
+Set `COMPANIONS_TRACE_PREPARATION=1` only on the executor to emit `preparation_trace` JSON lines.
+It is disabled by default. Records contain a Companion UUID, a fixed phase/outcome, monotonic
+`startedMs` and `durationMs`, plus the run UUID for admission and staging. Group by Companion,
+order by `startedMs` within the executor process, and use run UUIDs to locate admission. Gaps
+between completed provider spans and the next span include controller scheduling/SQL time.
+No endpoint, token, command, provider response or raw error is serialized.
+
+The trace separates create/GET/resume, setup state, environment upload, service configuration,
+preview hosting, lifecycle/admission health, plugin configuration, staging and prompt PUT.
+`run_staging` includes `plugin_configuration`, so their durations must not be added together.
+A successful `box_resume` means the API call returned; subsequent `box_get`/`box_setup` observations
+show when the provider is usable. `ready_checkpoint` records the machine-ready SQL write.
+`admission_put` follows PostgreSQL's `prepared_at`, so it belongs to the canary's reported
+execution duration rather than its preparation duration. These diagnostics add no retry or wait.

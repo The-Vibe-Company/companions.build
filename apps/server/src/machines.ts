@@ -1,3 +1,4 @@
+import {tracePreparation,preparationState} from './preparation-trace';
 import { mkdirSync, writeFileSync, unlinkSync, realpathSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { createHash } from "node:crypto";
@@ -82,29 +83,30 @@ export async function prepareBox(companion: any, checkpoint: (boxId: string) => 
   if (!id) {
     if (companion.create_started_at && Date.now() - new Date(companion.create_started_at).getTime() > 23 * 3600_000) throw new MachineError("box_creation_needs_reconciliation");
     await beforeEffect();
-    const created = await box.create(companion.create_key, companion.snapshot_name ?? config.boxTemplate);
+    const created = await tracePreparation(companion.id,'box_create',()=>box.create(companion.create_key, companion.snapshot_name ?? config.boxTemplate));
     id = created.id;
     await checkpoint(id);
   }
   await beforeEffect();
-  const machine = await box.get(id);
-  if (machine.state === "archived") { await beforeEffect(); await box.resume(id); return null; }
+  const machine = await tracePreparation(companion.id,'box_get',()=>box.get(id),value=>value.state==='archived'?'archived':['ready','idle','running'].includes(value.state)?'ready':'not_ready');
+  if (machine.state === "archived") { await beforeEffect(); await tracePreparation(companion.id,'box_resume',()=>box.resume(id)); return null; }
   if (!["ready", "idle", "running"].includes(machine.state)) return null;
+  preparationState(companion.id,'box_setup',machine.setupStatus==='failed'?'setup_failed':machine.setupStatus&&machine.setupStatus!=='done'?'setup_pending':'ready');
   if (machine.setupStatus === "failed") throw new MachineError("box_setup_failed");
   if (machine.setupStatus && machine.setupStatus !== "done") return null;
-  if (companion.endpoint_secret && companion.config_digest === environmentDigest(companion.agent_secret)) return decrypt(companion.endpoint_secret);
+  if (companion.endpoint_secret && companion.config_digest === environmentDigest(companion.agent_secret)) {preparationState(companion.id,'box_endpoint','reused');return decrypt(companion.endpoint_secret);}
   const values = { ...modelEnvironment(decrypt(companion.agent_secret)), AGENT_STATE_DIR: companion.template_id ? `/home/user/.companions/agents/${companion.id}` : "/home/user/.companions" };
   // systemd EnvironmentFile uses double quoted values, not shell expansion.
   const envText = Object.entries(values).map(([key, value]) => `${key}="${value.replace(/\\/g, "\\\\").replace(/"/g, '\\"').replace(/\n/g, "\\n")}"`).join("\n");
   await beforeEffect();
-  await box.writeFile(id, "/home/user/.companions.env", envText);
+  await tracePreparation(companion.id,'box_environment',()=>box.writeFile(id, "/home/user/.companions.env", envText));
   const action = companion.config_digest === environmentDigest(companion.agent_secret) ? "start" : "restart";
   await beforeEffect();
   if(!/^[a-f0-9-]{36}$/.test(companion.id))throw new MachineError('invalid_companion_identity');
-  await box.command(id, `chmod 600 /home/user/.companions.env && if test -f /opt/companions/desktop-boundary.version; then sudo -n python3 /opt/companions/configure-desktop.py ${companion.id} && sudo -n systemctl ${action} companions-agent.service && sudo -n systemctl start companions-agent-proxy.socket; else ${userSystemctl(`${action} companions-agent.service`)}; fi`);
+  await tracePreparation(companion.id,'box_services',()=>box.command(id, `chmod 600 /home/user/.companions.env && if test -f /opt/companions/desktop-boundary.version; then sudo -n python3 /opt/companions/configure-desktop.py ${companion.id} && sudo -n systemctl ${action} companions-agent.service && sudo -n systemctl start companions-agent-proxy.socket; else ${userSystemctl(`${action} companions-agent.service`)}; fi`));
   await configured();
   await beforeEffect();
-  return box.host(id, 8787);
+  return tracePreparation(companion.id,'box_host',()=>box.host(id, 8787));
 }
 export async function agentRequest(endpoint: string, token: string, path: string, method = "GET", body?: unknown) {
   const result = await fetchAgent(endpoint, token, path, method, body, path === "/health" ? 2_000 : 10_000);

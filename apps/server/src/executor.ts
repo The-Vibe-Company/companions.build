@@ -1,3 +1,4 @@
+import {tracePreparation} from './preparation-trace';
 import {BoxObserver} from './box-observation';
 import { db, migrateForService } from "./store";
 import { encrypt, decrypt } from "./config";
@@ -155,7 +156,7 @@ export async function tick(sql: ReservedSQL, hooks: ExecutorHooks = {}, lifecycl
             return;
           }
           if (result.status === "needs_input") {
-            const health = await request(endpoint, token, "/health");
+            const health = await tracePreparation(run.companion_id,'admission_health',()=>request(endpoint!, token, "/health"),value=>value?.ready?'ready':'not_ready',run.id);
             if (run.lane === "background" && health?.activeRuns?.background && health.activeRuns.background !== run.id) return;
             const resumed = await request(endpoint, token, `/runs/${run.id}/resume`, "POST");
             if (resumed?.status !== "running") return;
@@ -178,7 +179,7 @@ export async function tick(sql: ReservedSQL, hooks: ExecutorHooks = {}, lifecycl
             return;
           }
           try {
-            const health = await request(endpoint, token, "/health");
+            const health = await tracePreparation(run.companion_id,'admission_health',()=>request(endpoint!, token, "/health"),value=>value?.ready?'ready':'not_ready',run.id);
             if (!health?.ready) throw new Error("agent_not_ready");
             const active = health.activeRuns?.[run.lane] ?? (run.lane === "main" ? health.activeRunId : null);
             if (active) {
@@ -198,7 +199,7 @@ export async function tick(sql: ReservedSQL, hooks: ExecutorHooks = {}, lifecycl
             await execution.checkpoint(async tx=>tx`UPDATE companions SET endpoint_secret=null,prepare_requested=true WHERE id=${run.companion_id}`);
             return;
           }
-          await hooks.prepareRun?.(run, endpoint, token,execution);
+          await tracePreparation(run.companion_id,'run_staging',async()=>hooks.prepareRun?.(run, endpoint!, token,execution),undefined,run.id);
           if(!await (hooks.canStartWork??ownerMayStartWork)(run.owner_id)){await finish("failed",null,SUBSCRIPTION_REQUIRED);return;}
           // Cancellation may arrive during machine/file preparation. Recheck before dispatch.
           const [latest] = await sql`SELECT r.cancel_requested,c.desktop_taken,c.desktop_paused_at,c.retired_at FROM runs r JOIN companions c ON c.id=r.companion_id WHERE r.id=${run.id}`;
@@ -211,7 +212,7 @@ export async function tick(sql: ReservedSQL, hooks: ExecutorHooks = {}, lifecycl
             RETURNING id`;
           if (!dispatch) return;
           await execution.checkpoint(async tx=>tx`UPDATE companions SET status='ready',error=null WHERE id=${run.companion_id}`);
-          const accepted = await request(endpoint, token, `/runs/${run.id}`, "PUT", { content: run.content, instructions: run.instructions, lane: run.lane, ...(run.model_id ? {modelId: run.model_id} : {}) });
+          const accepted = await tracePreparation(run.companion_id,'admission_put',()=>request(endpoint!, token, `/runs/${run.id}`, "PUT", { content: run.content, instructions: run.instructions, lane: run.lane, ...(run.model_id ? {modelId: run.model_id} : {}) }),undefined,run.id);
           if (accepted?.responseRootId) {
             await execution.checkpoint(async tx=>tx`UPDATE runs SET response_root_id=(SELECT id FROM runs root WHERE root.id=${accepted.responseRootId} AND root.companion_id=${run.companion_id}) WHERE id=${run.id}`);
           }

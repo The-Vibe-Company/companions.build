@@ -1,0 +1,22 @@
+packages/agent/test/specialist-initialization.test.ts
+  s_895cd30c8c0144::t_cf3f6a1f9a59d5 14,16-17,37,46,62-70
+  s_895cd30c8c0144::t_9bec915c8cfc63 71-72
+packages/agent/src/initialization.ts
+  s_895cd30c8c0144::t_cf3f6a1f9a59d5 16-17,84-86,125,127-145,153-160
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "b64af1de8e79b65cd5b4ea5ececc9eba5d1491ea",
+  "prompts": {},
+  "sessions": {
+    "s_895cd30c8c0144": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a07d31-b106-7d00-912b-601ce8884ca0",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "StanGirard <stan@quivr.app>"
+    }
+  }
+}

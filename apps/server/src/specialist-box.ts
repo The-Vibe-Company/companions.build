@@ -11,8 +11,8 @@ home=pathlib.Path('/home/user')
 state=home/'.companions'
 saved=home/'.specialist-skills'
 workspace=home/'.specialist-workspace'
-source=state
-if not (source/'workspace').exists(): source=state/'agents'/'${sourceId}'
+source=state/'agents'/'${sourceId}'
+if not (source/'workspace').exists(): source=state
 if workspace.is_symlink(): raise RuntimeError('invalid_workspace_destination')
 if (source/'workspace').exists():
     if workspace.exists(): shutil.rmtree(workspace)

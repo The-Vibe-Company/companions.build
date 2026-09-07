@@ -1,0 +1,23 @@
+docs/billing-delivery.md
+  s_f946242dcf6ba9::t_eef08fb3e520d7 70-75
+docs/completion-audit.md
+  s_f946242dcf6ba9::t_60fcf0b61be61b 56-57
+docs/validation-v0.md
+  s_f946242dcf6ba9::t_5ec0135db220f4 143-165
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "8ca9952277b34b9f452f78b17bda6e8527ab1109",
+  "prompts": {},
+  "sessions": {
+    "s_f946242dcf6ba9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a06de4-a8a5-7cd3-b713-2a8d451f7200",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "StanGirard <stan@quivr.app>"
+    }
+  }
+}

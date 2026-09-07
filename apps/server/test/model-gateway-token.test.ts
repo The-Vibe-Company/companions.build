@@ -7,7 +7,7 @@ import {modelEnvironment} from '../src/machines';
 test('model access binds one run and companion, expires and rejects tampering',()=>{
  const companionId=crypto.randomUUID(),runId=crypto.randomUUID(),secret='synthetic-encrypted-credential';
  const expiresAt=Date.now()+30_000,token=mintModelGatewayToken(companionId,runId,secret,expiresAt);
- expect(verifyModelGatewayToken(token)).toEqual({companionId,runId,credentialDigest:createHash('sha256').update(secret).digest('hex'),expiresAt});
+ expect(verifyModelGatewayToken(token)).toEqual({companionId,runId,credentialDigest:createHash('sha256').update(secret).digest('hex'),endpointDigest:createHash('sha256').update('').digest('hex'),expiresAt});
  const [body,signature]=token.split('.');
  const changed=Buffer.from(JSON.stringify({...JSON.parse(Buffer.from(body,'base64url').toString()),runId:crypto.randomUUID()})).toString('base64url');
  expect(verifyModelGatewayToken(`${changed}.${signature}`)).toBeNull();

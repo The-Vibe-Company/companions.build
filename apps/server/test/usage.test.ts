@@ -25,7 +25,8 @@ test('hosted usage trusts verified gateway invocations once, never the Box trans
   VALUES(${requestId},${run},${c.id},${owner},'zai','glm-5.3-flash','openai-completions',${'a'.repeat(64)},'failed',true,${usage},now()),
   (${unknownId},${run},${c.id},${owner},'zai','glm-5.3-flash','openai-completions',${'b'.repeat(64)},'interrupted',false,NULL,now())`;
  await recordCompletedUsage();await recordCompletedUsage();
- expect(await db`SELECT operation_id,category,quantity::int AS quantity FROM usage_ledger WHERE owner_id=${owner}`).toEqual([
+ const rows=await db`SELECT operation_id,category,quantity::int AS quantity FROM usage_ledger WHERE owner_id=${owner}`;
+ expect(rows).toEqual([
   {operation_id:'model-request:'+requestId,category:'model_tokens',quantity:27},
  ]);
 });

@@ -65,7 +65,15 @@ async function settle(sql: any, run: any, status: string, text: string | null, e
 const usageShape=z.object({input:z.number().finite().nonnegative(),output:z.number().finite().nonnegative(),cacheRead:z.number().finite().nonnegative(),cacheWrite:z.number().finite().nonnegative(),totalTokens:z.number().finite().nonnegative(),costUsd:z.number().finite().nonnegative()});
 /** Steering siblings share one response root; its measured usage is stored only once. */
 export async function persistObservation(sql:any,run:any,result:any,leaderPid?:number){
- if(!result||(result.responseRootId??run.response_root_id??run.id)!==run.id)return;
+ if(!result)return;
+ const rootId=result.responseRootId??run.response_root_id??run.id;
+ if(rootId!==run.id){
+  // This also repairs the projection when the PUT acknowledgment was lost.
+  await sql`UPDATE runs r SET response_root_id=root.id,model_provider=root.model_provider,model_id=root.model_id,usage_source=root.usage_source
+   FROM runs root WHERE r.id=${run.id} AND root.id=${rootId} AND root.companion_id=r.companion_id AND r.companion_id=${run.companion_id}
+   AND EXISTS(SELECT 1 FROM pg_locks WHERE locktype='advisory' AND pid=COALESCE(${leaderPid??null}::int,pg_backend_pid()) AND objid=721440139 AND granted)`;
+  return;
+ }
  const preview=typeof result.previewText==='string'?result.previewText.slice(0,20_000):null;
  const parsed=usageShape.safeParse(result.usage);const usage=parsed.success?parsed.data:null;
  if(preview===null&&usage===null)return;
@@ -250,9 +258,13 @@ export async function tick(sql: ReservedSQL, hooks: ExecutorHooks = {}, lifecycl
           await execution.checkpoint(async tx=>tx`UPDATE companions SET status='ready',error=null WHERE id=${run.companion_id}`);
           const accepted = await tracePreparation(run.companion_id,'admission_put',()=>request(endpoint!, token, `/runs/${run.id}`, "PUT", { content: run.content, instructions: run.instructions, lane: run.lane,
             ...(run.model_id ? {modelId: run.model_id} : {}),
-            ...(useGateway?{modelGateway:{token:mintModelGatewayToken(run.companion_id,run.id,run.agent_secret)}}:{}) }),undefined,run.id);
+            ...(useGateway?{modelGateway:{token:mintModelGatewayToken(run.companion_id,run.id,run.agent_secret,undefined,run.endpoint_secret)}}:{}) }),undefined,run.id);
           if (accepted?.responseRootId) {
             await execution.checkpoint(async tx=>tx`UPDATE runs SET response_root_id=(SELECT id FROM runs root WHERE root.id=${accepted.responseRootId} AND root.companion_id=${run.companion_id}) WHERE id=${run.id}`);
+            // Pi's native steer joins the root's existing model session. A changed selection
+            // applies to the next response root, never retroactively to this shared reply.
+            await execution.checkpoint(async tx=>tx`UPDATE runs r SET model_provider=root.model_provider,model_id=root.model_id,usage_source=root.usage_source
+              FROM runs root WHERE r.id=${run.id} AND root.id=r.response_root_id AND root.companion_id=r.companion_id AND root.id<>r.id`);
           }
           return;
         }

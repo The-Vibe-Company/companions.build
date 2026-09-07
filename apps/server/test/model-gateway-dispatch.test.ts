@@ -1,6 +1,6 @@
 import {beforeAll,test,expect} from 'bun:test';
 import {db,migrate,createCompanion,acceptMessage} from '../src/store';
-import {acquireExecutor,tick} from '../src/executor';
+import {acquireExecutor,tick,persistObservation} from '../src/executor';
 import {config,encrypt} from '../src/config';
 import {verifyModelGatewayToken} from '../src/model-gateway-token';
 
@@ -8,13 +8,13 @@ beforeAll(async()=>{await migrate();});
 test('gateway dispatch persists the selected model and usage authority before contacting Pi',async()=>{
  const owner='00000000-0000-4000-8000-000000000001';
  const previous={testMode:config.testMode,modelProvider:config.modelProvider,modelId:config.modelId,modelGatewayUrl:config.modelGatewayUrl};
- let seen:any,observed:any;
+ let seen:any,observed:any,responseRoot:string|undefined;
  const daemon=Bun.serve({hostname:'127.0.0.1',port:0,async fetch(request){
   if(new URL(request.url).pathname==='/health')return Response.json({ready:true});
   if(request.method==='PUT'){
    seen=await request.json();const id=new URL(request.url).pathname.split('/').at(-1)!;
    [observed]=await db`SELECT dispatched,status,model_provider,model_id,usage_source FROM runs WHERE id=${id}`;
-   return Response.json({status:'running',responseRootId:id});
+   responseRoot??=id;return Response.json({status:'running',responseRootId:responseRoot});
   }
   return Response.json({status:'running'});
  }});
@@ -32,6 +32,13 @@ test('gateway dispatch persists the selected model and usage authority before co
   expect(verifyModelGatewayToken(seen.modelGateway.token)).toMatchObject({companionId:id,runId});
   await db`UPDATE companions SET model_id='future-model' WHERE id=${id}`;
   expect((await db`SELECT model_id FROM runs WHERE id=${runId}`)[0].model_id).toBe('chosen-model');
+  const steer=await acceptMessage(owner,id!,crypto.randomUUID(),'Continue the same reply');
+  await tick(lock,{canStartWork:async()=>true});
+  expect((await db`SELECT response_root_id,model_id,usage_source FROM runs WHERE id=${steer}`)[0]).toEqual({response_root_id:runId,model_id:'chosen-model',usage_source:'gateway'});
+  // Recovery from a lost native steer acknowledgement must restore the same projection.
+  await db`UPDATE runs SET response_root_id=NULL,model_id='future-model' WHERE id=${steer}`;
+  await persistObservation(lock,{id:steer,companion_id:id},{responseRootId:runId});
+  expect((await db`SELECT response_root_id,model_id FROM runs WHERE id=${steer}`)[0]).toEqual({response_root_id:runId,model_id:'chosen-model'});
  }finally{
   if(id){await db`UPDATE runs SET status='cancelled',finished_at=now() WHERE companion_id=${id}`;await db`UPDATE companions SET retired_at=now(),prepare_requested=false WHERE id=${id}`;}
   if(lock!){await lock`SELECT pg_advisory_unlock(721440139)`;lock.release();}

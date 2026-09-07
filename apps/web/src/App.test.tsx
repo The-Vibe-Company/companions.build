@@ -297,6 +297,8 @@ describe("first Companion flow", () => {
       if (path === "/api/companions/browser") {
         return response({ companion: browserCompanion, messages: [], runs: [], activity: [] });
       }
+      if(path==="/api/companions/ada/tasks?limit=20")return response({tasks:[{id:"review",title:"Review the report",status:"succeeded",lane:"background",source:"delegation",createdAt:companion.createdAt,finishedAt:companion.createdAt}],nextCursor:null});
+      if(path==="/api/companions/ada/tasks/review")return response({task:{id:"review",title:"Review the report",content:"Review the report",status:"succeeded",lane:"background",source:"delegation",createdAt:companion.createdAt,finishedAt:companion.createdAt,resultText:"Reviewed the specialist's report.",error:null,cancelRequested:false,publishToChat:false},files:[{id:"report",runId:"review",kind:"agent_output",name:"report.md",mimeType:"text/markdown",size:24,url:"/api/companions/ada/files/report"}]});
       if (path === "/api/plugins") return response({ accounts: [], catalog: [] });
       if (path === "/api/companions/ada/plugins") return response({ accounts: [] });
       throw new Error(`Unexpected request: ${path}`);
@@ -311,9 +313,10 @@ describe("first Companion flow", () => {
     expect(screen.getByRole("button", { name: "Send message" })).toBeEnabled();
     expect(screen.queryByRole("complementary", { name: "Activity" })).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Activity" }));
-    expect(screen.getByRole("complementary", { name: "Activity" })).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "Activity" })).toBeInTheDocument();
+    await user.click(await screen.findByRole("button", {name:/Review the report/}));
     expect(window.location.search).toBe("?view=activity");
-    expect(screen.getByRole("link", { name: "report.md" })).toHaveAttribute("href", "/api/companions/ada/files/report");
+    expect(await screen.findByRole("link", { name: "report.md" })).toHaveAttribute("href", "/api/companions/ada/files/report");
     await user.click(screen.getByRole("button", { name: "Discussion" }));
     expect(screen.getByRole("textbox", { name: "Message Ada" })).toHaveValue("Queue this next");
     await user.click(screen.getByRole("button", { name: "Edit Ada's personality" }));
@@ -444,6 +447,8 @@ describe("first Companion flow", () => {
         ],
         activity: [],
       });
+      if(path==="/api/companions/ada/tasks?limit=20")return response({tasks:[{id:"run-background",title:"Review vendors",status:"running",lane:"background",source:"delegation",createdAt:companion.createdAt,finishedAt:null}],nextCursor:null});
+      if(path==="/api/companions/ada/tasks/run-background")return response({task:{id:"run-background",title:"Review vendors",content:"Review vendors",status:"running",lane:"background",source:"delegation",createdAt:companion.createdAt,finishedAt:null,resultText:null,error:null,cancelRequested:false,publishToChat:false},files:[]});
       if (path === "/api/companions/specialist") return response({ companion: specialist, messages: [{ id: "child-result", role: "assistant", content: "Vendor landscape complete.", createdAt: companion.createdAt, runId: "run-child", files: [{ id: "child-file", runId: "run-child", kind: "agent_output", name: "vendors.md", mimeType: "text/markdown", size: 12, url: "/api/companions/specialist/files/child-file" }] }], runs: [], specialists: [], activity: [] });
       throw new Error(`Unexpected request: ${path}`);
     });
@@ -458,7 +463,8 @@ describe("first Companion flow", () => {
     expect(screen.queryByRole("button", { name: /Researcher.*Sleeping/ })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Open Analyst's chat" })).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Activity" }));
-    expect(screen.getByRole("button", { name: "Open Analyst's chat" })).toHaveTextContent("Preparing");
+    await user.click(await screen.findByRole("button", {name:/Review vendors/}));
+    expect(await screen.findByRole("button", { name: "Open Analyst's discussion" })).toHaveTextContent("Preparing");
     expect(screen.queryByRole("button", { name: "Open Researcher's chat" })).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Discussion" }));
 

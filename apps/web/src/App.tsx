@@ -51,6 +51,7 @@ import { cn } from "@/lib/utils";
 import { AvatarPicker, CompanionAvatar, DEFAULT_AVATAR, type CompanionAvatarValue } from "@/components/CompanionAvatar";
 import { AccountProduct, DesktopSheet } from "@/components/ProductPanels";
 import { RoutineSettings, TriggerSettings } from "@/components/AutomationPanels";
+const TaskActivity = lazy(() => import("@/components/TaskActivity").then(module => ({ default: module.TaskActivity })));
 const TeamPanel = lazy(() => import("@/components/TeamPanel").then(module => ({ default: module.TeamPanel })));
 const CreateTeamWizard = lazy(() => import("@/components/CreateTeamWizard").then(module => ({ default: module.CreateTeamWizard })));
 import { ProviderMark } from "@/components/ProviderMark";
@@ -336,41 +337,6 @@ function Sidebar({
   );
 }
 
-function ActivityPanel({ detail, onClose, onOpenCompanion, embedded = false }: { detail: CompanionDetail; onClose?: () => void; onOpenCompanion: (id: string) => void; embedded?: boolean }) {
-  const latestRuns = detail.runs.slice().reverse().slice(0, 8);
-  return (
-    <aside className={cn("activity-panel", embedded && "activity-panel--embedded")} aria-label="Activity">
-      <div className="activity-heading">
-        <span>Activity</span>
-        {!embedded && <Button variant="ghost" size="icon" onClick={onClose} aria-label="Close activity"><X /></Button>}
-      </div>
-      <div className="mission-copy">
-        <span>Mission</span>
-        <p>{detail.companion.instructions}</p>
-      </div>
-      <div className="timeline">
-        {latestRuns.length === 0 ? (
-          <p className="timeline-empty">Work will appear here as it happens.</p>
-        ) : latestRuns.map((run) => (
-          <div className="timeline-row" key={run.id}>
-            <span className={cn("run-icon", `run-icon--${run.status}`)}>
-              {isActiveRun(run.status) ? <LoaderCircle className="spin" /> : run.status === "succeeded" ? <Check /> : <CircleAlert />}
-            </span>
-            <div>
-              <strong>{statusLabel(run.status)}</strong>
-              <small>{readableDate(run.createdAt)}</small>
-              {run.error && <p className="run-error">{run.error}</p>}
-              {run.lane === "background" && run.resultText && <div className="task-result"><MessageResponse>{run.resultText}</MessageResponse></div>}
-              {run.lane === "background" && detail.files?.some(file => file.runId === run.id) && <div className="message-files">{detail.files.filter(file => file.runId === run.id).map(file => <a key={file.id} href={file.url} target="_blank" rel="noreferrer"><FileText /><span>{file.name}</span></a>)}</div>}
-              {run.lane === "background" && <SpecialistsForRun detail={detail} runId={run.id} onOpen={onOpenCompanion} />}
-            </div>
-          </div>
-        ))}
-      </div>
-    </aside>
-  );
-}
-
 function Chat({ detail, onRefresh, onUnauthorized, onOpenCompanion, readOnly = false }: { detail: CompanionDetail; onRefresh: () => Promise<void>; onUnauthorized: () => void; onOpenCompanion: (id: string) => void; readOnly?: boolean }) {
   const [draft, setDraft] = useState("");
   const [files, setFiles] = useState<File[]>([]);
@@ -601,7 +567,7 @@ function CompanionView({ detail, models, onRefresh, onUnauthorized, onMenu, onOp
       </div>
       {!finished && view === 'automations' && <section className="companion-page" aria-label="Automations"><div className="companion-page-inner"><header className="section-intro"><h2>A little help, on repeat.</h2><p>Set the timing. Your companion takes it from there.</p></header><div className="automation-group"><RoutineSettings companionId={detail.companion.id}/></div><div className="automation-group" id="events"><TriggerSettings companionId={detail.companion.id}/></div></div></section>}
       {!finished && view === 'team' && <section className="companion-page" aria-label="Team"><Suspense fallback={<div className="companion-page-inner" role="status">Opening your team…</div>}><TeamPanel companion={detail.companion} refreshVersion={refreshVersion} onOpenCompanion={onOpenCompanion}/></Suspense></section>}
-      {view === 'activity' && <section className="companion-page" aria-label="Activity"><ActivityPanel embedded detail={detail} onOpenCompanion={onOpenCompanion} /></section>}
+      {view === 'activity' && <section className="companion-page" aria-label="Activity"><Suspense fallback={<div className="companion-page-inner" role="status">Opening activity…</div>}><TaskActivity companion={detail.companion} refreshVersion={refreshVersion} specialists={detail.specialists} onOpenCompanion={onOpenCompanion} onOpenDiscussion={() => changeView('chat')} /></Suspense></section>}
       {!finished && view === 'computer' && <section className="companion-page" aria-label="Computer"><DesktopSheet embedded companion={detail.companion} onClose={() => changeView('chat')} onRefresh={onRefresh} /></section>}
       {!finished && view === 'applications' && <section className="companion-page" aria-label="Applications"><div className="companion-page-inner"><header className="section-intro"><h2>Applications</h2><p>Choose which connected accounts {detail.companion.name} can use.</p></header><CompanionConnections companionId={detail.companion.id} /></div></section>}
       {!finished && settingsVisited && <div className="companion-page" hidden={view !== 'settings'}><SettingsSheet ref={settingsRef} embedded active={view === 'settings'} detail={detail} models={models} onClose={() => changeView('chat')} onSaved={onRefresh} onDeleted={onDeleted} connections={null} onActivity={() => changeView('activity')} onDesktop={() => changeView('computer')} /></div>}

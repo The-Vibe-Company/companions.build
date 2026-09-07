@@ -49,6 +49,9 @@ hosted acceptance. See `validation-v0.md` for dated evidence.
   background task. Its independent file and all 3 provider ledger entries were verified; the routine
   was removed. This is not a clock-fired or sustained-load proof. See
   `measurements/routine-chat-gateway-v12-2026-09-07.json`.
+- Scheduler recovery now includes actual Bun process termination around the PostgreSQL occurrence
+  checkpoint: incomplete admission rolls back, and committed admission retains one run after restart.
+  See `measurements/routine-process-recovery-2026-09-07.json`. This uses a fixed schedule instant.
 - Chat now uses authenticated SSE invalidation from committed PostgreSQL changes, with durable
   snapshot recovery on reconnect. Full verification and a separate real browser test pass; the
   root browser also observed committed changes after reconnect without polling.

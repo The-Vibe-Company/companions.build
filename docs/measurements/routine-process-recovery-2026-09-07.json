@@ -1,0 +1,24 @@
+{
+  "date": "2026-09-07",
+  "status": "passed",
+  "scope": "Real PostgreSQL in an isolated local test database and separate Bun scheduler processes. No Box, model or simulated daemon was needed.",
+  "test": "apps/server/test/routine-process-recovery.test.ts",
+  "checks": [
+    "SIGKILL a scheduler child while its occurrence INSERT is waiting on an owned advisory checkpoint gate. PostgreSQL rolls back the run and missed window; next_fire_at remains unchanged.",
+    "A fresh scheduler child commits one latest-due occurrence, then receives SIGKILL before returning control to a long-lived caller.",
+    "Another fresh scheduler process sees no due occurrence at the same instant; accepted run identity and one missed window remain durable."
+  ],
+  "validation": {
+    "testFiles": [
+      "apps/server/test/routine-process-recovery.test.ts",
+      "apps/server/test/automations.test.ts"
+    ],
+    "testsPassed": 9,
+    "assertions": 54,
+    "typecheck": "passed"
+  },
+  "limits": [
+    "The schedule instant is fixed for deterministic crash testing. This is not a real-clock or Box execution proof.",
+    "The database remains running: separate backup/restore acceptance covers database recovery."
+  ]
+}

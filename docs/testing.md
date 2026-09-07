@@ -227,7 +227,7 @@ status visibility without launching a Box.
 
 The web behavior suite protects owner-scoped resumable creation, optional grant recovery, locked
 navigation during setup, account isolation, superseded account responses, dirty Settings exits,
-and profile revision conflicts. The reference redesign passed 121 web tests and the production
+and profile revision conflicts. The reference redesign passed 122 web tests and the production
 build. Backend changes in the preceding Activity/Team lot passed the full PostgreSQL 18 verifier
 (`77d89f959f69`); the visual refactor does not change executor behavior.
 

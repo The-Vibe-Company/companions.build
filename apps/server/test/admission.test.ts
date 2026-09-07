@@ -18,10 +18,11 @@ import {
 
 const companions:string[]=[];
 const providerDefaults={active:1000,startsPerMinute:1000,startsPerHour:10000,startsPerDay:100000};
-beforeAll(async()=>{await migrate();await db`ALTER TABLE companions ADD COLUMN IF NOT EXISTS specialist_draft_id uuid`;await db.unsafe(await Bun.file(new URL('../src/admission.sql',import.meta.url)).text());await configureProviderMachineLimits(providerDefaults);});
+beforeAll(async()=>{await migrate();await db`ALTER TABLE companions ADD COLUMN IF NOT EXISTS specialist_draft_id uuid`;await db`ALTER TABLE machine_provider_limits ADD COLUMN IF NOT EXISTS cooldown_until timestamptz`;await db.unsafe(await Bun.file(new URL('../src/admission.sql',import.meta.url)).text());await configureProviderMachineLimits(providerDefaults);});
 afterEach(async()=>{
  for(const id of companions.splice(0))await db`UPDATE companions SET retired_at=now(),prepare_requested=false WHERE id=${id}`;
  await configureProviderMachineLimits(providerDefaults);
+ await db`UPDATE machine_provider_limits SET cooldown_until=null WHERE singleton=true`;
 });
 
 async function fixture(ownerId=crypto.randomUUID(),name='Admission fixture',options:{specialist?:boolean;temporary?:boolean}={}){
@@ -31,7 +32,7 @@ async function fixture(ownerId=crypto.randomUUID(),name='Admission fixture',opti
  if(draftId)await db`INSERT INTO agent_templates(id,owner_id,name) VALUES(${draftId},${ownerId},${name+' template'})`;
  await db`INSERT INTO companions(id,owner_id,name,instructions,provider,create_key,agent_secret,prepare_requested,specialist_draft_id,temporary)
   VALUES(${id},${ownerId},${name},'','box',${crypto.randomUUID()},'secret',false,${draftId},${options.temporary??false})`;
- return {ownerId,id};
+ return {ownerId,id,draftId};
 }
 
 test('account defaults are durable and a lower personal active ceiling wins',async()=>{
@@ -102,6 +103,34 @@ test('cancelling queued work is final and cannot replay during later progression
  expect((await db`SELECT prepare_requested FROM companions WHERE id=${second.id}`)[0].prepare_requested).toBe(false);
 });
 
+test('cancelling admission cancels undispatched work and fails its active specialist operation',async()=>{
+ const source=await fixture(undefined,'Cancelled source',{specialist:true}),image=await fixture(source.ownerId,'Cancelled image',{temporary:true}),tested=await fixture(source.ownerId,'Cancelled test',{temporary:true});
+ await db`INSERT INTO specialist_drafts(template_id,companion_id,base_revision,name) VALUES(${source.draftId},${source.id},1,'Cancelled source')`;
+ const runId=crypto.randomUUID(),operationId=crypto.randomUUID();
+ await db`INSERT INTO runs(id,companion_id,client_message_id,content,status) VALUES(${runId},${tested.id},${crypto.randomUUID()},'Representative test','preparing')`;
+ await db`INSERT INTO specialist_operations(id,template_id,owner_id,generation,kind,fingerprint,prompt,snapshot_name,source_snapshot_name,status,image_companion_id,test_companion_id,run_id)
+  VALUES(${operationId},${source.draftId},${source.ownerId},1,'test','fingerprint','Representative test',${'image-'+operationId},${'source-'+operationId},'running',${image.id},${tested.id},${runId})`;
+ await requestMachineAdmission(source.ownerId,{requestId:operationId,companionId:tested.id,kind:'test'});
+ expect((await cancelMachineAdmission(source.ownerId,operationId)).state).toBe('cancelled');
+ expect((await db`SELECT status,cancel_requested,finished_at FROM runs WHERE id=${runId}`)[0]).toMatchObject({status:'cancelled',cancel_requested:true,finished_at:expect.any(Date)});
+ expect((await db`SELECT status,error,finished_at FROM specialist_operations WHERE id=${operationId}`)[0]).toMatchObject({status:'failed',error:'Machine admission was cancelled.',finished_at:expect.any(Date)});
+ expect((await db`SELECT status,error FROM specialist_drafts WHERE template_id=${source.draftId}`)[0]).toEqual({status:'error',error:'Machine admission was cancelled.'});
+ for(const id of [image.id,tested.id])expect((await db`SELECT archive_requested_at,prepare_requested FROM companions WHERE id=${id}`)[0]).toMatchObject({archive_requested_at:expect.any(Date),prepare_requested:false});
+});
+
+test('cancelling dispatched work defers archival until executor cancellation settles',async()=>{
+ const tested=await fixture(undefined,'Dispatched test',{temporary:true}),requestId=crypto.randomUUID(),runId=crypto.randomUUID();
+ await db`UPDATE companions SET status='ready',box_id='running-box',endpoint_secret='running-endpoint' WHERE id=${tested.id}`;
+ await db`INSERT INTO runs(id,companion_id,client_message_id,content,status,dispatched) VALUES(${runId},${tested.id},${crypto.randomUUID()},'Running test','running',true)`;
+ await requestMachineAdmission(tested.ownerId,{requestId,companionId:tested.id,kind:'test'});
+ expect(await cancelMachineAdmission(tested.ownerId,requestId)).toMatchObject({state:'cancelling',waitingReason:'run_cancel_pending'});
+ expect((await db`SELECT cancel_requested FROM runs WHERE id=${runId}`)[0].cancel_requested).toBe(true);
+ expect((await db`SELECT archive_requested_at FROM companions WHERE id=${tested.id}`)[0].archive_requested_at).toBeNull();
+ await db`UPDATE runs SET status='cancelled',finished_at=now() WHERE id=${runId}`;
+ await progressIdleMachines(db,{archive:async()=>{throw Error('temporary archival belongs to lifecycle');}},{now:new Date()});
+ expect((await db`SELECT archive_requested_at FROM companions WHERE id=${tested.id}`)[0].archive_requested_at).toBeInstanceOf(Date);
+});
+
 test('transactional admission allows a companion and its reservation to commit together',async()=>{
  const ownerId=crypto.randomUUID();await db`INSERT INTO "user"(id,name,email,"emailVerified") VALUES(${ownerId},'Atomic',${'atomic-'+ownerId+'@example.test'},true)`;
  const id=crypto.randomUUID(),requestId=crypto.randomUUID();companions.push(id);
@@ -157,6 +186,42 @@ test('a keep-alive lease resets the full thirty minute idle window',async()=>{
  await progressIdleMachines(db,provider,{now:new Date('2026-09-07T10:20:00Z')});expect(calls).toEqual(['archive']);
 });
 
+test('active specialist operations protect their source and artifacts from idle archival',async()=>{
+ const source=await fixture(undefined,'Protected source',{specialist:true}),image=await fixture(source.ownerId,'Protected image',{temporary:true});
+ await db`INSERT INTO specialist_drafts(template_id,companion_id,base_revision,name) VALUES(${source.draftId},${source.id},1,'Protected source')`;
+ const operationId=crypto.randomUUID();
+ await db`INSERT INTO specialist_operations(id,template_id,owner_id,generation,kind,fingerprint,snapshot_name,source_snapshot_name,status,image_companion_id)
+  VALUES(${operationId},${source.draftId},${source.ownerId},1,'publish','fingerprint',${'image-'+operationId},${'source-'+operationId},'preparing',${image.id})`;
+ await db`UPDATE companions SET status='ready',prepare_requested=false,ready_at='2026-09-07 09:00:00+00',machine_activity_at='2026-09-07 09:00:00+00',box_id='retained-box' WHERE id IN (${source.id},${image.id})`;
+ const calls:string[]=[];
+ await progressIdleMachines(db,{archive:async companion=>{calls.push(companion.id);return true;}},{now:new Date('2026-09-07T10:00:00Z')});
+ expect(calls).toEqual([]);
+});
+
+test('account pressure archives a completed unleased specialist before the ordinary idle deadline',async()=>{
+ const idle=await fixture(undefined,'Idle slot',{specialist:true}),waiting=await fixture(idle.ownerId,'Waiting work',{temporary:true});
+ await configureOfferMachineLimits(idle.ownerId,{active:1,startsPerHour:10,queue:20});
+ const active=await requestMachineAdmission(idle.ownerId,{requestId:crypto.randomUUID(),companionId:idle.id,kind:'configuration'});
+ await db`UPDATE companions SET status='ready',prepare_requested=false,ready_at='2026-09-07 09:59:00+00',machine_activity_at='2026-09-07 09:59:00+00',box_id='idle-slot' WHERE id=${idle.id}`;
+ expect(await requestMachineAdmission(idle.ownerId,{requestId:crypto.randomUUID(),companionId:waiting.id,kind:'test'})).toMatchObject({state:'queued',waitingReason:'active_limit'});
+ const calls:string[]=[];
+ await progressIdleMachines(db,{archive:async companion=>{calls.push(companion.id);return true;}},{now:new Date('2026-09-07T10:00:00Z')});
+ expect(calls).toEqual([idle.id]);
+ expect((await db`SELECT state FROM machine_admission_requests WHERE id=${active.id}`)[0].state).toBe('completed');
+});
+
+test('idle archival waits for input files and interrupts the run only after provider confirmation',async()=>{
+ const draft=await fixture(undefined,'Waiting draft',{specialist:true}),runId=crypto.randomUUID();
+ await db`UPDATE companions SET status='ready',prepare_requested=false,ready_at='2026-09-07 09:00:00+00',machine_activity_at='2026-09-07 09:00:00+00',box_id='waiting-box' WHERE id=${draft.id}`;
+ await db`INSERT INTO runs(id,companion_id,client_message_id,content,status,dispatched,created_at,started_at) VALUES(${runId},${draft.id},${crypto.randomUUID()},'Question','needs_input',true,'2026-09-07 09:00:00+00','2026-09-07 09:00:00+00')`;
+ const calls:string[]=[];
+ await progressIdleMachines(db,{archive:async()=>{calls.push('archive');return true;}},{now:new Date('2026-09-07T10:00:00Z'),filesDurable:async()=>false});
+ expect(calls).toEqual([]);
+ await progressIdleMachines(db,{archive:async()=>{calls.push('archive');return true;}},{now:new Date('2026-09-07T10:00:00Z'),filesDurable:async()=>true});
+ expect((await db`SELECT status,finished_at FROM runs WHERE id=${runId}`)[0]).toMatchObject({status:'interrupted',finished_at:expect.any(Date)});
+ expect(calls).toEqual(['archive']);
+});
+
 test('a preparing specialist without an observed machine still needs account capacity',async()=>{
  const {ownerId,id}=await fixture(undefined,'Uncreated preparing draft',{specialist:true});
  await configureOfferMachineLimits(ownerId,{active:0,startsPerHour:10,queue:20});
@@ -209,6 +274,13 @@ test('provider rolling start reservations apply across accounts',async()=>{
  await configureProviderMachineLimits({active:100,startsPerMinute:1,startsPerHour:10000,startsPerDay:100000});
  expect(await requestMachineAdmission(second.ownerId,{requestId:crypto.randomUUID(),companionId:second.id,kind:'configuration'})).toMatchObject({state:'queued',waitingReason:'provider_start_minute_limit'});
  await configureProviderMachineLimits(providerDefaults);
+});
+
+test('provider cooldown blocks admission before active-machine exemptions',async()=>{
+ const specialist=await fixture(undefined,'Cooldown resume',{specialist:true});
+ await db`UPDATE companions SET status='ready',box_id='existing-box',endpoint_secret='existing-endpoint' WHERE id=${specialist.id}`;
+ await db`UPDATE machine_provider_limits SET cooldown_until='2099-01-01 00:00:00+00' WHERE singleton=true`;
+ expect(await requestMachineAdmission(specialist.ownerId,{requestId:crypto.randomUUID(),companionId:specialist.id,kind:'resume'})).toMatchObject({state:'queued',waitingReason:'provider_cooldown'});
 });
 
 test('the global active safeguard includes normal Companions',async()=>{

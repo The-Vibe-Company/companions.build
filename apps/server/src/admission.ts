@@ -63,7 +63,7 @@ async function decide(tx:any,row:any,limits:any){
  const specialist=active.temporary||active.specialist_draft_id;
  const alreadyActive=!active.archived_at&&!!(active.box_id||active.endpoint_secret||active.create_started_at);
  const ownerActive=specialist?await occupancy(tx,row.owner_id,true):0;
- const [providerLimits]=await tx`SELECT active_limit,starts_per_minute_limit,starts_per_hour_limit,starts_per_day_limit FROM machine_provider_limits WHERE singleton=true`;
+ const [providerLimits]=await tx`SELECT active_limit,starts_per_minute_limit,starts_per_hour_limit,starts_per_day_limit,cooldown_until>now() AS cooling_down FROM machine_provider_limits WHERE singleton=true`;
  const globalActive=await occupancy(tx);
  const [starts]=specialist?await tx`SELECT count(*)::int AS count FROM machine_admission_requests a JOIN companions c ON c.id=a.companion_id
   WHERE a.owner_id=${row.owner_id} AND (c.temporary OR c.specialist_draft_id IS NOT NULL) AND a.start_counted AND a.admitted_at>=now()-interval '1 hour'`:[{count:0}];
@@ -73,7 +73,8 @@ async function decide(tx:any,row:any,limits:any){
   count(*) FILTER(WHERE admitted_at>=now()-interval '1 day')::int AS day
   FROM machine_admission_requests WHERE start_counted`;
  let reason:string|null=null;
- if(!alreadyActive&&specialist&&ownerActive>=limits.active)reason='active_limit';
+ if(providerLimits.cooling_down)reason='provider_cooldown';
+ else if(!alreadyActive&&specialist&&ownerActive>=limits.active)reason='active_limit';
  else if(!alreadyActive&&globalActive>=Number(providerLimits.active_limit))reason='provider_active_limit';
  else if(!alreadyActive&&Number(providerStarts.minute)>=Number(providerLimits.starts_per_minute_limit))reason='provider_start_minute_limit';
  else if(!alreadyActive&&Number(providerStarts.hour)>=Number(providerLimits.starts_per_hour_limit))reason='provider_start_hour_limit';
@@ -132,12 +133,37 @@ export async function cancelMachineAdmission(ownerId:string,requestId:string,sql
    JOIN companions c ON c.id=a.companion_id AND c.owner_id=a.owner_id WHERE a.id=${requestId} AND a.owner_id=${ownerId} FOR UPDATE OF a,c`;
   if(!row)throw new AdmissionConflict('Admission request unavailable.');
   if(['cancelled','completed','refused'].includes(row.state))return result(row);
-  if(row.state==='queued'||(!row.box_id&&!row.endpoint_secret&&!row.preparation_started_at)){
-   const [cancelled]=await tx`UPDATE machine_admission_requests SET state='cancelled',cancelled_at=now(),released_at=now(),waiting_reason=null WHERE id=${requestId} RETURNING *`;
-   await tx`UPDATE companions SET prepare_requested=false WHERE id=${row.companion_id}`;return result(cancelled);
+  const message='Machine admission was cancelled.';
+  const operations=await tx`SELECT o.* FROM specialist_operations o JOIN specialist_drafts d ON d.template_id=o.template_id
+   WHERE o.owner_id=${ownerId} AND o.status IN ('queued','freezing','capturing','preparing','running')
+   AND (${row.companion_id}=d.companion_id OR ${row.companion_id}=o.image_companion_id OR ${row.companion_id}=o.test_companion_id) FOR UPDATE OF o`;
+  const cleanupIds=new Set<string>([row.companion_id]);
+  for(const operation of operations){
+   if(operation.image_companion_id)cleanupIds.add(operation.image_companion_id);
+   if(operation.test_companion_id)cleanupIds.add(operation.test_companion_id);
+   await tx`UPDATE specialist_operations SET status='failed',error=${message},finished_at=now() WHERE id=${operation.id}`;
+   await tx`UPDATE specialist_drafts SET status='error',error=${message},updated_at=now() WHERE template_id=${operation.template_id}`;
   }
-  const [cancelling]=await tx`UPDATE machine_admission_requests SET state='cancelling',cancelled_at=now(),waiting_reason='archive_pending' WHERE id=${requestId} RETURNING *`;
-  await tx`UPDATE companions SET archive_requested_at=COALESCE(archive_requested_at,now()),prepare_requested=false WHERE id=${row.companion_id}`;
+  for(const companionId of cleanupIds)await tx`UPDATE runs SET cancel_requested=true,
+   status=CASE WHEN NOT dispatched AND status IN ('queued','preparing') THEN 'cancelled' ELSE status END,
+   finished_at=CASE WHEN NOT dispatched AND status IN ('queued','preparing') THEN now() ELSE finished_at END
+   WHERE companion_id=${companionId} AND status IN ('queued','preparing','running','needs_input')`;
+  const [running]=await tx`SELECT EXISTS(SELECT 1 FROM runs WHERE companion_id=${row.companion_id} AND dispatched AND status IN ('preparing','running','needs_input')) AS active`;
+  if(row.state==='queued'||(!row.box_id&&!row.endpoint_secret&&!row.preparation_started_at&&!running.active)){
+   const [cancelled]=await tx`UPDATE machine_admission_requests SET state='cancelled',cancelled_at=now(),released_at=now(),waiting_reason=null WHERE id=${requestId} RETURNING *`;
+   await tx`UPDATE companions SET prepare_requested=false WHERE id=${row.companion_id}`;
+   for(const operation of operations)for(const companionId of [operation.image_companion_id,operation.test_companion_id].filter(Boolean)){
+    const [activeRun]=await tx`SELECT EXISTS(SELECT 1 FROM runs WHERE companion_id=${companionId} AND dispatched AND status IN ('preparing','running','needs_input')) AS active`;
+    if(!activeRun.active)await tx`UPDATE companions SET archive_requested_at=COALESCE(archive_requested_at,now()),prepare_requested=false WHERE id=${companionId}`;
+   }
+   return result(cancelled);
+  }
+  const [cancelling]=await tx`UPDATE machine_admission_requests SET state='cancelling',cancelled_at=now(),waiting_reason=${running.active?'run_cancel_pending':'archive_pending'} WHERE id=${requestId} RETURNING *`;
+  await tx`UPDATE companions SET archive_requested_at=CASE WHEN ${running.active} THEN archive_requested_at ELSE COALESCE(archive_requested_at,now()) END,prepare_requested=false WHERE id=${row.companion_id}`;
+  for(const operation of operations)for(const companionId of [operation.image_companion_id,operation.test_companion_id].filter(Boolean)){
+   const [activeRun]=await tx`SELECT EXISTS(SELECT 1 FROM runs WHERE companion_id=${companionId} AND dispatched AND status IN ('preparing','running','needs_input')) AS active`;
+   if(!activeRun.active)await tx`UPDATE companions SET archive_requested_at=COALESCE(archive_requested_at,now()),prepare_requested=false WHERE id=${companionId}`;
+  }
   return result(cancelling);
  });
 }
@@ -201,7 +227,7 @@ export async function renewMachineLease(ownerId:string,companionId:string,at=new
 
 export interface IdleMachineProvider {archive(companion:any,beforeEffect?:()=>Promise<void>):Promise<boolean>}
 /** Archives confirmed-idle machines while preserving their provider disk. */
-export async function progressIdleMachines(sql:any,provider:IdleMachineProvider,options:{now?:Date;idleMs?:number;companionId?:string|null;canArchive?(companion:any):Promise<boolean>;assertEffect?():Promise<void>}={}){
+export async function progressIdleMachines(sql:any,provider:IdleMachineProvider,options:{now?:Date;idleMs?:number;companionId?:string|null;canArchive?(companion:any):Promise<boolean>;assertEffect?():Promise<void>;filesDurable?(run:any):Promise<boolean>}={}){
  const now=options.now??new Date(),cutoff=new Date(now.getTime()-(options.idleMs??MACHINE_IDLE_MS));
  const candidates=await sql`SELECT c.* FROM companions c WHERE (${options.companionId??null}::uuid IS NULL OR c.id=${options.companionId??null})
   AND (c.temporary OR c.specialist_draft_id IS NOT NULL)
@@ -209,16 +235,24 @@ export async function progressIdleMachines(sql:any,provider:IdleMachineProvider,
   AND c.prepare_requested=false AND NOT c.desktop_taken AND c.desktop_paused_at IS NULL
   AND NOT EXISTS(SELECT 1 FROM runs r WHERE r.companion_id=c.id AND r.dispatched AND r.status IN ('preparing','running'))
   AND NOT EXISTS(SELECT 1 FROM template_candidates t WHERE t.source_companion_id=c.id AND t.status IN ('queued','capturing','ready'))
-  AND (c.archive_requested_at IS NOT NULL OR (
-   COALESCE(c.keep_alive_until,'-infinity')<=${now} AND GREATEST(COALESCE(c.machine_activity_at,c.ready_at,c.created_at),
-    COALESCE((SELECT max(COALESCE(r.finished_at,r.started_at,r.created_at)) FROM runs r WHERE r.companion_id=c.id),'-infinity'))<=${cutoff}
+  AND NOT EXISTS(SELECT 1 FROM specialist_operations o JOIN specialist_drafts d ON d.template_id=o.template_id
+   WHERE o.status IN ('queued','freezing','capturing','preparing','running') AND (d.companion_id=c.id OR o.image_companion_id=c.id OR o.test_companion_id=c.id))
+  AND (c.archive_requested_at IS NOT NULL OR EXISTS(SELECT 1 FROM machine_admission_requests a WHERE a.companion_id=c.id AND a.state='cancelling') OR (
+   COALESCE(c.keep_alive_until,'-infinity')<=${now} AND (
+    GREATEST(COALESCE(c.machine_activity_at,c.ready_at,c.created_at),COALESCE((SELECT max(COALESCE(r.finished_at,r.started_at,r.created_at)) FROM runs r WHERE r.companion_id=c.id),'-infinity'))<=${cutoff}
+    OR EXISTS(SELECT 1 FROM machine_admission_requests waiting WHERE waiting.owner_id=c.owner_id AND waiting.state='queued' AND waiting.waiting_reason='active_limit')
+   )
   )) ORDER BY COALESCE(c.archive_requested_at,c.machine_activity_at,c.ready_at,c.created_at),c.id LIMIT 50`;
  for(const companion of candidates){
   if(options.canArchive&&!await options.canArchive(companion))continue;
+  const waitingRuns=await sql`SELECT * FROM runs WHERE companion_id=${companion.id} AND status='needs_input'`;
+  if(options.filesDurable&&!(await Promise.all(waitingRuns.map((run:any)=>options.filesDurable!(run)))).every(Boolean))continue;
   const requested=await sql.begin(async(tx:any)=>{
    const [row]=await tx`SELECT id FROM companions c WHERE c.id=${companion.id} AND c.retired_at IS NULL AND c.archived_at IS NULL
     AND c.prepare_requested=false AND NOT c.desktop_taken AND c.desktop_paused_at IS NULL
-    AND NOT EXISTS(SELECT 1 FROM runs r WHERE r.companion_id=c.id AND r.dispatched AND r.status IN ('preparing','running')) FOR UPDATE`;
+    AND NOT EXISTS(SELECT 1 FROM runs r WHERE r.companion_id=c.id AND r.dispatched AND r.status IN ('preparing','running'))
+    AND NOT EXISTS(SELECT 1 FROM specialist_operations o JOIN specialist_drafts d ON d.template_id=o.template_id
+     WHERE o.status IN ('queued','freezing','capturing','preparing','running') AND (d.companion_id=c.id OR o.image_companion_id=c.id OR o.test_companion_id=c.id)) FOR UPDATE`;
    if(!row)return false;await tx`UPDATE companions SET archive_requested_at=COALESCE(archive_requested_at,${now}) WHERE id=${companion.id}`;return true;
   });
   if(!requested)continue;
@@ -227,15 +261,23 @@ export async function progressIdleMachines(sql:any,provider:IdleMachineProvider,
   const guard=async()=>{
    await options.assertEffect?.();
    if(options.canArchive&&!await options.canArchive(companion))throw new AdmissionConflict('Idle archive authority changed.');
+   if(options.filesDurable){
+    const activeQuestions=await sql`SELECT * FROM runs WHERE companion_id=${companion.id} AND status='needs_input'`;
+    if(!(await Promise.all(activeQuestions.map((run:any)=>options.filesDurable!(run)))).every(Boolean))throw new AdmissionConflict('Idle archive files are not durable.');
+   }
    const [current]=await sql`SELECT id FROM companions c WHERE c.id=${companion.id} AND c.retired_at IS NULL AND c.archive_requested_at IS NOT NULL
     AND c.prepare_requested=false AND NOT c.desktop_taken AND c.desktop_paused_at IS NULL
-    AND NOT EXISTS(SELECT 1 FROM runs r WHERE r.companion_id=c.id AND r.dispatched AND r.status IN ('preparing','running'))`;
+    AND NOT EXISTS(SELECT 1 FROM runs r WHERE r.companion_id=c.id AND r.dispatched AND r.status IN ('preparing','running'))
+    AND NOT EXISTS(SELECT 1 FROM specialist_operations o JOIN specialist_drafts d ON d.template_id=o.template_id
+     WHERE o.status IN ('queued','freezing','capturing','preparing','running') AND (d.companion_id=c.id OR o.image_companion_id=c.id OR o.test_companion_id=c.id))`;
    if(!current)throw new AdmissionConflict('Idle archive authority changed.');
   };
   try{
    await guard();if(!await provider.archive(companion,guard))continue;
    await sql.begin(async(tx:any)=>{
     await tx`UPDATE companions SET status='archived',archived_at=${now},archive_requested_at=null,endpoint_secret=null,preparation_started_at=null,error=null WHERE id=${companion.id} AND archive_requested_at IS NOT NULL`;
+    await tx`UPDATE runs SET status='interrupted',error='Machine archived after reaching the idle limit while awaiting input.',finished_at=${now}
+     WHERE companion_id=${companion.id} AND status='needs_input'`;
     await tx`UPDATE machine_admission_requests SET state=CASE WHEN state='cancelling' THEN 'cancelled' ELSE 'completed' END,released_at=COALESCE(released_at,${now}),waiting_reason=null
      WHERE companion_id=${companion.id} AND state IN ('admitted','cancelling')`;
    });

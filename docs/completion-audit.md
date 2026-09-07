@@ -30,7 +30,10 @@ hosted acceptance. See `validation-v0.md` for dated evidence.
   A typed manifest and clean Linux reconstruction foundation now passes artifact integrity and
   isolation tests. Signed APT and integrity-pinned npm resolution, durable build coordination, immutable software
   results, recipient grants and pending delivery gates are implemented and locally verified.
-  Production Box adapter integration and a complete live clean-build delivery proof remain open.
+  The production adapter is integrated. A real Box built, verified and captured the pinned
+  public package; a new Pi companion executed it, and an independently granted recipient Box
+  retained the tool without the source workspace. See `measurements/software-box-v10-2026-09-07.json`.
+  Recipient auth/billing were synthetic local fixtures; live commercial activation remains open.
   THE-572 was reopened.
 - The Account view did not refresh a pending skill delivery while it stayed open. Pending-state
   refresh is implemented.
@@ -50,7 +53,9 @@ hosted acceptance. See `validation-v0.md` for dated evidence.
   list/install/edit/remove operations from the capability table are absent.
 - Full OAuth provider tool/revocation matrix, managed trigger registration, hosted concurrent load,
   real email delivery and Stripe subscription/meter acceptance still lack complete live evidence.
-  The five-service Railway deployment passes health, unauthenticated isolation and private MinIO
+  Software build Box time is being added to the existing usage ledger; it was previously omitted.
+  A PostgreSQL 17 dump/kill/restore proof now preserves the authenticated session, durable queued
+  turn and retry identity through the real API. The five-service Railway deployment passes health, unauthenticated isolation and private MinIO
   put/get/delete checks; hosted agent activation still awaits billing configuration. Personal
   consent and missing settings must not be represented as working connections.
 

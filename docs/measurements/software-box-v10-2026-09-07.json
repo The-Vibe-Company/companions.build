@@ -1,0 +1,41 @@
+{
+  "date": "2026-09-07",
+  "status": "passed",
+  "base": "companions-agent-v10-20260907",
+  "runtime": {
+    "bun": "1.4.2",
+    "pi": "0.85.0"
+  },
+  "roots": {
+    "apt": [
+      {
+        "name": "hello",
+        "version": "2.10-3build1"
+      }
+    ],
+    "npm": []
+  },
+  "checks": {
+    "cleanBuildVerified": true,
+    "canonicalManifestAndSnapshotVerified": true,
+    "buildBoxArchived": true,
+    "newCompanionExecutedInstalledBinary": true,
+    "modelWroteMatchingProofFile": true,
+    "independentProviderReadMatched": true,
+    "recipientHasDistinctBoxAndSecret": true,
+    "recipientUsesGrantedCleanResult": true,
+    "sourceWorkspaceExcluded": true,
+    "desktopTakeoverKeepsHeadlessTaskAndChatRunning": true,
+    "explicitDesktopRelease": true
+  },
+  "timings": {
+    "prepareRequestToVerifiedSeconds": 86.284,
+    "newCompanionTurnPreparationSeconds": 21.607
+  },
+  "limits": [
+    "Recipient authentication and billing used a verified synthetic local fixture and BILLING_TEST_MODE.",
+    "Invitation stayed in local Mailpit; no real customer email or Stripe charge.",
+    "CLI terminal-envelope error fix is tested locally and awaits a subsequent immutable distribution.",
+    "Provider account has ten named snapshot slots, seven used by existing projects; none of those were modified."
+  ]
+}

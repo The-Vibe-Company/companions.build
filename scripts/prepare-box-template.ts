@@ -2,14 +2,22 @@ import { BoxClient, BoxError } from "../packages/box/client";
 import { config } from "../apps/server/src/config";
 import { createHash } from "node:crypto";
 import { mkdirSync, readdirSync } from "node:fs";
+import { resolve } from "node:path";
+import { softwareDistributionDescriptorSchema } from "../packages/box/software-distribution";
 import {templateInstallScript} from "./lib/template-install";
 import {requirePinnedBun} from "./lib/pinned-bun";
 
 requirePinnedBun();
 
 if (!config.boxKey) throw new Error("Configure BOX_API_KEY in .env before preparing the template.");
-const name = process.argv[2] ?? "companions-agent-v0";
+const args = process.argv.slice(2);
+const name = args[0] ?? "companions-agent-v0";
 if (!/^[a-z0-9-]{1,60}$/.test(name)) throw new Error("Template name must contain lowercase letters, digits and hyphens.");
+let softwareConfig: string | undefined;
+if (args.length > 1) {
+  if (args.length !== 3 || args[1] !== "--software-config" || !args[2] || resolve(args[2]) !== args[2]) throw new Error("Usage: prepare-box-template.ts [name] [--software-config /absolute/operator-config.json]");
+  softwareConfig = args[2];
+}
 const box = new BoxClient(config.boxKey);
 mkdirSync(".local", { recursive: true, mode: 0o700 });
 const journal = Bun.file(`.local/template-${name}.json`);
@@ -50,8 +58,15 @@ if (!state.boxId) {
 console.log(`Preparing template ${name} on Box ${state.boxId}`);
 if ((await box.get(state.boxId)).state === "archived") await box.resume(state.boxId);
 await wait(async () => ["ready", "idle"].includes((await box.get(state.boxId)).state));
-const build = Bun.spawn([process.execPath, "scripts/build-agent.ts"], { stdout: "inherit", stderr: "inherit" });
+const build = Bun.spawn([process.execPath, "scripts/build-agent.ts", ...(softwareConfig ? ["--software-config", softwareConfig] : [])], { stdout: "inherit", stderr: "inherit" });
 if (await build.exited) throw new Error("Agent build failed");
+if (softwareConfig) {
+  const descriptorBytes = Buffer.from(await Bun.file("dist/agent/software-builder.json").arrayBuffer());
+  const descriptor = softwareDistributionDescriptorSchema.parse(JSON.parse(descriptorBytes.toString("utf8")));
+  state.software = { baseId: descriptor.base.id, distributionDigest: descriptor.base.distributionDigest,
+    resolverConfigDigest: descriptor.resolverConfigDigest, descriptorSha256: createHash("sha256").update(descriptorBytes).digest("hex") };
+  await Bun.write(journal, JSON.stringify(state, null, 2));
+}
 const tar = Bun.spawn(["tar", "-czf", ".local/agent.tar.gz", "-C", "dist/agent", "."], { stdout: "inherit", stderr: "inherit" });
 if (await tar.exited) throw new Error("Archive creation failed");
 const archive = Buffer.from(await Bun.file(".local/agent.tar.gz").arrayBuffer());

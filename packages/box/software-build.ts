@@ -87,21 +87,33 @@ export function portableSoftwareBuildRequestDigest(
   request: Pick<PortableSoftwareBuildRequest, "aptRoots" | "npmRoots">,
   operator: Omit<PortableSoftwareBuildOperatorConfig, "stateDirectory">,
 ) {
+  return portableSoftwareBuildRequestDigestFromHashes(request, operator.base, {
+    family: operator.aptRepository.family, snapshot: operator.aptRepository.snapshot, architecture: operator.aptRepository.architecture,
+    keyringSha256: createHash("sha256").update(operator.aptRepository.keyring).digest("hex"), sources: operator.aptRepository.sources,
+  }, operator.npmRegistry);
+}
+
+export function portableSoftwareBuildRequestDigestFromHashes(
+  request: Pick<PortableSoftwareBuildRequest, "aptRoots" | "npmRoots">,
+  base: PortableSoftwareBuildOperatorConfig["base"],
+  aptRepository: Omit<PortableSoftwareBuildOperatorConfig["aptRepository"], "keyring"> & { keyringSha256: string },
+  npmRegistry: string,
+) {
   const bound = {
     version: 1,
-    base: operator.base,
+    base,
     aptRoots: normalizedRoots(request.aptRoots),
     npmRoots: normalizedRoots(request.npmRoots),
     repositories: {
       apt: {
-        family: operator.aptRepository.family,
-        snapshot: operator.aptRepository.snapshot,
-        architecture: operator.aptRepository.architecture,
-        keyringSha256: createHash("sha256").update(operator.aptRepository.keyring).digest("hex"),
-        sources: operator.aptRepository.sources.map(source => ({ ...source, components: [...source.components].sort() }))
+        family: aptRepository.family,
+        snapshot: aptRepository.snapshot,
+        architecture: aptRepository.architecture,
+        keyringSha256: aptRepository.keyringSha256,
+        sources: aptRepository.sources.map(source => ({ ...source, components: [...source.components].sort() }))
           .sort((a, b) => `${a.origin}\0${a.suite}`.localeCompare(`${b.origin}\0${b.suite}`)),
       },
-      npmRegistry: operator.npmRegistry,
+      npmRegistry,
     },
   };
   return createHash("sha256").update(JSON.stringify(stable(bound))).digest("hex");

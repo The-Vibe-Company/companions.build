@@ -1,10 +1,11 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { chmod, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { portableSoftwareBuildRequestDigest } from "./software-build";
 import { canonicalJson, softwareDistributionDescriptorPayload } from "./software-distribution";
 import { runSoftwareBuilderCli } from "./software-builder-cli";
+import { canonicalSoftwareManifest, softwareManifestDigest } from "../control/software";
 
 const directories: string[] = [];
 afterEach(async () => Promise.all(directories.splice(0).map(path => rm(path, { recursive: true, force: true }))));
@@ -19,14 +20,17 @@ async function fixture(sourceState = false) {
       sources: [{ origin: "https://snapshot.ubuntu.com/ubuntu/20260901T000000Z", suite: "noble", components: ["main"], inReleaseSha256: "a".repeat(64) }] }, npmRegistry: "https://registry.npmjs.org" };
   const payload = softwareDistributionDescriptorPayload(config, keyring, executable);
   const descriptor = { ...payload, base: { ...payload.base, distributionDigest: "b".repeat(64) } };
-  const paths = { descriptor: join(root, "descriptor.json"), keyring: join(root, "keyring.gpg"), executable: join(root, "builder"), state,
+  const paths = { descriptor: join(root, "descriptor.json"), keyring: join(root, "keyring.gpg"), executable: join(root, "builder"), state, export: join(root, "export"),
     forbidden: sourceState ? [join(root, "source-state")] : [join(root, "absent")] };
   await Promise.all([writeFile(paths.descriptor, `${canonicalJson(descriptor)}\n`, { mode: 0o600 }), writeFile(paths.keyring, keyring, { mode: 0o600 }),
     writeFile(paths.executable, executable, { mode: 0o700 }), writeFile(join(state, buildId, "request.json"), JSON.stringify({ version: 1, aptRoots: [], npmRoots: [{ name: "is-number", version: "7.0.0" }] }), { mode: 0o600 })]);
   if (sourceState) await writeFile(paths.forbidden[0]!, "must-not-read", { mode: 0o600 });
   const operator = { base: descriptor.base, aptRepository: { ...descriptor.aptRepository, keyring }, npmRegistry: descriptor.npmRegistry };
   const requestDigest = portableSoftwareBuildRequestDigest({ aptRoots: [], npmRoots: [{ name: "is-number", version: "7.0.0" }] }, operator);
-  return { paths, buildId, requestDigest };
+  const manifest = { version: 1 as const, base: descriptor.base, apt: { roots: [], packages: [] }, npm: { roots: [], packages: [] } };
+  await mkdir(join(state, buildId, "bundle"));
+  await writeFile(join(state, buildId, "bundle", "manifest.json"), canonicalSoftwareManifest(manifest));
+  return { paths, buildId, requestDigest, manifestDigest: softwareManifestDigest(manifest) };
 }
 
 describe("root software builder CLI", () => {
@@ -35,7 +39,7 @@ describe("root software builder CLI", () => {
     const run = (argv: string[]) => { commands.push(argv); return { exitCode: argv[1] === "is-active" ? 3 : 0, stderr: new Uint8Array() }; };
     const exit = await runSoftwareBuilderCli(["run", value.buildId, value.requestDigest], { paths: value.paths, getuid: () => 0, platform: "linux",
       trustedOwnerUid: process.getuid!(), environment: {}, run, output: text => output.push(text), build: async request => ({ version: 1 as const, buildId: request.buildId,
-        requestDigest: request.requestDigest, phase: "verified" as const, manifestDigest: "c".repeat(64), errorCode: null, revision: 7,
+        requestDigest: request.requestDigest, phase: "verified" as const, manifestDigest: value.manifestDigest, errorCode: null, revision: 7,
         updatedAt: new Date().toISOString(), bundleDirectory: `${value.paths.state}/${value.buildId}/bundle` }) });
     expect(exit).toBe(0);
     expect(JSON.parse(output[0]!).readyForCapture).toBe(true);
@@ -44,7 +48,7 @@ describe("root software builder CLI", () => {
     const statusOutput: string[] = [];
     await runSoftwareBuilderCli(["status", value.buildId, value.requestDigest], { paths: value.paths, getuid: () => 0, platform: "linux",
       trustedOwnerUid: process.getuid!(), environment: {}, output: text => statusOutput.push(text), observe: async () => ({ version: 1, buildId: value.buildId,
-        requestDigest: value.requestDigest, phase: "verified", manifestDigest: "c".repeat(64), errorCode: null, revision: 7,
+        requestDigest: value.requestDigest, phase: "verified", manifestDigest: value.manifestDigest, errorCode: null, revision: 7,
         updatedAt: new Date().toISOString(), bundleDirectory: `${value.paths.state}/${value.buildId}/bundle` }) });
     expect(JSON.parse(statusOutput[0]!).readyForCapture).toBe(true);
   });

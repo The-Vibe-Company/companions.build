@@ -1,14 +1,16 @@
 #!/usr/bin/env bun
 import { createHash } from "node:crypto";
-import { lstat, open, rename } from "node:fs/promises";
+import { chmod, lstat, mkdir, open, readFile, rename } from "node:fs/promises";
 import { z } from "zod";
 import { observePortableSoftwareBuild, portableSoftwareBuildRequestDigest, runPortableSoftwareBuild, type PortableSoftwareBuildOperatorConfig } from "./software-build";
 import { readBoundedFile, softwareDistributionDescriptorSchema } from "./software-distribution";
+import { canonicalSoftwareManifest, softwareManifestDigest } from "../control/software";
 
 export const SOFTWARE_DESCRIPTOR_PATH = "/opt/companions/software-builder.json";
 export const SOFTWARE_KEYRING_PATH = "/opt/companions/software-apt-keyring.gpg";
 export const SOFTWARE_BUILDER_PATH = "/opt/companions/companion-software-builder";
 export const SOFTWARE_STATE_DIRECTORY = "/var/lib/companions-software/builds";
+export const SOFTWARE_EXPORT_DIRECTORY = "/tmp/companions-software-exports";
 
 const uuid = z.string().uuid();
 const digest = z.string().regex(/^[a-f0-9]{64}$/);
@@ -21,7 +23,7 @@ const BASELINE_UNITS = ["companions-desktop.service", "companions-agent.service"
 const FORBIDDEN_STATE = ["/home/user/.companions.env", "/home/user/.companions", "/etc/companions-desktop.env"] as const;
 const SAFE_PROCESS_ENVIRONMENT = new Set(["HOME", "LANG", "LC_ALL", "PATH", "SSL_CERT_DIR", "SSL_CERT_FILE", "TZ"]);
 
-type CliPaths = { descriptor: string; keyring: string; executable: string; state: string; forbidden: readonly string[] };
+type CliPaths = { descriptor: string; keyring: string; executable: string; state: string; export: string; forbidden: readonly string[] };
 type CliDeps = {
   paths?: Partial<CliPaths>;
   getuid?: () => number;
@@ -76,9 +78,36 @@ async function writeSeal(path: string, value: z.infer<typeof sealSchema>) {
   try { await directory.sync(); } finally { await directory.close(); }
 }
 
+async function writePublicManifest(exportDirectory: string, buildId: string, bundleDirectory: string, expectedDigest: string, ownerUid: number) {
+  const source = await readBoundedFile(`${bundleDirectory}/manifest.json`, 8 * 1024 * 1024);
+  const canonical = canonicalSoftwareManifest(JSON.parse(new TextDecoder().decode(source)));
+  if (softwareManifestDigest(JSON.parse(canonical)) !== expectedDigest) throw new Error("software_manifest_digest_changed");
+  await mkdir(exportDirectory, { recursive: true, mode: 0o755 });
+  const metadata = await lstat(exportDirectory);
+  if (!metadata.isDirectory() || metadata.uid !== ownerUid || (metadata.mode & 0o022) !== 0) throw new Error("software_builder_export_invalid");
+  await chmod(exportDirectory, 0o755);
+  const path = `${exportDirectory}/${buildId}.manifest.json`;
+  const temporary = `${path}.${crypto.randomUUID()}.tmp`;
+  const handle = await open(temporary, "wx", 0o644);
+  try { await handle.writeFile(`${canonical}\n`); await handle.sync(); } finally { await handle.close(); }
+  await rename(temporary, path);
+  const directory = await open(exportDirectory, "r");
+  try { await directory.sync(); } finally { await directory.close(); }
+}
+
+async function publicManifestMatches(path: string, expectedDigest: string, ownerUid: number) {
+  try {
+    const bytes = await ownerControlledRegular(path, 8 * 1024 * 1024, ownerUid);
+    return softwareManifestDigest(JSON.parse(new TextDecoder().decode(bytes))) === expectedDigest;
+  } catch (error: any) {
+    if (error?.code === "ENOENT") return false;
+    throw new Error("software_builder_export_invalid");
+  }
+}
+
 export async function runSoftwareBuilderCli(args: string[], deps: CliDeps = {}) {
   const paths: CliPaths = { descriptor: SOFTWARE_DESCRIPTOR_PATH, keyring: SOFTWARE_KEYRING_PATH, executable: SOFTWARE_BUILDER_PATH,
-    state: SOFTWARE_STATE_DIRECTORY, forbidden: FORBIDDEN_STATE, ...deps.paths };
+    state: SOFTWARE_STATE_DIRECTORY, export: SOFTWARE_EXPORT_DIRECTORY, forbidden: FORBIDDEN_STATE, ...deps.paths };
   const output = deps.output ?? console.log;
   try {
     if ((deps.platform ?? process.platform) !== "linux" || (deps.getuid ?? process.getuid)?.() !== 0) throw new Error("software_build_root_linux_required");
@@ -101,7 +130,8 @@ export async function runSoftwareBuilderCli(args: string[], deps: CliDeps = {}) 
       if (observed && observed.requestDigest !== requestDigest) throw new Error("software_build_request_conflict");
       const seal = await readSeal(sealPath, trustedOwnerUid);
       const ready = Boolean(observed?.phase === "verified" && seal?.requestDigest === requestDigest && seal.manifestDigest === observed.manifestDigest
-        && seal.distributionDigest === descriptor.base.distributionDigest);
+        && seal.distributionDigest === descriptor.base.distributionDigest
+        && await publicManifestMatches(`${paths.export}/${buildId}.manifest.json`, observed.manifestDigest!, trustedOwnerUid));
       output(JSON.stringify(projection(observed, ready)));
       return 0;
     }
@@ -127,6 +157,8 @@ export async function runSoftwareBuilderCli(args: string[], deps: CliDeps = {}) 
         if (run(["/usr/bin/systemctl", "is-enabled", "--quiet", unit]).exitCode !== 0) throw new Error("software_builder_restore_failed");
         if (run(["/usr/bin/systemctl", "is-active", "--quiet", unit]).exitCode === 0) throw new Error("software_builder_unit_active");
       }
+      if (!result.bundleDirectory || !result.manifestDigest) throw new Error("software_build_bundle_invalid");
+      await writePublicManifest(paths.export, buildId, result.bundleDirectory, result.manifestDigest, trustedOwnerUid);
       await writeSeal(sealPath, { version: 1, requestDigest, manifestDigest: result.manifestDigest!, distributionDigest: descriptor.base.distributionDigest });
       ready = true;
     }

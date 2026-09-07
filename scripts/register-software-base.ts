@@ -9,6 +9,11 @@ import { requirePinnedBun } from "./lib/pinned-bun";
 requirePinnedBun();
 
 const sha = (bytes: Uint8Array) => createHash("sha256").update(bytes).digest("hex");
+export function completedSnapshotJournal(value: any) {
+  const accepted = Date.parse(value?.snapshotRequestedAt), completed = Date.parse(value?.completedAt), rejected = Date.parse(value?.snapshotRejectedAt);
+  return Boolean(Number.isFinite(accepted) && Number.isFinite(completed) && accepted <= completed
+    && (!value?.snapshotRejectedAt || (Number.isFinite(rejected) && rejected < accepted)));
+}
 const run = (argv: string[]) => {
   const result = Bun.spawnSync(argv, { stdout: "pipe", stderr: "pipe", timeout: 30_000 });
   if (result.exitCode !== 0) throw new Error("Software base artifact validation failed.");
@@ -22,7 +27,7 @@ export async function validateSoftwareBaseArtifact(name: string, root = process.
   const metadata = await lstat(journalPath);
   if (!metadata.isFile() || metadata.uid !== process.getuid?.() || (metadata.mode & 0o022) !== 0) throw new Error("Template journal is not an owned immutable file.");
   const journal = JSON.parse(await readFile(journalPath, "utf8"));
-  if (!journal.completedAt || !journal.snapshotRequestedAt || journal.snapshotRejectedAt || !/^[a-f0-9]{64}$/.test(journal.sha256)
+  if (!completedSnapshotJournal(journal) || !/^[a-f0-9]{64}$/.test(journal.sha256)
     || typeof journal.boxId !== "string" || typeof journal.key !== "string") throw new Error("Template journal is incomplete.");
   const archive = new Uint8Array(await readFile(archivePath));
   if (sha(archive) !== journal.sha256) throw new Error("Template archive does not match its completed journal.");
@@ -35,6 +40,10 @@ export async function validateSoftwareBaseArtifact(name: string, root = process.
       readFile(join(directory, "software-builder.json")), readFile(join(directory, "companion-software-builder")), readFile(join(directory, "software-apt-keyring.gpg")),
     ]);
     const descriptor = softwareDistributionDescriptorSchema.parse(JSON.parse(descriptorBytes.toString("utf8")));
+    if (journal.software?.baseId !== descriptor.base.id || journal.software?.distributionDigest !== descriptor.base.distributionDigest
+      || journal.software?.resolverConfigDigest !== descriptor.resolverConfigDigest || journal.software?.descriptorSha256 !== sha(descriptorBytes)) {
+      throw new Error("Template journal is not bound to this software distribution.");
+    }
     if (sha(builder) !== descriptor.softwareBuilderSha256 || sha(keyring) !== descriptor.keyringSha256) throw new Error("Software builder identity does not match its descriptor.");
     const { distributionDigest: _, ...base } = descriptor.base;
     const payload = { ...descriptor, base };

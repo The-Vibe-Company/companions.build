@@ -176,8 +176,9 @@ Runtime writes a root-owned mode-0600 request at
 identity, or state in the clean Box and stops the exact Companion desktop, agent, and proxy units.
 After verification it enables the baseline units without starting them and fsyncs a capture seal.
 `readyForCapture` is true only when that seal, the helper journal, manifest digest, request digest,
-and compiled distribution descriptor still agree. The runtime then validates and records
-`bundleDirectory/manifest.json`; the path itself is Box-local and is never persisted. Provider
+and compiled distribution descriptor still agree. The runtime then retrieves the canonical public
+export at `/tmp/companions-software-exports/<build-id>.manifest.json` through the bounded Box file
+API, validates it, and records it; the private bundle path is never returned or persisted. Provider
 snapshot capture remains a separate runtime checkpoint.
 
 The operator registration command validates the completed locally owned template journal, archive

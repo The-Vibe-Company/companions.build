@@ -7,12 +7,16 @@ import { AvatarPicker, CompanionAvatar, DEFAULT_AVATAR } from './CompanionAvatar
 import { DeliverySettings } from './ProductPanels';
 import './SettingsSheet.css';
 
-type Page = 'home' | 'identity' | 'connections' | 'delivery' | 'delete';
+type Page = 'home' | 'identity' | 'connections' | 'delivery' | 'delete' | 'activity' | 'computer';
 const titles: Record<Page, string> = {
-  home: 'Settings', identity: 'Personality', connections: 'Applications', delivery: 'Client delivery', delete: 'Delete companion',
+  home: 'Settings', identity: 'Personality', connections: 'Applications', delivery: 'Client delivery', delete: 'Delete companion', activity: 'Activity', computer: 'Computer',
 };
 
 type Props = {
+  embedded?: boolean;
+  active?: boolean;
+  activity?: ReactNode;
+  computer?: ReactNode;
   initialPage?: Page;
   detail: CompanionDetail;
   models: AppConfig['models'];
@@ -24,8 +28,8 @@ type Props = {
   connections: ReactNode;
 };
 
-export function SettingsSheet({ detail, models, initialPage = 'home', onClose, onDeleted, onSaved, onActivity, onDesktop, connections }: Props) {
-  const [page, setPage] = useState<Page>(initialPage);
+export function SettingsSheet({ embedded = false, active = true, activity, computer, detail, models, initialPage = 'home', onClose, onDeleted, onSaved, onActivity, onDesktop, connections }: Props) {
+  const [page, setPage] = useState<Page>(embedded && initialPage === 'home' ? 'identity' : initialPage);
   const [name, setName] = useState(detail.companion.name);
   const [instructions, setInstructions] = useState(detail.companion.instructions);
   const [avatar, setAvatar] = useState(detail.companion.avatar ?? DEFAULT_AVATAR);
@@ -44,12 +48,14 @@ export function SettingsSheet({ detail, models, initialPage = 'home', onClose, o
   const heading = useRef<HTMLHeadingElement>(null);
 
   useEffect(() => {
+    if (embedded) return;
     const el = dialog.current!;
     const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     if (el.showModal) el.showModal(); else el.setAttribute('open', '');
     return () => { if (el.close) el.close(); if (opener?.isConnected) opener.focus(); };
-  }, []);
-  useEffect(() => { if (page === 'delete' && !pendingAction) keepCompanion.current?.focus(); else heading.current?.focus(); }, [page, pendingAction]);
+  }, [embedded]);
+  useEffect(() => { if (embedded) setPage(initialPage === 'home' ? 'identity' : initialPage); }, [embedded, initialPage]);
+  useEffect(() => { if (!active) return; if (page === 'delete' && !pendingAction) keepCompanion.current?.focus(); else heading.current?.focus(); }, [page, pendingAction, active]);
   useEffect(() => {
     if (!dirty) return;
     const preventLoss = (event: BeforeUnloadEvent) => { event.preventDefault(); event.returnValue = ''; };
@@ -95,16 +101,14 @@ export function SettingsSheet({ detail, models, initialPage = 'home', onClose, o
     </button>;
   }
 
-  return <dialog ref={dialog} className="maison-settings" aria-labelledby="settings-title"
-    onCancel={event => { event.preventDefault(); if (deletingRef.current) return; if (page === 'delete' && !pendingAction) { setPage('home'); return; } if (pendingAction) { setPendingAction(null); setPage('identity'); } else leave(onClose); }}
-    onClick={event => { if (event.target === event.currentTarget && !pendingAction) leave(onClose); }}>
-    <div className="settings-surface">
+  const surface = <div className="settings-surface">
+      {embedded && <nav className="settings-tabs" aria-label="Settings sections">{(['identity', 'connections', 'delivery', 'activity', ...(detail.companion.provider === 'box' ? ['computer'] : [])] as Page[]).map(target => <button key={target} type="button" disabled={saving || deleting} aria-current={page === target || page === 'delete' && target === 'identity' ? 'page' : undefined} onClick={() => { setPage(target); setPendingAction(null); }}>{titles[target]}</button>)}</nav>}
       <header className="sheet-header">
         <div className="settings-heading">
-          {page !== 'home' && !pendingAction && <Button variant="ghost" size="icon" aria-label="Back to settings" disabled={saving || deleting} onClick={() => setPage('home')}><ArrowLeft /></Button>}
+          {(embedded ? page === 'delete' : page !== 'home') && !pendingAction && <Button variant="ghost" size="icon" aria-label="Back to settings" disabled={saving || deleting} onClick={() => setPage(embedded ? 'identity' : 'home')}><ArrowLeft /></Button>}
           <h2 ref={heading} tabIndex={-1} id="settings-title">{pendingAction ? 'Keep your changes?' : page === 'home' ? `Make ${detail.companion.name} yours` : titles[page]}</h2>
         </div>
-        {!pendingAction && <Button variant="ghost" size="icon" disabled={saving || deleting} onClick={() => leave(onClose)} aria-label="Close settings"><X /></Button>}
+        {!embedded && !pendingAction && <Button variant="ghost" size="icon" disabled={saving || deleting} onClick={() => leave(onClose)} aria-label="Close settings"><X /></Button>}
       </header>
       <div className="sheet-content maison-settings-content">
         {pendingAction ? <div className="settings-unsaved">
@@ -126,7 +130,7 @@ export function SettingsSheet({ detail, models, initialPage = 'home', onClose, o
               <button onClick={() => leave(onActivity)}><CalendarClock />Activity & history<ChevronRight /></button>
               {detail.companion.provider === 'box' && <button onClick={() => leave(onDesktop)}><Computer />Open computer<ChevronRight /></button>}
             </div>
-            <button type="button" className="settings-delete-entry" onClick={() => { setDeleteError(''); setPage('delete'); }}><Trash2 />Delete companion</button>
+            <button type="button" className="settings-delete-entry" disabled={saving || deleting} onClick={() => { setDeleteError(''); setPage('delete'); }}><Trash2 />Delete companion</button>
           </>}
           {page === 'delete' && <div className="settings-delete-confirm">
             <CompanionAvatar name={detail.companion.name} avatar={detail.companion.avatar} size={64} />
@@ -134,7 +138,7 @@ export function SettingsSheet({ detail, models, initialPage = 'home', onClose, o
             <p>This removes this companion and its temporary specialists from your companions. Their routines and triggers will stop, and their computers will shut down in the background.</p>
             <p className="muted-copy">Saved specialist profiles and connected accounts are kept. You cannot undo this from the app.</p>
             {deleteError && <p className="field-error" role="alert">{deleteError}</p>}
-            <div><Button ref={keepCompanion} variant="outline" disabled={deleting} onClick={() => setPage('home')}>Keep companion</Button><Button variant="destructive" disabled={deleting} onClick={() => void deleteCompanion()}>{deleting && <LoaderCircle className="spin" />}{deleting ? 'Deleting…' : 'Delete companion'}</Button></div>
+            <div><Button ref={keepCompanion} variant="outline" disabled={deleting} onClick={() => setPage(embedded ? 'identity' : 'home')}>Keep companion</Button><Button variant="destructive" disabled={deleting} onClick={() => void deleteCompanion()}>{deleting && <LoaderCircle className="spin" />}{deleting ? 'Deleting…' : 'Delete companion'}</Button></div>
           </div>}
           {page === 'identity' && <form className="identity-form" onSubmit={save} onChange={() => setSaved(false)}>
             <fieldset className="identity-fields" disabled={saving}>
@@ -148,10 +152,17 @@ export function SettingsSheet({ detail, models, initialPage = 'home', onClose, o
             {error && <p className="field-error" role="alert">{error}</p>}
             <div className="sheet-actions"><span role="status">{saving ? 'Saving…' : saved ? 'Changes saved' : dirty ? 'Unsaved changes' : ''}</span><Button type="submit" disabled={saving || !name.trim() || !dirty}>{saving ? <LoaderCircle className="spin" /> : <Check />}Save changes</Button></div>
           </form>}
+          {embedded && page === 'identity' && <button type="button" className="settings-delete-entry" disabled={saving || deleting} onClick={() => { setDeleteError(''); setPage('delete'); }}><Trash2 />Delete companion</button>}
+          {page === 'activity' && activity}
+          {active && page === 'computer' && computer}
           {page === 'connections' && connections}
           {page === 'delivery' && <DeliverySettings companionId={detail.companion.id} />}
         </>}
       </div>
-    </div>
-  </dialog>;
+    </div>;
+  if (embedded) return <section className={`settings-page${page === 'computer' ? ' settings-page-computer' : ''}`} aria-label="Companion settings">{surface}</section>;
+  return <dialog ref={dialog} className="maison-settings" aria-labelledby="settings-title"
+    onCancel={event => { event.preventDefault(); if (deletingRef.current) return; if (page === 'delete' && !pendingAction) { setPage('home'); return; } if (pendingAction) { setPendingAction(null); setPage('identity'); } else leave(onClose); }}
+    onClick={event => { if (event.target === event.currentTarget && !pendingAction) leave(onClose); }}>
+{surface}</dialog>;
 }

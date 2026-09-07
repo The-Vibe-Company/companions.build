@@ -12,3 +12,17 @@
 .settings-delete-confirm p { line-height:1.6; max-width:46ch; }
 .settings-delete-confirm>div { display:flex; gap:8px; flex-wrap:wrap; }
 .settings-delete-confirm button { min-height:44px; }
+
+.settings-page { width:100%; max-width:900px; margin:0 auto; padding:24px 36px 48px; }
+.settings-page .settings-surface { display:block; }
+.settings-page .sheet-header { padding:28px 0 16px; border:0; }
+.settings-page .sheet-content { padding:0; overflow:visible; }
+.settings-page .sheet-actions { margin-top:24px; }
+.settings-tabs { display:flex; gap:24px; flex-wrap:wrap; border-bottom:1px solid var(--border); }
+.settings-tabs button { position:relative; min-height:44px; color:var(--muted-foreground); font-size:.875rem; }
+.settings-tabs button[aria-current=page] { color:var(--foreground); font-weight:600; }
+.settings-tabs button[aria-current=page]::after { content:""; position:absolute; left:0; right:0; bottom:-1px; height:2px; background:var(--foreground); }
+.settings-page .identity-form { max-width:620px; }
+.settings-page .identity-form .avatar-picker { max-width:480px; }
+.settings-page-computer { max-width:none; }
+@media(max-width:760px) { .settings-page { padding:16px 20px 32px; } .settings-tabs { gap:4px 20px; } }

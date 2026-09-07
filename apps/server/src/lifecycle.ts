@@ -12,6 +12,7 @@ import { spawnChild, delegateTask } from './delegation';
 import type { ControlHandler } from './control';
 import {billingConfiguration,productActivation} from './billing';
 import { progressDeliverySkillsForCompanion, stageDeliverySkills, templateSkillExport, type DeliverySkillDependencies } from './delivery-skills';
+import {machineAdmissionAllowsEffect,progressIdleMachines,progressMachineAdmissions,requestMachineAdmission} from './admission';
 export const SUBSCRIPTION_REQUIRED='subscription_required: An active subscription is required to start new work.';
 /** Unconfigured local development remains usable; hosted execution fails closed. */
 export async function ownerMayStartWork(ownerId:string){
@@ -28,6 +29,8 @@ export interface LifecycleHooks {
  filesDurable?(run:any):Promise<boolean>;
  recordUsage?(event:UsageEvent):Promise<void>;
  deliverySkills?:DeliverySkillDependencies;
+ /** Product operations can hold a durable write/freeze lease that blocks idle archival. */
+ canArchiveMachine?(companion:any):Promise<boolean>;
 }
 export interface LifecycleMachines {
  prepare(companion:any,checkpoint:(id:string)=>Promise<void>,configured:()=>Promise<void>,beforeEffect?:EffectGuard):Promise<string|null>;
@@ -52,9 +55,13 @@ const machines:LifecycleMachines={
   catch(error){if(error instanceof BoxError&&error.status===404)return 'missing';throw error;}
  },
 };
-export async function requestPreparation(ownerId:string,companionId:string,sql:any=db){
- const [row]=await sql`UPDATE companions SET prepare_requested=true,error=null WHERE id=${companionId} AND owner_id=${ownerId} AND retired_at IS NULL AND archive_requested_at IS NULL RETURNING id,status,ready_at AS "readyAt"`;
- return row??null;
+export async function requestPreparation(ownerId:string,companionId:string,sql:any=db,requestId?:string){
+ const [companion]=await sql`SELECT id,status,archived_at FROM companions WHERE id=${companionId} AND owner_id=${ownerId} AND retired_at IS NULL`;
+ if(!companion)return null;
+ const [open]=await sql`SELECT * FROM machine_admission_requests WHERE companion_id=${companionId} AND state IN ('queued','admitted','cancelling') ORDER BY requested_at DESC LIMIT 1`;
+ if(open)return {id:companionId,status:companion.status,admission:{id:open.id,state:open.state,waitingReason:open.waiting_reason??null}};
+ const admission=await requestMachineAdmission(ownerId,{requestId:requestId??crypto.randomUUID(),companionId,kind:companion.archived_at?'resume':'configuration'},sql);
+ return {id:companionId,status:companion.status,admission};
 }
 export async function requestDesktop(ownerId:string,companionId:string,taken:boolean,sql:any=db,source:'human'|'agent'='human'){
  const [row]=await sql`UPDATE companions SET desktop_generation=desktop_generation+CASE WHEN desktop_taken<>${taken} THEN 1 ELSE 0 END,
@@ -80,7 +87,7 @@ export async function handleLifecycle(request:{operation:string;companionId?:str
  if(!actor)throw new LifecycleConflict('Companion unavailable.');
  if(['prepare','open_desktop','spawn','delegate','adopt_template'].includes(request.operation)&&!await ownerMayStartWork(ownerId))throw new LifecycleConflict(SUBSCRIPTION_REQUIRED);
  switch(request.operation){
-  case 'prepare':case 'open_desktop':return requestPreparation(ownerId,id,sql);
+  case 'prepare':case 'open_desktop':return requestPreparation(ownerId,id,sql,request.commandId);
   case 'desktop_takeover':return requestDesktop(ownerId,id,true,sql,request.source??'human');
   case 'desktop_release':return requestDesktop(ownerId,id,false,sql,request.source??'human');
   case 'template_permission':return allowTemplate(ownerId,id,request.input,sql);
@@ -107,6 +114,7 @@ export async function progressLifecycle(sql:any=db,hooks:LifecycleHooks={},machi
   if(!lock.owned)throw Error('Executor ownership required');
  }
  await assertLeader();
+ await progressMachineAdmissions(sql);
  // External preparation runs concurrently; SQL transactions on the reserved connection
  // remain serialized and fenced so one failure cannot roll back another machine's identity.
  let checkpoints:Promise<unknown>=Promise.resolve();
@@ -117,6 +125,7 @@ export async function progressLifecycle(sql:any=db,hooks:LifecycleHooks={},machi
   })) as Promise<T>;
   checkpoints=result.catch(()=>undefined);return result;
  }
+ await progressIdleMachines(sql,machine,{companionId,canArchive:hooks.canArchiveMachine,assertEffect:()=>assertLeader()});
  await progressRetirements(sql,companionId,machine,()=>assertLeader(),checkpoint,(tx,companion)=>usage(tx,companion,'archived'));
  // GUI coordination never pauses the Pi daemon or headless work. Periodic reconciliation
  // reopens a restarted fail-closed broker only to the current durable human intent.
@@ -136,6 +145,7 @@ export async function progressLifecycle(sql:any=db,hooks:LifecycleHooks={},machi
     EXISTS(SELECT 1 FROM runs WHERE companion_id=${companion.id} AND dispatched AND status IN ('preparing','running','needs_input')) AS active_execution
     FROM companions WHERE id=${companion.id}`;
    if(!latest||latest.owner_id!==companion.owner_id||latest.box_id!==companion.box_id||latest.retired_at||latest.archive_requested_at)throw new ExecutionStopped('Machine preparation authority changed');
+   if(!await machineAdmissionAllowsEffect(companion.id,sql))throw new ExecutionStopped('Machine is waiting for admission');
    if(latest.active_execution)throw new ExecutionStopped('Machine preparation waits for active work');
    if(!await (hooks.canStartWork??ownerMayStartWork)(companion.owner_id))throw new ExecutionStopped(SUBSCRIPTION_REQUIRED);
    await assertLeader();
@@ -185,6 +195,7 @@ export async function progressLifecycle(sql:any=db,hooks:LifecycleHooks={},machi
     const portable=await progressDeliverySkillsForCompanion(sql,companion.id,endpoint,decrypt(companion.agent_secret),hooks.deliverySkills,execution);
     await tracePreparation(companion.id,'ready_checkpoint',()=>checkpoint(async(tx:any)=>{
      await tx`UPDATE companions SET prepare_requested=${portable.pending>0},preparation_started_at=${portable.pending>0?companion.preparation_started_at:null},status='ready',error=${portable.pending>0?'Portable skills are waiting to be exported.':null},endpoint_secret=${encrypt(endpoint)},config_digest=${digest},ready_at=now(),archived_at=null,desktop_boundary_version=${companion.desktop_boundary_version} WHERE id=${companion.id}`;
+     await tx`UPDATE companions SET machine_activity_at=COALESCE(machine_activity_at,now()) WHERE id=${companion.id}`;
      if(!reusable)await usage(tx,companion,'ready');
     }));
     companion.endpoint_secret=encrypt(endpoint);companion.status='ready';
@@ -289,7 +300,9 @@ export async function progressLifecycle(sql:any=db,hooks:LifecycleHooks={},machi
   if((await sql`SELECT id FROM template_candidates WHERE source_companion_id=${companion.id} AND status IN ('queued','capturing','ready')`).length)continue;
   try{
    await assertLeader();if(!await machine.archive(companion,assertLeader))continue;
-   await checkpoint(async(tx:any)=>{await tx`UPDATE companions SET archived_at=now(),retired_at=now(),endpoint_secret=null,desktop_paused_at=null WHERE id=${companion.id}`;await usage(tx,companion,'archived');});
+   await checkpoint(async(tx:any)=>{await tx`UPDATE companions SET archived_at=now(),retired_at=now(),endpoint_secret=null,desktop_paused_at=null WHERE id=${companion.id}`;
+    await tx`UPDATE machine_admission_requests SET state=CASE WHEN state='cancelling' THEN 'cancelled' ELSE 'completed' END,released_at=COALESCE(released_at,now()),waiting_reason=null WHERE companion_id=${companion.id} AND state IN ('admitted','cancelling')`;
+    await usage(tx,companion,'archived');});
   }catch{await checkpoint(async(tx:any)=>{await tx`UPDATE companions SET error='Child archive is awaiting provider confirmation.' WHERE id=${companion.id}`;});}
  }
  if(hooks.recordUsage)for(const event of await sql`SELECT * FROM machine_usage_events WHERE (${companionId}::uuid IS NULL OR companion_id=${companionId}) AND reported_at IS NULL ORDER BY occurred_at LIMIT 100`){

@@ -125,6 +125,7 @@ export async function claimQueuedRuns(sql: ReservedSQL) {
   await sql`UPDATE runs r SET status='preparing',started_at=COALESCE(started_at,now()) WHERE r.id IN (
     SELECT DISTINCT ON (q.companion_id,q.lane) q.id FROM runs q WHERE (q.status='queued' OR (q.status='needs_input' AND q.resume_requested_at IS NOT NULL))
       AND EXISTS (SELECT 1 FROM companions c WHERE c.id=q.companion_id AND c.retired_at IS NULL AND c.archive_requested_at IS NULL)
+      AND NOT EXISTS (SELECT 1 FROM machine_admission_requests m WHERE m.companion_id=q.companion_id AND m.state IN ('queued','cancelling'))
       AND NOT EXISTS (SELECT 1 FROM runs a WHERE a.companion_id=q.companion_id AND a.lane=q.lane
         AND (a.status='preparing' OR (q.lane='background' AND a.status='running')))
     ORDER BY q.companion_id,q.lane,COALESCE(q.resume_requested_at,q.created_at),q.id)
@@ -146,6 +147,7 @@ export async function tick(sql: ReservedSQL, hooks: ExecutorHooks = {}, lifecycl
   // another lane on an already active daemon reuses that machine without restarting it.
   await sql`UPDATE companions c SET prepare_requested=true WHERE c.retired_at IS NULL AND c.archive_requested_at IS NULL
     AND NOT c.prepare_requested
+    AND NOT EXISTS(SELECT 1 FROM machine_admission_requests m WHERE m.companion_id=c.id AND m.state IN ('queued','cancelling'))
     AND EXISTS(SELECT 1 FROM runs r WHERE r.companion_id=c.id AND r.status='preparing' AND NOT r.dispatched AND (c.endpoint_secret IS NULL OR c.status<>'ready' OR c.archived_at IS NOT NULL))
     AND NOT EXISTS(SELECT 1 FROM runs r WHERE r.companion_id=c.id AND r.dispatched AND r.status IN ('running','preparing','needs_input'))`;
   if(lifecycle)await lifecycle.schedule(sql,hooks);
@@ -348,6 +350,9 @@ export class LifecycleCoordinator {
   this.leaderPid=identity.pid;
   const pending=await leader`SELECT c.id FROM companions c WHERE
    (c.retired_at IS NULL AND (c.prepare_requested OR ((c.desktop_boundary_version=1 OR c.desktop_taken) AND c.status='ready' AND c.endpoint_secret IS NOT NULL AND (c.desktop_checked_at IS NULL OR c.desktop_checked_at<now()-interval '30 seconds' OR (c.desktop_observed_generation IS DISTINCT FROM c.desktop_generation AND c.desktop_checked_at<now()-interval '2 seconds'))) OR c.archive_requested_at IS NOT NULL
+    OR EXISTS(SELECT 1 FROM machine_admission_requests m WHERE m.companion_id=c.id AND m.state='queued')
+    OR (c.status='ready' AND c.prepare_requested=false AND NOT c.desktop_taken AND COALESCE(c.keep_alive_until,'-infinity')<=now()
+      AND COALESCE(c.machine_activity_at,c.ready_at,c.created_at)<=now()-interval '30 minutes')
     OR EXISTS(SELECT 1 FROM template_candidates t WHERE t.source_companion_id=c.id AND t.status IN ('queued','capturing','ready'))
     OR EXISTS(SELECT 1 FROM delegations d JOIN runs r ON r.id=d.run_id WHERE d.target_id=c.id AND d.finished_at IS NULL AND r.status IN ('succeeded','failed','interrupted','cancelled'))))
    OR (c.retired_at IS NOT NULL AND c.archive_requested_at IS NOT NULL AND (c.archived_at IS NULL OR c.archived_at<c.archive_requested_at))

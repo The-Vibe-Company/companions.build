@@ -5,6 +5,7 @@ import { encrypt } from './config';
 import { LifecycleConflict } from './templates';
 import { requestRunResume } from './automations';
 import {requireSoftwareReady,SoftwareReadinessError} from './software-readiness';
+import {requestMachineAdmissionInTransaction} from './admission';
 export async function spawnChild(ownerId:string,parentId:string,parentRunId:string|null,commandId:string,input:unknown,sql:any=db){
  const value=z.object({templateId:z.string().uuid(),prompt:z.string().min(1).max(50_000)}).parse(input);
  return sql.begin(async(tx:any)=>{
@@ -23,9 +24,10 @@ export async function spawnChild(ownerId:string,parentId:string,parentRunId:stri
   if(count.count>=template.max_children)throw new LifecycleConflict('The authorized child limit has been reached.');
   const childId=crypto.randomUUID(),runId=crypto.randomUUID();
   await tx`INSERT INTO companions(id,owner_id,name,instructions,avatar,model_id,provider,create_key,agent_secret,parent_id,temporary,prepare_requested,template_id,template_revision,snapshot_name,software_build_id,software_result_id)
-   VALUES(${childId},${ownerId},${template.name},${template.instructions},${template.avatar},${template.model_id},${parent.provider},${crypto.randomUUID()},${encrypt(randomBytes(32).toString('hex'))},${parentId},true,true,${template.id},${template.revision},${resolvedSnapshot},${template.software_build_id},${template.software_result_id})`;
+   VALUES(${childId},${ownerId},${template.name},${template.instructions},${template.avatar},${template.model_id},${parent.provider},${crypto.randomUUID()},${encrypt(randomBytes(32).toString('hex'))},${parentId},true,false,${template.id},${template.revision},${resolvedSnapshot},${template.software_build_id},${template.software_result_id})`;
   await tx`INSERT INTO runs(id,companion_id,client_message_id,content,lane,source) VALUES(${runId},${childId},${commandId},${value.prompt},'background','delegation')`;
   await tx`INSERT INTO delegations(id,parent_id,parent_run_id,target_id,run_id) VALUES(${commandId},${parentId},${parentRunId},${childId},${runId})`;
+  await requestMachineAdmissionInTransaction(tx,ownerId,{requestId:commandId,companionId:childId,kind:'intervention'});
   return {companionId:childId,runId};
  });
 }

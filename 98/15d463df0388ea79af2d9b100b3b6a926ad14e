@@ -1,0 +1,24 @@
+docs/testing.md
+  s_f946242dcf6ba9::t_c569c762892aab 30-39
+scripts/test-postgres-restore.ts
+  s_f946242dcf6ba9::t_839321c3ab4669 7,51-55,66-71
+scripts/verify.py
+  s_f946242dcf6ba9::t_43774c1e0b3c61 31,56-57,60,111-112,114-115,131-135
+  s_f946242dcf6ba9::t_c569c762892aab 2-3,15-22,25,61,108,116,137-139
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "9815d463df0388ea79af2d9b100b3b6a926ad14e",
+  "prompts": {},
+  "sessions": {
+    "s_f946242dcf6ba9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a06de4-a8a5-7cd3-b713-2a8d451f7200",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": null
+    }
+  }
+}

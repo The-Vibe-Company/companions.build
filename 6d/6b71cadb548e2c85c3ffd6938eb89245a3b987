@@ -1,0 +1,47 @@
+experiments/desktop-boundary/README.md
+  s_f946242dcf6ba9::t_5d0bb9261ba2d1 59,69,73,78-103
+experiments/desktop-boundary/legacy-retirement.py
+  s_f946242dcf6ba9::t_89fc95e26f375e 36,45,48-49,54-55
+experiments/desktop-boundary/network-restart.py
+  s_f946242dcf6ba9::t_6620be0da28c0d 16,28
+experiments/desktop-boundary/network-worker.py
+  s_f946242dcf6ba9::t_110f2c84dcbf82 23
+experiments/desktop-boundary/production.py
+  s_f946242dcf6ba9::t_f5976013d86c06 79-80,102,109-111
+experiments/desktop-boundary/state-migration.py
+  s_f946242dcf6ba9::t_39f634f1e6e24c 1-92
+packages/box/linux/headless-mounts.sh
+  s_f946242dcf6ba9::t_00ba1e6321e357 17,39
+packages/box/linux/launch-headless.py
+  s_f946242dcf6ba9::t_5ca8b476581529 26-35
+packages/box/linux/retire-legacy.py
+  s_f946242dcf6ba9::t_8c12af3c836c00 2,11,31-33
+packages/box/linux/start-headless.sh
+  s_f946242dcf6ba9::t_a934ec7539728c 1-6
+packages/box/linux/state-directory.py
+  s_f946242dcf6ba9::t_3d8206861eb49f 1-147
+packages/box/linux/state-preflight.py
+  s_f946242dcf6ba9::t_2e4194257a91b5 1-48
+scripts/build-agent.ts
+  s_f946242dcf6ba9::t_1f24323e68042e 19
+scripts/live-box-canary.ts
+  s_f946242dcf6ba9::t_56cfc332085bfb 2,32,62-66
+scripts/live-desktop-canary.ts
+  s_f946242dcf6ba9::t_088deb172a95f2 33,41,43
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "6d6b71cadb548e2c85c3ffd6938eb89245a3b987",
+  "prompts": {},
+  "sessions": {
+    "s_f946242dcf6ba9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a06de4-a8a5-7cd3-b713-2a8d451f7200",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "StanGirard <stan@quivr.app>"
+    }
+  }
+}

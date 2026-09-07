@@ -136,7 +136,7 @@ export async function enqueueTemplateSoftware(ownerId: string, commandId: string
       VALUES(${id},${ownerId},${parsed.templateId},${parsed.expectedRevision},${nextRevision},${base.id},${roots},${requestFingerprint},${crypto.randomUUID()},${`companions-software-${id}`})
       ON CONFLICT(id) DO NOTHING RETURNING id`;
     if (!inserted.length) throw new SoftwareConflict("Template or request unavailable.");
-    const [updated] = await tx`UPDATE agent_templates SET software_build_id=${id},snapshot_name=null,source_companion_id=null,revision=${nextRevision},updated_at=now()
+    const [updated] = await tx`UPDATE agent_templates SET software_build_id=${id},software_result_id=null,snapshot_name=null,source_companion_id=null,revision=${nextRevision},updated_at=now()
       WHERE id=${parsed.templateId} AND owner_id=${ownerId} AND revision=${parsed.expectedRevision} RETURNING id`;
     if (!updated) throw new SoftwareConflict("Template missing or changed.");
     await recordTemplateRevision(tx, parsed.templateId);
@@ -152,13 +152,25 @@ export async function getSoftwareBuild(ownerId: string, buildId: string, sql: an
 
 export async function templateSoftwareStatus(ownerId: string, templateId: string, buildId?: string, sql: any = db) {
   const id = z.string().uuid().parse(templateId);
-  const [template] = await sql`SELECT revision,software_build_id FROM agent_templates WHERE id=${id} AND owner_id=${ownerId}`;
+  const [template] = await sql`SELECT revision,software_build_id,software_result_id FROM agent_templates WHERE id=${id} AND owner_id=${ownerId}`;
   if (!template) throw new SoftwareConflict("Template unavailable.");
+  if (template.software_build_id && template.software_result_id) throw new SoftwareConflict("Software provenance is ambiguous.");
   const selected = buildId ? z.string().uuid().parse(buildId) : template.software_build_id;
-  if (!selected) return { templateId: id, templateRevision: template.revision as number, build: null };
+  if (!selected) {
+    if (!template.software_result_id) return { templateId: id, templateRevision: template.revision as number, build: null, result: null };
+    const [result] = await sql`SELECT r.id,r.base_id,r.manifest_digest,r.created_at FROM portable_software_results r
+      JOIN portable_software_result_grants g ON g.result_id=r.id AND g.owner_id=${ownerId}
+      WHERE r.id=${template.software_result_id}`;
+    if (!result) throw new SoftwareConflict("Software result unavailable.");
+    return { templateId: id, templateRevision: template.revision as number, build: null,
+      result: { id: result.id as string, baseId: result.base_id as string, manifestDigest: result.manifest_digest as string, verified: true, createdAt: result.created_at } };
+  }
   const [build] = await sql`SELECT id,template_revision,base_id,requested_roots,status,error_code,created_at,updated_at,finished_at,
       helper_request_digest IS NOT NULL AND manifest_id IS NOT NULL AND resolved_manifest_digest IS NOT NULL
-        AND snapshot_started_at IS NOT NULL AND finished_at IS NOT NULL AND status='ready' AS verified
+        AND snapshot_started_at IS NOT NULL AND finished_at IS NOT NULL AND status='ready' AND result_id IS NOT NULL
+        AND EXISTS(SELECT 1 FROM portable_software_results r JOIN portable_software_result_grants g ON g.result_id=r.id AND g.owner_id=${ownerId}
+          WHERE r.id=portable_software_builds.result_id AND r.source_build_id=portable_software_builds.id
+            AND r.provider_snapshot_name=portable_software_builds.provider_snapshot_name AND r.manifest_digest=portable_software_builds.resolved_manifest_digest) AS verified
     FROM portable_software_builds WHERE id=${selected} AND template_id=${id} AND owner_id=${ownerId}`;
   if (!build) throw new SoftwareConflict("Software build unavailable.");
   return {
@@ -176,6 +188,7 @@ export async function templateSoftwareStatus(ownerId: string, templateId: string
       updatedAt: build.updated_at,
       finishedAt: build.finished_at ?? null,
     },
+    result: null,
   };
 }
 

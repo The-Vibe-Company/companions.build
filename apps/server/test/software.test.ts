@@ -84,7 +84,10 @@ async function markBuildReady(ownerId: string, buildId: string) {
   const manifestDigest = Buffer.from(crypto.getRandomValues(new Uint8Array(32))).toString("hex");
   await db`INSERT INTO portable_software_manifests(id,owner_id,base_id,digest,manifest)
     VALUES(${manifestId},${ownerId},${baseId},${manifestDigest},${{ version: 1 }})`;
-  await db`UPDATE portable_software_builds SET status='ready',helper_request_digest=${"d".repeat(64)},manifest_id=${manifestId},
+  await db`INSERT INTO portable_software_results(id,source_build_id,base_id,manifest_digest,manifest,provider_snapshot_name)
+    SELECT id,id,base_id,${manifestDigest},${{ version: 1 }},provider_snapshot_name FROM portable_software_builds WHERE id=${buildId} AND owner_id=${ownerId}`;
+  await db`INSERT INTO portable_software_result_grants(result_id,owner_id) VALUES(${buildId},${ownerId})`;
+  await db`UPDATE portable_software_builds SET status='ready',helper_request_digest=${"d".repeat(64)},manifest_id=${manifestId},result_id=${buildId},
     resolved_manifest_digest=${manifestDigest},snapshot_started_at=now(),finished_at=now(),updated_at=now() WHERE id=${buildId} AND owner_id=${ownerId}`;
 }
 
@@ -97,6 +100,14 @@ async function signIn(email: string) {
   expect(sent.status).toBe(200);
   const verified = await handler(new Request(link, { redirect: "manual" }));
   return { cookie: verified.headers.get("set-cookie")!.split(";")[0], user: (await (await handler(new Request("http://127.0.0.1:4310/api/me", { headers: { cookie: verified.headers.get("set-cookie")!.split(";")[0] } }))).json() as any).user };
+}
+
+async function pinGrantedResult(ownerId: string, templateId: string, resultId: string) {
+  await db.begin(async tx => {
+    await tx`UPDATE agent_templates SET software_build_id=null,software_result_id=${resultId},snapshot_name=null,source_companion_id=null,
+      revision=revision+1,updated_at=now() WHERE id=${templateId} AND owner_id=${ownerId}`;
+    await recordTemplateRevision(tx, templateId);
+  });
 }
 
 test("preparation is explicitly unavailable until an operator selects a trusted base", async () => {
@@ -235,7 +246,7 @@ test("a nominal ready status without every verification checkpoint remains unusa
   const build = await enqueueTemplateSoftware(ownerId, crypto.randomUUID(), { templateId: saved.id, expectedRevision: 1, ...roots });
   await db`UPDATE portable_software_builds SET status='ready' WHERE id=${build.id}`;
   expect((await templateSoftwareStatus(ownerId, saved.id, build.id)).build).toMatchObject({ status: "ready", verified: false });
-  await expect(resolvedSoftwareSnapshot(ownerId, build.id, db)).rejects.toMatchObject({ code: "software_verification_incomplete" });
+  await expect(resolvedSoftwareSnapshot(ownerId, build.id, null, db)).rejects.toMatchObject({ code: "software_verification_incomplete" });
   await expect(createCompanion(ownerId, { name: "Unverified", provider: "box", templateId: saved.id })).rejects.toThrow("not verified");
 });
 
@@ -251,7 +262,7 @@ test("creation rejects pending and failed software, then pins only a fully verif
 
   const ready = await enqueueTemplateSoftware(ownerId, crypto.randomUUID(), { templateId: saved.id, expectedRevision: 2, ...roots });
   await markBuildReady(ownerId, ready.id);
-  expect((await resolvedSoftwareSnapshot(ownerId, ready.id, db)).snapshotName).toBe(ready.providerSnapshotName);
+  expect((await resolvedSoftwareSnapshot(ownerId, ready.id, null, db)).snapshotName).toBe(ready.providerSnapshotName);
   const clean = await createCompanion(ownerId, { name: "Clean", provider: "box", templateId: saved.id, templateRevision: 3 });
   expect(clean).toMatchObject({ softwareBuildId: ready.id });
   expect((await db`SELECT snapshot_name,software_build_id,prepare_requested FROM companions WHERE id=${clean.id}`)[0])
@@ -348,4 +359,61 @@ test("control MCP prepares software for permanent Companions and denies temporar
   expect(await applyControl(childId, { id: childCommand, runId: childRun, operation: "software_status", input: { templateId: saved.id } }))
     .toEqual({ error: "Ask your parent to manage templates and additional agents." });
   expect(await db`SELECT id FROM control_commands WHERE id=${childCommand} AND status='done'`).toHaveLength(1);
+});
+
+test("a granted immutable result pins selected revisions, creation, children, and rollback", async () => {
+  const sourceOwner = await owner("Software source");
+  const recipient = await owner("Software recipient");
+  const stranger = await owner("Software stranger");
+  const sourceTemplate = await template(sourceOwner, "Source template");
+  const build = await enqueueTemplateSoftware(sourceOwner, crypto.randomUUID(), { templateId: sourceTemplate.id, expectedRevision: 1, ...roots });
+  await markBuildReady(sourceOwner, build.id);
+  await db`INSERT INTO portable_software_result_grants(result_id,owner_id,delivery_id) VALUES(${build.id},${recipient},null)`;
+
+  await expect(resolvedSoftwareSnapshot(stranger, null, build.id, db)).rejects.toMatchObject({ code: "software_build_unavailable" });
+  const received = await template(recipient, "Received template");
+  await pinGrantedResult(recipient, received.id, build.id);
+  expect((await listTemplateRevisions(recipient, received.id))[0]).toMatchObject({ revision: 2, softwareBuildId: null, softwareResultId: build.id });
+  expect((await templateSoftwareStatus(recipient, received.id)).result).toMatchObject({ id: build.id, verified: true });
+
+  const oldRevision = await createCompanion(recipient, { name: "Before software", provider: "local", templateId: received.id, templateRevision: 1 });
+  expect(oldRevision).toMatchObject({ softwareBuildId: null, softwareResultId: null });
+  const copied = await createCompanion(recipient, { name: "Granted software", provider: "box", templateId: received.id, templateRevision: 2 });
+  expect(copied).toMatchObject({ softwareBuildId: null, softwareResultId: build.id });
+  expect((await db`SELECT snapshot_name FROM companions WHERE id=${copied.id}`)[0].snapshot_name).toBe(build.providerSnapshotName);
+
+  await saveTemplate(recipient, { id: received.id, expectedRevision: 2, name: "Edited recipient", instructions: "Still portable" });
+  expect((await db`SELECT software_result_id FROM agent_templates WHERE id=${received.id}`)[0].software_result_id).toBe(build.id);
+  await rollbackTemplate(recipient, received.id, { targetRevision: 1, expectedRevision: 3 });
+  expect((await db`SELECT software_result_id FROM agent_templates WHERE id=${received.id}`)[0].software_result_id).toBeNull();
+  await rollbackTemplate(recipient, received.id, { targetRevision: 2, expectedRevision: 4 });
+  expect((await db`SELECT software_result_id FROM agent_templates WHERE id=${received.id}`)[0].software_result_id).toBe(build.id);
+
+  const parent = await createCompanion(recipient, { name: "Recipient parent", provider: "box" });
+  await allowTemplate(recipient, parent.id, { templateId: received.id, maxChildren: 1 });
+  const child = await spawnChild(recipient, parent.id, null, crypto.randomUUID(), { templateId: received.id, prompt: "Use delivered tools" });
+  expect((await db`SELECT software_build_id,software_result_id,snapshot_name FROM companions WHERE id=${child.companionId}`)[0])
+    .toMatchObject({ software_build_id: null, software_result_id: build.id, snapshot_name: build.providerSnapshotName });
+  const adoptionId = crypto.randomUUID();
+  expect(await adoptTemplate(recipient, parent.id, adoptionId, { templateId: received.id, childId: child.companionId, expectedRevision: 5 }))
+    .toEqual({ candidateId: adoptionId });
+});
+
+test("ambiguous provenance fails closed and a new build clears an older granted result", async () => {
+  const sourceOwner = await owner("Ambiguous source");
+  const sourceTemplate = await template(sourceOwner, "Ambiguous template");
+  const build = await enqueueTemplateSoftware(sourceOwner, crypto.randomUUID(), { templateId: sourceTemplate.id, expectedRevision: 1, ...roots });
+  await markBuildReady(sourceOwner, build.id);
+  await expectDatabaseRejection(db`UPDATE agent_templates SET software_result_id=${build.id} WHERE id=${sourceTemplate.id}`);
+  await expectDatabaseRejection(db`UPDATE template_revisions SET software_result_id=${build.id} WHERE template_id=${sourceTemplate.id} AND revision=2`);
+  await expect(resolvedSoftwareSnapshot(sourceOwner, build.id, build.id, db)).rejects.toThrow("ambiguous");
+
+  const recipient = await owner("Result replacement");
+  await db`INSERT INTO portable_software_result_grants(result_id,owner_id,delivery_id) VALUES(${build.id},${recipient},null)`;
+  const received = await template(recipient, "Replace result");
+  await pinGrantedResult(recipient, received.id, build.id);
+  const replacement = await enqueueTemplateSoftware(recipient, crypto.randomUUID(), { templateId: received.id, expectedRevision: 2, ...roots });
+  expect((await db`SELECT software_build_id,software_result_id,snapshot_name FROM agent_templates WHERE id=${received.id}`)[0])
+    .toMatchObject({ software_build_id: replacement.id, software_result_id: null, snapshot_name: null });
+  expect((await listTemplateRevisions(recipient, received.id))[0]).toMatchObject({ revision: 3, softwareBuildId: replacement.id, softwareResultId: null });
 });

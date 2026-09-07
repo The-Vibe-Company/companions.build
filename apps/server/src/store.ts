@@ -66,7 +66,7 @@ export async function migrateForService(sql = db) {
   }
   await migrate(sql);
 }
-export const companionColumns = `id,name,instructions,avatar,model_id AS "modelId",provider,status,error,desktop_taken AS "desktopTaken",desktop_paused_at AS "desktopPausedAt",prepare_requested AS "prepareRequested",ready_at AS "readyAt",parent_id AS "parentId",template_id AS "templateId",template_revision AS "templateRevision",software_build_id AS "softwareBuildId",retired_at AS "retiredAt",temporary,box_id AS "boxId",created_at AS "createdAt"`;
+export const companionColumns = `id,name,instructions,avatar,model_id AS "modelId",provider,status,error,desktop_taken AS "desktopTaken",desktop_paused_at AS "desktopPausedAt",prepare_requested AS "prepareRequested",ready_at AS "readyAt",parent_id AS "parentId",template_id AS "templateId",template_revision AS "templateRevision",software_build_id AS "softwareBuildId",software_result_id AS "softwareResultId",retired_at AS "retiredAt",temporary,box_id AS "boxId",created_at AS "createdAt"`;
 export async function listCompanions(ownerId: string) { return db.unsafe(`SELECT ${companionColumns} FROM companions WHERE owner_id=$1 AND retired_at IS NULL AND NOT temporary ORDER BY created_at,id`, [ownerId]); }
 export async function createCompanion(ownerId: string, input: { name: string; instructions?: string; provider: "local" | "box"; prepare?:boolean; avatar?: {shape:number;color:number;face:number}; templateId?:string; templateRevision?:number; clientCreationId?:string }) {
   const fingerprint=input.clientCreationId?createHash("sha256").update(JSON.stringify({name:input.name,instructions:input.instructions??null,provider:input.provider,prepare:input.prepare??false,avatar:input.avatar??null,templateId:input.templateId??null,templateRevision:input.templateRevision??null})).digest("hex"):null;
@@ -83,13 +83,13 @@ export async function createCompanion(ownerId: string, input: { name: string; in
       [template]=await sql`SELECT r.* FROM template_revisions r JOIN agent_templates t ON t.id=r.template_id AND t.owner_id=r.owner_id
         WHERE t.id=${input.templateId} AND t.owner_id=${ownerId} AND r.revision=COALESCE(${input.templateRevision??null},t.revision)`;
       if(!template)throw new Conflict("Template or revision unavailable.");
-      try { template.resolved_snapshot_name=await requireSoftwareReady(ownerId,template.software_build_id,template.snapshot_name,sql); }
+      try { template.resolved_snapshot_name=await requireSoftwareReady(ownerId,template.software_build_id,template.software_result_id,template.snapshot_name,sql); }
       catch(error){if(error instanceof SoftwareReadinessError)throw new Conflict(error.message);throw error;}
       if(template.resolved_snapshot_name&&input.provider!=="box")throw new Conflict("This prepared template requires Box.");
     } else if(input.templateRevision)throw new Conflict("A template is required for a revision.");
     const id = crypto.randomUUID();
-    const inserted=await sql`INSERT INTO companions (id,owner_id,name,instructions,provider,create_key,agent_secret,avatar,prepare_requested,template_id,template_revision,snapshot_name,software_build_id,model_id,client_creation_id,creation_fingerprint)
-      VALUES (${id},${ownerId},${input.name},${input.instructions??template?.instructions??""},${input.provider},${crypto.randomUUID()},${encrypt(randomBytes(32).toString("hex"))},${input.avatar??template?.avatar??{shape:0,color:0,face:0}},${input.prepare??false},${input.templateId??null},${template?.revision??null},${template?.resolved_snapshot_name??null},${template?.software_build_id??null},${template?.model_id??null},${input.clientCreationId??null},${fingerprint})
+    const inserted=await sql`INSERT INTO companions (id,owner_id,name,instructions,provider,create_key,agent_secret,avatar,prepare_requested,template_id,template_revision,snapshot_name,software_build_id,software_result_id,model_id,client_creation_id,creation_fingerprint)
+      VALUES (${id},${ownerId},${input.name},${input.instructions??template?.instructions??""},${input.provider},${crypto.randomUUID()},${encrypt(randomBytes(32).toString("hex"))},${input.avatar??template?.avatar??{shape:0,color:0,face:0}},${input.prepare??false},${input.templateId??null},${template?.revision??null},${template?.resolved_snapshot_name??null},${template?.software_build_id??null},${template?.software_result_id??null},${template?.model_id??null},${input.clientCreationId??null},${fingerprint})
       ON CONFLICT(owner_id,client_creation_id) WHERE client_creation_id IS NOT NULL DO NOTHING RETURNING id`;
     if(!inserted.length){
       const [winner]=await sql`SELECT creation_fingerprint FROM companions WHERE owner_id=${ownerId} AND client_creation_id=${input.clientCreationId}`;

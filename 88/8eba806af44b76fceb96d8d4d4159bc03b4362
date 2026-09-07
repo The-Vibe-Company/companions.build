@@ -1,0 +1,27 @@
+apps/server/src/automation-routes.ts
+  s_f946242dcf6ba9::t_bb9c053ba1530d 3,39
+apps/server/src/automations.ts
+  s_f946242dcf6ba9::t_4b060534f50928 14-15,54
+apps/server/src/runtime-product.ts
+  s_f946242dcf6ba9::t_af496c49491fca 105,111
+apps/server/test/control.test.ts
+  s_f946242dcf6ba9::t_78a472a7ad0ad4 10,58-77
+docs/v0.md
+  s_f946242dcf6ba9::t_20276dfb935a2b 175-176
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "888eba806af44b76fceb96d8d4d4159bc03b4362",
+  "prompts": {},
+  "sessions": {
+    "s_f946242dcf6ba9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a06de4-a8a5-7cd3-b713-2a8d451f7200",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "StanGirard <stan@quivr.app>"
+    }
+  }
+}

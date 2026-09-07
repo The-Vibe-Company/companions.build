@@ -31,8 +31,21 @@ export function pluginTools(getPlugins:()=>MachinePlugin[]) {
       if(!input.connectionId) return text(getPlugins().map(p=>({id:p.id,name:p.name,provider:p.provider})));
       const plugin=getPlugins().find(p=>p.id===input.connectionId);if(!plugin) throw new Error('PLUGIN_NOT_SELECTED');
       if(plugin.transport==='slack') return text([{name:'chat_post_message',description:'Send an explicitly authorized Slack message',inputSchema:{type:'object',properties:{channel:{type:'string'},text:{type:'string'}},required:['channel','text']}}]);
-      const catalog=await (await client(plugin)).listTools(undefined,{signal,timeout:15_000});
-      return text(catalog.tools.filter(t=>!plugin.allowedTools||plugin.allowedTools.includes(t.name)));
+      const c=await client(plugin);
+      const discovered=new Map<string,Awaited<ReturnType<Client['listTools']>>['tools'][number]>();
+      const cursors=new Set<string>();
+      let cursor:string|undefined;
+      // Discover every page, but fail closed if a provider loops or never finishes.
+      for(let page=0;page<100;page++) {
+        const catalog=await c.listTools(cursor===undefined?undefined:{cursor},{signal,timeout:15_000});
+        for(const tool of catalog.tools) {
+          if(!plugin.allowedTools||plugin.allowedTools.includes(tool.name)) discovered.set(tool.name,tool);
+        }
+        if(catalog.nextCursor===undefined) return text([...discovered.values()]);
+        if(cursors.has(catalog.nextCursor)) throw new Error('PLUGIN_CATALOG_PAGINATION_FAILED');
+        cursors.add(catalog.nextCursor);cursor=catalog.nextCursor;
+      }
+      throw new Error('PLUGIN_CATALOG_PAGINATION_FAILED');
     },
   },{
     name:'plugin_call',label:'Use connected tool',description:'Call a tool discovered with plugin_tools. Respect the user’s authority before sending messages or publishing changes.',

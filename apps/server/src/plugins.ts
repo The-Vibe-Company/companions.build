@@ -140,24 +140,29 @@ export async function checkPluginAccount(ownerId:string,accountId:string,deps:Pl
   const [saved]=await db`UPDATE plugin_accounts SET health_status=${healthStatus},health_code=${healthCode},health_checked_at=${now} WHERE id=${accountId} AND owner_id=${ownerId} RETURNING id,health_status,health_code,health_checked_at`;
   return saved?healthProjection(saved):null;
 }
-/** Executor-only credential projection, never a browser response. Refresh is serialized by row lock. */
-export async function machinePlugins(companionId:string):Promise<MachinePlugin[]> {
-  return db.begin(async tx => {
-    const rows=await tx`SELECT p.* FROM companion_plugins cp JOIN plugin_accounts p ON p.id=cp.account_id JOIN companions c ON c.id=cp.companion_id WHERE c.id=${companionId} AND c.owner_id=p.owner_id FOR UPDATE OF p`;
-    const result:MachinePlugin[]=[];
-    for(const row of rows) {
+/** Executor-only projection. Commit each refresh before another provider can fail. */
+export async function machinePlugins(companionId:string,deps:Pick<PluginHealthDependencies,'refresh'>={}):Promise<MachinePlugin[]> {
+  const accounts=await db`SELECT p.id FROM companion_plugins cp JOIN plugin_accounts p ON p.id=cp.account_id JOIN companions c ON c.id=cp.companion_id WHERE c.id=${companionId} AND c.owner_id=p.owner_id ORDER BY p.id`;
+  const result:MachinePlugin[]=[];
+  for(const account of accounts) {
+    const plugin=await db.begin(async tx => {
+      // Recheck ownership and selection while locking this account; health checks and other
+      // companions must see the committed rotated token before trying another refresh.
+      const [row]=await tx`SELECT p.* FROM companion_plugins cp JOIN plugin_accounts p ON p.id=cp.account_id JOIN companions c ON c.id=cp.companion_id WHERE c.id=${companionId} AND p.id=${account.id} AND c.owner_id=p.owner_id FOR UPDATE OF p`;
+      if(!row)return null;
       let credential=JSON.parse(decrypt(row.credential_secret));
-      if(credential.kind==='custom') { result.push({id:row.id,name:row.label,provider:'custom',...credential});continue; }
-      if(credential.accessExpiresAt && Date.parse(credential.accessExpiresAt)<Date.now()+60_000) {
-        credential=await refreshCompanionPluginOAuth({credential:credential as CompanionPluginStoredOAuthCredential});
-        await tx`UPDATE plugin_accounts SET credential_secret=${encrypt(JSON.stringify(credential))} WHERE id=${row.id}`;
-      }
+      if(credential.kind==='custom')return {id:row.id,name:row.label,provider:'custom',...credential} as MachinePlugin;
       const provider=pluginCatalog.find(p=>p.id===row.server_id);
       if(!provider) throw new PluginError('Connection requires an update.');
-      result.push({id:row.id,name:row.label,provider:provider.provider,transport:provider.transport as 'http'|'slack',url:provider.url,headers:{Authorization:`Bearer ${credential.accessToken}`},...(provider.provider==='gmail'?{allowedTools:[...COMPANION_GMAIL_MCP_ALLOWED_TOOLS]}:{})});
-    }
-    return result;
-  });
+      if(credential.accessExpiresAt && Date.parse(credential.accessExpiresAt)<Date.now()+60_000) {
+        credential=await (deps.refresh??refreshCompanionPluginOAuth)({credential:credential as CompanionPluginStoredOAuthCredential});
+        await tx`UPDATE plugin_accounts SET credential_secret=${encrypt(JSON.stringify(credential))} WHERE id=${row.id}`;
+      }
+      return {id:row.id,name:row.label,provider:provider.provider,transport:provider.transport as 'http'|'slack',url:provider.url,headers:{Authorization:`Bearer ${credential.accessToken}`},...(provider.provider==='gmail'?{allowedTools:[...COMPANION_GMAIL_MCP_ALLOWED_TOOLS]}:{})} satisfies MachinePlugin;
+    });
+    if(plugin)result.push(plugin);
+  }
+  return result;
 }
 const response=(body:unknown,status=200)=>Response.json(body,{status,headers:{'cache-control':'no-store'}});
 type PluginCallbackStatus='connected'|'cancelled'|'error';

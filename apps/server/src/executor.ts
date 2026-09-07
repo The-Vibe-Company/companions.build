@@ -18,6 +18,35 @@ export async function acquireExecutor() {
   if (!result.locked) { sql.release(); return null; }
   return sql;
 }
+export interface ExecutorWaitOptions {
+  signal?:AbortSignal;
+  retryMs?:number;
+  acquire?:typeof acquireExecutor;
+  onWaiting?():void;
+}
+/** A rolling replacement stays inert until the previous process releases leadership. */
+export async function waitForExecutor(options:ExecutorWaitOptions={}):Promise<ReservedSQL|null>{
+ const signal=options.signal,retryMs=options.retryMs??2_000,acquire=options.acquire??acquireExecutor;
+ if(!Number.isFinite(retryMs)||retryMs<10)throw new Error('Invalid executor retry delay');
+ let announced=false;
+ while(!signal?.aborted){
+  const sql=await acquire();
+  if(sql){
+   if(!signal?.aborted)return sql;
+   await sql`SELECT pg_advisory_unlock(721440139)`;sql.release();return null;
+  }
+  if(!announced){announced=true;options.onWaiting?.();}
+  const continued=await new Promise<boolean>(resolve=>{
+   const timer=setTimeout(()=>finish(true),retryMs);
+   const aborted=()=>finish(false);
+   function finish(value:boolean){clearTimeout(timer);signal?.removeEventListener('abort',aborted);resolve(value);}
+   signal?.addEventListener('abort',aborted,{once:true});
+   if(signal?.aborted)finish(false);
+  });
+  if(!continued)return null;
+ }
+ return null;
+}
 async function settle(sql: any, run: any, status: string, text: string | null, error: string | null,
   rootId = run.id, publishToChat = false, leaderPid?:number) {
   await sql`WITH settled AS (
@@ -324,14 +353,16 @@ export class LifecycleCoordinator {
 }
 
 if (import.meta.main) {
-  const sql = await acquireExecutor();
-  if (!sql) { console.error("Another executor already owns this workspace."); process.exit(1); }
+  const shutdown=new AbortController();
+  const stop=()=>shutdown.abort();process.once('SIGTERM',stop);process.once('SIGINT',stop);
+  const sql = await waitForExecutor({signal:shutdown.signal,onWaiting:()=>console.log("Executor waiting for leadership")});
+  if (!sql) { await db.close(); process.exit(0); }
   console.log("Executor ready");
   const { productHooks } = await import("./runtime-product");
   const lifecycle=new LifecycleCoordinator();
   const observations=new BoxObserver();
   const runs=new RunCoordinator();
   const software=new SoftwareBuildCoordinator();
-  try { for (;;) { if(productHooks.software)await software.schedule(sql,productHooks.software); await observations.schedule(sql); await tick(sql, productHooks,lifecycle,runs); await Bun.sleep(500); } }
+  try { while(!shutdown.signal.aborted) { if(productHooks.software)await software.schedule(sql,productHooks.software); await observations.schedule(sql); await tick(sql, productHooks,lifecycle,runs); await Bun.sleep(500); } }
   finally { await Promise.allSettled([lifecycle.close(),observations.close(),runs.close(),software.close()]); sql.release(); await db.close(); }
 }

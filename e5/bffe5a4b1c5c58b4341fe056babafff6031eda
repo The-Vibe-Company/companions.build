@@ -1,0 +1,29 @@
+apps/server/src/api.ts
+  s_f946242dcf6ba9::t_5b6d0d22c2f164 146
+apps/server/test/box.test.ts
+  s_f946242dcf6ba9::t_3285293790acec 118-146
+apps/server/test/store.test.ts
+  s_f946242dcf6ba9::t_7a178426212652 1,5,157-177
+docs/completion-audit.md
+  s_f946242dcf6ba9::t_77bfc16c214e2d 58-62
+docs/measurements/desktop-response-boundary-2026-09-07.json
+  s_f946242dcf6ba9::t_ce8f211f208f46 1-19
+packages/box/client.ts
+  s_f946242dcf6ba9::t_cb103ac68cda8b 82-87
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "e5bffe5a4b1c5c58b4341fe056babafff6031eda",
+  "prompts": {},
+  "sessions": {
+    "s_f946242dcf6ba9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a06de4-a8a5-7cd3-b713-2a8d451f7200",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "StanGirard <stan@quivr.app>"
+    }
+  }
+}

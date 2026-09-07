@@ -1,7 +1,7 @@
 import { beforeAll, afterAll, describe, expect, test } from "bun:test";
 import { createHmac } from "node:crypto";
 import { db, migrate, createCompanion } from "../src/store";
-import { handleTriggers, handleWebhook, migrateTriggers, processTriggerInbox, triggerProviderAdapters, reconcileTriggerRegistration, triggerBatchContext } from "../src/triggers";
+import { handleTriggers, handleWebhook, migrateTriggers, processTriggerInbox, triggerProviderAdapters, reconcileTriggerRegistration, triggerBatchContext, syncTriggerBatches } from "../src/triggers";
 import {enqueueBackgroundInTransaction} from "../src/automations";
 import { encrypt } from "../src/config";
 
@@ -252,4 +252,81 @@ test('an event evaluated across run admission creates a follow-up instead of cha
   previous=current.id;current=followup;
  }
  expect(await db`SELECT id FROM runs WHERE companion_id=${f.companionId}`).toHaveLength(3);
+});
+
+
+test('parked tasks and their active successor do not prevent the trigger inbox from progressing',async()=>{
+ const f=await atomicFixture();
+ for(const occurrence of [1,2,3]){
+  await handleWebhook(webhook(f.trigger.id,f.secret,{issue:{id:'parked'},occurrence}));
+  await processTriggerInbox({enqueueBackground:enqueueBackgroundInTransaction,runFilterImpl:async()=>true});
+  const [run]=await db`SELECT id FROM runs WHERE companion_id=${f.companionId} AND status='queued'`;
+  await db`UPDATE runs SET status=${occurrence===1?'needs_input':'running'} WHERE id=${run.id}`;
+  await syncTriggerBatches();
+  if(occurrence===2)await db`UPDATE runs SET status='succeeded' WHERE id=${run.id}`;
+ }
+ const batches=await db`SELECT status FROM trigger_batches WHERE trigger_id=${f.trigger.id}`;
+ expect(batches.filter((b:any)=>b.status==='running')).toHaveLength(2);
+ expect(batches.filter((b:any)=>b.status==='finished')).toHaveLength(1);
+ expect(await processTriggerInbox({enqueueBackground:enqueueBackgroundInTransaction})).toBe(0);
+});
+
+async function stopFixture(f:any,reason:'disabled'|'retired'|'archiving'){
+ if(reason==='disabled')await db`UPDATE triggers SET enabled=false WHERE id=${f.trigger.id}`;
+ else if(reason==='retired')await db`UPDATE companions SET retired_at=now() WHERE id=${f.companionId}`;
+ else await db`UPDATE companions SET archive_requested_at=now() WHERE id=${f.companionId}`;
+}
+
+for(const reason of ['disabled','retired','archiving'] as const){
+ test(`${reason} trigger rejects intake and skips pending delivery before provider reads or filtering`,async()=>{
+  const f=await atomicFixture();
+  await db`UPDATE triggers SET filter_requests=${JSON.stringify([{key:'issue',provider:'github',path:'/repos/acme/web/issues/1'}])}::jsonb WHERE id=${f.trigger.id}`;
+  expect((await handleWebhook(webhook(f.trigger.id,f.secret,{issue:{id:'pending'}})))?.status).toBe(202);
+  await stopFixture(f,reason);
+  expect((await handleWebhook(webhook(f.trigger.id,f.secret,{issue:{id:'later'}})))?.status).toBe(404);
+  let calls=0;const forbidden=async()=>{calls++;throw new Error('unexpected external work');};
+  await processTriggerInbox({enqueueBackground:forbidden,runFilterImpl:forbidden,fetchImpl:forbidden as unknown as typeof fetch});
+  expect(calls).toBe(0);
+  const decisions=await db`SELECT decision FROM trigger_deliveries WHERE trigger_id=${f.trigger.id}`;
+  expect(decisions.map((row:any)=>row.decision)).toEqual(['ignored']);
+  expect(await db`SELECT id FROM trigger_batches WHERE trigger_id=${f.trigger.id}`).toHaveLength(0);
+ });
+ test(`${reason} during filtering prevents batch creation and run admission`,async()=>{
+  const f=await atomicFixture(),entered=barrier(),hold=barrier();
+  await handleWebhook(webhook(f.trigger.id,f.secret,{issue:{id:'racing'}}));
+  let enqueues=0;
+  const work=processTriggerInbox({enqueueBackground:async(input,tx)=>{enqueues++;return enqueueBackgroundInTransaction(input,tx);},runFilterImpl:async()=>{entered.release();await hold.promise;return true;}});
+  try{await entered.promise;await stopFixture(f,reason);}finally{hold.release();await work;}
+  expect(enqueues).toBe(0);
+  expect(await db`SELECT id FROM trigger_batches WHERE trigger_id=${f.trigger.id}`).toHaveLength(0);
+  expect(await db`SELECT id FROM runs WHERE companion_id=${f.companionId}`).toHaveLength(0);
+  expect((await db`SELECT decision,error_code FROM trigger_deliveries WHERE trigger_id=${f.trigger.id}`)[0]).toMatchObject({decision:'ignored',error_code:'trigger_inactive'});
+ });
+ test(`${reason} before an admission retry terminates its batch without a run`,async()=>{
+  const f=await atomicFixture();await handleWebhook(webhook(f.trigger.id,f.secret,{issue:{id:'retry'}}));
+  await processTriggerInbox({enqueueBackground:async()=>{throw new Error('injected admission failure');},runFilterImpl:async()=>true});
+  await stopFixture(f,reason);await db`UPDATE trigger_batches SET next_enqueue_at=now() WHERE trigger_id=${f.trigger.id}`;
+  let calls=0;await processTriggerInbox({enqueueBackground:async()=>{calls++;return null;}});
+  expect(calls).toBe(0);
+  expect((await db`SELECT status,enqueue_status,run_id FROM trigger_batches WHERE trigger_id=${f.trigger.id}`)[0]).toMatchObject({status:'finished',enqueue_status:'error',run_id:null});
+  expect(await db`SELECT id FROM runs WHERE companion_id=${f.companionId}`).toHaveLength(0);
+  expect(await processTriggerInbox({enqueueBackground:async()=>{calls++;return null;}})).toBe(0);expect(calls).toBe(0);
+ });
+}
+
+test('disabling while the authenticated webhook body is arriving prevents durable receipt',async()=>{
+ const f=await atomicFixture(),entered=barrier(),hold=barrier();
+ const body=new ReadableStream<Uint8Array>({async pull(controller){entered.release();await hold.promise;controller.enqueue(new TextEncoder().encode('{}'));controller.close();}},{highWaterMark:0});
+ const work=handleWebhook(new Request(`http://control/api/webhooks/${f.trigger.id}`,{method:'POST',headers:{authorization:`Bearer ${f.secret}`},body}));
+ try{await entered.promise;await stopFixture(f,'disabled');}finally{hold.release();}
+ expect((await work)?.status).toBe(404);
+ expect(await db`SELECT id FROM trigger_deliveries WHERE trigger_id=${f.trigger.id}`).toHaveLength(0);
+});
+
+test('patching a trigger prompt preserves disabled state, filter mode and requests',async()=>{
+ const f=await atomicFixture();const requests=[{key:'issue',provider:'github',path:'/repos/acme/web/issues/1'}];
+ await db`UPDATE triggers SET enabled=false,filter_requests=${JSON.stringify(requests)}::jsonb WHERE id=${f.trigger.id}`;
+ const result=await handleTriggers(new Request(`http://control/api/companions/${f.companionId}/triggers/${f.trigger.id}`,{method:'PATCH',body:JSON.stringify({prompt:'Revised instructions'})}),OWNER);
+ expect(result?.status).toBe(200);
+ expect((await result!.json() as any).trigger).toMatchObject({prompt:'Revised instructions',enabled:false,mode:'filter',filterRequests:requests});
 });

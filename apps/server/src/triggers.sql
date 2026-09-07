@@ -64,5 +64,6 @@ ALTER TABLE trigger_deliveries DROP CONSTRAINT IF EXISTS trigger_deliveries_batc
 ALTER TABLE trigger_deliveries ADD CONSTRAINT trigger_deliveries_batch_id_fkey
   FOREIGN KEY (batch_id) REFERENCES trigger_batches(id) ON DELETE SET NULL;
 CREATE UNIQUE INDEX IF NOT EXISTS trigger_one_queued_problem ON trigger_batches(trigger_id, problem_key) WHERE status='queued';
-CREATE UNIQUE INDEX IF NOT EXISTS trigger_one_running_problem ON trigger_batches(trigger_id, problem_key) WHERE status='running';
+-- Parked needs_input tasks release their lane; multiple started batches are valid.
+DROP INDEX IF EXISTS trigger_one_running_problem;
 CREATE INDEX IF NOT EXISTS trigger_pending_batches ON trigger_batches(next_enqueue_at, id) WHERE enqueue_status IN ('pending','error');

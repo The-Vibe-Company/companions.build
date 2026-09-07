@@ -90,6 +90,15 @@ async function ownedTrigger(database: Database, ownerId: string, companionId: st
   return rows[0] ? normalizeTrigger(rows[0]) : null;
 }
 
+// Lock authority before batch/run rows, and retain it until the durable decision commits.
+async function lockActiveTrigger(database: Database, triggerId: string) {
+  const [companion] = await database.unsafe(`SELECT c.id FROM companions c JOIN triggers t ON t.companion_id=c.id
+    WHERE t.id=$1 AND c.owner_id=t.owner_id AND c.retired_at IS NULL AND c.archive_requested_at IS NULL FOR UPDATE OF c`, [triggerId]);
+  if (!companion) return false;
+  const [trigger] = await database.unsafe(`SELECT id FROM triggers WHERE id=$1 AND enabled FOR UPDATE`, [triggerId]);
+  return Boolean(trigger);
+}
+
 interface ProviderCredential { token: string; accountId: string }
 async function providerCredential(database: Database, ownerId: string, provider: "github" | "sentry", accountId?: string | null): Promise<ProviderCredential> {
   const rows = await database.unsafe(`SELECT id,credential_secret AS "credentialSecret" FROM plugin_accounts
@@ -236,7 +245,7 @@ async function createTrigger(database: Database, ownerId: string, companionId: s
   const rows = await database.unsafe(`INSERT INTO triggers(id,owner_id,companion_id,name,prompt,source,mode,filter_code,
     filter_requests,problem_path,provider_account_id,target,enabled,secret_ciphertext,registration_status)
     SELECT $1,$2,c.id,$4,$5,$6,$7,$8,$9::jsonb,$10,$11,$12::jsonb,$13,$14,$15 FROM companions c
-    WHERE c.id=$3 AND c.owner_id=$2 RETURNING *`, [id, ownerId, companionId, value.name, value.prompt, value.source,
+    WHERE c.id=$3 AND c.owner_id=$2 AND c.retired_at IS NULL AND c.archive_requested_at IS NULL RETURNING *`, [id, ownerId, companionId, value.name, value.prompt, value.source,
     value.mode, value.mode === "filter" ? value.filterCode ?? value.filter : null, JSON.stringify(value.filterRequests),
     value.problemPath ?? null, value.providerAccountId ?? null, JSON.stringify(value.target ?? null), value.enabled,
     encrypt(secret), value.source === "generic" ? "manual" : "needs_connection"]);
@@ -290,7 +299,8 @@ export async function handleWebhook(request: Request, dependencies: { database?:
   if (request.method !== "POST") return Response.json({ error: "Method not allowed." }, { status: 405 });
   const database = dependencies.database ?? db;
   try {
-    const rows = await database.unsafe(`SELECT ${triggerColumns} FROM triggers t WHERE t.id=$1 AND t.enabled`, [uuid.parse(match[1])]) as TriggerRow[];
+    const rows = await database.unsafe(`SELECT ${triggerColumns} FROM triggers t JOIN companions c ON c.id=t.companion_id
+      WHERE t.id=$1 AND t.enabled AND c.owner_id=t.owner_id AND c.retired_at IS NULL AND c.archive_requested_at IS NULL`, [uuid.parse(match[1])]) as TriggerRow[];
     const trigger = rows[0] ? normalizeTrigger(rows[0]) : null;
     if (!trigger) throw new TriggerError("Webhook not found.", 404);
     const body = await readBody(request);
@@ -307,13 +317,17 @@ export async function handleWebhook(request: Request, dependencies: { database?:
     const providerDelivery = trigger.source === "github" ? request.headers.get("x-github-delivery") : request.headers.get("x-webhook-id");
     const deliveryKey = createHash("sha256").update(`${trigger.source}:${providerDelivery ?? payloadHash}`).digest("hex");
     const id = crypto.randomUUID();
-    const inserted = await database.unsafe(`INSERT INTO trigger_deliveries(id,trigger_id,delivery_key,payload_hash,problem_key,event_name,payload)
-      VALUES($1,$2,$3,$4,$5,$6,$7::jsonb) ON CONFLICT(trigger_id,delivery_key) DO NOTHING RETURNING id`,
-      [id, trigger.id, deliveryKey, payloadHash, problemKey(trigger, payload), request.headers.get("x-github-event") ?? request.headers.get("sentry-hook-resource"), JSON.stringify(payload)]);
-    if (!inserted[0]) {
-      const existing = await database.unsafe(`SELECT payload_hash AS "payloadHash" FROM trigger_deliveries WHERE trigger_id=$1 AND delivery_key=$2`, [trigger.id, deliveryKey]) as { payloadHash: string }[];
-      if (existing[0]?.payloadHash !== payloadHash) throw new TriggerError("Delivery identifier was reused with different content.", 409);
-    } else await database.unsafe(`UPDATE triggers SET last_delivery_at=now() WHERE id=$1`, [trigger.id]);
+    const inserted = await database.begin(async tx => {
+      if (!await lockActiveTrigger(tx as Database, trigger.id)) throw new TriggerError("Webhook not found.", 404);
+      const inserted = await tx.unsafe(`INSERT INTO trigger_deliveries(id,trigger_id,delivery_key,payload_hash,problem_key,event_name,payload)
+        VALUES($1,$2,$3,$4,$5,$6,$7::jsonb) ON CONFLICT(trigger_id,delivery_key) DO NOTHING RETURNING id`,
+        [id, trigger.id, deliveryKey, payloadHash, problemKey(trigger, payload), request.headers.get("x-github-event") ?? request.headers.get("sentry-hook-resource"), JSON.stringify(payload)]);
+      if (!inserted[0]) {
+        const existing = await tx.unsafe(`SELECT payload_hash AS "payloadHash" FROM trigger_deliveries WHERE trigger_id=$1 AND delivery_key=$2`, [trigger.id, deliveryKey]) as { payloadHash: string }[];
+        if (existing[0]?.payloadHash !== payloadHash) throw new TriggerError("Delivery identifier was reused with different content.", 409);
+      } else await tx.unsafe(`UPDATE triggers SET last_delivery_at=now() WHERE id=$1`, [trigger.id]);
+      return inserted;
+    });
     return Response.json({ ok: true, duplicate: !inserted[0] }, { status: 202 });
   } catch (error) {
     if (error instanceof TriggerError) return Response.json({ error: error.message }, { status: error.status });
@@ -370,14 +384,20 @@ async function flushPendingBatch(database: Database, enqueueBackground: EnqueueB
     next_enqueue_at=now()+interval '2 minutes',updated_at=now() WHERE b.id=(SELECT id FROM trigger_batches
       WHERE enqueue_status IN ('pending','error') AND enqueue_attempts<5 AND next_enqueue_at<=now()
       ORDER BY next_enqueue_at,id FOR UPDATE SKIP LOCKED LIMIT 1)
-    RETURNING b.id,b.enqueue_attempts AS attempt,b.companion_id AS "companionId",(SELECT prompt FROM triggers WHERE id=b.trigger_id) AS prompt,
-      (SELECT name FROM triggers WHERE id=b.trigger_id) AS name`) as { id: string; attempt:number; companionId: string; prompt: string; name: string }[];
+    RETURNING b.id,b.trigger_id AS "triggerId",b.enqueue_attempts AS attempt,b.companion_id AS "companionId",(SELECT prompt FROM triggers WHERE id=b.trigger_id) AS prompt,
+      (SELECT name FROM triggers WHERE id=b.trigger_id) AS name`) as { id: string; triggerId:string; attempt:number; companionId: string; prompt: string; name: string }[];
   const batch = batches[0]; if (!batch) return false;
   try {
     await database.begin(async tx=>{
+      const active=await lockActiveTrigger(tx as Database,batch.triggerId);
       const [claimed]=await tx.unsafe(`SELECT id FROM trigger_batches WHERE id=$1 AND enqueue_attempts=$2
         AND enqueue_status IN ('pending','error') FOR UPDATE`,[batch.id,batch.attempt]);
       if(!claimed)return; // A later claimant or successful admission already won.
+      if(!active){
+        await tx.unsafe(`UPDATE trigger_batches SET status='finished',enqueue_status='error',enqueue_attempts=5,updated_at=now() WHERE id=$1`,[batch.id]);
+        await tx.unsafe(`UPDATE trigger_deliveries SET status='ignored',decision='ignored',error_code='trigger_inactive',decided_at=now() WHERE batch_id=$1`,[batch.id]);
+        return;
+      }
       const runId = await enqueueBackground({ companionId: batch.companionId, clientMessageId: batch.id,
         content: `${batch.prompt}\n\nTriggered by ${batch.name}. Load persisted trigger batch ${batch.id} before acting.`, source: "trigger" },tx as Database);
       if (!runId) throw new Error("companion missing");
@@ -405,7 +425,8 @@ export async function processTriggerInbox(dependencies: { database?: Database; e
     return rows[0] ?? null;
   });
   if (!delivery) return 0;
-  const triggers = await database.unsafe(`SELECT ${triggerColumns} FROM triggers t WHERE t.id=$1`, [delivery.triggerId]) as TriggerRow[];
+  const triggers = await database.unsafe(`SELECT ${triggerColumns} FROM triggers t JOIN companions c ON c.id=t.companion_id
+    WHERE t.id=$1 AND c.owner_id=t.owner_id AND c.retired_at IS NULL AND c.archive_requested_at IS NULL`, [delivery.triggerId]) as TriggerRow[];
   const trigger = triggers[0] ? normalizeTrigger(triggers[0]) : null;
   delivery.payload = jsonColumn(delivery.payload);
   if (!trigger?.enabled) {
@@ -424,9 +445,13 @@ export async function processTriggerInbox(dependencies: { database?: Database; e
       return 1;
     }
     const batchId = await database.begin(async tx => {
-      await tx.unsafe(`SELECT id FROM triggers WHERE id=$1 FOR UPDATE`, [trigger.id]);
+      const active=await lockActiveTrigger(tx as Database,trigger.id);
       const [owned]=await tx.unsafe(`SELECT id FROM trigger_deliveries WHERE id=$1 AND attempts=$2 AND status='evaluating' FOR UPDATE`,[delivery.id,delivery.attempts]);
       if(!owned)return null; // A reclaimed evaluation alone may checkpoint its decision.
+      if(!active){
+        await tx.unsafe(`UPDATE trigger_deliveries SET status='ignored',decision='ignored',error_code='trigger_inactive',decided_at=now() WHERE id=$1`,[delivery.id]);
+        return null;
+      }
       const batches=await tx.unsafe(`SELECT id,run_id,status FROM trigger_batches WHERE trigger_id=$1 AND problem_key=$2
         AND status IN ('queued','running') ORDER BY id FOR UPDATE`,[trigger.id,delivery.problemKey]) as {id:string;run_id:string|null;status:string;actual?:string}[];
       // Lock the real run so executor admission cannot cross this decision. A filter
@@ -447,8 +472,8 @@ export async function processTriggerInbox(dependencies: { database?: Database; e
       await tx.unsafe(`UPDATE trigger_deliveries SET status='enqueued',decision='accepted',batch_id=$2,decided_at=now() WHERE id=$1`, [delivery.id, id]);
       return id;
     });
-    await flushPendingBatch(database, dependencies.enqueueBackground);
-    return batchId ? 1 : 0;
+    if(batchId)await flushPendingBatch(database, dependencies.enqueueBackground);
+    return 1;
   } catch (error) {
     const code = error instanceof TriggerError ? error.code : "filter_failed";
     await database.unsafe(`UPDATE trigger_deliveries SET status='error',decision='error',error_code=$2,decided_at=now() WHERE id=$1 AND attempts=$3 AND status='evaluating'`, [delivery.id, code, delivery.attempts]);

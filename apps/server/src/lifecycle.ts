@@ -128,7 +128,13 @@ export async function progressLifecycle(sql:any=db,hooks:LifecycleHooks={},machi
  await assertLeader();
  await refreshSpecialistProviderLimits(sql,provider);
  await renewSpecialistProviderLifetime(sql,provider,companionId,()=>assertLeader());
- await progressMachineAdmissions(sql,{eligible:async request=>{try{await sql.begin((tx:any)=>synchronizeSpecialistConnections(request.companion_id,tx));return {eligible:true};}catch{return {eligible:false,reason:'connection_or_permission_required'};}}});
+ await progressMachineAdmissions(sql,{eligible:async(request,connection=sql)=>{
+  try{
+   if(connection===sql)await sql.begin((tx:any)=>synchronizeSpecialistConnections(request.companion_id,tx));
+   else await synchronizeSpecialistConnections(request.companion_id,connection);
+   return {eligible:true};
+  }catch{return {eligible:false,reason:'connection_or_permission_required'};}
+ }});
  // External preparation runs concurrently; SQL transactions on the reserved connection
  // remain serialized and fenced so one failure cannot roll back another machine's identity.
  let checkpoints:Promise<unknown>=Promise.resolve();

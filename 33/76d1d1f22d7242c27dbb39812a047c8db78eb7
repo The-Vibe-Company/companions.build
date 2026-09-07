@@ -1,0 +1,39 @@
+packages/agent/test/daemon.test.ts
+  s_895cd30c8c0144::t_fa7ceb85350987 99,101-115
+  s_895cd30c8c0144::t_d320adf79a04fd 3,8,32-33,66-98
+  s_895cd30c8c0144::t_ca6c671aed1e01 100
+packages/agent/src/journal.ts
+  s_895cd30c8c0144::t_a388027277d1d8 43,95-99,111,119,126-127
+packages/agent/src/daemon.ts
+  s_895cd30c8c0144::t_d320adf79a04fd 16,110-112,162-164,167
+  s_895cd30c8c0144::t_a0c68e2631260d 6,17,20-21,23,51,65-66,69-71,160-161,165-166,168-174,180
+  s_895cd30c8c0144::t_1b15769d873ba7 83
+packages/agent/src/pi-executor.ts
+  s_895cd30c8c0144::t_1b15769d873ba7 182
+packages/agent/test/specialist-initialization.test.ts
+  s_895cd30c8c0144::t_3908a1d949e4b9 5,64,66-67
+  s_895cd30c8c0144::t_a7bbc8eb39e435 42-60
+  s_895cd30c8c0144::t_a388027277d1d8 1-4,6-41,61-63,65,68-81
+packages/agent/src/types.ts
+  s_895cd30c8c0144::t_a388027277d1d8 20,27-30
+packages/agent/src/initialization.ts
+  s_895cd30c8c0144::t_a388027277d1d8 1-5,7-8,10-22,24-38,40-75,77-107,109-130,133-135
+  s_895cd30c8c0144::t_1b15769d873ba7 6,9,23,39,76,108
+  s_895cd30c8c0144::t_ccf8deb4f289e5 131-132
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "3376d1d1f22d7242c27dbb39812a047c8db78eb7",
+  "prompts": {},
+  "sessions": {
+    "s_895cd30c8c0144": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a07d31-b106-7d00-912b-601ce8884ca0",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "StanGirard <stan@quivr.app>"
+    }
+  }
+}

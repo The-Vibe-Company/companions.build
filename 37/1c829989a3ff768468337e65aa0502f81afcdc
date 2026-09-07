@@ -1,0 +1,35 @@
+apps/server/src/store.ts
+  s_f946242dcf6ba9::t_47ff327005824e 91
+  s_f946242dcf6ba9::t_191494697ee9be 69,86,92
+apps/server/src/delegation.ts
+  s_f946242dcf6ba9::t_47ff327005824e 19,25-26
+apps/server/src/software-readiness.ts
+  s_f946242dcf6ba9::t_47ff327005824e 4-5,8,17-28,31,36,39-43,46-48,54-56
+apps/server/test/software.test.ts
+  s_f946242dcf6ba9::t_b4995f99c0a43e 397-399
+  s_f946242dcf6ba9::t_ea12a4f2748f6f 87-90,249,265
+  s_f946242dcf6ba9::t_ba05e4dda31300 105-112,363-396,400-406,410-419
+  s_f946242dcf6ba9::t_91d1288ed0e086 407-409
+apps/server/src/templates.ts
+  s_f946242dcf6ba9::t_47ff327005824e 9,12,20-21,33-34,41-42,49,55-56,77-78,82-83
+apps/server/src/software.ts
+  s_f946242dcf6ba9::t_47ff327005824e 139
+  s_f946242dcf6ba9::t_86f00e0e0c1904 155,157,159-167,191
+  s_f946242dcf6ba9::t_5271858b7812ef 170-173
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "371c829989a3ff768468337e65aa0502f81afcdc",
+  "prompts": {},
+  "sessions": {
+    "s_f946242dcf6ba9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a06de4-a8a5-7cd3-b713-2a8d451f7200",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "StanGirard <stan@quivr.app>"
+    }
+  }
+}

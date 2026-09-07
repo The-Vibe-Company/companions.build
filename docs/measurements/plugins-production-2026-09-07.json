@@ -1,0 +1,93 @@
+{
+  "observedAt": "2026-09-07T20:11:44.196037+00:00",
+  "scope": "hosted_configuration_and_public_discovery",
+  "services": {
+    "api": {
+      "staticOAuthConfigured": {
+        "COMPANION_MCP_GITHUB_CLIENT_ID": false,
+        "COMPANION_MCP_GITHUB_CLIENT_SECRET": false,
+        "COMPANION_MCP_SLACK_CLIENT_ID": false,
+        "COMPANION_MCP_SLACK_CLIENT_SECRET": false,
+        "COMPANION_MCP_GMAIL_CLIENT_ID": false,
+        "COMPANION_MCP_GMAIL_CLIENT_SECRET": false
+      },
+      "appUrl": "https://companions.build",
+      "authUrl": "https://companions.build",
+      "encryptionConfigured": true
+    },
+    "executor": {
+      "staticOAuthConfigured": {
+        "COMPANION_MCP_GITHUB_CLIENT_ID": false,
+        "COMPANION_MCP_GITHUB_CLIENT_SECRET": false,
+        "COMPANION_MCP_SLACK_CLIENT_ID": false,
+        "COMPANION_MCP_SLACK_CLIENT_SECRET": false,
+        "COMPANION_MCP_GMAIL_CLIENT_ID": false,
+        "COMPANION_MCP_GMAIL_CLIENT_SECRET": false
+      },
+      "appUrl": "https://companions.build",
+      "authUrl": "https://companions.build",
+      "encryptionConfigured": true
+    },
+    "worker": {
+      "staticOAuthConfigured": {
+        "COMPANION_MCP_GITHUB_CLIENT_ID": false,
+        "COMPANION_MCP_GITHUB_CLIENT_SECRET": false,
+        "COMPANION_MCP_SLACK_CLIENT_ID": false,
+        "COMPANION_MCP_SLACK_CLIENT_SECRET": false,
+        "COMPANION_MCP_GMAIL_CLIENT_ID": false,
+        "COMPANION_MCP_GMAIL_CLIENT_SECRET": false
+      },
+      "appUrl": "https://companions.build",
+      "authUrl": "https://companions.build",
+      "encryptionConfigured": true
+    }
+  },
+  "discovery": [
+    {
+      "id": "app.linear/linear",
+      "provider": "linear",
+      "resourceMetadata": "verified",
+      "authorizationMetadata": "verified"
+    },
+    {
+      "id": "io.github.github/github-mcp-server",
+      "provider": "github",
+      "resourceMetadata": "verified"
+    },
+    {
+      "id": "com.notion/mcp",
+      "provider": "notion",
+      "resourceMetadata": "verified",
+      "authorizationMetadata": "verified"
+    },
+    {
+      "id": "build.conductor/mcp",
+      "provider": "conductor",
+      "resourceMetadata": "verified",
+      "authorizationMetadata": "verified"
+    },
+    {
+      "id": "com.slack/mcp",
+      "provider": "slack",
+      "resourceMetadata": "not_applicable"
+    },
+    {
+      "id": "com.google.workspace/gmail",
+      "provider": "gmail",
+      "resourceMetadata": "verified",
+      "authorizationMetadata": "verified"
+    },
+    {
+      "id": "io.sentry/mcp",
+      "provider": "sentry",
+      "resourceMetadata": "verified",
+      "authorizationMetadata": "verified"
+    }
+  ],
+  "limitations": [
+    "GitHub, Slack and Gmail static OAuth credentials are absent on API and executor.",
+    "GitHub app inspected belongs to the old Companion product and has its old callback; it was not changed.",
+    "Provider account consent and authenticated runtime tool access were not exercised in this observation.",
+    "Browser automation blocked by another extension UI; provider console configuration is unfinished."
+  ]
+}

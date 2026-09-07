@@ -64,7 +64,8 @@ export async function runRoutineClockCanary(input:{state:State;api:Api;save:()=>
   await detail();const r=await ownedRoutine();
   if(r){state.routineId=r.id;await save();await disable();
    // Recheck after PATCH; never delete a definition edited during cleanup.
-   if(await ownedRoutine()){state.deleteRequestedAt??=stamp();await save();await api(path+'/routines/'+r.id,'DELETE');}}
+   const final=await ownedRoutine();if(final?.enabled)throw Error('ROUTINE_CLOCK_ROUTINE_REENABLED');
+   if(final){state.deleteRequestedAt??=stamp();await save();await api(path+'/routines/'+r.id,'DELETE');}}
   if(state.routineId){state.removedAt??=stamp();await save();}
  }
  try{

@@ -79,3 +79,12 @@ test('a lost cleanup response is reconciled as already removed without touching 
  await expect(runRoutineClockCanary(f.input)).rejects.toThrow('API_UNREACHABLE');expect(f.state.passedAt).toBeDefined();expect(f.state.removedAt).toBeUndefined();
  await runRoutineClockCanary(f.input);expect(f.effects.filter(e=>e.method==='DELETE')).toHaveLength(1);expect(f.state.removedAt).toBeDefined();
 });
+test('a user reenable between the disable check and final cleanup read prevents deletion',async()=>{
+ const f=fixture(),api=f.input.api;let cleanupReads=0;
+ f.input.api=async(path,method,body)=>{
+  if(f.state.passedAt&&path.endsWith('/routines')&&(method??'GET')==='GET'&&++cleanupReads===3)f.setRoutine({...f.existing(),enabled:true});
+  return api(path,method,body);
+ };
+ await expect(runRoutineClockCanary(f.input)).rejects.toThrow('ROUTINE_REENABLED');
+ expect(f.effects.filter(e=>e.method==='DELETE')).toHaveLength(0);expect(f.state.deleteRequestedAt).toBeUndefined();expect(f.state.removedAt).toBeUndefined();
+});

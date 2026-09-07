@@ -1,13 +1,14 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { expect, it, vi } from 'vitest';
-import { api, type CompanionDetail } from '@/api';
+import { beforeEach, expect, it, vi } from 'vitest';
+import { api, workspaceApi, type CompanionDetail } from '@/api';
 import { SettingsSheet } from './SettingsSheet';
 
 const detail: CompanionDetail = {
   companion: { id:'ada',name:'Ada',instructions:'Research customer questions.',provider:'box',status:'ready',error:null,createdAt:'2026-09-06T12:00:00Z',avatar:{shape:1,color:2,face:0} },
   messages:[],runs:[],activity:[],
 };
+beforeEach(() => vi.spyOn(workspaceApi, 'templates').mockResolvedValue({ templates: [] }));
 function setup() {
   const callbacks = { onClose:vi.fn(),onDeleted:vi.fn(),onSaved:vi.fn().mockResolvedValue(undefined),onActivity:vi.fn(),onDesktop:vi.fn() };
   render(<SettingsSheet detail={detail} initialPage="identity" models={[]} connections={<p>Applications</p>} {...callbacks}/>);
@@ -52,17 +53,17 @@ it('patches only edited fields and adopts external changes to untouched fields',
   const props = { embedded:true, models:[], connections:null, onDeleted:vi.fn(), onClose:vi.fn(), onSaved:vi.fn().mockResolvedValue(undefined), onActivity:vi.fn(), onDesktop:vi.fn() };
   const view = render(<SettingsSheet detail={detail} {...props}/>);
   view.rerender(<SettingsSheet detail={external} {...props}/>);
-  expect(screen.getByLabelText('Purpose')).toHaveValue('Updated by Ada.\n');
+  expect(screen.getByLabelText('Role')).toHaveValue('Updated by Ada.\n');
   await userEvent.clear(screen.getByLabelText('Name'));
   await userEvent.type(screen.getByLabelText('Name'), 'Mila');
   await userEvent.click(screen.getByRole('button', { name:'Save changes' }));
   await waitFor(() => expect(save).toHaveBeenCalledWith('ada', { name:'Mila' }));
-  expect(screen.getByLabelText('Purpose')).toHaveValue('Updated by Ada.\n');
+  expect(screen.getByLabelText('Role')).toHaveValue('Updated by Ada.\n');
 });
 
 it('guards the computer action when unsaved identity changes are kept on the settings overview', async () => {
   const {user,onDesktop}=setup();
-  await user.type(screen.getByLabelText('Purpose'),' More context.');
+  await user.type(screen.getByLabelText('Role'),' More context.');
   await user.click(screen.getByRole('button',{name:'Back to settings'}));
   expect(screen.getByText('Personality changes not saved')).toBeInTheDocument();
   await user.click(screen.getByRole('button',{name:'Open computer'}));
@@ -114,10 +115,17 @@ it('renders applications in one settings page and preserves drafts across delete
   expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   expect(screen.queryByRole('navigation',{name:'Settings sections'})).not.toBeInTheDocument();
   expect(screen.getByRole('region', {name:'Applications'})).toHaveTextContent('Choose connected apps');
-  expect(document.querySelector('.settings-appearance')).not.toHaveAttribute('open');
+  expect(document.querySelector('.settings-appearance')).not.toBeInTheDocument();
+  expect(screen.getByRole('heading',{name:'Share with a client'})).toBeInTheDocument();
+  expect(screen.getByPlaceholderText('client@company.com')).toBeInTheDocument();
+  expect(screen.getByRole('button',{name:'Deliver'})).toBeDisabled();
+  expect(screen.getByLabelText('Offer maintenance access (revocable, audited)')).toBeInTheDocument();
+  expect(screen.queryByText('Prepare delivery')).not.toBeInTheDocument();
+  expect(screen.getByText('Delete Ada')).toBeInTheDocument();
+  expect(screen.getByRole('button',{name:'Delete…'})).toBeInTheDocument();
   await user.clear(screen.getByLabelText('Name'));
   await user.type(screen.getByLabelText('Name'),'Mila draft');
-  await user.click(screen.getByRole('button',{name:'Delete companion'}));
+  await user.click(screen.getByRole('button',{name:'Delete…'}));
   expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   await user.click(screen.getByRole('button',{name:'Keep companion'}));
   expect(screen.getByLabelText('Name')).toHaveValue('Mila draft');
@@ -136,10 +144,10 @@ it('keeps appearance progressive and saves only the selected appearance values',
  const save=vi.spyOn(api,'updateCompanion').mockResolvedValue({companion:{...detail.companion,avatar}});
  render(<SettingsSheet embedded detail={detail} models={[]} connections={null} onDeleted={vi.fn()} onClose={vi.fn()} onSaved={vi.fn().mockResolvedValue(undefined)} onActivity={vi.fn()} onDesktop={vi.fn()}/>);
  const user=userEvent.setup();
- expect(screen.getByRole('button',{name:'Shape 8'})).not.toBeVisible();
+ expect(screen.queryByRole('button',{name:'Shape 8'})).not.toBeInTheDocument();
  await user.click(screen.getByRole('button',{name:'Change appearance'}));
- expect(document.querySelector('.settings-appearance')).toHaveAttribute('open');
- expect(document.querySelector('.settings-appearance summary')).toHaveFocus();
+ expect(document.querySelector('.settings-appearance')).toBeInTheDocument();
+ expect(screen.queryByText('Appearance')).not.toBeInTheDocument();
  await user.click(screen.getByRole('button',{name:'Shape 8'}));
  await user.click(screen.getByRole('button',{name:'Color 11'}));
  await user.click(screen.getByRole('button',{name:'Face 5'}));
@@ -157,7 +165,7 @@ it('saves the visible model preference with the identity form and disables editi
  await user.click(screen.getByRole('button',{name:'Save changes'}));
  expect(save).toHaveBeenCalledWith('ada',{modelId:'chosen'});
  expect(screen.getByLabelText('Name')).toBeDisabled();
- expect(screen.getByLabelText('Purpose')).toBeDisabled();
+ expect(screen.getByLabelText('Role')).toBeDisabled();
  expect(screen.getByLabelText('Model')).toBeDisabled();
  expect(screen.getByRole('button',{name:'Change appearance'})).toBeDisabled();
  finish({companion:{...detail.companion,modelId:'chosen'}});

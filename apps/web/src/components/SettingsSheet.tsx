@@ -32,8 +32,7 @@ type Props = {
 export type SettingsSheetHandle = { requestLeave: (action: () => void) => boolean };
 
 export const SettingsSheet = forwardRef<SettingsSheetHandle, Props>(function SettingsSheet({ embedded = false, active = true, activity, computer, detail, models, initialPage = 'home', onPageChange, onClose, onDeleted, onSaved, onActivity, onDesktop, connections }, ref) {
-  const [deliveryExpanded, setDeliveryExpanded] = useState(false);
-  const appearance = useRef<HTMLDetailsElement>(null);
+  const [appearanceOpen, setAppearanceOpen] = useState(false);
   const [page, setPage] = useState<Page>(embedded && initialPage === 'home' ? 'identity' : initialPage);
   const [name, setName] = useState(detail.companion.name);
   const [instructions, setInstructions] = useState(detail.companion.instructions);
@@ -138,13 +137,13 @@ export const SettingsSheet = forwardRef<SettingsSheetHandle, Props>(function Set
   }
 
   const surface = <div className="settings-surface">
-      <header className="sheet-header">
+      {(!embedded || page !== 'identity' || pendingAction) && <header className="sheet-header">
         <div className="settings-heading">
           {(embedded ? page === 'delete' : page !== 'home') && !pendingAction && <Button variant="ghost" size="icon" aria-label="Back to settings" disabled={saving || deleting} onClick={() => goToPage(embedded ? 'identity' : 'home')}><ArrowLeft /></Button>}
           <h2 ref={heading} tabIndex={-1} id="settings-title">{pendingAction ? 'Keep your changes?' : page === 'home' ? `Make ${detail.companion.name} yours` : embedded && page === 'identity' ? 'Settings' : titles[page]}</h2>
         </div>
         {!embedded && !pendingAction && <Button variant="ghost" size="icon" disabled={saving || deleting} onClick={() => leave(onClose)} aria-label="Close settings"><X /></Button>}
-      </header>
+      </header>}
       <div className="sheet-content maison-settings-content">
         {pendingAction ? <div className="settings-unsaved">
           <CompanionAvatar name={name || detail.companion.name} avatar={avatar} size={64} />
@@ -179,26 +178,28 @@ export const SettingsSheet = forwardRef<SettingsSheetHandle, Props>(function Set
             <form id="companion-identity-form" className="identity-form" onSubmit={save} onChange={() => setSaved(false)}>
               <fieldset className="identity-fields" disabled={saving}>
                 <div className="settings-identity-row">
-                  <button type="button" className="settings-avatar-button" aria-label="Change appearance" onClick={() => { if (appearance.current) { appearance.current.open = true; appearance.current.querySelector('summary')?.focus(); } }}><CompanionAvatar name={name || detail.companion.name} avatar={avatar} size={78}/><span aria-hidden="true"><Pencil/></span></button>
-                  <div className="field"><label htmlFor="identity-name">Name</label><input id="identity-name" value={name} onChange={event => setName(event.target.value)} maxLength={80}/></div>
-                  <div className="field"><label htmlFor="identity-mission">Purpose</label><Textarea id="identity-mission" value={instructions} onChange={event => setInstructions(event.target.value)} rows={2} maxLength={20000}/></div>
-                  <Button type="submit" className="settings-save" aria-label="Save changes" disabled={saving || !name.trim() || !dirty}>{saving && <LoaderCircle className="spin"/>}Save</Button>
+                  <button type="button" className="settings-avatar-button" aria-label="Change appearance" aria-expanded={appearanceOpen} onClick={() => setAppearanceOpen(open => !open)}><CompanionAvatar name={name || detail.companion.name} avatar={avatar} size={78}/><span aria-hidden="true"><Pencil/></span></button>
+                  <div className="settings-identity-controls">
+                    <div className="field"><label htmlFor="identity-name">Name</label><input id="identity-name" value={name} onChange={event => setName(event.target.value)} maxLength={80}/></div>
+                    <div className="field"><label htmlFor="identity-mission">Role</label><Textarea id="identity-mission" value={instructions} onChange={event => setInstructions(event.target.value)} rows={2} maxLength={20000}/></div>
+                    <Button type="submit" className="settings-save" aria-label="Save changes" disabled={saving || !name.trim() || !dirty}>{saving && <LoaderCircle className="spin"/>}Save</Button>
+                  </div>
                 </div>
-                <details ref={appearance} className="settings-appearance"><summary><span>Appearance</span><ChevronRight/></summary><AvatarPicker value={avatar} onChange={value => { setAvatar(value); setSaved(false); }}/></details>
+                {appearanceOpen && <div className="settings-appearance" aria-label="Appearance"><AvatarPicker value={avatar} onChange={value => { setAvatar(value); setSaved(false); }}/></div>}
               </fieldset>
               {error && <p className="field-error" role="alert">{error}</p>}
               <p className="settings-save-status" role="status">{saving ? 'Saving…' : saved ? 'Changes saved' : dirty ? 'Unsaved changes' : ''}</p>
             </form>
-            {active && connections && <section className="settings-applications" aria-label="Applications"><h3>Apps & accounts</h3>{connections}</section>}
+            {active && connections && <section className="settings-applications" aria-label="Applications"><h3>Apps &amp; accounts {name || detail.companion.name} can use</h3>{connections}</section>}
             <div className="settings-columns">
               <section className="settings-computer" aria-labelledby="settings-computer-title">
                 <h3 id="settings-computer-title">Computer & model</h3>
-                <div className="settings-computer-state"><Computer/><span>{detail.companion.status === 'ready' ? 'Ready' : detail.companion.status === 'archived' ? 'Sleeping' : detail.companion.status === 'preparing' ? 'Preparing…' : detail.companion.status === 'error' ? 'Unavailable' : 'Not started'}</span>{detail.companion.provider === 'box' && <button type="button" onClick={() => leave(onDesktop)}>Open computer<ChevronRight/></button>}</div>
+                <div className="settings-computer-state"><div><strong>Own computer</strong><span>{detail.companion.provider === 'box' ? 'Box' : 'Local'} · {detail.companion.status === 'ready' ? 'ready' : detail.companion.status === 'archived' ? 'asleep' : detail.companion.status === 'preparing' ? 'preparing' : detail.companion.status === 'error' ? 'unavailable' : 'not started'}</span></div>{detail.companion.provider === 'box' && <Button type="button" variant="outline" size="sm" onClick={() => leave(onDesktop)}>Open desktop</Button>}</div>
                 {!!models?.length && <div className="field"><label htmlFor="identity-model">Model</label><select id="identity-model" form="companion-identity-form" disabled={saving} value={modelId} onChange={event => { setModelId(event.target.value); setSaved(false); }}><option value="">Default model</option>{models.map(model => <option value={model.id} key={model.id}>{model.name}</option>)}</select></div>}
               </section>
-              <section className="settings-client" aria-labelledby="settings-client-title"><h3 id="settings-client-title">Client delivery</h3><p>Send an independent copy to a client.</p><details className="settings-delivery" onToggle={event => setDeliveryExpanded(event.currentTarget.open)}><summary><span>Prepare delivery</span><ChevronRight/></summary>{deliveryExpanded && <DeliverySettings companionId={detail.companion.id}/>}</details></section>
+              <section className="settings-client" aria-labelledby="settings-client-title"><h3 id="settings-client-title">Share with a client</h3><p>Delivers a copy of {detail.companion.name} with its skills and specialists. Your conversation, files and accounts are never included.</p><DeliverySettings companionId={detail.companion.id} compact /></section>
             </div>
-            <button type="button" className="settings-delete-entry" disabled={saving || deleting} onClick={() => { setDeleteError(''); goToPage('delete'); }}><Trash2/>Delete companion</button>
+            <div className="settings-delete-row"><div><strong>Delete {detail.companion.name}</strong><span>Removes the conversation, files, automations and computer. Specialists are shared and stay.</span></div><Button type="button" variant="outline" disabled={saving || deleting} onClick={() => { setDeleteError(''); goToPage('delete'); }}>Delete…</Button></div>
           </>}
           {page === 'activity' && activity}
           {active && page === 'computer' && computer}

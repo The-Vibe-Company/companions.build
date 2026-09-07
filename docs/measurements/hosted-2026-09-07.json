@@ -1,6 +1,6 @@
 {
   "date": "2026-09-07",
-  "commit": "f45b7a44249f9cf541cefc9d0d0b95fe8c7de020",
+  "commit": "8ca9952",
   "provider": "Railway",
   "services": {
     "api": "running",
@@ -17,12 +17,16 @@
     "unauthenticatedEvents": 401,
     "privateStoragePutGetDelete": true,
     "mobileSignInWidth": 390,
-    "mobileSignInBrowserErrors": 0
+    "mobileSignInBrowserErrors": 0,
+    "rollingReplacementLeaderAcquired": true,
+    "rollingReplacementStandbyObserved": true
   },
   "limits": [
     "No real email sent: delivery/auth consent validation remains pending.",
     "No Stripe prices configured: production activation remains unavailable.",
     "No hosted live agent task exercised yet.",
-    "No backup restore or sustained load acceptance yet."
-  ]
+    "Local PostgreSQL 17 backup/restore is proven; hosted PostgreSQL 18 restore and sustained load remain pending."
+  ],
+  "boxTemplate": "companions-agent-v10-20260907",
+  "initialBrowserAcceptanceCommit": "f45b7a4"
 }

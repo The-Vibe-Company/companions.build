@@ -73,6 +73,13 @@ WebAssembly runtime, so API, executor, and worker services do not need a Docker 
 `LOCAL_RUNTIME=0` is the image default; a hosted executor uses Box rather than attempting to launch
 local agent containers.
 
+Put the selected model-provider key on the API service only. In production, model requests use
+`${APP_URL}/api/model-gateway` (or an explicit HTTPS `MODEL_GATEWAY_URL` ending in
+`/api/model-gateway`). The executor gives each admitted run a signed, expiring credential; Box
+receives no platform model key. The gateway checks the current run, owner and selected model before
+forwarding each request. Provider-reported usage is recorded independently of the agent transcript.
+Development without `MODEL_GATEWAY_URL` retains the direct-provider path for owned local canaries.
+
 Run the isolated image acceptance (it creates and removes its own PostgreSQL container and network):
 
 ```sh

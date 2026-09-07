@@ -1,0 +1,27 @@
+apps/web/src/App.tsx
+  s_f946242dcf6ba9::t_1849827484e8da 174,180,217,245,252
+apps/web/src/api.ts
+  s_f946242dcf6ba9::t_1426ac494f2a07 218-219,222-224,263
+apps/web/src/components/ProductPanels.tsx
+  s_f946242dcf6ba9::t_1426ac494f2a07 3,9-19,38,96-97,104,115,124
+  s_f946242dcf6ba9::t_f6b89e3712339f 109
+apps/web/src/components/ProductPanels.test.tsx
+  s_f946242dcf6ba9::t_f6b89e3712339f 18,38-42,51-52,74,79,133,149,152,160
+  s_f946242dcf6ba9::t_2259db10fbfc32 56-67,201-213
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "79b03c06b90ff773c3ba833ad29d4fa4cd83063c",
+  "prompts": {},
+  "sessions": {
+    "s_f946242dcf6ba9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a06de4-a8a5-7cd3-b713-2a8d451f7200",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "StanGirard <stan@quivr.app>"
+    }
+  }
+}

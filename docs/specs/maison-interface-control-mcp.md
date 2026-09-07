@@ -1,5 +1,8 @@
 # Feature Spec: Maison — interface et MCP de contrôle
 
+> Pour la prochaine passe UI et la création d’équipe, voir [Maison V2](maison-product-design-v2.md).
+> Les constats ci-dessous décrivent la planification antérieure à la première passe livrée.
+
 > Mise à jour du périmètre, 7 septembre 2026 : l'utilisateur conserve le MCP
 > `companion-control` existant et demande de poursuivre uniquement la refonte UI/UX.
 > Thème **clair exclusivement**, sans mode sombre ni préférence système. Les propositions

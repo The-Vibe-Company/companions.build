@@ -1,0 +1,43 @@
+{
+  "date": "2026-09-07",
+  "status": "passed",
+  "applicationSourceCommit": "7834b7e",
+  "template": "companions-agent-v12-20260907",
+  "provider": "zai",
+  "model": "glm-5.3-flash",
+  "scope": "Real Pi/GLM on an existing independently verified V12 Box, through the local authenticated API and HTTPS model gateway. A disabled routine was invoked once through its manual test endpoint while ordinary chat ran concurrently.",
+  "chatFinishedDuringBackground": true,
+  "independentBackgroundFileVerified": true,
+  "routineDisabledThroughout": true,
+  "routineRemoved": true,
+  "measurements": {
+    "chatSeconds": 4.836052,
+    "backgroundSeconds": 43.835945,
+    "chatFinishedSecondsBeforeBackground": 29.617,
+    "usage": [
+      {
+        "lane": "background",
+        "calls": 2,
+        "tokens": 7911
+      },
+      {
+        "lane": "main",
+        "calls": 1,
+        "tokens": 7735
+      }
+    ],
+    "ledgerEntries": 3,
+    "durationBasis": "Persisted run created_at to finished_at, including preparation."
+  },
+  "limits": [
+    "This checks independent main/background execution and model-request accounting. It does not test a clock-fired schedule or hosted authenticated activation.",
+    "Single real model sample; it is not a sustained concurrency or latency guarantee."
+  ],
+  "publicCanary": {
+    "script": "scripts/live-routine-chat-canary.ts",
+    "recoveryValidation": "Passed against the completed journal without creating another routine or model run. Re-read owner-scoped API results and the independent Box file.",
+    "durationBasis": "The public canary reports preparedAt to finishedAt when present; these durations exclude preparation.",
+    "chatExecutionSeconds": 4.274,
+    "backgroundExecutionSeconds": 43.536
+  }
+}

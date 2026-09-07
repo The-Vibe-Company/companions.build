@@ -44,6 +44,11 @@ hosted acceptance. See `validation-v0.md` for dated evidence.
   10.5 seconds; wake preparation took 16.4 seconds. Initial viewer provisioning exceeded the
   60-second canary deadline and later recovered without manual repair. Real browser control then
   opened the system settings with mouse/keyboard. See `measurements/box-gateway-v12-2026-09-07.json`.
+- Real V12 main/background execution through the model gateway passes: a manual invocation of a
+  disabled routine ran for 43.8 seconds while chat completed in 4.8 seconds, 29.6 seconds before the
+  background task. Its independent file and all 3 provider ledger entries were verified; the routine
+  was removed. This is not a clock-fired or sustained-load proof. See
+  `measurements/routine-chat-gateway-v12-2026-09-07.json`.
 - Chat now uses authenticated SSE invalidation from committed PostgreSQL changes, with durable
   snapshot recovery on reconnect. Full verification and a separate real browser test pass; the
   root browser also observed committed changes after reconnect without polling.
@@ -74,9 +79,12 @@ hosted acceptance. See `validation-v0.md` for dated evidence.
   A local PostgreSQL 17 dump/kill/restore proof now preserves the authenticated session, durable
   queued turn and retry identity through the real API. The five-service Railway deployment passes
   health, unauthenticated isolation and private MinIO put/get/delete checks, and its replacement
-  executor acquired leadership after the previous deployment released it. A PostgreSQL 18 restore
-  on the hosted deployment, hosted agent activation and sustained load remain unproven. Personal
-  consent and missing settings must not be represented as working connections.
+  executor acquired leadership after the previous deployment released it. A read-only dump of hosted
+  PostgreSQL 18.6 also restores into an isolated local 18.6 container with matching archive SHA,
+  schema, constraints and selected V12 base. That snapshot contains no tenant/job rows, so populated
+  PostgreSQL 18 recovery remains unproven. See `measurements/hosted-postgres18-restore-2026-09-07.json`.
+  Hosted agent activation and sustained load remain unproven. Personal consent and missing settings
+  must not be represented as working connections.
 
 The desktop isolation protects normal product paths and blocks direct headless access to the shared
 GUI. A general-purpose GUI can itself open a terminal and launch independent automation. This is not

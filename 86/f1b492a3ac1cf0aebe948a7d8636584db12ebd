@@ -1,0 +1,31 @@
+.env.example
+  s_f0346c90274a7b::t_cf0c03a6de0feb 43-44
+  s_f0346c90274a7b::t_87df985dc36318 45-55
+scripts/verify.py
+  s_f0346c90274a7b::t_0e1237d892a448 95
+docs/measurements/plugins-production-2026-09-07.json
+  s_f0346c90274a7b::t_298630b71c04b8 1-93
+docs/plugins-production.md
+  s_f0346c90274a7b::t_87df985dc36318 1-9,11-22,28-39,42-53
+  s_f0346c90274a7b::t_cf0c03a6de0feb 10,23-27,40-41
+package.json
+  s_f0346c90274a7b::t_3c1148e62304d4 14
+README.md
+  s_f0346c90274a7b::t_87df985dc36318 71-72
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "86f1b492a3ac1cf0aebe948a7d8636584db12ebd",
+  "prompts": {},
+  "sessions": {
+    "s_f0346c90274a7b": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a07d79-c546-7d50-9722-768df9e521b4",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "StanGirard <stan@quivr.app>"
+    }
+  }
+}

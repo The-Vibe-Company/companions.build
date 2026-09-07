@@ -1,0 +1,44 @@
+apps/server/src/specialist-runtime.ts
+  s_895cd30c8c0144::t_3b45968cc2faed 7,155-157
+  s_895cd30c8c0144::t_3ef8b465d7ea14 10-12,53,59,95,98
+  s_895cd30c8c0144::t_9b50d52822cfbe 81-94
+apps/server/src/specialist-box.ts
+  s_895cd30c8c0144::t_3ef8b465d7ea14 61,63,67,70,72,76,78
+apps/server/src/admission.ts
+  s_895cd30c8c0144::t_9b50d52822cfbe 234,236,250,255,272
+apps/server/src/machines.ts
+  s_895cd30c8c0144::t_3ef8b465d7ea14 120-123
+packages/agent/src/pi-executor.ts
+  s_895cd30c8c0144::t_ca34c43ab0a446 183
+scripts/verify.py
+  s_895cd30c8c0144::t_3b45968cc2faed 150
+  s_895cd30c8c0144::t_41cd688fd2cd72 21-22,41-43,60
+apps/server/test/specialist-drafts.test.ts
+  s_895cd30c8c0144::t_95aa277e0cbe29 91-103
+  s_895cd30c8c0144::t_e90eee4f626ce7 104-123
+apps/server/src/control.ts
+  s_895cd30c8c0144::t_56267f5e1a0d92 66,70
+apps/server/src/lifecycle.ts
+  s_895cd30c8c0144::t_4b783c61c46676 173-174
+  s_895cd30c8c0144::t_76605b874347d7 177
+apps/web/src/components/SpecialistLibrary.tsx
+  s_895cd30c8c0144::t_ca34c43ab0a446 190
+apps/server/src/executor.ts
+  s_895cd30c8c0144::t_9b50d52822cfbe 355-356
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "cf1e91a9c45845ee007dc8e967466d16726ce945",
+  "prompts": {},
+  "sessions": {
+    "s_895cd30c8c0144": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a07d31-b106-7d00-912b-601ce8884ca0",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "StanGirard <stan@quivr.app>"
+    }
+  }
+}

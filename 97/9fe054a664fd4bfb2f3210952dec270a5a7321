@@ -1,0 +1,41 @@
+Dockerfile
+  s_f946242dcf6ba9::t_d7f806bbf938e3 2-29,37-41
+  s_f946242dcf6ba9::t_273080ccde8211 1
+  s_f946242dcf6ba9::t_5184b9d55c4428 30-36
+.dockerignore
+  s_f946242dcf6ba9::t_d7f806bbf938e3 1-11
+scripts/container-entrypoint.sh
+  s_f946242dcf6ba9::t_d7f806bbf938e3 1-12
+apps/server/src/static-web.ts
+  s_f946242dcf6ba9::t_5184b9d55c4428 16
+  s_f946242dcf6ba9::t_d7f806bbf938e3 1-15,17-68
+README.md
+  s_f946242dcf6ba9::t_5184b9d55c4428 53-81
+scripts/test-production-container.ts
+  s_f946242dcf6ba9::t_b3b75daa2a713f 68
+  s_f946242dcf6ba9::t_273080ccde8211 71-72
+  s_f946242dcf6ba9::t_5184b9d55c4428 1-67,69-70,73-78
+apps/server/test/static-web.test.ts
+  s_f946242dcf6ba9::t_d7f806bbf938e3 1-46
+apps/server/src/api.ts
+  s_f946242dcf6ba9::t_d7f806bbf938e3 21,148-149
+  s_f946242dcf6ba9::t_5184b9d55c4428 73-74
+apps/server/src/config.ts
+  s_f946242dcf6ba9::t_d7f806bbf938e3 41-43
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "979fe054a664fd4bfb2f3210952dec270a5a7321",
+  "prompts": {},
+  "sessions": {
+    "s_f946242dcf6ba9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a06de4-a8a5-7cd3-b713-2a8d451f7200",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "StanGirard <stan@quivr.app>"
+    }
+  }
+}

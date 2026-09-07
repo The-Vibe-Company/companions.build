@@ -277,6 +277,7 @@ describe("first Companion flow", () => {
 
     await user.click(specialistLink);
     expect(await screen.findByRole("textbox", { name: "Message Researcher" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Researcher" }).parentElement).toHaveTextContent("Sleeping");
     expect(window.location.pathname).toBe("/companions/specialist");
   });
 

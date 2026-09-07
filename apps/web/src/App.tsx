@@ -567,6 +567,7 @@ function CompanionView({ detail, models, onRefresh, onUnauthorized, onMenu, onOp
   const [desktopOpen, setDesktopOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [activityOpen, setActivityOpen] = useState(false);
+  const displayedStatus = detail.companion.retiredAt ? "archived" : detail.companion.status;
 
   return (
     <main className="workspace" id="main-content">
@@ -574,7 +575,7 @@ function CompanionView({ detail, models, onRefresh, onUnauthorized, onMenu, onOp
         <Button className="mobile-menu" variant="ghost" size="icon" onClick={onMenu} aria-label="Open navigation"><Menu /></Button>
         <div className="header-identity">
           <CompanionAvatar name={detail.companion.name} avatar={detail.companion.avatar} size={38} />
-          <div><h1>{detail.companion.name}</h1><span><StatusDot status={detail.companion.status} />{statusLabel(detail.companion.status)}</span></div>
+          <div><h1>{detail.companion.name}</h1><span><StatusDot status={displayedStatus} />{statusLabel(displayedStatus)}</span></div>
         </div>
         <div className="header-actions">
           {detail.companion.provider === "box" && (

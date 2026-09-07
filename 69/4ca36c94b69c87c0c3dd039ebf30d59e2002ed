@@ -1,0 +1,40 @@
+docs/measurements/portable-apt-canary-2026-09-07.json
+  s_f946242dcf6ba9::t_0bc5cf87f97982 32-33
+packages/box/software-build.test.ts
+  s_f946242dcf6ba9::t_d370fcbdc2d1b1 130-145
+  s_f946242dcf6ba9::t_c9911cd2077473 2,170-192
+  s_f946242dcf6ba9::t_c8b7164e2f6f1d 68
+  s_f946242dcf6ba9::t_0bc5cf87f97982 116-129
+  s_f946242dcf6ba9::t_90c26e567d6bd2 1,3-67,69-115,146-169,193-194
+packages/box/software-build.ts
+  s_f946242dcf6ba9::t_efee2975034d01 295-296,298
+  s_f946242dcf6ba9::t_0a1438227fde72 197,201,264,301
+  s_f946242dcf6ba9::t_5fd01dd6aa9461 63,306
+  s_f946242dcf6ba9::t_47f5a2dbce69db 1,3-62,64-196,198-200,202-204,212-232,235-236,239-263,265-294,297,299-300,302-305,307-312,314-322
+  s_f946242dcf6ba9::t_0bc5cf87f97982 2,205-211,233-234,237-238,313
+scripts/verify.py
+  s_f946242dcf6ba9::t_90c26e567d6bd2 79
+docs/adr/portable-software.md
+  s_f946242dcf6ba9::t_c9911cd2077473 3-4,141-163
+  s_f946242dcf6ba9::t_bef0604e37ce43 138-140
+scripts/test-portable-apt-snapshot.ts
+  s_f946242dcf6ba9::t_c9911cd2077473 1,3-6,18-22,34,36-37,39-43,48-49
+packages/box/software-install.ts
+  s_f946242dcf6ba9::t_409e10d0ce3001 134-148,167
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "694ca36c94b69c87c0c3dd039ebf30d59e2002ed",
+  "prompts": {},
+  "sessions": {
+    "s_f946242dcf6ba9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a06de4-a8a5-7cd3-b713-2a8d451f7200",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "StanGirard <stan@quivr.app>"
+    }
+  }
+}

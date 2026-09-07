@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { RunJournal } from "./journal";
 import type { RunExecutor, RunInput, RunLane } from "./types";
 import { parseModelGatewayCredential } from "./model-gateway";
+import { InitializationRunner } from "./initialization";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -12,10 +13,14 @@ export class AgentDaemon {
   private readonly cancelling = new Set<string>();
   private readonly parkedRuns = new Set<string>();
   private resumingBackground = false;
+  private readonly initializing = new Map<string, { controller: AbortController; done: Promise<unknown> }>();
+  private readonly initialization: InitializationRunner;
 
   constructor(stateDir: string, private readonly token: string, private readonly executor: RunExecutor,
-    private readonly handleRequest?: (request: Request) => Promise<Response | null>,private readonly desktopBoundaryVersion=0) {
+    private readonly handleRequest?: (request: Request) => Promise<Response | null>,private readonly desktopBoundaryVersion=0,
+    initialization?: InitializationRunner) {
     this.journal = new RunJournal(join(stateDir, "runs.sqlite"));
+    this.initialization = initialization ?? new InitializationRunner(stateDir);
     this.journal.interruptUnfinished();
   }
 
@@ -43,7 +48,7 @@ export class AgentDaemon {
     return json({ error: "METHOD_NOT_ALLOWED" }, 405);
   }
 
-  close(): void { this.journal.close(); }
+  close(): void { this.initialization.close(); this.journal.close(); }
 
   private async put(id: string, request: Request): Promise<Response> {
     let input: RunInput;
@@ -57,9 +62,13 @@ export class AgentDaemon {
       }
       if (value.lane !== undefined && value.lane !== "main" && value.lane !== "background") return json({ error: "INVALID_REQUEST" }, 400);
       if(value.modelId!==undefined&&(typeof value.modelId!=="string"||!value.modelId.length||value.modelId.length>200))return json({error:"INVALID_REQUEST"},400);
+      if(value.initScript!==undefined&&(typeof value.initScript!=="string"||!value.initScript.length||value.initScript.length>100_000))return json({error:"INVALID_REQUEST"},400);
+      if(value.initTimeoutMs!==undefined&&(!Number.isInteger(value.initTimeoutMs)||value.initTimeoutMs<1_000||value.initTimeoutMs>3_600_000||value.initScript===undefined))return json({error:"INVALID_REQUEST"},400);
       const modelGateway=parseModelGatewayCredential(value.modelGateway),gatewayRequired=!!process.env.MODEL_GATEWAY_URL?.trim();
       if((gatewayRequired&&!modelGateway)||(!gatewayRequired&&value.modelGateway!==undefined))return json({error:"INVALID_REQUEST"},400);
-      input = { ...(value.modelId?{modelId:value.modelId}:{}),...(modelGateway?{modelGateway}:{}),content: value.content, instructions: value.instructions, lane: value.lane ?? "main" };
+      input = { ...(value.modelId?{modelId:value.modelId}:{}),...(modelGateway?{modelGateway}:{}),
+        ...(value.initScript?{initScript:value.initScript,initTimeoutMs:value.initTimeoutMs??600_000}:{}),
+        content: value.content, instructions: value.instructions, lane: value.lane ?? "main" };
     } catch { return json({ error: "INVALID_REQUEST" }, 400); }
 
     const existing = this.journal.get(id);
@@ -71,7 +80,7 @@ export class AgentDaemon {
     if (lane === "background" && this.resumingBackground) return json({ error: "BUSY" }, 409);
     const activeRoot = lane === "main" && this.executor.acceptingRoot
       ? this.executor.acceptingRoot(lane) : this.activeRuns[lane];
-    if (activeRoot && (lane === "background" || !this.executor.steer || this.cancelling.has(activeRoot))) {
+    if (activeRoot && (lane === "background" || !this.executor.steer || this.cancelling.has(activeRoot) || this.initializing.has(activeRoot))) {
       return json({ error: "BUSY", activeRunId: activeRoot }, 409);
     }
     const accepted = this.journal.accept(id, input, activeRoot ?? id);
@@ -98,6 +107,9 @@ export class AgentDaemon {
     const rootId = run.responseRootId;
     this.cancelling.add(rootId);
     try {
+      const initialization = this.initializing.get(rootId);
+      initialization?.controller.abort();
+      await initialization?.done;
       await this.executor.cancel(rootId);
       this.journal.settleGroup(rootId, "cancelled", null, null);
       return json(this.journal.get(id) ?? run);
@@ -145,11 +157,27 @@ export class AgentDaemon {
       return;
     }
     try {
+      if (input.initScript) {
+        const controller = new AbortController();
+        const done = this.initialization.run(input.initScript, input.initTimeoutMs ?? 600_000, controller.signal);
+        this.initializing.set(id, { controller, done });
+        const initialized = await done;
+        this.initializing.delete(id);
+        if (initialized.kind === "blocked") {
+          if (!this.cancelling.has(id)) this.journal.settleGroup(id, "interrupted", null, initialized.error);
+          return;
+        }
+        if (initialized.kind === "warning") {
+          this.journal.initializationWarning(id, initialized.warning);
+          input = { ...input, instructions: `${input.instructions}\n\nRuntime warning: ${initialized.warning}`.trim() };
+        }
+      }
       const result = await this.executor.execute(id, input, progress=>this.journal.progress(id,progress));
       this.journal.settleGroup(id, this.cancelling.has(id) ? "cancelled" : "succeeded", result.text, null, result.publishToChat);
     } catch {
       this.journal.settleGroup(id, this.cancelling.has(id) ? "cancelled" : "failed", null, this.cancelling.has(id) ? null : "PI_RUN_FAILED");
     } finally {
+      this.initializing.delete(id);
       if (this.activeRuns[lane] === id) this.activeRuns[lane] = null;
       this.parkedRuns.delete(id);
     }

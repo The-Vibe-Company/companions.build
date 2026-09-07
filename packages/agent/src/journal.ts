@@ -40,6 +40,7 @@ export class RunJournal {
     if (!columns.has("response_root_id")) this.db.exec("ALTER TABLE runs ADD COLUMN response_root_id TEXT");
     if (!columns.has("publish_to_chat")) this.db.exec("ALTER TABLE runs ADD COLUMN publish_to_chat INTEGER NOT NULL DEFAULT 0");
     if (!columns.has("parked")) this.db.exec("ALTER TABLE runs ADD COLUMN parked INTEGER NOT NULL DEFAULT 0");
+    if (!columns.has("init_warning")) this.db.exec("ALTER TABLE runs ADD COLUMN init_warning TEXT");
     this.db.exec("UPDATE runs SET response_root_id=id WHERE response_root_id IS NULL");
   }
 
@@ -91,6 +92,11 @@ export class RunJournal {
       .run(value.previewText,JSON.stringify(value.usage),new Date().toISOString(),rootId);
   }
 
+  initializationWarning(id: string, warning: string): void {
+    this.db.query("UPDATE runs SET init_warning=?,updated_at=? WHERE id=? AND status='running'")
+      .run(warning, new Date().toISOString(), id);
+  }
+
   parkGroup(rootId: string, parked: boolean): void {
     this.db.query("UPDATE runs SET parked=?,updated_at=? WHERE response_root_id=? AND status='running'")
       .run(parked ? 1 : 0, new Date().toISOString(), rootId);
@@ -102,7 +108,7 @@ export class RunJournal {
 
   private getStored(id: string): StoredRun | null {
     return this.db.query(`SELECT id, request_hash, CASE WHEN status='running' AND parked=1 THEN 'needs_input' ELSE status END AS status, text, error, lane,
-      response_root_id AS responseRootId, publish_to_chat AS publishToChat,preview_text AS previewText,usage_json FROM runs WHERE id = ?`).get(id) as StoredRun | null;
+      response_root_id AS responseRootId, publish_to_chat AS publishToChat,preview_text AS previewText,usage_json,init_warning AS initWarning FROM runs WHERE id = ?`).get(id) as StoredRun | null;
   }
 }
 
@@ -110,11 +116,13 @@ function requestHash(input: RunInput): string {
   // Preserve historical main request hashes across a daemon upgrade.
   const fields = input.lane === "background" ? [input.content, input.instructions, "background"] : [input.content, input.instructions];
   if(input.modelId)fields.push(input.modelId);
+  if(input.initScript)fields.push(JSON.stringify({initScript:input.initScript,initTimeoutMs:input.initTimeoutMs??600_000}));
   return createHash("sha256").update(JSON.stringify(fields)).digest("hex");
 }
 
 function publicRun(run: StoredRun): RunRecord {
   return { id: run.id, status: run.status, text: run.text, error: run.error,
     lane: run.lane, responseRootId: run.responseRootId, publishToChat: !!run.publishToChat,
-    ...(run.previewText!=null?{previewText:run.previewText}:{}),...(run.usage_json?{usage:JSON.parse(run.usage_json)}:{}) };
+    ...(run.previewText!=null?{previewText:run.previewText}:{}),...(run.usage_json?{usage:JSON.parse(run.usage_json)}:{}),
+    ...(run.initWarning?{initWarning:run.initWarning}:{}) };
 }

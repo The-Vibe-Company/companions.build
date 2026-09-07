@@ -17,12 +17,17 @@ export interface RunRecord {
   publishToChat: boolean;
   previewText?:string;
   usage?:RunUsage;
+  initWarning?: string;
 }
 
 export interface RunInput {
   content: string;
   instructions: string;
   modelId?:string;
+  /** Immutable specialist initialization, journaled once per Companion state directory. */
+  initScript?: string;
+  /** Server-resolved administrative timeout; defaults to ten minutes. */
+  initTimeoutMs?: number;
   lane?: RunLane;
   /** Short-lived, run-bound credential. It is intentionally never written to the run journal. */
   modelGateway?: {token:string};

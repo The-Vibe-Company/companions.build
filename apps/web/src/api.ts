@@ -167,6 +167,7 @@ async function fingerprintFile(file: File): Promise<string> {
 }
 
 export const api = {
+  hasPendingUpload: (id: string) => (readPendingMessage(id)?.fileIds.length ?? 0) > 0,
   getMe: () => request<{ user: AccountUser }>("/api/me"),
   requestMagicLink: (email: string) => request<unknown>("/api/auth/sign-in/magic-link", {
     method: "POST",
@@ -188,12 +189,13 @@ export const api = {
     // Read sequentially to bound temporary memory to one attachment.
     for (const file of files) fileFingerprints.push(await fingerprintFile(file));
     const previous = readPendingMessage(id);
-    if (previous?.content === content && previous.fileIds.length > 0 && !previous.fileFingerprints) {
-      throw new Error("This older pending upload cannot be safely retried. Check the conversation before sending a new message.");
+    const sameRequest = previous?.content === content && previous.fileIds.length === files.length
+      && JSON.stringify(previous.fileFingerprints ?? []) === JSON.stringify(fileFingerprints);
+    if (previous && previous.fileIds.length > 0 && !sameRequest) {
+      throw new Error("The previous upload is unresolved. Retry with the original message and files, or use Cancel before sending a replacement.");
     }
-    const pending = previous?.content === content && previous.fileIds.length === files.length
-      && JSON.stringify(previous.fileFingerprints ?? []) === JSON.stringify(fileFingerprints)
-      ? previous
+    const pending = sameRequest
+      ? previous!
       : { id: crypto.randomUUID(), content, fileIds: files.map(() => crypto.randomUUID()), fileFingerprints };
     writePendingMessage(id, pending);
 
@@ -215,8 +217,12 @@ export const api = {
     clearPendingMessage(id, pending.id);
     return result;
   },
-  cancel: (id: string) =>
-    request<{ ok: true }>(`/api/companions/${id}/cancel`, { method: "POST" }),
+  cancel: async (id: string) => {
+    const pending = readPendingMessage(id);
+    const result = await request<{ ok: true }>(`/api/companions/${id}/cancel`, { method: "POST" });
+    if (pending) clearPendingMessage(id, pending.id);
+    return result;
+  },
   openDesktop: (id: string) =>
     request<{ url?: string; preparing?: true }>(`/api/companions/${id}/desktop`, { method: "POST" }),
   updateCompanion: (id: string, input: Partial<Pick<Companion, "name" | "instructions" | "avatar">> & { modelId?: string | null }) =>

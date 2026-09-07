@@ -96,11 +96,11 @@ describe("Companion API client", () => {
     const file = (bytes: string) => new File([bytes], "same.txt", { type: "text/plain", lastModified: 123 });
     await expect(api.sendMessage("file-retry", "Read", [file("aaa")])).rejects.toThrow("upload response lost");
     await expect(api.sendMessage("file-retry", "Read", [file("aaa")])).rejects.toThrow("upload response lost");
-    await expect(api.sendMessage("file-retry", "Read", [file("bbb")])).rejects.toThrow("upload response lost");
+    await expect(api.sendMessage("file-retry", "Read", [file("bbb")])).rejects.toThrow("previous upload is unresolved");
     expect(admissions[1]).toBe(admissions[0]);
     expect(uploads[1]).toBe(uploads[0]);
-    expect(admissions[2]).not.toBe(admissions[0]);
-    expect(uploads[2]).not.toBe(uploads[0]);
+    expect(admissions).toHaveLength(2);
+    expect(uploads).toHaveLength(2);
   });
 
   it("restores the exact file retry identity after a page reload", async () => {
@@ -124,8 +124,30 @@ describe("Companion API client", () => {
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
     await expect(api.sendMessage("legacy-upload", "Read", [new File(["old"], "old.txt")]))
-      .rejects.toThrow("cannot be safely retried");
+      .rejects.toThrow("previous upload is unresolved");
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("allows replacement only after the pending message is explicitly stopped", async () => {
+    const admissions: string[] = [];
+    let cancelFails = true;
+    vi.stubGlobal("fetch", vi.fn(async (path: RequestInfo | URL, options: RequestInit) => {
+      if (String(path).endsWith("/cancel")) {
+        if (cancelFails) throw new TypeError("cancel response lost");
+        return new Response(JSON.stringify({ ok: true }));
+      }
+      admissions.push(JSON.parse(options.body as string).clientMessageId);
+      throw new TypeError("admission response lost");
+    }));
+    await expect(api.sendMessage("stop-upload", "Read", [new File(["old"], "old.txt")])).rejects.toThrow("admission response lost");
+    await expect(api.cancel("stop-upload")).rejects.toThrow("cancel response lost");
+    await expect(api.sendMessage("stop-upload", "Replacement")).rejects.toThrow("previous upload is unresolved");
+    expect(admissions).toHaveLength(1);
+    cancelFails = false;
+    await api.cancel("stop-upload");
+    await expect(api.sendMessage("stop-upload", "Replacement")).rejects.toThrow("admission response lost");
+    expect(admissions).toHaveLength(2);
+    expect(admissions[1]).not.toBe(admissions[0]);
   });
 
 });

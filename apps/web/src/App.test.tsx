@@ -302,7 +302,7 @@ describe("first Companion flow", () => {
   it("guards an unsaved settings draft when browser history leaves the Companion", async () => {
     const browser = { ...companion, id:"browser", name:"Browser", status:"ready" as const };
     window.history.replaceState({}, "", "/companions/browser");
-    window.history.pushState({}, "", "/companions/ada?view=settings");
+    window.history.pushState({}, "", "/companions/ada");
     vi.stubGlobal("fetch", vi.fn((input:RequestInfo|URL) => {
       const path=String(input);
       if(path==="/api/me") return response(me);
@@ -313,12 +313,16 @@ describe("first Companion flow", () => {
       throw new Error(`Unexpected request: ${path}`);
     }));
     const user=userEvent.setup(); render(<App/>);
-    await user.type(await screen.findByLabelText("Purpose"), " Keep this draft.");
+    await user.click(await screen.findByRole("button",{name:"Settings"}));
+    await user.type(screen.getByLabelText("Purpose"), " Keep this draft.");
 
+    act(() => window.history.back());
+    expect(await screen.findByRole("textbox",{name:"Message Ada"})).toBeInTheDocument();
+    expect(window.location.search).toBe("");
     act(() => window.history.back());
     expect(await screen.findByRole("heading",{name:"Keep your changes?"})).toBeInTheDocument();
     await waitFor(() => expect(window.location.pathname).toBe("/companions/ada"));
-    expect(window.location.search).toBe("?view=settings");
+    expect(window.location.search).toBe("");
     await user.click(screen.getByRole("button",{name:"Keep editing"}));
     expect(screen.getByLabelText("Purpose")).toHaveValue("Research customer questions. Keep this draft.");
 

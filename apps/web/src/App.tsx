@@ -764,7 +764,7 @@ export function App() {
   useEffect(() => { void bootstrap(); }, [bootstrap]);
 
   useEffect(() => {
-    const onPopState = () => {
+    const onPopState = (event: PopStateEvent) => {
       const target = window.location.pathname + window.location.search;
       const targetId = selectedIdFromPath();
       const accept = () => {
@@ -779,6 +779,7 @@ export function App() {
       if (selectedId && targetId !== selectedId && navigationGuard.current) {
         const restore = acceptedLocation.current;
         if (navigationGuard.current(accept, false)) {
+          event.stopImmediatePropagation();
           window.history.pushState({}, "", restore);
           acceptedLocation.current = restore;
         }

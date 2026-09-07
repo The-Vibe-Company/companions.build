@@ -1,4 +1,4 @@
-import { test, expect } from "bun:test";
+import { test, expect, spyOn } from "bun:test";
 import { BoxClient } from "../../../packages/box/client";
 import { fetchAgent } from "../../../packages/box/transport";
 test("Box creation is isolated, templated and idempotent", async () => {
@@ -79,4 +79,39 @@ test("preparation reuses an interactive Box in ready, idle, or running state",as
    expect(endpoint).toBe('https://private.invalid');expect(calls).toBe(1);
   }
  }finally{config.boxTemplate=previous;}
+});
+
+test("Box service tracing keeps one guarded command and reports its internal phases",async()=>{
+ const {prepareBox}=await import('../src/machines');
+ const {config,encrypt}=await import('../src/config');
+ const previousTemplate=config.boxTemplate,previousTrace=process.env.COMPANIONS_TRACE_PREPARATION;
+ config.boxTemplate='test-frozen-template';process.env.COMPANIONS_TRACE_PREPARATION='1';
+ const calls:string[]=[],lines:string[]=[];let guards=0,configured=0;
+ const output=spyOn(console,'info').mockImplementation(value=>lines.push(String(value)));
+ const client=new BoxClient('test-only',(async(input:URL|RequestInfo,init?:RequestInit)=>{
+  const path=new URL(String(input)).pathname,method=init?.method??'GET';calls.push(`${method} ${path}`);
+  if(method==='GET')return Response.json({box:{id:'owned-box',state:'ready',setupStatus:'done'}});
+  if(path.endsWith('/files'))return Response.json({success:true});
+  const command=JSON.parse(String(init?.body)).command as string;
+  if(command.includes('host 8787'))return Response.json({success:true,exitCode:0,stdout:'https://fixture.on.ascii.dev?_token=test'});
+  expect(command).toContain('trace_service desktop');expect(command).toContain('trace_service agent');expect(command).toContain('trace_service proxy');
+  return Response.json({success:true,exitCode:0,stdout:[
+   '__COMPANIONS_SERVICE_PHASE__ desktop 1000000000 1300000000 0',
+   '__COMPANIONS_SERVICE_PHASE__ agent 1300000000 1800000000 0',
+   '__COMPANIONS_SERVICE_PHASE__ proxy 1800000000 1900000000 0',
+  ].join('\n')});
+ }) as typeof fetch);
+ try{
+  const endpoint=await prepareBox({id:'11111111-1111-4111-8111-111111111111',box_id:'owned-box',agent_secret:encrypt('test-daemon'),endpoint_secret:null,config_digest:null},async()=>{},async()=>{configured++;},async()=>{guards++;},client);
+  expect(endpoint).toBe('https://fixture.on.ascii.dev/?_token=test');
+  expect(guards).toBe(5);expect(configured).toBe(1);
+  expect(calls).toEqual(['GET /api/box/v1/boxes/owned-box','PUT /api/box/v1/boxes/owned-box/files','POST /api/box/v1/boxes/owned-box/commands','POST /api/box/v1/boxes/owned-box/commands']);
+  const events=lines.map(line=>JSON.parse(line)).filter(event=>event.event==='preparation_trace');
+  expect(events.filter(event=>event.phase.startsWith('box_service_')).map(event=>[event.phase,event.durationMs])).toEqual([
+   ['box_service_desktop',300],['box_service_agent',500],['box_service_proxy',100],
+  ]);
+ }finally{
+  output.mockRestore();config.boxTemplate=previousTemplate;
+  if(previousTrace===undefined)delete process.env.COMPANIONS_TRACE_PREPARATION;else process.env.COMPANIONS_TRACE_PREPARATION=previousTrace;
+ }
 });

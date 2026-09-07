@@ -1,4 +1,4 @@
-import {tracePreparation,preparationState} from './preparation-trace';
+import {tracePreparation,preparationState,preparationMeasurement,type PreparationPhase} from './preparation-trace';
 import { mkdirSync, writeFileSync, unlinkSync, realpathSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { createHash } from "node:crypto";
@@ -14,6 +14,21 @@ export class ExecutionStopped extends Error {}
 export type EffectGuard=()=>Promise<void>;
 export type DesktopMachineState={generation:number;taken:boolean;confirmed:boolean;bootId:string};
 const unguarded:EffectGuard=async()=>{};
+const serviceMarker=/^__COMPANIONS_SERVICE_PHASE__ (desktop|agent|proxy) (\d{1,20}) (\d{1,20}) 0$/;
+function recordServiceMeasurements(companionId:string,output:string,completedMs:number){
+ const measurements:Array<{phase:PreparationPhase;started:bigint;ended:bigint}>=[];
+ for(const line of output.split('\n')){
+  const match=line.match(serviceMarker);if(!match)continue;
+  const started=BigInt(match[2]),ended=BigInt(match[3]);if(ended<started)continue;
+  measurements.push({phase:`box_service_${match[1]}` as PreparationPhase,started,ended});
+ }
+ const remoteEnd=measurements.reduce((latest,item)=>item.ended>latest?item.ended:latest,0n);if(!remoteEnd)return;
+ for(const item of measurements){
+  const duration=Number(item.ended-item.started)/1_000_000;
+  const startedMs=completedMs-Number(remoteEnd-item.started)/1_000_000;
+  preparationMeasurement(companionId,item.phase,startedMs,duration);
+ }
+}
 async function docker(args: string[]) {
   const child = Bun.spawn(["docker", ...args], { stdout: "pipe", stderr: "pipe" });
   const timer = setTimeout(() => child.kill(), 30_000);
@@ -103,7 +118,9 @@ export async function prepareBox(companion: any, checkpoint: (boxId: string) => 
   const action = companion.config_digest === environmentDigest(companion.agent_secret) ? "start" : "restart";
   await beforeEffect();
   if(!/^[a-f0-9-]{36}$/.test(companion.id))throw new MachineError('invalid_companion_identity');
-  await tracePreparation(companion.id,'box_services',()=>box.command(id, `chmod 600 /home/user/.companions.env && if test -f /opt/companions/desktop-boundary.version; then sudo -n python3 /opt/companions/configure-desktop.py ${companion.id} && sudo -n systemctl ${action} companions-agent.service && sudo -n systemctl start companions-agent-proxy.socket; else ${userSystemctl(`${action} companions-agent.service`)}; fi`));
+  const serviceOutput=await tracePreparation(companion.id,'box_services',()=>box.command(id, `trace_service(){ phase="$1"; shift; started="$(date +%s%N)"; "$@"; code="$?"; ended="$(date +%s%N)"; printf '__COMPANIONS_SERVICE_PHASE__ %s %s %s %s\\n' "$phase" "$started" "$ended" "$code"; return "$code"; }
+chmod 600 /home/user/.companions.env && if test -f /opt/companions/desktop-boundary.version; then trace_service desktop sudo -n python3 /opt/companions/configure-desktop.py ${companion.id} && trace_service agent sudo -n systemctl ${action} companions-agent.service && trace_service proxy sudo -n systemctl start companions-agent-proxy.socket; else started="$(date +%s%N)" && ${userSystemctl(`${action} companions-agent.service`)} && ended="$(date +%s%N)" && printf '__COMPANIONS_SERVICE_PHASE__ agent %s %s 0\\n' "$started" "$ended"; fi`));
+  recordServiceMeasurements(companion.id,serviceOutput,performance.now());
   await configured();
   await beforeEffect();
   return tracePreparation(companion.id,'box_host',()=>box.host(id, 8787));

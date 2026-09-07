@@ -7,6 +7,7 @@ import {config,decrypt} from '../apps/server/src/config';
 import {db} from '../apps/server/src/store';
 import {agentRequest} from '../apps/server/src/machines';
 import {BoxClient} from '../packages/box/client';
+import {waitForHeadlessStart} from './live-desktop-canary-wait';
 const fail=(code:string):never=>{throw Error('DESKTOP_CANARY_'+code);};
 let release:undefined|(()=>Promise<unknown>);
 try {
@@ -44,7 +45,7 @@ try {
   const script=`import pathlib,time,urllib.request,hashlib; pathlib.Path('${stem}-started').write_text('started'); time.sleep(20); r=urllib.request.urlopen('https://example.com',timeout=15); assert r.status==200; pathlib.Path('${stem}-done').write_text(hashlib.sha256(b'${state.nonce}').hexdigest())`;
   const content=`Use bash to execute this Python code in the workspace, in the foreground, exactly once: ${script}. Do not background it. Reply HEADLESS_CONTINUED after success.`;
   if(!state.runId){state.runId=z.string().uuid().parse((await api('/messages',{clientMessageId:state.messageId,content})).runId);await save();}
-  await until('HEADLESS_STARTED',async()=>await read('started')==='started');
+  await waitForHeadlessStart({runId:state.runId,detail:()=>api(),started:async()=>await read('started')==='started'});
   if(await read('done'))fail('MISSED_TAKEOVER_WINDOW');
   state.takeoverRequested=true;await save();release=()=>api('/desktop/release',{});
   await api('/desktop/takeover',{});

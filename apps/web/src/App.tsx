@@ -546,7 +546,7 @@ function CompanionConnections({ companionId }: { companionId: string }) {
 
 type NavigationGuard = (action: () => void, updateHistory?: boolean) => boolean;
 
-function CompanionView({ detail, models, onRefresh, onUnauthorized, onMenu, onOpenCompanion, onDeleted, onRegisterNavigationGuard, onLocationChange }: { detail: CompanionDetail; models: Array<{ id: string; name: string }>; onDeleted: (ids: string[]) => void; onRefresh: () => Promise<void>; onUnauthorized: () => void; onMenu: () => void; onOpenCompanion: (id: string) => void; onRegisterNavigationGuard: (guard: NavigationGuard | null) => void; onLocationChange: (location: string) => void }) {
+function CompanionView({ detail, models, onRefresh, onUnauthorized, onMenu, onOpenCompanion, onDeleted, onRegisterNavigationGuard, onLocationChange, refreshVersion }: { detail: CompanionDetail; models: Array<{ id: string; name: string }>; onDeleted: (ids: string[]) => void; onRefresh: () => Promise<void>; onUnauthorized: () => void; onMenu: () => void; onOpenCompanion: (id: string) => void; onRegisterNavigationGuard: (guard: NavigationGuard | null) => void; onLocationChange: (location: string) => void; refreshVersion: number }) {
   type CompanionSection = 'chat' | 'automations' | 'team' | 'activity' | 'computer' | 'applications' | 'settings';
   const finished = Boolean(detail.companion.retiredAt);
   const readView = (): CompanionSection => {
@@ -600,7 +600,7 @@ function CompanionView({ detail, models, onRefresh, onUnauthorized, onMenu, onOp
         <Chat detail={detail} onRefresh={onRefresh} onUnauthorized={onUnauthorized} onOpenCompanion={onOpenCompanion} readOnly={finished} />
       </div>
       {!finished && view === 'automations' && <section className="companion-page" aria-label="Automations"><div className="companion-page-inner"><header className="section-intro"><h2>A little help, on repeat.</h2><p>Set the timing. Your companion takes it from there.</p></header><div className="automation-group"><RoutineSettings companionId={detail.companion.id}/></div><div className="automation-group" id="events"><TriggerSettings companionId={detail.companion.id}/></div></div></section>}
-      {!finished && view === 'team' && <section className="companion-page" aria-label="Team"><Suspense fallback={<div className="companion-page-inner" role="status">Opening your team…</div>}><TeamPanel companion={detail.companion} onOpenCompanion={onOpenCompanion}/></Suspense></section>}
+      {!finished && view === 'team' && <section className="companion-page" aria-label="Team"><Suspense fallback={<div className="companion-page-inner" role="status">Opening your team…</div>}><TeamPanel companion={detail.companion} refreshVersion={refreshVersion} onOpenCompanion={onOpenCompanion}/></Suspense></section>}
       {view === 'activity' && <section className="companion-page" aria-label="Activity"><ActivityPanel embedded detail={detail} onOpenCompanion={onOpenCompanion} /></section>}
       {!finished && view === 'computer' && <section className="companion-page" aria-label="Computer"><DesktopSheet embedded companion={detail.companion} onClose={() => changeView('chat')} onRefresh={onRefresh} /></section>}
       {!finished && view === 'applications' && <section className="companion-page" aria-label="Applications"><div className="companion-page-inner"><header className="section-intro"><h2>Applications</h2><p>Choose which connected accounts {detail.companion.name} can use.</p></header><CompanionConnections companionId={detail.companion.id} /></div></section>}
@@ -698,6 +698,10 @@ export function App() {
   const [companions, setCompanions] = useState<Companion[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(selectedIdFromPath);
   const [detail, setDetail] = useState<CompanionDetail | null>(null);
+  const [detailVersion, setDetailVersion] = useState(0);
+  const selectedIdRef = useRef(selectedId);
+  selectedIdRef.current = selectedId;
+  const detailRequest = useRef(0);
   const [loading, setLoading] = useState(true);
   const [pageError, setPageError] = useState("");
   const [createOpen, setCreateOpen] = useState(false);
@@ -731,12 +735,16 @@ export function App() {
 
   const loadDetail = useCallback(async () => {
     if (!selectedId) return;
+    const request = ++detailRequest.current;
+    const current = () => request === detailRequest.current && selectedIdRef.current === selectedId && !deletedIds.current.has(selectedId);
     try {
       const result = await api.getCompanion(selectedId);
-      if (!deletedIds.current.has(selectedId)) setDetail(result);
+      if (!current()) return;
+      setDetail(result);
+      setDetailVersion(version => version + 1);
       setPageError("");
     } catch (cause) {
-      if (!deletedIds.current.has(selectedId)) handleApiError(cause);
+      if (current()) handleApiError(cause);
     }
   }, [selectedId, handleApiError]);
 
@@ -926,7 +934,7 @@ export function App() {
       ) : !selectedId ? (
         <Home companions={companions} onSelect={selectCompanion} onCreateTeam={() => leaveCompanion(() => setTeamCreateOpen(true))} onCreate={() => leaveCompanion(() => setCreateOpen(true))} onMenu={() => setSidebarOpen(true)} />
       ) : detail && detail.companion.id === selectedId ? (
-        <CompanionView onDeleted={handleDeleted} key={detail.companion.id} detail={detail} models={config.models ?? [{ id: config.model, name: config.model }]} onRefresh={loadDetail} onUnauthorized={() => setAuthRequired(true)} onMenu={() => setSidebarOpen(true)} onOpenCompanion={selectCompanion} onRegisterNavigationGuard={registerNavigationGuard} onLocationChange={location => { acceptedLocation.current = location; }} />
+        <CompanionView onDeleted={handleDeleted} key={detail.companion.id} detail={detail} refreshVersion={detailVersion} models={config.models ?? [{ id: config.model, name: config.model }]} onRefresh={loadDetail} onUnauthorized={() => setAuthRequired(true)} onMenu={() => setSidebarOpen(true)} onOpenCompanion={selectCompanion} onRegisterNavigationGuard={registerNavigationGuard} onLocationChange={location => { acceptedLocation.current = location; }} />
       ) : (
         <main className="detail-loading" id="main-content"><LoaderCircle className="spin" /><span>Opening Companion…</span></main>
       )}

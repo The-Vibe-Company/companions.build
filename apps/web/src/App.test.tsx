@@ -65,6 +65,61 @@ describe("first Companion flow", () => {
     expect(screen.getAllByRole("button",{name:/June, Companion/}).length).toBeGreaterThan(0);
   });
 
+  it("refreshes Team from the Companion event stream while it stays open", async () => {
+    window.history.replaceState({}, "", "/companions/ada?view=team");
+    const template={id:"writer",name:"Writer",instructions:"Write the update",revision:1,avatar:{shape:0,color:0,face:0},sourceCompanionId:null,hasSnapshot:false};
+    let authorized=false;
+    vi.stubGlobal("EventSource",FakeEventSource);
+    vi.stubGlobal("fetch",vi.fn((input:RequestInfo|URL)=>{
+      const path=String(input);
+      if(path==="/api/me")return response(me);
+      if(path==="/api/config")return response(config);
+      if(path==="/api/companions")return response({companions:[companion]});
+      if(path==="/api/companions/ada")return response({companion,messages:[],runs:[],activity:[]});
+      if(path==="/api/templates")return response({templates:[template]});
+      if(path==="/api/companions/ada/templates")return response({templates:authorized?[{templateId:template.id,name:template.name,revision:1,maxChildren:2}]:[]});
+      if(path==="/api/companions/ada/replicas")return response({replicas:[]});
+      throw Error(`Unexpected request: ${path}`);
+    }));
+    render(<App/>);
+    await screen.findByRole("button",{name:"Add specialist"});
+    expect(screen.queryByText("Write the update")).not.toBeInTheDocument();
+    authorized=true;
+    act(()=>FakeEventSource.instances[0].emit("invalidate"));
+    expect(await screen.findByText("Write the update", {selector:".team-person p"})).toBeInTheDocument();
+    expect(window.location.search).toBe("?view=team");
+  });
+
+  it.each([200, 401])("ignores a late %s detail response after switching Companions", async (status) => {
+    window.history.replaceState({}, "", "/companions/ada");
+    const other = {...companion, id:"other",name:"June",status:"ready" as const};
+    let hold = false;
+    let release: ((response: Response) => void) | undefined;
+    vi.stubGlobal("EventSource", FakeEventSource);
+    vi.stubGlobal("fetch", vi.fn((input:RequestInfo|URL) => {
+      const path=String(input);
+      if(path==="/api/me")return response(me);
+      if(path==="/api/config")return response(config);
+      if(path==="/api/companions")return response({companions:[companion,other]});
+      if(path==="/api/companions/other")return response({companion:other,messages:[],runs:[],activity:[]});
+      if(path==="/api/companions/ada"){
+        if(hold){hold=false;return new Promise<Response>(resolve=>{release=resolve;});}
+        return response({companion,messages:[],runs:[],activity:[]});
+      }
+      throw Error(`Unexpected request: ${path}`);
+    }));
+    const user=userEvent.setup();render(<App/>);
+    await screen.findByRole("textbox",{name:"Message Ada"});
+    hold=true;
+    act(()=>FakeEventSource.instances[0].emit("invalidate"));
+    await waitFor(()=>expect(release).toBeDefined());
+    await user.click(screen.getByRole("button",{name:/June, Companion/}));
+    await screen.findByRole("textbox",{name:"Message June"});
+    await act(async()=>{release!(new Response(JSON.stringify(status===200?{companion,messages:[],runs:[],activity:[]}:{error:"Expired old request"}),{status}));});
+    expect(screen.getByRole("textbox",{name:"Message June"})).toBeInTheDocument();
+    expect(screen.queryByRole("textbox",{name:"Email"})).not.toBeInTheDocument();
+  });
+
   it("refreshes durable chat snapshots after coalesced events and closes revoked streams", async () => {
     window.history.replaceState({}, "", "/companions/ada");
     const ready = { ...companion, status: "ready" as const };

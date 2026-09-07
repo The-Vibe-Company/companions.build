@@ -74,3 +74,35 @@ BEGIN
   END IF;
 END;
 $$;
+
+-- Team projections include the owner's available profiles as well as per-parent permissions.
+-- Only committed changes send identifier-only hints; readers still enforce ownership.
+CREATE OR REPLACE FUNCTION notify_companion_team_changed() RETURNS trigger
+LANGUAGE plpgsql AS $$
+DECLARE
+  affected_id uuid;
+BEGIN
+  IF TG_TABLE_NAME = 'template_permissions' THEN
+    PERFORM pg_notify('companion_changed', COALESCE(NEW.parent_id, OLD.parent_id)::text);
+  ELSE
+    FOR affected_id IN SELECT id FROM companions
+      WHERE owner_id=COALESCE(NEW.owner_id, OLD.owner_id) AND retired_at IS NULL LOOP
+      PERFORM pg_notify('companion_changed', affected_id::text);
+    END LOOP;
+  END IF;
+  RETURN COALESCE(NEW, OLD);
+END;
+$$;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname='permissions_team_changed' AND tgrelid='template_permissions'::regclass AND NOT tgisinternal) THEN
+    CREATE TRIGGER permissions_team_changed AFTER INSERT OR UPDATE OR DELETE ON template_permissions
+      FOR EACH ROW EXECUTE FUNCTION notify_companion_team_changed();
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname='templates_team_changed' AND tgrelid='agent_templates'::regclass AND NOT tgisinternal) THEN
+    CREATE TRIGGER templates_team_changed AFTER INSERT OR UPDATE OR DELETE ON agent_templates
+      FOR EACH ROW EXECUTE FUNCTION notify_companion_team_changed();
+  END IF;
+END;
+$$;

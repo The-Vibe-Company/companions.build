@@ -2,16 +2,20 @@
 import { z } from "zod";
 import { config } from "../apps/server/src/config";
 import { BoxClient } from "../packages/box/client";
+import {waitForDesktopUrl} from "./live-box-desktop-wait";
 if (!config.boxKey || !config.boxTemplate || config.testMode) throw new Error("Configure Box template/key and a real model before running this canary.");
 const sessionFile=Bun.file(".local/session-cookie");
 if(!await sessionFile.exists())throw Error("Run python3 scripts/dev-session.py before the authenticated live canary.");
 const cookie=(await sessionFile.text()).trim();
 const box = new BoxClient(config.boxKey);
 const apiBase = `http://127.0.0.1:${process.env.API_PORT ?? Number(process.env.WEB_PORT ?? 4310) + 1}`;
-async function api(path: string, body?: unknown): Promise<any> {
-  const response = await fetch(`${apiBase}/api${path}`, { method: body === undefined ? "GET" : "POST",
+async function apiResponse(path: string, body?: unknown): Promise<Response> {
+  return fetch(`${apiBase}/api${path}`, { method: body === undefined ? "GET" : "POST",
     headers: { cookie, "content-type": "application/json" },
     body: body === undefined ? undefined : JSON.stringify(body), signal: AbortSignal.timeout(15_000) });
+}
+async function api(path: string, body?: unknown): Promise<any> {
+  const response=await apiResponse(path,body);
   if (!response.ok) throw new Error(`CANARY_API_${response.status}`);
   return response.json();
 }
@@ -83,8 +87,6 @@ const wakeId = z.string().uuid().parse(state.wakeMessageId);
 const written = await box.command(state.boxId, `sudo -n cat /var/lib/companions-agent/${state.companionId}/workspace/wake-write-${wakeId}.txt`, 30);
 if (written.trim() !== wakeId) throw Error("CANARY_WAKE_WRITE_MISMATCH");
 state.wake.newFileVerified = true; await save();
-await waitFor("desktop", async () => {
-  try { const { url } = await api(`${path}/desktop`, {}); return new URL(url).protocol === "https:"; } catch { return false; }
-}, 60_000);
+await waitForDesktopUrl({request:()=>apiResponse(`${path}/desktop`,{}),state,save});
 state.desktopVerified = true; await save();
 console.log(JSON.stringify({ status: "passed", companionId: state.companionId, boxId: state.boxId, first: state.first, wake: state.wake, archiveSeconds: state.archiveSeconds, desktopVerified: true }));

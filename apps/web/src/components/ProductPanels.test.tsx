@@ -15,7 +15,7 @@ describe("account delivery", () => {
     const fetchMock = vi.fn((input: RequestInfo | URL, options?: RequestInit) => {
       const path = String(input);
       if (path === "/api/billing") return response({ configured: true, mode: "stripe", plan: "inactive", active: false, status: null, currentPeriodEnd: null, cancelAtPeriodEnd: false, portalAvailable: false, usage: [] });
-      if (path === "/api/deliveries" && !options?.method) return response({ sent: [], received: accepted ? [] : [{ id: "d1", name: "Scout", status: "pending", skillsStatus: "ready", skillsError: null, maintenanceRequested: true, expiresAt: new Date().toISOString(), acceptedAt: null, companionId: null }] });
+      if (path === "/api/deliveries" && !options?.method) return response({ sent: [], received: accepted ? [] : [{ id: "d1", name: "Scout", status: "pending", skillsStatus: "ready", skillsError: null, softwareStatus: "ready", softwareError: null, maintenanceRequested: true, expiresAt: new Date().toISOString(), acceptedAt: null, companionId: null }] });
       if (path === "/api/deliveries/d1/accept") { accepted = true; return response({ companionId: "copy", accepted: true }); }
       throw new Error(`Unexpected ${path}`);
     });
@@ -35,9 +35,11 @@ describe("account delivery", () => {
       const path = String(input);
       if (path === "/api/billing") return response({ configured: false, mode: "unconfigured", plan: "inactive", active: false, status: null, currentPeriodEnd: null, cancelAtPeriodEnd: false, portalAvailable: false, usage: [] });
       if (path === "/api/deliveries") return response({ received: [], sent: [
-        { ...base, id: "d1", clientEmail: "preparing@example.com", skillsStatus: "pending", skillsError: null },
-        { ...base, id: "d2", clientEmail: "failed@example.com", skillsStatus: "error", skillsError: "Skill export failed safely" },
-        { ...base, id: "d3", clientEmail: "ready@example.com", skillsStatus: "ready", skillsError: null },
+        { ...base, id: "d1", clientEmail: "preparing@example.com", skillsStatus: "pending", skillsError: null, softwareStatus: "ready", softwareError: null },
+        { ...base, id: "d2", clientEmail: "failed@example.com", skillsStatus: "error", skillsError: "Skill export failed safely", softwareStatus: "ready", softwareError: null },
+        { ...base, id: "d3", clientEmail: "ready@example.com", skillsStatus: "ready", skillsError: null, softwareStatus: "ready", softwareError: null },
+        { ...base, id: "d4", clientEmail: "software@example.com", skillsStatus: "ready", skillsError: null, softwareStatus: "pending", softwareError: null },
+        { ...base, id: "d5", clientEmail: "software-error@example.com", skillsStatus: "ready", skillsError: null, softwareStatus: "error", softwareError: "Software preparation failed safely" },
       ] });
       throw new Error(`Unexpected ${path}`);
     });
@@ -46,7 +48,21 @@ describe("account delivery", () => {
     expect(await screen.findByText("Preparing skills…")).toBeInTheDocument();
     expect(screen.getByText("Skill export failed safely")).toBeInTheDocument();
     expect(screen.getByText("Ready for client")).toBeInTheDocument();
+    expect(screen.getByText("Preparing software…")).toBeInTheDocument();
+    expect(screen.getByText("Software preparation failed safely")).toBeInTheDocument();
     expect(screen.queryByText(/invitation sent/i)).not.toBeInTheDocument();
+  });
+
+  it("keeps acceptance disabled until both skills and software are ready", async () => {
+    vi.stubGlobal("fetch", vi.fn((input: RequestInfo | URL) => {
+      if (String(input) === "/api/billing") return response({ configured: false, mode: "unconfigured", plan: "inactive", active: false, status: null, currentPeriodEnd: null, cancelAtPeriodEnd: false, portalAvailable: false, usage: [] });
+      if (String(input) === "/api/maintenance") return response({ companions: [] });
+      if (String(input) === "/api/deliveries") return response({ sent: [], received: [{ id: "d1", name: "Scout", status: "pending", skillsStatus: "ready", skillsError: null, softwareStatus: "pending", softwareError: null, maintenanceRequested: false, expiresAt: new Date().toISOString(), acceptedAt: null, companionId: null }] });
+      throw new Error(`Unexpected ${String(input)}`);
+    }));
+    render(<AccountProduct user={{ id: "u1", name: "Alex", email: "alex@example.com" }} onSignOut={vi.fn()} />);
+    expect(await screen.findByText("Preparing software…")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Accept" })).toBeDisabled();
   });
 
   it("polls only while a delivery is preparing", async () => {
@@ -55,12 +71,12 @@ describe("account delivery", () => {
     vi.stubGlobal("fetch", vi.fn((input: RequestInfo | URL) => {
       if (String(input) === "/api/billing") return response(billing);
       if (String(input) === "/api/maintenance") return response({ companions: [] });
-      if (String(input) === "/api/deliveries") { deliveryCalls++; return response({ received: [], sent: [{ id: "d1", clientEmail: "client@example.com", status: "pending", skillsStatus: deliveryCalls === 1 ? "pending" : "ready", skillsError: null, maintenanceRequested: false, expiresAt: new Date().toISOString(), acceptedAt: null, companionId: null }] }); }
+      if (String(input) === "/api/deliveries") { deliveryCalls++; return response({ received: [], sent: [{ id: "d1", clientEmail: "client@example.com", status: "pending", skillsStatus: "ready", skillsError: null, softwareStatus: deliveryCalls === 1 ? "pending" : "ready", softwareError: null, maintenanceRequested: false, expiresAt: new Date().toISOString(), acceptedAt: null, companionId: null }] }); }
       throw new Error(`Unexpected ${String(input)}`);
     }));
     render(<AccountProduct user={{ id: "u1", name: "Alex", email: "alex@example.com" }} onSignOut={vi.fn()} />);
     await act(() => vi.advanceTimersByTimeAsync(1));
-    expect(screen.getByText("Preparing skills…")).toBeInTheDocument();
+    expect(screen.getByText("Preparing software…")).toBeInTheDocument();
     await act(() => vi.advanceTimersByTimeAsync(2_000));
     expect(screen.getByText("Ready for client")).toBeInTheDocument();
     await act(() => vi.advanceTimersByTimeAsync(4_000));
@@ -114,7 +130,7 @@ describe("account delivery", () => {
       if (String(input) === "/api/templates") return response({ templates: [] });
       if (String(input) === "/api/deliveries") {
         bodies.push(JSON.parse(String(options?.body)) as { clientDeliveryId: string });
-        return bodies.length === 1 ? response({ error: "Try again" }, 503) : response({ delivery: { skillsStatus: "ready", skillsError: null } });
+        return bodies.length === 1 ? response({ error: "Try again" }, 503) : response({ delivery: { status: "pending", skillsStatus: "ready", skillsError: null, softwareStatus: "ready", softwareError: null } });
       }
       throw new Error(`Unexpected ${String(input)}`);
     });
@@ -130,10 +146,10 @@ describe("account delivery", () => {
     expect(bodies[1].clientDeliveryId).toBe(bodies[0].clientDeliveryId);
   });
 
-  it("reports skill preparation after creating a delivery", async () => {
+  it("reports software preparation after creating a delivery without claiming readiness", async () => {
     const fetchMock = vi.fn((input: RequestInfo | URL) => {
       if (String(input) === "/api/templates") return response({ templates: [] });
-      if (String(input) === "/api/deliveries") return response({ delivery: { skillsStatus: "pending", skillsError: null } }, 201);
+      if (String(input) === "/api/deliveries") return response({ delivery: { status: "pending", skillsStatus: "ready", skillsError: null, softwareStatus: "pending", softwareError: null } }, 201);
       throw new Error(`Unexpected ${String(input)}`);
     });
     vi.stubGlobal("fetch", fetchMock);
@@ -141,7 +157,7 @@ describe("account delivery", () => {
     render(<DeliverySettings companionId="c1" />);
     await user.type(screen.getByRole("textbox", { name: "Client email" }), "client@example.com");
     await user.click(screen.getByRole("button", { name: "Send invitation" }));
-    expect(await screen.findByText("Preparing skills… Follow progress in Account.")).toBeInTheDocument();
+    expect(await screen.findByText("Preparing software… Follow progress in Account.")).toBeInTheDocument();
     expect(screen.queryByText(/invitation sent/i)).not.toBeInTheDocument();
   });
 });
@@ -182,6 +198,19 @@ describe("desktop control", () => {
 });
 
 describe("specialist profile history", () => {
+  it("shows a plain preparation status for a profile with pinned software", async () => {
+    vi.stubGlobal("fetch", vi.fn((input: RequestInfo | URL) => {
+      const path = String(input);
+      if (path === "/api/templates") return response({ templates: [{ id: "t1", name: "Researcher", instructions: "Current", avatar: { shape: 0, color: 0, face: 0 }, revision: 2, sourceCompanionId: null, softwareBuildId: "b1", softwareResultId: null, hasSnapshot: false }] });
+      if (path === "/api/companions/c1/replicas") return response({ replicas: [] });
+      if (path === "/api/templates/t1/revisions") return response({ revisions: [] });
+      if (path === "/api/templates/t1/software/status") return response({ templateId: "t1", templateRevision: 2, build: { id: "b1", status: "installing", verified: false, errorCode: null }, result: null });
+      throw new Error(`Unexpected ${path}`);
+    }));
+    render(<SpecialistsSettings companionId="c1" />);
+    expect(await screen.findByText("Software is being prepared.")).toBeInTheDocument();
+  });
+
   it("restores a selected immutable revision and shows a concurrent-change conflict", async () => {
     const fetchMock = vi.fn((input: RequestInfo | URL, options?: RequestInit) => {
       const path = String(input);

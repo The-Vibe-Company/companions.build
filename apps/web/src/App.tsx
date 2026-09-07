@@ -171,12 +171,13 @@ function CreateCompanion({
   }, []);
 
   const selectedTemplate = templates.find(template => template.id === templateId);
+  const selectedTemplateNeedsBox = !!(selectedTemplate?.hasSnapshot || selectedTemplate?.softwareBuildId || selectedTemplate?.softwareResultId);
   function chooseTemplate(id: string) {
     setTemplateId(id);
     const template = templates.find(item => item.id === id);
     if (!template) return;
     setName(template.name); setInstructions(template.instructions); setAvatar(template.avatar);
-    if (template.hasSnapshot && config.boxAvailable) setProvider("box");
+    if ((template.hasSnapshot || template.softwareBuildId || template.softwareResultId) && config.boxAvailable) setProvider("box");
   }
 
   async function submit(event: FormEvent) {
@@ -213,7 +214,7 @@ function CreateCompanion({
       )}
       {compact && <h2>New Companion</h2>}
 
-      {templates.length > 0 && <div className="field template-source"><label htmlFor={compact ? "template-compact" : "template"}>Start from</label><select id={compact ? "template-compact" : "template"} value={templateId} onChange={event => chooseTemplate(event.target.value)}><option value="">Blank Companion</option>{templates.map(template => <option key={template.id} value={template.id} disabled={template.hasSnapshot && !config.boxAvailable}>{template.name} · v{template.revision}{template.hasSnapshot && !config.boxAvailable ? " · cloud unavailable" : ""}</option>)}</select><span className="field-hint">Templates prefill the mission and pin this Companion to the version shown.</span></div>}
+      {templates.length > 0 && <div className="field template-source"><label htmlFor={compact ? "template-compact" : "template"}>Start from</label><select id={compact ? "template-compact" : "template"} value={templateId} onChange={event => chooseTemplate(event.target.value)}><option value="">Blank Companion</option>{templates.map(template => {const needsBox=!!(template.hasSnapshot||template.softwareBuildId||template.softwareResultId);return <option key={template.id} value={template.id} disabled={needsBox&&!config.boxAvailable}>{template.name} · v{template.revision}{needsBox&&!config.boxAvailable ? " · cloud unavailable" : ""}</option>;})}</select><span className="field-hint">Templates prefill the mission and pin this Companion to the version shown.</span></div>}
 
       <AvatarPicker value={avatar} onChange={setAvatar} />
 
@@ -241,14 +242,14 @@ function CreateCompanion({
 
       <fieldset className="provider-picker">
         <legend>Computer</legend>
-        <label className={cn("provider-option", provider === "local" && "provider-option--selected", (!config.localAvailable || selectedTemplate?.hasSnapshot) && "provider-option--disabled")}>
+        <label className={cn("provider-option", provider === "local" && "provider-option--selected", (!config.localAvailable || selectedTemplateNeedsBox) && "provider-option--disabled")}>
           <input
             type="radio"
             name="provider"
             value="local"
             checked={provider === "local"}
             onChange={() => setProvider("local")}
-            disabled={!config.localAvailable || !!selectedTemplate?.hasSnapshot}
+            disabled={!config.localAvailable || selectedTemplateNeedsBox}
           />
           <Computer />
           <span><strong>Local</strong><small>Runs on this machine</small></span>

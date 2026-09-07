@@ -215,11 +215,13 @@ export interface Trigger { id: string; name: string; prompt: string; source: "ge
 export interface TriggerDelivery { id: string; eventName: string | null; payload: unknown; status: "received" | "evaluating" | "ignored" | "enqueued" | "error"; decision: string | null; errorCode: string | null; receivedAt: string; decidedAt: string | null; batchId: string | null; runId: string | null }
 export interface BillingOverview { configured: boolean; mode: "unconfigured" | "test" | "stripe"; plan: "inactive" | "subscription"; active: boolean; status: string | null; currentPeriodEnd: string | null; cancelAtPeriodEnd: boolean; portalAvailable: boolean; usage: Array<{ category: string; unit: string; quantity: string }> }
 export type DeliverySkillsStatus = "pending" | "ready" | "error";
-interface DeliveryState { status: "pending" | "accepted" | "revoked"; skillsStatus: DeliverySkillsStatus; skillsError: string | null; maintenanceRequested: boolean; expiresAt: string; acceptedAt: string | null; companionId: string | null }
+export type DeliverySoftwareStatus = "pending" | "ready" | "error";
+interface DeliveryState { status: "pending" | "accepted" | "revoked"; skillsStatus: DeliverySkillsStatus; skillsError: string | null; softwareStatus: DeliverySoftwareStatus; softwareError: string | null; maintenanceRequested: boolean; expiresAt: string; acceptedAt: string | null; companionId: string | null }
 export interface DeliverySent extends DeliveryState { id: string; clientEmail: string }
 export interface DeliveryReceived extends DeliveryState { id: string; name: string }
-export interface AgentTemplate { id: string; name: string; instructions: string; avatar: CompanionAvatarValue; revision: number; sourceCompanionId: string | null; hasSnapshot: boolean }
-export interface AgentTemplateRevision { revision: number; name: string; instructions: string; avatar: CompanionAvatarValue; snapshotName: string | null; sourceCompanionId: string | null; createdAt: string }
+export interface AgentTemplate { id: string; name: string; instructions: string; avatar: CompanionAvatarValue; revision: number; sourceCompanionId: string | null; softwareBuildId?: string | null; softwareResultId?: string | null; hasSnapshot: boolean }
+export interface AgentTemplateRevision { revision: number; name: string; instructions: string; avatar: CompanionAvatarValue; snapshotName: string | null; sourceCompanionId: string | null; softwareBuildId?: string | null; softwareResultId?: string | null; createdAt: string }
+export interface TemplateSoftwareStatus { templateId: string; templateRevision: number; build: null | { id: string; status: "queued" | "creating" | "resolving" | "installing" | "verifying" | "capturing" | "ready" | "failed"; verified: boolean; errorCode: string | null }; result: null | { id: string; verified: true } }
 export interface MaintenanceCompanion { id: string; name: string; avatar?: CompanionAvatarValue; status: string; error: string | null; grantId: string }
 export interface MaintenanceDetail { id: string; name: string; instructions: string; avatar?: CompanionAvatarValue; modelId: string | null; status: string; error: string | null; readyAt: string | null }
 export interface MaintenanceAction { id: string; operation: string; createdAt: string; status: string; error: string | null }
@@ -258,6 +260,7 @@ export const workspaceApi = {
   createTemplate: (input: Pick<AgentTemplate, "name" | "instructions" | "avatar">) => request<{ id: string; revision: number }>("/api/templates", { method: "POST", body: JSON.stringify(input) }),
   updateTemplate: (id: string, input: Pick<AgentTemplate, "name" | "instructions" | "avatar" | "revision">) => request<{ id: string; revision: number }>(`/api/templates/${id}`, { method: "PATCH", body: JSON.stringify({ name: input.name, instructions: input.instructions, avatar: input.avatar, expectedRevision: input.revision }) }),
   templateRevisions: (id: string) => request<{ revisions: AgentTemplateRevision[] }>(`/api/templates/${id}/revisions`),
+  templateSoftwareStatus: (id: string) => request<TemplateSoftwareStatus>(`/api/templates/${id}/software/status`),
   rollbackTemplate: (id: string, targetRevision: number, expectedRevision: number) => request<{ id: string; revision: number }>(`/api/templates/${id}/rollback`, { method: "POST", body: JSON.stringify({ targetRevision, expectedRevision }) }),
   setTemplatePermission: (companionId: string, templateId: string, maxChildren: number) => request<{ templateId: string; maxChildren: number }>(`/api/companions/${companionId}/templates/${templateId}`, { method: "PUT", body: JSON.stringify({ maxChildren }) }),
   replicas: (companionId: string) => request<{ replicas: Companion[] }>(`/api/companions/${companionId}/replicas`),

@@ -84,7 +84,7 @@ export class BoxClient {
     if (data?.success !== true || data.provisioning === true || typeof data.desktopUrl !== "string") throw new BoxError("desktop_invalid");
     let url: URL;
     try { url = new URL(data.desktopUrl); } catch { throw new BoxError("desktop_invalid"); }
-    if (url.protocol !== "https:" || url.username || url.password) throw new BoxError("desktop_invalid");
+    if (url.protocol !== "https:" || url.username || url.password || !url.searchParams.get("_token")) throw new BoxError("desktop_invalid");
     return url.href;
   }
   async snapshot(id: string, name: string) { return this.request("/named-snapshots", "POST", { boxId: id, name }); }

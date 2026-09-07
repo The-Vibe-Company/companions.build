@@ -136,6 +136,8 @@ test("desktop access stays private and only explicit provisioning remains pendin
 test("invalid desktop provider replies fail visibly without leaking payloads or pretending to prepare", async () => {
   for (const reply of [null, {}, { success: false }, { provisioning: "true" },
     { success: true }, { success: true, desktopUrl: "provider-private-payload" },
+    { success: true, desktopUrl: "https://fixture.invalid/vnc.html" },
+    { success: true, desktopUrl: "https://fixture.invalid/vnc.html?_token=" },
     { success: true, desktopUrl: "http://fixture.invalid/?_token=private" },
     { success: true, desktopUrl: "https://user:private@fixture.invalid/" },
     { success: true, provisioning: true, desktopUrl: "https://fixture.invalid/" },

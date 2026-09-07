@@ -1,0 +1,37 @@
+apps/web/src/components/LandingPage.tsx
+  s_f946242dcf6ba9::t_d63345ca275739 3,31,76,79,82,98
+  s_f946242dcf6ba9::t_fb35c7614e2ac7 1-2,4-30,32-75,77-78,80-81,83-97,99-105
+apps/web/src/components/LandingPage.css
+  s_f946242dcf6ba9::t_fb35c7614e2ac7 1-4,6-18,20-28,30-44,46-58,61-84,91-113,115-120,127-131,134-153
+  s_f946242dcf6ba9::t_0ee6bca13b4afa 5,87
+  s_f946242dcf6ba9::t_d63345ca275739 19,45,59-60,85-86,88-90
+  s_f946242dcf6ba9::t_214c07567c8b6d 29
+  s_f946242dcf6ba9::t_e596a07623b2d4 114,121-126,132-133
+apps/web/src/App.test.tsx
+  s_f946242dcf6ba9::t_e596a07623b2d4 597-610
+  s_f946242dcf6ba9::t_4c0ba9ead7c429 577
+apps/web/index.html
+  s_f946242dcf6ba9::t_fb35c7614e2ac7 7
+apps/web/src/components/LandingPage.test.tsx
+  s_f946242dcf6ba9::t_d63345ca275739 14,17-18
+  s_f946242dcf6ba9::t_0ee6bca13b4afa 19
+  s_f946242dcf6ba9::t_fb35c7614e2ac7 1-13,15-16,20-25
+apps/web/src/App.tsx
+  s_f946242dcf6ba9::t_fb35c7614e2ac7 61,726-732
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "f6d1570e317cd88b1e50186064b6fbf4f06eac8d",
+  "prompts": {},
+  "sessions": {
+    "s_f946242dcf6ba9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a06de4-a8a5-7cd3-b713-2a8d451f7200",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "StanGirard <stan@quivr.app>"
+    }
+  }
+}

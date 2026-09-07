@@ -1,0 +1,38 @@
+apps/server/src/migrate.ts
+  s_f946242dcf6ba9::t_eaeff5b6812b4c 1-8
+apps/server/src/worker.ts
+  s_f946242dcf6ba9::t_eaeff5b6812b4c 2,5
+package.json
+  s_f946242dcf6ba9::t_eaeff5b6812b4c 10
+apps/server/test/fixtures/migrate-startup-process.ts
+  s_f946242dcf6ba9::t_257b7d53ad90e6 1-15
+README.md
+  s_f946242dcf6ba9::t_3817e6419ec1c9 47-52
+apps/server/src/executor.ts
+  s_f946242dcf6ba9::t_eaeff5b6812b4c 2,13
+apps/server/src/store.ts
+  s_f946242dcf6ba9::t_eaeff5b6812b4c 5-15,17-19,21-26,41-48,51-67
+apps/server/src/api.ts
+  s_f946242dcf6ba9::t_eaeff5b6812b4c 11,144
+apps/server/test/migration-startup.test.ts
+  s_f946242dcf6ba9::t_257b7d53ad90e6 1,3-26,36
+  s_f946242dcf6ba9::t_f599da6ebe58af 2,27-35
+scripts/dev.py
+  s_f946242dcf6ba9::t_eaeff5b6812b4c 162-163
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "b1e616337dc0c67b5c8ff63408643a6560aa6601",
+  "prompts": {},
+  "sessions": {
+    "s_f946242dcf6ba9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a06de4-a8a5-7cd3-b713-2a8d451f7200",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "StanGirard <stan@quivr.app>"
+    }
+  }
+}

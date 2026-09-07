@@ -10,7 +10,7 @@ import type { ToolDefinition } from '@earendil-works/pi-coding-agent';
 import { z } from 'zod';
 import { pluginTools } from '../plugins/tools';
 import type { MachinePlugin } from '../plugins/catalog';
-import {AgentSkills} from './skills';
+import {AgentSkills,type SkillMutationCheckpoint} from './skills';
 
 const localSkillOperations=['skills','skill_install','skill_update','skill_remove'] as const;
 const operations=['history_search','identity','companion_create','models','configure','companions','routines','routine_save','routine_delete','routine_history','routine_test','plugins','plugin_select','plugin_catalog','plugin_connect','plugin_custom','plugin_check','plugin_disconnect','triggers','trigger_save','trigger_delete','trigger_test','trigger_history','delegate','task_status','task_answer','task_cancel','deliveries','delivery_prepare','maintenance','maintenance_inspect','maintenance_configure','maintenance_prepare','maintenance_task','maintenance_history','templates','template_permission','prepare','template_save','template_history','template_rollback','software_prepare','software_status','spawn','adopt_template','ask_user','desktop_takeover','desktop_release',...localSkillOperations] as const;
@@ -20,7 +20,7 @@ export class AgentControl {
   private readonly db:Database;
   private plugins:MachinePlugin[]=[];
   private generation='';
-  constructor(stateDir:string,private readonly skills=new AgentSkills(stateDir)) {
+  constructor(stateDir:string,private readonly skills=new AgentSkills(stateDir),private readonly afterLocalSkillMutation?:()=>void) {
     mkdirSync(stateDir,{recursive:true});
     this.db=new Database(join(stateDir,'control.sqlite'));
     this.db.exec(`PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL;
@@ -71,11 +71,17 @@ export class AgentControl {
     const id=typeof input==='object'&&input!==null&&'clientOperationId' in input?(input as any).clientOperationId:null;
     if(typeof id!=='string'||!/^[a-f0-9]{8}-[a-f0-9]{4}-[1-5][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i.test(id))return {error:'INVALID_SKILL_OPERATION'};
     const serialized=JSON.stringify(input),fingerprint=createHash('sha256').update(serialized).digest('hex');
-    const created=this.db.query('INSERT INTO local_requests(id,run_id,operation,input,created_at) VALUES(?,?,?,?,?) ON CONFLICT DO NOTHING').run(id,runId,operation,fingerprint,Date.now());
+    const checkpoint=operation==='skill_remove'?null:this.skills.mutationCheckpoint(input);
+    const storedInput=JSON.stringify({fingerprint,checkpoint});
+    const created=this.db.query('INSERT INTO local_requests(id,run_id,operation,input,created_at) VALUES(?,?,?,?,?) ON CONFLICT DO NOTHING').run(id,runId,operation,storedInput,Date.now());
     const row=this.db.query('SELECT run_id AS runId,operation,input,result,status FROM local_requests WHERE id=?').get(id) as any;
-    if(!row||row.runId!==runId||row.operation!==operation||row.input!==fingerprint)return {error:'SKILL_OPERATION_CONFLICT'};
+    const prior=localRequestInput(row?.input,fingerprint);
+    if(!row||row.runId!==runId||row.operation!==operation||!prior)return {error:'SKILL_OPERATION_CONFLICT'};
     if(!created.changes&&row.status==='done')return JSON.parse(row.result);
-    const result=this.skills.control(operation,input);
+    const result=!created.changes&&operation!=='skill_remove'&&prior.checkpoint
+      ?this.skills.reconcileMutation(operation,input,prior.checkpoint)
+      :this.skills.control(operation,input);
+    if(result&&typeof result==='object'&&!('error' in result))this.afterLocalSkillMutation?.();
     this.db.query("UPDATE local_requests SET result=?,status='done' WHERE id=? AND status='pending'").run(JSON.stringify(result),id);
     // Retain a bounded recent idempotency window. Removal has its own independent
     // 500-entry filesystem journal so a SQLite cleanup cannot delete a reinstallation.
@@ -95,4 +101,19 @@ export class AgentControl {
     return {tools:[tool,...plugins.tools],async close(){await plugins.close();await client.close();await server.close();}};
   }
   close(){this.db.close();}
+}
+
+function localRequestInput(raw:unknown,fingerprint:string):{checkpoint:SkillMutationCheckpoint|null}|null{
+  // The scalar form was written briefly by the first release. It has no recoverable checkpoint,
+  // but accepting it preserves completed request compatibility across an agent upgrade.
+  if(raw===fingerprint)return {checkpoint:null};
+  if(typeof raw!=='string')return null;
+  try{
+    const value=JSON.parse(raw);
+    if(value?.fingerprint!==fingerprint)return null;
+    const checkpoint=value.checkpoint;
+    if(checkpoint===null)return {checkpoint:null};
+    if(typeof checkpoint?.name!=='string'||(checkpoint.currentHash!==null&&typeof checkpoint.currentHash!=='string')||typeof checkpoint.targetHash!=='string'||typeof checkpoint.bundleHash!=='string')return null;
+    return {checkpoint};
+  }catch{return null;}
 }

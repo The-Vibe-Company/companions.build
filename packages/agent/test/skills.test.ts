@@ -154,3 +154,37 @@ test("control identity advertises the local skill schemas without sending mutati
     expect((await (await control.handleRequest(request("/control")))!.json() as any).requests).toEqual([]);
   }finally{control.close();}
 });
+
+test("a retry reconciles a crash after an install without repeating or changing its result",async()=>{
+  const directory=state(),skills=new AgentSkills(directory),runId=crypto.randomUUID(),clientOperationId=crypto.randomUUID();
+  const input={clientOperationId,skill:{name:"recovered",files:[file("SKILL.md","---\ndescription: Recovered.\n---\nInstalled")]}};
+  let fail=true;let control=new AgentControl(directory,skills,()=>{if(fail){fail=false;throw new Error("FAULT_AFTER_SKILL_MUTATION");}});
+  await expect(control.call(runId,"skill_install",input)).rejects.toThrow("FAULT_AFTER_SKILL_MUTATION");
+  expect(readFileSync(join(directory,"pi","skills","recovered","SKILL.md"),"utf8")).toContain("Installed");
+  control.close();control=new AgentControl(directory,skills);
+  try{
+    const recovered=await control.call(runId,"skill_install",input);
+    expect(recovered).toMatchObject({imported:["recovered"],unchanged:[]});
+    expect(await control.call(runId,"skill_install",input)).toEqual(recovered);
+  }finally{control.close();}
+});
+
+test("an ambiguous update retry never overwrites a newer reinstall",async()=>{
+  const directory=state(),skills=new AgentSkills(directory),runId=crypto.randomUUID();
+  const first={name:"writer",files:[file("SKILL.md","---\ndescription: Writes.\n---\nVersion one")]};
+  let control=new AgentControl(directory,skills);
+  await control.call(runId,"skill_install",{clientOperationId:crypto.randomUUID(),skill:first});
+  const firstHash=(await control.call(runId,"skills",{}) as any).skills[0].hash;control.close();
+  const second={name:"writer",files:[file("SKILL.md","---\ndescription: Writes.\n---\nVersion two")]};
+  const ambiguous={clientOperationId:crypto.randomUUID(),expectedHash:firstHash,skill:second};let fail=true;
+  control=new AgentControl(directory,skills,()=>{if(fail){fail=false;throw new Error("FAULT_AFTER_SKILL_MUTATION");}});
+  await expect(control.call(runId,"skill_update",ambiguous)).rejects.toThrow("FAULT_AFTER_SKILL_MUTATION");control.close();
+  const secondHash=(skills.control("skills",{}) as any).skills[0].hash;
+  const third={name:"writer",files:[file("SKILL.md","---\ndescription: Writes.\n---\nVersion three")]};
+  expect(skills.control("skill_update",{clientOperationId:crypto.randomUUID(),expectedHash:secondHash,skill:third})).toMatchObject({imported:["writer"]});
+  control=new AgentControl(directory,skills);
+  try{
+    expect(await control.call(runId,"skill_update",ambiguous)).toEqual({error:"SKILL_NAME_CONFLICT"});
+    expect(readFileSync(join(directory,"pi","skills","writer","SKILL.md"),"utf8")).toContain("Version three");
+  }finally{control.close();}
+});

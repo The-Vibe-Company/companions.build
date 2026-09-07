@@ -27,6 +27,10 @@ const SHAPES = [
   <path key="drop" d="M50 2S93 50 93 70C93 91 74 100 50 100S7 91 7 70C7 48 50 2 50 2Z" />,
 ];
 
+export function CompanionShape({ shape }: { shape:number }) {
+  return <svg viewBox="-4 -4 108 108" width="26" height="26" fill="none" stroke="#242622" strokeWidth="5" strokeLinejoin="round" aria-hidden="true">{SHAPES[shape] ?? SHAPES[0]}</svg>;
+}
+
 function Face({ face, dark }: { face: number; dark: boolean }) {
   const ink = "#242622";
   const stroke = { stroke: dark ? "white" : ink, strokeWidth: 3.6, strokeLinecap: "round" as const, fill: "none" };

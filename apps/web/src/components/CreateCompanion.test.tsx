@@ -33,7 +33,7 @@ function mockSetup() {
 async function enterBasics(user: ReturnType<typeof userEvent.setup>) {
   await screen.findByRole("heading", { name: "Linear" });
   await user.type(screen.getByLabelText("Name"), "Ada");
-  await user.type(screen.getByLabelText("Purpose"), "Research the market");
+  await user.type(screen.getByLabelText("Role"), "Research the market");
 }
 
 beforeEach(() => { window.sessionStorage.clear(); mockSetup(); });
@@ -51,6 +51,7 @@ describe("CreateCompanion", () => {
     expect(screen.getByText("0 of 2")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Color 6" }));
     await user.click(screen.getByRole("button", { name: "Shape 4" }));
+    await user.click(screen.getByText("More colors & expressions"));
     await user.click(screen.getByRole("button", { name: "Face 3" }));
     await user.click(screen.getByRole("checkbox", { name: "Work workspace" }));
     await user.click(screen.getByRole("checkbox", { name: /Researcher/ }));

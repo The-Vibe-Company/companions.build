@@ -1,5 +1,5 @@
 import { type FormEvent, useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
-import { Box, Check, ChevronRight, Computer, LoaderCircle, Plus, UsersRound } from "lucide-react";
+import { Box, Check, ChevronRight, Computer, LoaderCircle, Plus } from "lucide-react";
 import {
   api,
   ApiError,
@@ -14,6 +14,7 @@ import { AccountTiles } from "@/components/ApplicationAccess";
 import {
   AVATAR_COLORS,
   CompanionAvatar,
+  CompanionShape,
   DEFAULT_AVATAR,
   type CompanionAvatarValue,
 } from "@/components/CompanionAvatar";
@@ -243,7 +244,7 @@ export function CreateCompanion({ config, onCreated, compact = false, ownerId, o
 
   return <form className={cn("create-companion", compact && "create-companion--compact")} onSubmit={submit}>
     <section className="create-companion-preview" aria-label="Companion preview">
-      <CompanionAvatar name={name.trim() || "Your companion"} avatar={avatar} size={compact ? 150 : 184}/>
+      <CompanionAvatar name={name.trim() || "Your companion"} avatar={avatar} size={200}/>
       <div className="create-companion-preview-copy">
         <h2>{name.trim() || "Your companion"}</h2>
         <p>{instructions.trim() || "What would you like them to take care of?"}</p>
@@ -252,16 +253,16 @@ export function CreateCompanion({ config, onCreated, compact = false, ownerId, o
       <div id={appearanceId} className={cn("create-appearance-controls", appearanceExpanded && "is-expanded")}>
       <fieldset disabled={selectionLocked} className="create-avatar-choice create-avatar-colors">
         <legend>Color</legend>
-        <div>{AVATAR_COLORS.map((color, index) => <button key={color} type="button" aria-label={`Color ${index + 1}`} aria-pressed={avatar.color === index} onClick={() => setAvatar(current => ({ ...current, color: index }))}><span style={{ background: color }}/></button>)}</div>
+        <div>{[2, 4, 7, 5, 6, 9].map(index => <button key={index} type="button" aria-label={`Color ${index + 1}`} aria-pressed={avatar.color === index} onClick={() => setAvatar(current => ({ ...current, color: index }))}><span style={{ background: AVATAR_COLORS[index] }}/></button>)}</div>
       </fieldset>
       <fieldset disabled={selectionLocked} className="create-avatar-choice create-avatar-icons">
         <legend>Shape</legend>
-        <div>{Array.from({ length: 8 }, (_, shape) => <button key={shape} type="button" aria-label={`Shape ${shape + 1}`} aria-pressed={avatar.shape === shape} onClick={() => setAvatar(current => ({ ...current, shape }))}><CompanionAvatar name={`Shape ${shape + 1}`} avatar={{ ...avatar, shape, face: 0 }} size={32}/></button>)}</div>
+        <div>{Array.from({ length: 8 }, (_, shape) => <button key={shape} type="button" aria-label={`Shape ${shape + 1}`} aria-pressed={avatar.shape === shape} onClick={() => setAvatar(current => ({ ...current, shape }))}><CompanionShape shape={shape}/></button>)}</div>
       </fieldset>
-      <fieldset disabled={selectionLocked} className="create-avatar-choice create-avatar-icons">
+      <details className="create-face-options"><summary>More colors &amp; expressions</summary><fieldset disabled={selectionLocked} className="create-avatar-choice create-avatar-colors"><legend>More colors</legend><div>{[0, 1, 3, 8, 10].map(index => <button key={index} type="button" aria-label={`Color ${index + 1}`} aria-pressed={avatar.color === index} onClick={() => setAvatar(current => ({ ...current, color: index }))}><span style={{ background: AVATAR_COLORS[index] }}/></button>)}</div></fieldset><fieldset disabled={selectionLocked} className="create-avatar-choice create-avatar-icons">
         <legend>Face</legend>
         <div>{Array.from({ length: 5 }, (_, face) => <button key={face} type="button" aria-label={`Face ${face + 1}`} aria-pressed={avatar.face === face} onClick={() => setAvatar(current => ({ ...current, face }))}><CompanionAvatar name={`Face ${face + 1}`} avatar={{ ...avatar, face }} size={32}/></button>)}</div>
-      </fieldset>
+      </fieldset></details>
       </div>
     </section>
 
@@ -269,7 +270,7 @@ export function CreateCompanion({ config, onCreated, compact = false, ownerId, o
       <header><h1>{compact ? "New companion" : "Create your first Companion"}</h1></header>
       <div className="create-companion-basics">
         <div className="field"><label htmlFor="create-companion-name">Name</label><input id="create-companion-name" value={name} maxLength={80} disabled={selectionLocked} onChange={event => setName(event.target.value)} placeholder="Ada" autoFocus={!compact}/></div>
-        <div className="field"><label htmlFor="create-companion-purpose">Purpose</label><Textarea id="create-companion-purpose" value={instructions} maxLength={20_000} disabled={selectionLocked} onChange={event => setInstructions(event.target.value)} placeholder="Research customer questions and turn the findings into clear briefs." rows={3}/></div>
+        <div className="field"><label htmlFor="create-companion-purpose">Role</label><Textarea id="create-companion-purpose" value={instructions} maxLength={20_000} disabled={selectionLocked} onChange={event => setInstructions(event.target.value)} placeholder="Research customer questions and turn the findings into clear briefs." rows={1}/></div>
       </div>
 
       {loadingSetup ? <div className="create-setup-state" role="status"><LoaderCircle className="spin"/>Loading accounts and specialists…</div> : setupError ? <div className="create-setup-state create-setup-error" role="alert"><p>{setupError}</p><Button type="button" variant="outline" onClick={() => void loadSetup()}>Try again</Button></div> : <>
@@ -284,20 +285,22 @@ export function CreateCompanion({ config, onCreated, compact = false, ownerId, o
         </section>
       </>}
 
-      <details className="create-companion-advanced"><summary>Advanced <span>computer and starting profile</span><ChevronRight/></summary>
+      <div className="create-companion-footer">
+      <Button className="create-companion-submit" type="submit" aria-label={attempted ? "Resume setup" : "Create companion"} disabled={!canCreate || submitting}>
+        {submitting ? <LoaderCircle className="spin"/> : attempted ? <><Plus/>Resume setup</> : <>Create {name.trim() || "companion"}</>}
+      </Button>
+      <details className="create-companion-advanced"><summary>Advanced: computer, starting profile<ChevronRight/></summary>
         {templates.length > 0 && <div className="field"><label htmlFor="create-source-template">Start from</label><select id="create-source-template" value={sourceTemplateId} disabled={selectionLocked} onChange={event => chooseSourceTemplate(event.target.value)}><option value="">Blank companion</option>{templates.map(template => { const needsBox = Boolean(template.hasSnapshot || template.softwareBuildId || template.softwareResultId); return <option key={template.id} value={template.id} disabled={needsBox && !config.boxAvailable}>{template.name} · v{template.revision}{needsBox && !config.boxAvailable ? " · cloud unavailable" : ""}</option>; })}</select><span className="field-hint">Pins this companion to the profile version shown. Team access is selected separately above.</span></div>}
         <fieldset className="create-provider-picker" disabled={selectionLocked}><legend>Computer</legend>
           <label className={cn(provider === "local" && "is-selected", (!config.localAvailable || sourceNeedsBox) && "is-disabled")}><input type="radio" name="create-provider" checked={provider === "local"} disabled={!config.localAvailable || sourceNeedsBox} onChange={() => setProvider("local")}/><Computer/><span><strong>Local</strong><small>Runs on this machine</small></span>{provider === "local" && <Check/>}</label>
           <label className={cn(provider === "box" && "is-selected", !config.boxAvailable && "is-disabled")}><input type="radio" name="create-provider" checked={provider === "box"} disabled={!config.boxAvailable} onChange={() => setProvider("box")}/><Box/><span><strong>Box</strong><small>Persistent cloud computer</small></span>{provider === "box" && <Check/>}</label>
         </fieldset>
-      </details>
+      </details></div>
       {attempted && !submitting && error && <p className="create-lock-note">Setup is locked so retrying cannot create a different companion.</p>}
       {mayLeaveToResolve && <p className="create-lock-note">You can leave this page to resolve the account issue, then return to resume this exact setup.</p>}
       {error && <p className="field-error" role="alert">{error}</p>}
       {createdId && error && <Button type="button" variant="outline" onClick={() => createdCompanion.current && finishSetup(createdCompanion.current)}>Open companion and finish later</Button>}
-      <Button className="create-companion-submit" type="submit" disabled={!canCreate || submitting}>
-        {submitting ? <LoaderCircle className="spin"/> : attempted ? <><Plus/>Resume setup</> : <><UsersRound/>Create companion</>}
-      </Button>
+
     </section>
   </form>;
 }

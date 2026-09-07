@@ -1,11 +1,5 @@
 import {
   ArrowUp,
-  Blocks,
-  Clock3,
-  MessageCircle,
-  Settings,
-  UsersRound,
-  Activity,
   Box,
   Check,
   ChevronRight,
@@ -34,6 +28,7 @@ import {
 } from "@/components/ai-elements/conversation";
 import { Message, MessageContent, MessageResponse } from "@/components/ai-elements/message";
 import { Button } from "@/components/ui/button";
+import { CompanionHeader, type CompanionSection } from "@/components/CompanionHeader";
 import { ApplicationAccess } from "@/components/ApplicationAccess";
 import { ConnectionActions } from "@/components/ConnectionActions";
 import { Textarea } from "@/components/ui/textarea";
@@ -207,7 +202,7 @@ function Sidebar({
           ))}
         </nav>
         <div className="rail-create"><details className="create-menu" onBlur={event => { if (!event.currentTarget.contains(event.relatedTarget as Node)) event.currentTarget.open = false; }} onKeyDown={event => { if (event.key === 'Escape') { event.currentTarget.open = false; event.currentTarget.querySelector('summary')?.focus(); } }}><summary aria-label="Create"><Plus /></summary><div className="create-popover"><button onClick={event => { event.currentTarget.closest('details')?.removeAttribute('open'); onCreate(); }}>New Companion</button><button onClick={event => { event.currentTarget.closest('details')?.removeAttribute('open'); onCreateTeam(); }}>Create a team</button></div></details></div>
-        <nav className="rail-library" aria-label="Workspace"><button aria-current={currentPath === "/specialists" ? "page" : undefined} onClick={() => onNavigate("/specialists")}><UsersRound /><span>Specialists</span></button><button aria-current={currentPath === "/connections" ? "page" : undefined} onClick={() => onNavigate("/connections")}><Blocks /><span>Apps</span></button></nav>
+        <nav className="rail-library" aria-label="Workspace"><button aria-current={currentPath === "/specialists" ? "page" : undefined} onClick={() => onNavigate("/specialists")}><svg viewBox="0 0 60 44" className="rail-specialists-mark" aria-hidden="true"><path d="M18 4a14 14 0 1 0 0 28a14 14 0 1 0 0-28Z" fill="var(--background)" stroke="#242622" strokeWidth="3"/><path d="M30 8h22a6 6 0 0 1 6 6v18a6 6 0 0 1-6 6H30Z" fill="var(--background)" stroke="#242622" strokeWidth="3"/><g fill="#242622"><circle cx="14" cy="17" r="2.2"/><circle cx="22" cy="17" r="2.2"/><circle cx="39" cy="21" r="2.2"/><circle cx="49" cy="21" r="2.2"/></g></svg><span>Specialists</span></button><button aria-current={currentPath === "/connections" ? "page" : undefined} onClick={() => onNavigate("/connections")}><svg className="rail-apps-mark" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true"><rect x="3" y="3" width="7.5" height="7.5" rx="2"/><rect x="13.5" y="3" width="7.5" height="7.5" rx="2"/><rect x="3" y="13.5" width="7.5" height="7.5" rx="2"/><rect x="13.5" y="13.5" width="7.5" height="7.5" rx="2"/></svg><span>Apps</span></button></nav>
         <details className="account-menu" onBlur={event=>{if(!event.currentTarget.contains(event.relatedTarget as Node))event.currentTarget.open=false;}} onKeyDown={event=>{if(event.key==='Escape'){event.currentTarget.open=false;event.currentTarget.querySelector('summary')?.focus();}}}>
           <summary aria-label="Your account"><span className="account-initial">{user.email.slice(0,1).toUpperCase()}</span><span className="sr-only">Your account</span></summary>
           <div className="account-popover"><p>{user.email}</p><button onClick={event=>{event.currentTarget.closest('details')?.removeAttribute('open');onNavigate('/connections');}}><Waypoints/>Connections</button><button onClick={event=>{event.currentTarget.closest('details')?.removeAttribute('open');onNavigate('/account');}}><UserRound/>Account & subscription</button></div>
@@ -374,7 +369,6 @@ function Chat({ detail, onRefresh, onUnauthorized, onOpenCompanion, readOnly = f
 type NavigationGuard = (action: () => void, updateHistory?: boolean) => boolean;
 
 function CompanionView({ detail, models, onRefresh, onUnauthorized, onMenu, onOpenCompanion, onDeleted, onRegisterNavigationGuard, onLocationChange, refreshVersion, onNavigate }: { onNavigate: (path: string) => void; detail: CompanionDetail; models: Array<{ id: string; name: string }>; onDeleted: (ids: string[]) => void; onRefresh: () => Promise<void>; onUnauthorized: () => void; onMenu: () => void; onOpenCompanion: (id: string) => void; onRegisterNavigationGuard: (guard: NavigationGuard | null) => void; onLocationChange: (location: string) => void; refreshVersion: number }) {
-  type CompanionSection = 'chat' | 'automations' | 'team' | 'activity' | 'computer' | 'applications' | 'settings';
   const finished = Boolean(detail.companion.retiredAt);
   const readView = (): CompanionSection => {
     const value = new URLSearchParams(window.location.search).get('view');
@@ -383,13 +377,6 @@ function CompanionView({ detail, models, onRefresh, onUnauthorized, onMenu, onOp
     return value === 'team' || value === 'automations' || value === 'activity' || value === 'computer' || value === 'applications' || value === 'settings' ? value : 'chat';
   };
   const [view, setView] = useState(readView);
-  const sectionNavigation = useRef<HTMLElement>(null);
-  useEffect(() => {
-    const revealCurrentSection = () => sectionNavigation.current?.querySelector<HTMLElement>('[aria-current="page"]')?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
-    revealCurrentSection();
-    window.addEventListener('resize', revealCurrentSection);
-    return () => window.removeEventListener('resize', revealCurrentSection);
-  }, [view]);
   const [settingsVisited, setSettingsVisited] = useState(() => readView() === 'settings');
   const settingsRef = useRef<SettingsSheetHandle>(null);
   useEffect(() => { const restore = () => { const restoredView = readView(); setView(restoredView); if (restoredView === 'settings') setSettingsVisited(true); }; window.addEventListener('popstate', restore); return () => window.removeEventListener('popstate', restore); }, []);
@@ -415,26 +402,10 @@ function CompanionView({ detail, models, onRefresh, onUnauthorized, onMenu, onOp
     });
     return () => onRegisterNavigationGuard(null);
   }, [onRegisterNavigationGuard]);
-  const displayedStatus = finished ? "archived" : detail.companion.status;
 
   return (
     <main className="workspace" id="main-content">
-      <header className="chat-header">
-        <Button className="mobile-menu" variant="ghost" size="icon" onClick={onMenu} aria-label="Open navigation"><Menu /></Button>
-        <button className="header-identity identity-link" disabled={finished} aria-label={`Edit ${detail.companion.name}'s personality`} onClick={() => changeView('settings')}>
-          <CompanionAvatar name={detail.companion.name} avatar={detail.companion.avatar} size={38} />
-          <div><h1>{detail.companion.name}</h1><span className="header-purpose">{finished ? "Finished specialist" : detail.companion.instructions || statusLabel(displayedStatus)}</span></div>
-        </button>
-        <div className="header-actions">
-          {!!detail.questions?.length && !finished && <Button variant="ghost" size="sm" onClick={() => changeView('chat')} aria-label="Answer pending questions"><CircleAlert /><span>Needs you</span></Button>}
-        </div>
-        <nav ref={sectionNavigation} className="companion-sections" aria-label="Companion sections">
-          <button aria-label="Discussion" aria-current={view === 'chat' ? 'page' : undefined} onClick={() => changeView('chat')}><MessageCircle /><span>Discussion</span></button>
-          {!finished && <><button aria-label="Team" aria-current={view === 'team' ? 'page' : undefined} onClick={() => changeView('team')}><UsersRound /><span>Team</span></button><button aria-label="Automations" aria-current={view === 'automations' ? 'page' : undefined} onClick={() => changeView('automations')}><Clock3 /><span>Automations</span></button></>}
-          <button aria-label="Activity" aria-current={view === 'activity' ? 'page' : undefined} onClick={() => changeView('activity')}><Activity /><span>Activity</span>{detail.runs.some(run => isActiveRun(run.status)) && <span className="nav-live-dot" aria-label="Work in progress" />}</button>
-          {!finished && <><button aria-label="Applications" aria-current={view === 'applications' ? 'page' : undefined} onClick={() => changeView('applications')}><Blocks /><span>Apps</span></button>{detail.companion.provider === 'box' && <button className="nav-icon" title="Computer" aria-label="Computer" aria-current={view === 'computer' ? 'page' : undefined} onClick={() => changeView('computer')}><Computer /></button>}<button className="nav-icon" title="Settings" aria-label="Settings" aria-current={view === 'settings' ? 'page' : undefined} onClick={() => changeView('settings')}><Settings /></button></>}
-        </nav>
-      </header>
+      <CompanionHeader detail={detail} section={view} refreshVersion={refreshVersion} onSection={changeView} onMenu={onMenu} />
       <div className="workspace-body" hidden={view !== 'chat'}>
         <Chat detail={detail} onRefresh={onRefresh} onUnauthorized={onUnauthorized} onOpenCompanion={onOpenCompanion} readOnly={finished} />
       </div>

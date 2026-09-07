@@ -21,10 +21,12 @@ The desktop rail is 96px wide: home, companion avatars with persisted status, cr
 Specialists, Apps and account access. Names remain accessible and appear as native hover titles.
 On mobile the rail opens from the menu and has an explicit close control and backdrop.
 
-Each companion has one row of pill controls: Discussion, Team, Automations, Activity, Apps,
-Computer when available, and Settings. The row scrolls on narrow screens and reveals the current
-section after navigation or a resize. The identity retains its shortcut to Settings. URL history
-and direct links keep their existing meanings. There are no tabs inside Settings.
+Each companion follows the reference header: identity on the left; Team with allowed profile
+avatars/count, Automations with enabled count/next scheduled fire, and Activity with actual state
+on the right, followed by a circular Settings action. Missing summaries stay absent instead of
+showing invented counts. Clicking the identity returns to Discussion. Apps and Computer remain
+accessible in Settings; Apps also has a workspace rail entry. URL history and direct links keep
+their existing meanings. Narrow screens scroll the control row. There are no nested tabs.
 
 ## Main surfaces
 
@@ -32,10 +34,10 @@ The discussion uses aligned avatar/content rows for both participants, with auth
 one line. Markdown, streamed output, attachments, questions, task links and cancellation remain
 functional. The composer is a white rounded rectangle with a circular send action.
 
-Settings places identity and Save together, then a compact appearance disclosure, granted
+Settings places identity and Save together, with the avatar pencil revealing appearance controls, then granted
 application accounts, computer/model and client delivery, and deletion. Appearance and model
 changes belong to one form. Dirty fields survive section changes and exits require a deliberate
-discard; only changed fields are patched. Applications can also be opened directly in the header.
+discard; only changed fields are patched. Applications and Computer keep their direct URLs. Client delivery is visible inline.
 
 Application tiles group real connected accounts by provider. Each account grants access separately.
 Writes are serialized and the persisted selection is re-read after both success and failure;
@@ -59,3 +61,17 @@ purposes, multiple accounts of one provider, loading/error states, unsaved forms
 Visual work never needs to start a Box. Local preview and browser artifacts stay private in `.local`.
 Behavior coverage should protect grants, drafts, version conflicts and partial setup recovery rather
 than assert the exact CSS structure of a screenshot.
+
+The Create screen uses a 440px preview column and 200px character on desktop, 64px form insets,
+two equal identity fields, three account columns and inline Create/Advanced actions. Six main
+swatches and outline silhouettes match the reference; extra colors and expressions remain in a
+small disclosure. Mobile stacks the panels and preserves 44px interaction targets.
+
+### Reference fidelity verification — 2026-09-07
+
+Compared the supplied HTML reference and authenticated local UI at 1440×900: Discussion header,
+Create, Settings, and Specialists (including inline editor). Checked 390×844 responsive layouts
+and header access without document overflow. Saved drafts, guarded exits, creation retry and
+account grants remain covered by the web suite: 124 tests passed with one worker. Production
+web build passed. Reference fixtures were not copied into product data; profile-level account
+grants and usage statuses remain absent where the API does not provide them. No Box was launched.

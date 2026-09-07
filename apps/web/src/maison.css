@@ -233,7 +233,25 @@ button,a,input,textarea,select{transition:background-color 160ms ease,color 160m
  .connections-inner .provider-list { grid-template-columns:1fr; }
 }
 
-.settings-page .settings-identity-row textarea { min-height:66px; height:66px; }
-@media(max-width:760px) { .settings-page .settings-identity-row textarea { min-height:66px; height:66px; } }
+.settings-page .settings-identity-row textarea { min-height:46px; height:46px; resize:none; box-shadow:none; }
+@media(max-width:760px) { .settings-page .settings-identity-row textarea { min-height:46px; height:46px; resize:none; box-shadow:none; } }
 
 @media(max-width:760px) { .rail-create .create-menu summary { width:44px; height:44px; } }
+
+.rail-library button>.rail-specialists-mark { width:44px; height:32px; }
+.rail-library button>.rail-apps-mark { width:30px; height:30px; }
+
+.settings-applications { position:relative; }
+.settings-applications .application-access-meta { position:absolute; right:0; top:20px; }
+.settings-applications .application-access-meta>span { display:none; }
+.settings-applications .account-tile header { grid-template-columns:18px minmax(0,1fr); }
+.settings-applications .account-tile header>span:last-child { display:none; }
+.settings-applications .account-tile { padding:11px 12px 10px; }
+.settings-applications .account-grant { min-height:24px; }
+.delivery-profiles { margin-top:10px; font-size:12px; color:var(--muted-foreground); }
+.delivery-profiles>summary { cursor:pointer; }
+@media(max-width:760px) {
+ .settings-applications .application-access-meta { position:static; }
+ .settings-applications .account-grant { min-height:44px; }
+ .delivery-profiles>summary { min-height:44px; display:flex; align-items:center; }
+}

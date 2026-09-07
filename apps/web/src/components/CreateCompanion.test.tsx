@@ -1,7 +1,7 @@
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { api, workspaceApi, type AgentTemplate, type Companion, type PluginAccount } from "@/api";
+import { api, ApiError, workspaceApi, type AgentTemplate, type Companion, type PluginAccount } from "@/api";
 import { CreateCompanion } from "./CreateCompanion";
 
 const companion: Companion = {
@@ -183,6 +183,26 @@ describe("CreateCompanion", () => {
     resolveCreate({ companion });
     await new Promise(resolve => setTimeout(resolve, 0));
     expect(onCreated).not.toHaveBeenCalled();
+  });
+
+  it("releases navigation after a definite activation rejection and retries the exact request", async () => {
+    const user = userEvent.setup();
+    const onSetupLockedChange = vi.fn();
+    const create = vi.spyOn(api, "createCompanion")
+      .mockRejectedValueOnce(new ApiError("Activate your account to create a companion.", 402))
+      .mockResolvedValueOnce({ companion });
+    const onCreated = vi.fn();
+    render(<CreateCompanion config={config} ownerId="owner-1" onCreated={onCreated} onSetupLockedChange={onSetupLockedChange}/>);
+    await enterBasics(user);
+    await user.click(screen.getByRole("button", { name: "Create companion" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Activate your account");
+    expect(screen.getByText(/leave this page to resolve the account issue/i)).toBeInTheDocument();
+    expect(onSetupLockedChange).toHaveBeenLastCalledWith(false);
+    expect(screen.getByLabelText("Name")).toBeDisabled();
+    await user.click(screen.getByRole("button", { name: "Resume setup" }));
+    await waitFor(() => expect(onCreated).toHaveBeenCalledWith(companion));
+    expect(create.mock.calls[0][0]).toEqual(create.mock.calls[1][0]);
   });
 
   it("keeps creation unavailable when setup choices fail and loads them on retry", async () => {

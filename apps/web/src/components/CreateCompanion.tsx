@@ -2,6 +2,7 @@ import { type FormEvent, useCallback, useEffect, useId, useMemo, useRef, useStat
 import { Box, Check, ChevronRight, Computer, LoaderCircle, Plus, UsersRound } from "lucide-react";
 import {
   api,
+  ApiError,
   workspaceApi,
   type AgentTemplate,
   type AppConfig,
@@ -74,6 +75,7 @@ export function CreateCompanion({ config, onCreated, compact = false, ownerId, o
   const [attempted, setAttempted] = useState(Boolean(restored.current));
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
+  const [mayLeaveToResolve, setMayLeaveToResolve] = useState(false);
   const [createdId, setCreatedId] = useState(restored.current?.createdCompanionId ?? "");
   const creationId = useRef(restored.current?.request.clientCreationId ?? crypto.randomUUID());
   const frozenCreation = useRef<FrozenCreation | null>(restored.current?.request ?? null);
@@ -186,6 +188,7 @@ export function CreateCompanion({ config, onCreated, compact = false, ownerId, o
     setupLockCallback.current?.(true);
     setSubmitting(true);
     setError("");
+    setMayLeaveToResolve(false);
     if (!frozenCreation.current) {
       frozenCreation.current = {
         name: name.trim(),
@@ -223,7 +226,13 @@ export function CreateCompanion({ config, onCreated, compact = false, ownerId, o
       }
       finishSetup(companion);
     } catch (cause) {
-      if (mounted.current) setError(failureMessage(cause, "Could not finish creating this companion."));
+      if (mounted.current) {
+        setError(failureMessage(cause, "Could not finish creating this companion."));
+        if (!createdCompanion.current && cause instanceof ApiError && [400, 401, 402, 403, 404, 409].includes(cause.status)) {
+          setMayLeaveToResolve(true);
+          setupLockCallback.current?.(false);
+        }
+      }
     } finally {
       submissionPending.current = false;
       if (mounted.current) setSubmitting(false);
@@ -283,6 +292,7 @@ export function CreateCompanion({ config, onCreated, compact = false, ownerId, o
         </fieldset>
       </details>
       {attempted && !submitting && error && <p className="create-lock-note">Setup is locked so retrying cannot create a different companion.</p>}
+      {mayLeaveToResolve && <p className="create-lock-note">You can leave this page to resolve the account issue, then return to resume this exact setup.</p>}
       {error && <p className="field-error" role="alert">{error}</p>}
       {createdId && error && <Button type="button" variant="outline" onClick={() => createdCompanion.current && finishSetup(createdCompanion.current)}>Open companion and finish later</Button>}
       <Button className="create-companion-submit" type="submit" disabled={!canCreate || submitting}>

@@ -261,7 +261,11 @@ async function admitIncoming(row:any,sql:Database){
  return sql.begin(async(tx:Database)=>{
   const [companion]=await tx`SELECT id,owner_id FROM companions WHERE id=${row.companion_id} AND retired_at IS NULL AND archive_requested_at IS NULL FOR UPDATE`;
   const [current]=await tx`SELECT * FROM companion_mail_messages WHERE id=${row.id} AND state='ready' AND run_id IS NULL FOR UPDATE`;
-  if(!companion||!current||!await ownerMayStartWork(companion.owner_id))return;
+  if(!current)return;
+  if(!companion){await tx`UPDATE companion_mail_messages SET state='ignored',error_code='companion_unavailable' WHERE id=${current.id}`;return;}
+  if(!await ownerMayStartWork(companion.owner_id)){await tx`UPDATE companion_mail_messages SET state='failed',error_code='subscription_required' WHERE id=${current.id}`;return;}
+  const [allowed]=await tx`SELECT 1 FROM "user" u WHERE u.id=${companion.owner_id} AND (lower(u.email)=${current.sender} OR EXISTS(SELECT 1 FROM companion_mail_senders s WHERE s.companion_id=${row.companion_id} AND s.email=${current.sender}) OR EXISTS(SELECT 1 FROM companion_mail_thread_grants g WHERE g.thread_id=${current.thread_id} AND g.email=${current.sender}))`;
+  if(!allowed){await tx`UPDATE companion_mail_messages SET state='ignored',error_code=null WHERE id=${current.id}`;return;}
   // One task per message; context is taken exclusively from this mail thread.
   const previous=await tx`SELECT direction,sender,subject,body_text FROM companion_mail_messages WHERE thread_id=${current.thread_id} AND id<>${current.id} AND state IN ('ready','sent') ORDER BY received_at DESC LIMIT 6`;
   const history=previous.reverse().map((m:any)=>`${m.direction} ${m.sender}: ${m.body_text.slice(0,2000)}`).join('\n\n');
@@ -274,7 +278,8 @@ export async function claimMailSend(sql:Database=db){
  return sql.begin(async(tx:Database)=>{
   // Account quota is locked before the message to serialize cross-companion sends.
   const [candidate]=await tx`SELECT m.id,b.owner_id FROM companion_mail_messages m JOIN companion_mailboxes b ON b.companion_id=m.companion_id JOIN companions c ON c.id=m.companion_id WHERE m.state='queued' AND (m.send_after IS NULL OR m.send_after<=now()) AND c.retired_at IS NULL AND c.archive_requested_at IS NULL ORDER BY m.received_at,m.id LIMIT 1`;
-  if(!candidate||!await ownerMayStartWork(candidate.owner_id))return null;
+  if(!candidate)return null;
+  if(!await ownerMayStartWork(candidate.owner_id)){await tx`UPDATE companion_mail_messages SET state='failed',error_code='subscription_required' WHERE id=${candidate.id} AND state='queued'`;return null;}
   const [active]=await tx`SELECT c.id FROM companions c JOIN companion_mail_messages m ON m.companion_id=c.id WHERE m.id=${candidate.id} AND c.retired_at IS NULL AND c.archive_requested_at IS NULL FOR UPDATE OF c`;
   if(!active)return null;
   await tx`INSERT INTO companion_mail_quota(owner_id,day,used) VALUES(${candidate.owner_id},(now() AT TIME ZONE 'UTC')::date,0) ON CONFLICT DO NOTHING`;
@@ -284,19 +289,30 @@ export async function claimMailSend(sql:Database=db){
   const count=recipients({to:row.recipients,cc:row.cc,bcc:row.bcc}).length;
   if(quota.used+count>50){await tx`UPDATE companion_mail_messages SET state='quota_exceeded',error_code='daily_recipient_limit' WHERE id=${row.id}`;return null;}
   await tx`UPDATE companion_mail_quota SET used=used+${count} WHERE owner_id=${candidate.owner_id} AND day=(now() AT TIME ZONE 'UTC')::date`;
-  await tx`UPDATE companion_mail_messages SET state='sending',attempted_at=now() WHERE id=${row.id}`;
-  return {...row,owner_id:candidate.owner_id};
+  const [claim]=await tx`UPDATE companion_mail_messages SET state='sending',attempted_at=now() WHERE id=${row.id} RETURNING attempted_at::text AS claimed_at`;
+  return {...row,...claim,owner_id:candidate.owner_id};
+ });
+}
+async function releaseUnsentClaim(row:any,sql:Database,state:string='queued',error:string|null=null){
+ return sql.begin(async(tx:Database)=>{
+  // Follow send-claim lock order. Refund only this exact, still-unsubmitted attempt.
+  await tx`SELECT used FROM companion_mail_quota WHERE owner_id=${row.owner_id} AND day=(${row.claimed_at}::timestamptz AT TIME ZONE 'UTC')::date FOR UPDATE`;
+  const changed=await tx`UPDATE companion_mail_messages SET state=${state},error_code=${error},attempted_at=null WHERE id=${row.id} AND state='sending' AND attempted_at=${row.claimed_at}::timestamptz RETURNING id`;
+  if(changed.length)await tx`UPDATE companion_mail_quota SET used=used-${recipients({to:row.recipients,cc:row.cc,bcc:row.bcc}).length} WHERE owner_id=${row.owner_id} AND day=(${row.claimed_at}::timestamptz AT TIME ZONE 'UTC')::date`;
  });
 }
 async function sendClaimedMail(row:any,dependencies:MailWorkerDependencies){
  const sql=dependencies.database??db;
+ let submitted=false;
  try{
   await dependencies.assertActive?.();
-  if(!await ownerMayStartWork(row.owner_id)){await sql`UPDATE companion_mail_messages SET state='failed',error_code='subscription_required' WHERE id=${row.id} AND state='sending'`;return;}
+  if(!await ownerMayStartWork(row.owner_id)){await releaseUnsentClaim(row,sql,'failed','subscription_required');return;}
   const [active]=await sql`SELECT c.id FROM companions c JOIN companion_mail_messages m ON m.companion_id=c.id WHERE m.id=${row.id} AND m.state='sending' AND c.retired_at IS NULL AND c.archive_requested_at IS NULL`;
-  if(!active){await sql`UPDATE companion_mail_messages SET state='cancelled',error_code='companion_unavailable' WHERE id=${row.id} AND state='sending'`;return;}
+  if(!active){await releaseUnsentClaim(row,sql,'cancelled','companion_unavailable');return;}
   const [parent]=await sql`SELECT message_id FROM companion_mail_messages WHERE thread_id=${row.thread_id} AND direction='inbound' AND message_id IS NOT NULL ORDER BY received_at DESC LIMIT 1`;
   const replyTo=row.sender.replace('@',`+${row.reply_token}@`);
+  await dependencies.assertActive?.();
+  submitted=true;
   const response=await (dependencies.fetch??fetch)('https://api.resend.com/emails',{method:'POST',redirect:'error',signal:AbortSignal.timeout(20_000),headers:{authorization:`Bearer ${dependencies.apiKey??process.env.RESEND_API_KEY}`,'content-type':'application/json','idempotency-key':`companion-mail/${row.id}`},body:JSON.stringify({from:row.sender,to:row.recipients,cc:row.cc,bcc:row.bcc,subject:row.subject,text:row.body_text,html:row.body_html,reply_to:replyTo,headers:{'Auto-Submitted':parent?'auto-replied':'auto-generated',...(parent?{'In-Reply-To':parent.message_id,'References':parent.message_id}:{})},attachments:row.attachments.map((a:any)=>({filename:a.filename,content:a.content,content_type:a.contentType})),tags:[{name:'companion_mail_id',value:row.id}]})});
   if(!response.ok){await sql`UPDATE companion_mail_messages SET state=${response.status>=500?'ambiguous':'failed'},error_code='mail_delivery_failed' WHERE id=${row.id} AND state='sending'`;return;}
   const result=JSON.parse((await boundedBody(response,16*1024)).toString('utf8'));
@@ -305,7 +321,7 @@ async function sendClaimedMail(row:any,dependencies:MailWorkerDependencies){
    await tx`UPDATE companion_mail_messages SET state='sent',provider_id=${providerId},error_code=null WHERE id=${row.id} AND state IN ('sending','ambiguous')`;
    for(const address of recipients({to:row.recipients,cc:row.cc,bcc:row.bcc}))await tx`INSERT INTO companion_mail_thread_grants(thread_id,email) VALUES(${row.thread_id},${address}) ON CONFLICT DO NOTHING`;
   });
- }catch{await sql`UPDATE companion_mail_messages SET state='ambiguous',error_code='mail_delivery_uncertain' WHERE id=${row.id} AND state='sending'`;}
+ }catch{if(!submitted)await releaseUnsentClaim(row,sql);else await sql`UPDATE companion_mail_messages SET state='ambiguous',error_code='mail_delivery_uncertain' WHERE id=${row.id} AND state='sending'`;}
 }
 /** Executor only. Durable GETs may retry; sending/ambiguous messages are never replayed. */
 export async function tickCompanionMail(dependencies:MailWorkerDependencies={}){
@@ -323,7 +339,12 @@ export async function tickCompanionMail(dependencies:MailWorkerDependencies={}){
  const ready=await sql`SELECT * FROM companion_mail_messages WHERE state='ready' AND run_id IS NULL ORDER BY received_at LIMIT 5`;
  for(const row of ready)await admitIncoming(row,sql);
  const completed=await sql`SELECT m.*,r.result_text FROM companion_mail_messages m JOIN runs r ON r.id=m.run_id WHERE m.direction='inbound' AND m.state='ready' AND r.status='succeeded' AND length(btrim(COALESCE(r.result_text,'')))>0 AND NOT EXISTS(SELECT 1 FROM companion_mail_messages o WHERE o.direction='outbound' AND o.run_id=m.run_id) LIMIT 5`;
- for(const row of completed)await createMailDraft(row.companion_id,{clientId:row.id,to:[row.sender],subject:/^re:/i.test(row.subject)?row.subject:`Re: ${row.subject||'(no subject)'}`,text:row.result_text.slice(0,100_000),threadId:row.thread_id},{kind:'email',runId:row.run_id},sql);
+ for(const row of completed){
+  try{
+   const files=await sql`SELECT id FROM attachments WHERE companion_id=${row.companion_id} AND run_id=${row.run_id} AND kind='agent_output' ORDER BY position LIMIT 5`;
+   await createMailDraft(row.companion_id,{clientId:row.id,to:[row.sender],subject:(/^re:/i.test(row.subject)?row.subject:`Re: ${row.subject||'(no subject)'}`).slice(0,998),text:row.result_text.slice(0,100_000),threadId:row.thread_id,attachmentIds:files.map((file:any)=>file.id)},{kind:'email',runId:row.run_id},sql);
+  }catch{await sql`UPDATE companion_mail_messages SET state='failed',error_code='reply_preparation_failed' WHERE id=${row.id} AND state='ready'`;}
+ }
  for(let i=0;i<5;i++){await dependencies.assertActive?.();const row=await claimMailSend(sql);if(!row)break;await sendClaimedMail(row,dependencies);}
 }
 

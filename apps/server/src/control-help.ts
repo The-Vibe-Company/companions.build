@@ -1,5 +1,10 @@
 /** Compact examples for the same owner-scoped services used by the web app. */
 export const controlHelp={
+ mail_account:{alias:'Omit to inspect; permanent account alias'},mail_activate:{localName:'alice'},mail_status:{},mail_senders:{},mail_sender_allow:{email:'paul@example.com'},mail_sender_remove:{email:'paul@example.com'},
+ mail_prepare:{to:['paul@example.com'],subject:'Subject',text:'Message',attachmentIds:[]},
+ mail_send:{id:'Draft ID',explicitAuthorization:true,sendAt:'Optional ISO timestamp only when owner explicitly requests scheduling'},
+ mail_read_attachment:{id:'Attachment ID'},
+
  history_search:{query:'Words or an exact quoted phrase from earlier work',limit:5},
  identity:{},models:{},configure:{name:'Optional name',instructions:'Optional full instructions',modelId:'ID returned by models',avatar:{shape:'0..7',color:'0..10',face:'0..4'}},
  companion_create:{name:'Name',instructions:'Mission'},companions:{},

@@ -83,6 +83,23 @@ test('email tasks only reply to their own sender and cannot cross threads',async
 test('size and recipient limits reject before persistence',()=>{
  expect(()=>validateMailDraft({clientId:crypto.randomUUID(),to:Array.from({length:51},(_,i)=>`person${i}@example.com`),subject:'Hi',text:'Hi'})).toThrow();
 });
+test('leadership loss before provider submission releases only the unsent quota reservation',async()=>{
+ const message=await draft();await approveMailDraft(owner,companionId,message.id);
+ let assertions=0,calls=0;
+ await expect(tickCompanionMail({apiKey:'test',assertActive:async()=>{if(++assertions>=3)throw Error('stopped');},fetch:async()=>{calls++;return Response.json({id:crypto.randomUUID()});}})).rejects.toThrow('stopped');
+ expect(calls).toBe(0);
+ expect((await db`SELECT state,attempted_at FROM companion_mail_messages WHERE id=${message.id}`)[0]).toMatchObject({state:'queued',attempted_at:null});
+ expect((await db`SELECT used FROM companion_mail_quota WHERE owner_id=${owner}`)[0].used).toBe(0);
+});
+test('sender permission is rechecked after retrieval before task admission',async()=>{
+ const threadId=crypto.randomUUID(),messageId=crypto.randomUUID();
+ await db`INSERT INTO companion_mail_threads(id,companion_id,reply_token) VALUES(${threadId},${companionId},${crypto.randomUUID()})`;
+ await request(`/api/companions/${companionId}/mail/senders`,'PUT',{email:'revoked@example.com'});
+ await db`INSERT INTO companion_mail_messages(id,companion_id,thread_id,direction,state,sender,body_text) VALUES(${messageId},${companionId},${threadId},'inbound','ready','revoked@example.com','Do work')`;
+ await request(`/api/companions/${companionId}/mail/senders`,'DELETE',{email:'revoked@example.com'});
+ await tickCompanionMail({apiKey:'test',fetch:async()=>{throw Error('Unexpected provider request');}});
+ expect((await db`SELECT state,run_id FROM companion_mail_messages WHERE id=${messageId}`)[0]).toMatchObject({state:'ignored',run_id:null});
+});
 
 test('webhook handler leaves unrelated API requests untouched',async()=>{
  expect(await handleCompanionMailWebhook(new Request('http://localhost/health'))).toBeNull();

@@ -33,12 +33,14 @@ export class BoxClient {
       archiveAfter:timestamp(value.box.archiveAfter),updatedAt:timestamp(value.box.updatedAt) };
   }
   async create(key: string, template?: string) {
-    return this.parseBox(await this.request("/boxes", "POST", { noEnv: true, type: "small", ttlSeconds: 21600, ...(template ? { from: template } : {}) }, { "Idempotency-Key": key }));
+    try { return this.parseBox(await this.request("/boxes", "POST", { noEnv: true, type: "small", ttlSeconds: 21600, ...(template ? { from: template } : {}) }, { "Idempotency-Key": key })); }
+    catch(error) { if(error instanceof BoxError&&error.status===429)throw new BoxError('box_start_rate_limited',429);throw error; }
   }
   async get(id: string) { return this.parseBox(await this.request(`/boxes/${encodeURIComponent(id)}`)); }
   async limits() { return this.request('/limits'); }
   async extend(id:string,ttlSeconds:number) { await this.request(`/boxes/${encodeURIComponent(id)}`,'PATCH',{ttlSeconds}); }
-  async resume(id: string) { await this.request(`/boxes/${encodeURIComponent(id)}/resume`, "POST", { noEnv: true, ttlSeconds: 21600 }); }
+  async resume(id: string) { try { await this.request(`/boxes/${encodeURIComponent(id)}/resume`, "POST", { noEnv: true, ttlSeconds: 21600 }); }
+    catch(error) { if(error instanceof BoxError&&error.status===429)throw new BoxError('box_start_rate_limited',429);throw error; } }
   async command(id: string, command: string, timeoutSeconds = 30) {
     const result = await this.request(`/boxes/${encodeURIComponent(id)}/commands`, "POST", { command, timeoutSeconds });
     if (result.success !== true || result.exitCode !== 0 || typeof result.stdout !== "string") throw new BoxError("box_command_failed");

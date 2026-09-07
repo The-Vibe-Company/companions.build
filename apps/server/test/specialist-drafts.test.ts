@@ -1,7 +1,7 @@
 import {beforeAll,expect,test} from 'bun:test';
 import {db,migrate} from '../src/store';
 import {saveTemplate,listTemplates} from '../src/templates';
-import {openSpecialistDraft,readSpecialistDraft,updateSpecialistDraft,requestSpecialistPublication} from '../src/specialist-drafts';
+import {openSpecialistDraft,readSpecialistDraft,updateSpecialistDraft,requestSpecialistPublication,requestSpecialistTest} from '../src/specialist-drafts';
 import {progressSpecialistDrafts} from '../src/specialist-runtime';
 const owner='00000000-0000-4000-8000-000000000001';
 beforeAll(()=>migrate());
@@ -46,4 +46,45 @@ test('publication is durable and idempotent and needs explicit content review',a
  expect(second.publication.id).toBe(first.publication.id);
  expect(first.publication.status).toBe('queued');
  await expect(updateSpecialistDraft(owner,profile.id,{expectedGeneration:draft.generation,name:'During capture'})).rejects.toThrow();
+});
+test('publication reuses the exact tested image and waits for test file retention and archive acknowledgement',async()=>{
+ const profile=await saveTemplate(owner,{name:'Tested developer',instructions:'Build the repository'});
+ const {draft}=await openSpecialistDraft(owner,profile.id,{commandId:crypto.randomUUID()});
+ await db`UPDATE companions SET provider='box',box_id='source-tested',status='ready' WHERE id=${draft.companionId}`;
+ const requested=await requestSpecialistTest(owner,profile.id,{commandId:crypto.randomUUID(),expectedGeneration:draft.generation,prompt:'Compile the repository'});
+ const snapshots=new Set<string>();let captures=0,durable=false;
+ const machines:any={freezeSpecialist:async()=>{},snapshotStatus:async(name:string)=>snapshots.has(name)?'ready':'missing',snapshot:async(_:any,name:string)=>{captures++;snapshots.add(name);},createSpecialistImage:async(_:any,checkpoint:any)=>{await checkpoint('image-tested');return true;},sanitizeSpecialistImage:async()=>{}};
+ const authority={assertLeader:async()=>{},checkpoint:<T>(fn:(tx:any)=>Promise<T>)=>db.begin(fn)};
+ const progress=()=>progressSpecialistDrafts(db,machines,authority,async()=>true,draft.companionId,async()=>durable);
+ for(let i=0;i<8;i++){
+  await progress();
+  await db`UPDATE companions SET archived_at=now(),archive_requested_at=null WHERE archive_requested_at IS NOT NULL AND id IN (SELECT companion_id FROM specialist_drafts WHERE template_id=${profile.id} UNION SELECT image_companion_id FROM specialist_operations WHERE template_id=${profile.id})`;
+ }
+ const [operation]=await db`SELECT * FROM specialist_operations WHERE id=${requested.test.id}`;
+ expect(operation.status).toBe('running');expect(operation.run_id).toBeTruthy();
+ await db`UPDATE runs SET status='succeeded',finished_at=now() WHERE id=${operation.run_id}`;
+ await progress();expect((await readSpecialistDraft(owner,profile.id)).draft.status).toBe('testing');
+ durable=true;await progress();
+ expect((await readSpecialistDraft(owner,profile.id)).draft.status).toBe('testing');
+ await db`UPDATE companions SET archived_at=now(),archive_requested_at=null WHERE id=${operation.test_companion_id}`;
+ await progress();expect((await readSpecialistDraft(owner,profile.id)).draft.lastTest.status).toBe('succeeded');
+ const publication=await requestSpecialistPublication(owner,profile.id,{commandId:crypto.randomUUID(),expectedGeneration:draft.generation,contentReviewed:true});
+ await progress();
+ const [published]=await db`SELECT snapshot_name FROM agent_templates WHERE id=${profile.id}`;
+ expect(published.snapshot_name).toBe(operation.snapshot_name);expect(captures).toBe(2);
+ expect((await readSpecialistDraft(owner,profile.id)).draft.publication).toMatchObject({id:publication.publication.id,status:'succeeded'});
+});
+test('a cancelled operation cannot submit its snapshot or publish after its in-flight freeze returns',async()=>{
+ const profile=await saveTemplate(owner,{name:'Cancelled capture'});
+ const {draft}=await openSpecialistDraft(owner,profile.id,{commandId:crypto.randomUUID()});
+ await db`UPDATE companions SET provider='box',box_id='cancel-source',status='ready' WHERE id=${draft.companionId}`;
+ const {publication}=await requestSpecialistPublication(owner,profile.id,{commandId:crypto.randomUUID(),expectedGeneration:draft.generation,contentReviewed:true});
+ let captures=0;
+ const machines:any={freezeSpecialist:async()=>{await db`UPDATE specialist_operations SET status='failed',error='Cancelled' WHERE id=${publication.id}`;},snapshotStatus:async()=> 'missing',snapshot:async()=>{captures++;},createSpecialistImage:async()=>true,sanitizeSpecialistImage:async()=>{}};
+ const authority={assertLeader:async()=>{},checkpoint:<T>(fn:(tx:any)=>Promise<T>)=>db.begin(fn)};
+ await progressSpecialistDrafts(db,machines,authority,async()=>true,draft.companionId);
+ await progressSpecialistDrafts(db,machines,authority,async()=>true,draft.companionId);
+ expect(captures).toBe(0);
+ expect((await readSpecialistDraft(owner,profile.id)).draft.publication.status).toBe('failed');
+ expect((await db`SELECT revision FROM agent_templates WHERE id=${profile.id}`)[0].revision).toBe(1);
 });

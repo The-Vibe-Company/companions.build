@@ -2,6 +2,8 @@ import {randomBytes} from 'node:crypto';
 import {encrypt} from './config';
 import {recordTemplateRevision} from './templates';
 import type {LifecycleMachines} from './lifecycle';
+import {requestMachineAdmissionInTransaction} from './admission';
+import {deferRejectedBoxStart} from './specialist-provider';
 
 export interface SpecialistMachines extends LifecycleMachines {
  freezeSpecialist?(companion:any):Promise<void>;
@@ -10,11 +12,25 @@ export interface SpecialistMachines extends LifecycleMachines {
 }
 type Authority={assertLeader():Promise<void>;checkpoint<T>(fn:(sql:any)=>Promise<T>):Promise<T>};
 /** Each provider intent is checkpointed before submission; ambiguous captures are only observed. */
-export async function progressSpecialistDrafts(sql:any,machines:SpecialistMachines,authority:Authority,admit:(companion:any,kind:string)=>Promise<boolean>=async()=>true,sourceId:string|null=null,filesDurable:(run:any)=>Promise<boolean>=async()=>true){
+export async function progressSpecialistDrafts(sql:any,machines:SpecialistMachines,executor:Authority,admit:(companion:any,kind:string)=>Promise<boolean>=async()=>true,sourceId:string|null=null,filesDurable:(run:any)=>Promise<boolean>=async()=>true){
  const operations=await sql`SELECT o.*,d.companion_id AS source_id,d.base_revision,d.name,d.instructions,d.init_script,
   t.avatar,t.model_id FROM specialist_operations o JOIN specialist_drafts d ON d.template_id=o.template_id
   JOIN agent_templates t ON t.id=o.template_id WHERE (${sourceId}::uuid IS NULL OR d.companion_id=${sourceId}) AND o.status IN ('queued','freezing','capturing','preparing','running') ORDER BY o.created_at LIMIT 20`;
  for(const op of operations){
+  const authority:Authority={
+   async assertLeader(){
+    await executor.assertLeader();
+    const [current]=await sql`SELECT id FROM specialist_operations WHERE id=${op.id} AND status IN ('queued','freezing','capturing','preparing','running')`;
+    if(!current)throw Error('operation_stopped');
+   },
+   checkpoint:fn=>executor.checkpoint(async tx=>{
+    // Cancellation and admission take this same lock before the operation row.
+    await tx`SELECT pg_advisory_xact_lock(721440140)`;
+    const [current]=await tx`SELECT id FROM specialist_operations WHERE id=${op.id} AND status IN ('queued','freezing','capturing','preparing','running') FOR UPDATE`;
+    if(!current)throw Error('operation_stopped');
+    return fn(tx);
+   }),
+  };
   const fail=async(message:string)=>authority.checkpoint(async tx=>{
    await tx`UPDATE specialist_operations SET status='failed',error=${message},finished_at=now() WHERE id=${op.id}`;
    await tx`UPDATE specialist_drafts SET status='error',error=${message} WHERE template_id=${op.template_id}`;
@@ -101,6 +117,8 @@ export async function progressSpecialistDrafts(sql:any,machines:SpecialistMachin
      await tx`INSERT INTO runs(id,companion_id,client_message_id,content) VALUES(${runId},${childId},${op.id},${op.prompt})`;
      await tx`INSERT INTO messages(id,companion_id,run_id,role,content) VALUES(${crypto.randomUUID()},${childId},${runId},'user',${op.prompt})`;
      await tx`UPDATE specialist_operations SET test_companion_id=${childId},run_id=${runId},status='running' WHERE id=${op.id}`;
+     const admission=await requestMachineAdmissionInTransaction(tx,op.owner_id,{requestId:op.id,companionId:childId,kind:'test'});
+     if(admission.state==='refused')throw Error('queue_full');
     });continue;
    }
    const [run]=await sql`SELECT * FROM runs WHERE id=${op.run_id}`;
@@ -116,7 +134,16 @@ export async function progressSpecialistDrafts(sql:any,machines:SpecialistMachin
     await tx`UPDATE specialist_drafts SET status='editing' WHERE template_id=${op.template_id}`;
    });
    }
-  }catch{
+  }catch(error){
+   if(error instanceof Error&&error.message==='operation_stopped')continue;
+   await executor.assertLeader();
+   if(op.image_companion_id&&await deferRejectedBoxStart(sql,op.image_companion_id,error))continue;
+   if(error instanceof Error&&error.message==='capture_policy_requires_review'){
+    await fail('Snapshot exclusions need review. Remove active .boxignore or .oneignore rules that could omit prepared files, then request the test or publication again.');continue;
+   }
+   if(error instanceof Error&&['capture_admission_refused','queue_full','draft_changed','template_changed'].includes(error.message)){
+    await fail(error.message==='capture_admission_refused'||error.message==='queue_full'?'Preparation stopped because no queue place is available or the admission was cancelled. Retry explicitly.':'The draft or publication changed. Review the current version before publishing.');continue;
+   }
    // Captures with submitted identities stay observable. Other failures have no automatic replay of work.
    if(op.status!=='capturing'&&op.status!=='preparing'&&op.status!=='freezing')await fail('Specialist preparation could not be completed. The previous publication is unchanged.');
   }

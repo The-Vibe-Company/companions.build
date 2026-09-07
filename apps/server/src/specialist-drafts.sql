@@ -69,3 +69,7 @@ ALTER TABLE specialist_operations ADD CONSTRAINT specialist_operations_status_ch
 ALTER TABLE specialist_operations ADD COLUMN IF NOT EXISTS test_files_saved_at timestamptz;
 
 ALTER TABLE companions ADD COLUMN IF NOT EXISTS provider_ttl_checked_at timestamptz;
+ALTER TABLE companions ADD COLUMN IF NOT EXISTS provider_ttl_target_until timestamptz;
+-- Test and publication may deliberately reference the exact same immutable image.
+ALTER TABLE specialist_operations DROP CONSTRAINT IF EXISTS specialist_operations_snapshot_name_key;
+ALTER TABLE specialist_operations DROP CONSTRAINT IF EXISTS specialist_operations_source_snapshot_name_key;

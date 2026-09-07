@@ -22,6 +22,7 @@ ALTER TABLE machine_provider_limits ADD COLUMN IF NOT EXISTS starts_per_minute_l
 ALTER TABLE machine_provider_limits ADD COLUMN IF NOT EXISTS starts_per_hour_limit integer NOT NULL DEFAULT 10000 CHECK(starts_per_hour_limit BETWEEN 0 AND 1000000);
 ALTER TABLE machine_provider_limits ADD COLUMN IF NOT EXISTS starts_per_day_limit integer NOT NULL DEFAULT 100000 CHECK(starts_per_day_limit BETWEEN 0 AND 10000000);
 INSERT INTO machine_provider_limits(singleton) VALUES(true) ON CONFLICT(singleton) DO NOTHING;
+ALTER TABLE machine_provider_limits ADD COLUMN IF NOT EXISTS cooldown_until timestamptz;
 
 CREATE TABLE IF NOT EXISTS machine_admission_requests (
  id uuid PRIMARY KEY,

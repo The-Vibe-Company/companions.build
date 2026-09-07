@@ -81,6 +81,7 @@ export async function adoptTemplate(ownerId:string,parentId:string,commandId:str
   const active=template?await tx`SELECT id FROM template_candidates WHERE template_id=${value.templateId} AND status IN ('queued','capturing','ready') LIMIT 1`:[];
   if(active.length)throw new LifecycleConflict('A template capture is already in progress.');
   if(!parent||!child||!template)throw new LifecycleConflict('Child or template unavailable or changed.');
+  if((await tx`SELECT template_id FROM specialist_drafts WHERE template_id=${value.templateId}`).length)throw new LifecycleConflict('Propose an improvement and prepare it in the specialist draft before human publication.');
   if(child.software_build_id!==template.software_build_id||child.software_result_id!==template.software_result_id)throw new LifecycleConflict('The child does not use this template software revision.');
   try{await requireSoftwareReady(ownerId,template.software_build_id,template.software_result_id,template.snapshot_name,tx);}
   catch(error){if(error instanceof SoftwareReadinessError)throw new LifecycleConflict(error.message);throw error;}

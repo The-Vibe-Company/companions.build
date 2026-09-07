@@ -72,6 +72,21 @@ visible rather than being converted into success states.
 
 - `GET|POST /api/templates` lists or creates declarative specialist profiles;
   `PATCH /api/templates/:id` requires `expectedRevision`.
+- Creation with `draft: true` opens conversational specialist configuration. `GET|POST|PATCH
+  /api/templates/:id/draft` reads, opens or updates the draft; edits require `expectedGeneration`.
+  `POST .../draft/test` accepts a representative prompt, and `POST .../draft/publish` requires
+  explicit `contentReviewed`. Both use durable command IDs and expose persisted operation states.
+  The configuration chat is unavailable while capture or testing holds the draft. Test assessment
+  is separate from execution success; testing is strongly suggested but optional for publication.
+- Team connection slots use `GET|PATCH /api/companions/:id/specialists/:templateId/connections`.
+  Defaults belong to the specialist; overrides select compatible accounts already granted to the
+  parent. Delivered specialists show missing requirements until the recipient reconnects them.
+- `GET /api/companions/:id/specialist-improvements` returns persisted proposals. Preparing one
+  through `/api/specialist-improvements/:id/apply` queues reconstruction and opens configuration;
+  it does not represent a completed update. Reject is a separate idempotent action.
+- `GET|PATCH /api/account/specialist-limits` exposes effective limits, waiting requests and the
+  personal active ceiling. `/api/account/specialist-requests/:id/cancel` persists cancellation;
+  capacity is released only after the corresponding machine is confirmed stopped when necessary.
 - `GET /api/templates/:id/revisions` returns immutable revisions.
   `POST /api/templates/:id/rollback` accepts `{ targetRevision, expectedRevision }` and appends the
   restored profile, snapshot reference, and portable-skill bundle as a new revision. The Team sheet

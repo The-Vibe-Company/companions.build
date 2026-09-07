@@ -3,6 +3,7 @@ import {z} from 'zod';
 import {db} from './store';
 import {config,encrypt} from './config';
 import {LifecycleConflict,saveTemplate} from './templates';
+import {requestMachineAdmissionInTransaction} from './admission';
 
 const uuid=z.string().uuid();
 const editable=z.object({name:z.string().trim().min(1).max(80).optional(),instructions:z.string().max(20_000).optional(),initScript:z.string().max(100_000).optional()});
@@ -29,6 +30,7 @@ export async function readSpecialistDraft(ownerId:string,templateId:string,sql:a
 export async function createSpecialistDraft(ownerId:string,raw:unknown){
  const value=editable.extend({commandId:uuid,name:z.string().trim().min(1).max(80)}).parse(raw);
  return db.begin(async(tx:any)=>{
+  await tx`SELECT pg_advisory_xact_lock(721440140)`;
   await tx`SELECT pg_advisory_xact_lock(hashtextextended(${ownerId+value.commandId},7341))`;
   const [existing]=await tx`SELECT specialist_draft_id,creation_fingerprint FROM companions WHERE owner_id=${ownerId} AND client_creation_id=${value.commandId}`;
   if(existing?.specialist_draft_id){if(existing.creation_fingerprint!==fingerprint(value))throw new LifecycleConflict('Creation identifier changed.');return readSpecialistDraft(ownerId,existing.specialist_draft_id,tx);}
@@ -41,6 +43,8 @@ export async function createSpecialistDraft(ownerId:string,raw:unknown){
   const runId=crypto.randomUUID(),prompt=`Help me prepare the specialist ${value.name}.\n${value.instructions??''}\nStart by identifying the repositories, skills and connections needed for this work, then guide me through preparing and testing it.`;
   await tx`INSERT INTO runs(id,companion_id,client_message_id,content) VALUES(${runId},${result.draft.companionId},${value.commandId},${prompt})`;
   await tx`INSERT INTO messages(id,companion_id,run_id,role,content) VALUES(${crypto.randomUUID()},${result.draft.companionId},${runId},'user',${prompt})`;
+  const admission=await requestMachineAdmissionInTransaction(tx,ownerId,{requestId:value.commandId,companionId:result.draft.companionId,kind:'configuration'});
+  if(admission.state==='refused')throw new LifecycleConflict('The specialist queue is full.');
   return result;
  });
 }
@@ -51,6 +55,9 @@ async function openDraftInTransaction(ownerId:string,templateId:string,commandId
  const companionId=crypto.randomUUID();
  await tx`INSERT INTO companions(id,owner_id,name,instructions,provider,create_key,agent_secret,avatar,model_id,snapshot_name,specialist_draft_id,prepare_requested,client_creation_id)
   VALUES(${companionId},${ownerId},${template.name},${specialistConfigurationInstructions},${config.boxKey&&config.boxTemplate?'box':'local'},${crypto.randomUUID()},${encrypt(randomBytes(32).toString('hex'))},${template.avatar},${template.model_id},${template.snapshot_name},${templateId},false,${commandId})`;
+ await tx`INSERT INTO companion_plugins(companion_id,account_id)
+  SELECT ${companionId},a.id FROM specialist_connections s JOIN plugin_accounts a ON a.id=s.account_id AND a.owner_id=${ownerId}
+  WHERE s.template_id=${templateId} ON CONFLICT DO NOTHING`;
  await tx`INSERT INTO specialist_drafts(template_id,companion_id,base_revision,name,instructions,init_script) VALUES(${templateId},${companionId},${template.revision},${template.name},${template.instructions},${template.init_script??''})`;
  return readSpecialistDraft(ownerId,templateId,tx);
 }
@@ -61,6 +68,7 @@ export async function openSpecialistDraft(ownerId:string,templateId:string,raw:u
 export async function updateSpecialistDraft(ownerId:string,templateId:string,raw:unknown){
  const value=editable.extend({expectedGeneration:z.number().int().positive()}).parse(raw);
  return db.begin(async(tx:any)=>{
+  await tx`SELECT pg_advisory_xact_lock(721440140)`;
   const [row]=await tx`SELECT d.* FROM specialist_drafts d JOIN agent_templates t ON t.id=d.template_id WHERE d.template_id=${templateId} AND t.owner_id=${ownerId} FOR UPDATE OF d`;
   if(!row||row.generation!==value.expectedGeneration||!['editing','error'].includes(row.status))throw new LifecycleConflict('Draft changed or is busy. Reload before editing.');
   await tx`UPDATE specialist_drafts SET name=${value.name??row.name},instructions=${value.instructions??row.instructions},init_script=${value.initScript??row.init_script},generation=generation+1,status='editing',error=null,updated_at=now() WHERE template_id=${templateId}`;
@@ -73,6 +81,7 @@ async function requestOperation(ownerId:string,templateId:string,kind:'test'|'pu
  if(kind==='publish'&&!value.contentReviewed)throw new LifecycleConflict('Review the copied disk contents before publishing.');
  if(kind==='test'&&!value.prompt)throw new LifecycleConflict('Provide a representative test mission.');
  return db.begin(async(tx:any)=>{
+  await tx`SELECT pg_advisory_xact_lock(721440140)`;
   const [draft]=await tx`SELECT d.* FROM specialist_drafts d JOIN agent_templates t ON t.id=d.template_id WHERE d.template_id=${templateId} AND t.owner_id=${ownerId} FOR UPDATE OF d`;
   if(!draft)throw new LifecycleConflict('Draft not found.');
   const key=fingerprint({templateId,kind,...value});
@@ -82,8 +91,13 @@ async function requestOperation(ownerId:string,templateId:string,kind:'test'|'pu
   const [active]=await tx`SELECT id FROM runs WHERE companion_id=${draft.companion_id} AND status IN ('queued','preparing','running','needs_input') LIMIT 1`;
   if(active)throw new LifecycleConflict('Finish the configuration conversation before capturing this draft.');
   await tx`INSERT INTO specialist_operations(id,template_id,owner_id,generation,kind,fingerprint,prompt,content_reviewed,snapshot_name,source_snapshot_name) VALUES(${value.commandId},${templateId},${ownerId},${draft.generation},${kind},${key},${value.prompt??null},${value.contentReviewed??false},${'specialist-'+value.commandId},${'specialist-source-'+value.commandId})`;
+  if(kind==='publish'){
+   const [tested]=await tx`SELECT * FROM specialist_operations WHERE template_id=${templateId} AND generation=${draft.generation} AND kind='test' AND status='succeeded' AND sanitized_at IS NOT NULL ORDER BY created_at DESC LIMIT 1`;
+   if(tested)await tx`UPDATE specialist_operations SET status='preparing',snapshot_name=${tested.snapshot_name},source_snapshot_name=${tested.source_snapshot_name},image_companion_id=${tested.image_companion_id},sanitized_at=${tested.sanitized_at},image_capture_attempted_at=${tested.image_capture_attempted_at} WHERE id=${value.commandId}`;
+  }
   await tx`UPDATE specialist_drafts SET status=${kind==='publish'?'publishing':'testing'},error=null WHERE template_id=${templateId}`;
-  return {...await readSpecialistDraft(ownerId,templateId,tx),[kind==='publish'?'publication':'test']:{id:value.commandId,status:'queued'}};
+  const result=await readSpecialistDraft(ownerId,templateId,tx);
+  return {...result,[kind==='publish'?'publication':'test']:kind==='publish'?result.draft.publication:result.draft.lastTest};
  });
 }
 export const requestSpecialistPublication=(ownerId:string,templateId:string,raw:unknown)=>requestOperation(ownerId,templateId,'publish',raw);

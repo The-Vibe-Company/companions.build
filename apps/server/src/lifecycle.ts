@@ -1,4 +1,4 @@
-import {refreshSpecialistProviderLimits,renewSpecialistProviderLifetime} from './specialist-provider';
+import {refreshSpecialistProviderLimits,renewSpecialistProviderLifetime,deferRejectedBoxStart} from './specialist-provider';
 import {progressSpecialistDrafts} from './specialist-runtime';
 import {specialistBoxMachines} from './specialist-box';
 import {synchronizeSpecialistConnections} from './specialist-connections';
@@ -69,14 +69,20 @@ export async function requestPreparation(ownerId:string,companionId:string,sql:a
  return {id:companionId,status:companion.status,admission};
 }
 export async function requestDesktop(ownerId:string,companionId:string,taken:boolean,sql:any=db,source:'human'|'agent'='human'){
- const [row]=await sql`UPDATE companions SET desktop_generation=desktop_generation+CASE WHEN desktop_taken<>${taken} THEN 1 ELSE 0 END,
+ return sql.begin(async(tx:any)=>{
+ await tx`SELECT pg_advisory_xact_lock(721440140)`;
+ const [draft]=await tx`SELECT status FROM specialist_drafts WHERE companion_id=${companionId} FOR UPDATE`;
+ if(draft&&!['editing','error'].includes(draft.status))throw new LifecycleConflict('Configuration is paused for capture or testing.');
+ const [row]=await tx`UPDATE companions SET desktop_generation=desktop_generation+CASE WHEN desktop_taken<>${taken} THEN 1 ELSE 0 END,
    desktop_taken=${taken},prepare_requested=prepare_requested OR (${taken} AND (status<>'ready' OR endpoint_secret IS NULL OR archived_at IS NOT NULL)),desktop_checked_at=null,error=null
    WHERE id=${companionId} AND owner_id=${ownerId} AND retired_at IS NULL AND archive_requested_at IS NULL
    AND NOT (${source==='agent'&&!taken} AND desktop_taken)
    AND NOT EXISTS(SELECT 1 FROM specialist_drafts d WHERE d.companion_id=companions.id AND d.status NOT IN ('editing','error'))
    RETURNING id,desktop_taken AS "taken",desktop_paused_at AS "pausedAt",desktop_generation AS generation`;
  if(!row&&source==='agent'&&!taken)throw new LifecycleConflict('HUMAN_DESKTOP_RELEASE_REQUIRED');
+ if(row&&draft)await tx`UPDATE specialist_drafts SET generation=generation+1 WHERE companion_id=${companionId}`;
  return row??null;
+ });
 }
 /** API entry point: authorization and durable intents only, no machine contact. */
 export async function handleLifecycle(request:{operation:string;companionId?:string;commandId?:string;runId?:string;input?:unknown;source?:'human'|'agent'},ownerId:string,sql:any=db):Promise<any>{
@@ -134,11 +140,13 @@ export async function progressLifecycle(sql:any=db,hooks:LifecycleHooks={},machi
   checkpoints=result.catch(()=>undefined);return result;
  }
  await progressSpecialistDrafts(sql,machine,{assertLeader:()=>assertLeader(),checkpoint},async(companion)=>{
-  const [prior]=await sql`SELECT id,state FROM machine_admission_requests WHERE companion_id=${companion.id} AND state IN ('queued','admitted','cancelling')`;
-  if(prior)return prior.state==='admitted';
-  return (await requestMachineAdmission(companion.owner_id,{requestId:companion.create_key,companionId:companion.id,kind:'capture'},sql)).state==='admitted';
+  const [prior]=await sql`SELECT id,state FROM machine_admission_requests WHERE companion_id=${companion.id} ORDER BY requested_at DESC LIMIT 1`;
+  if(prior){if(['cancelled','refused'].includes(prior.state))throw Error('capture_admission_refused');return prior.state==='admitted';}
+  const admitted=await requestMachineAdmission(companion.owner_id,{requestId:companion.create_key,companionId:companion.id,kind:'capture'},sql);
+  if(admitted.state==='refused')throw Error('capture_admission_refused');
+  return admitted.state==='admitted';
  },companionId,hooks.filesDurable??(async()=>false));
- await progressIdleMachines(sql,machine,{companionId,canArchive:hooks.canArchiveMachine,assertEffect:()=>assertLeader()});
+ await progressIdleMachines(sql,machine,{companionId,canArchive:hooks.canArchiveMachine,filesDurable:hooks.filesDurable,assertEffect:()=>assertLeader()});
  await progressRetirements(sql,companionId,machine,()=>assertLeader(),checkpoint,(tx,companion)=>usage(tx,companion,'archived'));
  // GUI coordination never pauses the Pi daemon or headless work. Periodic reconciliation
  // reopens a restarted fail-closed broker only to the current durable human intent.
@@ -164,9 +172,9 @@ export async function progressLifecycle(sql:any=db,hooks:LifecycleHooks={},machi
    await assertLeader();
   }
   try {
-   if(companion.prepare_requested&&(companion.temporary||companion.specialist_draft_id)){
+   if(companion.prepare_requested){
     const [prior]=await sql`SELECT state FROM machine_admission_requests WHERE companion_id=${companion.id} AND state IN ('queued','admitted','cancelling')`;
-    if(!prior){const admitted=await requestMachineAdmission(companion.owner_id,{requestId:crypto.randomUUID(),companionId:companion.id,kind:companion.archived_at?'resume':companion.temporary?'test':'configuration'},sql);if(admitted.state!=='admitted')return;}
+    if(!prior){const admitted=await requestMachineAdmission(companion.owner_id,{requestId:crypto.randomUUID(),companionId:companion.id,kind:companion.archived_at?'resume':companion.temporary?'test':'configuration'},sql);if(admitted.state==='refused')await checkpoint(async tx=>{await tx`UPDATE companions SET prepare_requested=false,error='The specialist queue is full. Request preparation again when a place is available.' WHERE id=${companion.id}`;});if(admitted.state!=='admitted')return;}
     else if(prior.state!=='admitted')return;
    }
    const digest=environmentDigest(companion.agent_secret,companion.provider);
@@ -233,7 +241,7 @@ export async function progressLifecycle(sql:any=db,hooks:LifecycleHooks={},machi
       desktop_observed_generation=${observed.generation},desktop_broker_boot_id=${observed.bootId},desktop_checked_at=now(),error=null
       WHERE id=${companion.id} AND desktop_generation=${observed.generation} AND desktop_taken=${observed.taken}`;});
    }
-  }catch(error){if(error instanceof ExecutionStopped)throw error;await checkpoint(async(tx:any)=>{await tx`UPDATE companions SET desktop_checked_at=now(),error=${companion.desktop_taken?'Desktop takeover could not be confirmed. Desktop interactions may still be active.':'Machine preparation is temporarily unavailable.'} WHERE id=${companion.id} AND desktop_generation=${companion.desktop_generation}`;});}
+  }catch(error){if(error instanceof ExecutionStopped)throw error;await assertLeader();if(await deferRejectedBoxStart(sql,companion.id,error))return;await checkpoint(async(tx:any)=>{await tx`UPDATE companions SET desktop_checked_at=now(),error=${companion.desktop_taken?'Desktop takeover could not be confirmed. Desktop interactions may still be active.':'Machine preparation is temporarily unavailable.'} WHERE id=${companion.id} AND desktop_generation=${companion.desktop_generation}`;});}
  }
  // A submitted snapshot name is only observed on recovery; an ambiguous POST is never repeated.
  for(const candidate of await sql`SELECT k.*,c.box_id,c.provider,c.owner_id FROM template_candidates k JOIN companions c ON c.id=k.source_companion_id WHERE (${companionId}::uuid IS NULL OR c.id=${companionId}) AND k.status IN ('queued','capturing','ready') AND c.retired_at IS NULL AND NOT c.desktop_taken AND c.desktop_paused_at IS NULL ORDER BY k.requested_at LIMIT 50`){
@@ -314,11 +322,17 @@ export async function progressLifecycle(sql:any=db,hooks:LifecycleHooks={},machi
   });
  }
  for(const companion of await sql`SELECT * FROM companions WHERE (${companionId}::uuid IS NULL OR id=${companionId}) AND temporary AND archive_requested_at IS NOT NULL AND retired_at IS NULL AND NOT desktop_taken AND desktop_paused_at IS NULL ORDER BY archive_requested_at LIMIT 50`){
-  if((await sql`SELECT id FROM runs WHERE companion_id=${companion.id} AND status IN ('queued','preparing','running','needs_input') LIMIT 1`).length)continue;
+  if((await sql`SELECT id FROM runs WHERE companion_id=${companion.id} AND status IN ('queued','preparing','running') LIMIT 1`).length)continue;
   if((await sql`SELECT id FROM template_candidates WHERE source_companion_id=${companion.id} AND status IN ('queued','capturing','ready')`).length)continue;
+  const parked=await sql`SELECT * FROM runs WHERE companion_id=${companion.id} AND status='needs_input'`;
+  let retained=true;
+  for(const run of parked)if(!await (hooks.filesDurable?.(run)??Promise.resolve(false)))retained=false;
+  if(!retained)continue;
   try{
    await assertLeader();if(!await machine.archive(companion,assertLeader))continue;
-   await checkpoint(async(tx:any)=>{await tx`UPDATE companions SET archived_at=now(),retired_at=now(),endpoint_secret=null,desktop_paused_at=null WHERE id=${companion.id}`;
+   await checkpoint(async(tx:any)=>{
+    await tx`UPDATE runs SET status=CASE WHEN cancel_requested THEN 'cancelled' ELSE 'interrupted' END,error=CASE WHEN cancel_requested THEN NULL ELSE 'The specialist was archived after waiting without activity. Its disk is preserved; the task was not replayed.' END,finished_at=now() WHERE companion_id=${companion.id} AND status='needs_input'`;
+    await tx`UPDATE companions SET archived_at=now(),retired_at=now(),endpoint_secret=null,desktop_paused_at=null WHERE id=${companion.id}`;
     await tx`UPDATE machine_admission_requests SET state=CASE WHEN state='cancelling' THEN 'cancelled' ELSE 'completed' END,released_at=COALESCE(released_at,now()),waiting_reason=null WHERE companion_id=${companion.id} AND state IN ('admitted','cancelling')`;
     await usage(tx,companion,'archived');});
   }catch{await checkpoint(async(tx:any)=>{await tx`UPDATE companions SET error='Child archive is awaiting provider confirmation.' WHERE id=${companion.id}`;});}

@@ -2,6 +2,7 @@ import { SQL } from "bun";
 import { createHash, randomBytes } from "node:crypto";
 import { config, encrypt } from "./config";
 import { requireSoftwareReady, SoftwareReadinessError } from "./software-readiness";
+import {requestMachineAdmissionInTransaction} from './admission';
 export const db = new SQL(config.databaseUrl, { max: 8, connectionTimeout: 10 });
 const migrationNames = ["schema.sql", "auth-schema.sql", "product.sql", "plugins.sql", "storage-schema.sql", "automations.sql", "triggers.sql", "lifecycle.sql", "software.sql", "desktop.sql", "box-observation.sql", "billing.sql", "delivery.sql", "maintenance.sql", "delivery-skills.sql", "software-results.sql", "events.sql", "model-gateway.sql", "specialist-drafts.sql", "admission.sql"] as const;
 
@@ -120,6 +121,7 @@ export class Conflict extends Error {}
 export async function acceptMessage(ownerId: string, companionId: string, clientMessageId: string, content: string, attachmentCount = 0) {
   return db.begin(async sql => {
     // Lock companion to serialize duplicate admission with cancellation and FIFO claims.
+    await sql`SELECT pg_advisory_xact_lock(721440140)`;
     const [companion] = await sql`SELECT id FROM companions WHERE id=${companionId} AND owner_id=${ownerId} AND retired_at IS NULL AND archive_requested_at IS NULL FOR UPDATE`;
     if (!companion) return null;
     const [existing] = await sql`SELECT id,content,attachment_count FROM runs WHERE companion_id=${companionId} AND client_message_id=${clientMessageId}`;
@@ -127,9 +129,14 @@ export async function acceptMessage(ownerId: string, companionId: string, client
       if (existing.content !== content || existing.attachment_count !== attachmentCount) throw new Conflict("This message identifier was already used with different content or attachments.");
       return existing.id as string;
     }
-    const [draft]=await sql`SELECT status FROM specialist_drafts WHERE companion_id=${companionId}`;
+    const [draft]=await sql`SELECT status FROM specialist_drafts WHERE companion_id=${companionId} FOR UPDATE`;
     if(draft&&!['editing','error'].includes(draft.status))throw new Conflict('Configuration is paused while its draft is captured or tested.');
     if(draft)await sql`UPDATE specialist_drafts SET generation=generation+1,updated_at=now() WHERE companion_id=${companionId}`;
+    if(draft){
+      const [open]=await sql`SELECT id,state FROM machine_admission_requests WHERE companion_id=${companionId} AND state IN ('queued','admitted','cancelling')`;
+      if(open?.state==='cancelling')throw new Conflict('The configuration machine is stopping. Retry after it is archived.');
+      if(!open){const admission=await requestMachineAdmissionInTransaction(sql,ownerId,{requestId:clientMessageId,companionId,kind:'configuration'});if(admission.state==='refused')throw new Conflict('The specialist queue is full.');}
+    }
     const id = crypto.randomUUID();
     await sql`INSERT INTO runs (id,companion_id,client_message_id,content,attachment_count) VALUES (${id},${companionId},${clientMessageId},${content},${attachmentCount})`;
     await sql`INSERT INTO messages (id,companion_id,run_id,role,content) VALUES (${crypto.randomUUID()},${companionId},${id},'user',${content})`;

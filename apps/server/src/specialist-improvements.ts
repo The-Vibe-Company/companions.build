@@ -2,6 +2,7 @@ import {z} from 'zod';
 import {db} from './store';
 import {LifecycleConflict} from './templates';
 import {openSpecialistDraft} from './specialist-drafts';
+import {requestMachineAdmissionInTransaction} from './admission';
 
 export async function proposeSpecialistImprovement(ownerId:string,sourceId:string,commandId:string,raw:unknown){
  const value=z.object({summary:z.string().trim().min(1).max(2000),recipe:z.string().trim().min(1).max(20_000)}).parse(raw);
@@ -30,6 +31,7 @@ export async function decideSpecialistImprovement(ownerId:string,id:string,actio
  }
  const {draft}=await openSpecialistDraft(ownerId,proposal.template_id,{commandId});
  return db.begin(async(tx:any)=>{
+  await tx`SELECT pg_advisory_xact_lock(721440140)`;
   const [locked]=await tx`SELECT status FROM specialist_improvements WHERE id=${id} AND owner_id=${ownerId} FOR UPDATE`;
   if(locked.status!=='proposed')return {status:locked.status,companionId:draft.companionId};
   const [current]=await tx`SELECT * FROM specialist_drafts WHERE template_id=${proposal.template_id} FOR UPDATE`;
@@ -39,6 +41,9 @@ export async function decideSpecialistImprovement(ownerId:string,id:string,actio
   await tx`INSERT INTO runs(id,companion_id,client_message_id,content) VALUES(${runId},${current.companion_id},${commandId},${prompt})`;
   await tx`INSERT INTO messages(id,companion_id,run_id,role,content) VALUES(${crypto.randomUUID()},${current.companion_id},${runId},'user',${prompt})`;
   await tx`UPDATE companions SET archive_requested_at=null,prepare_requested=true WHERE id=${current.companion_id}`;
+  const [open]=await tx`SELECT state FROM machine_admission_requests WHERE companion_id=${current.companion_id} AND state IN ('queued','admitted','cancelling')`;
+  if(open?.state==='cancelling')throw new LifecycleConflict('Wait for the configuration machine to stop.');
+  if(!open){const admission=await requestMachineAdmissionInTransaction(tx,ownerId,{requestId:commandId,companionId:current.companion_id,kind:'improvement'});if(admission.state==='refused')throw new LifecycleConflict('The specialist queue is full.');}
   await tx`UPDATE specialist_drafts SET generation=generation+1 WHERE template_id=${proposal.template_id}`;
   await tx`UPDATE specialist_improvements SET status='applied',applied_generation=${current.generation+1} WHERE id=${id}`;
   return {status:'applied',companionId:current.companion_id,runId};

@@ -1,4 +1,5 @@
 import { beforeAll, afterEach, expect, test } from 'bun:test';
+import { BoxError } from '../../../packages/box/client';
 import { db, migrate } from '../src/store';
 import { acquireExecutor, claimQueuedRuns } from '../src/executor';
 import { activateSoftwareBase, enqueueTemplateSoftware, registerSoftwareBase, getSoftwareBuild } from '../src/software';
@@ -194,4 +195,16 @@ test('nested adapter mutations recheck entitlement after their own read',async()
  m.machines.prepareHelper=async(_b,ctx)=>{allowed=false;await ctx.assertActive();m.calls.push('unsafe-write');return {requestDigest:digest};};
  await f.c.progress(f.build.id,pid,m.hooks);expect(m.calls).not.toContain('unsafe-write');
  expect((await f.row())?.errorCode).toBe('software_subscription_required');
+});
+
+
+test('explicit snapshot quota rejection fails immediately and cleans up without another capture',async()=>{
+ const f=await fixture(),m=fake();m.machines.snapshot=async()=>{m.calls.push('snapshot');throw new BoxError('box_snapshot_limit',409);};
+ await f.c.progress(f.build.id,pid,m.hooks);
+ expect(await f.row()).toMatchObject({status:'failed',errorCode:'software_snapshot_limit',cleanupStatus:'pending'});
+ await f.c.progress(f.build.id,pid,m.hooks);
+ expect(await f.row()).toMatchObject({status:'failed',cleanupStatus:'complete'});
+ expect(m.calls.filter(c=>c==='snapshot')).toHaveLength(1);
+ expect(m.calls).not.toContain('snapshotGet');
+ expect(m.calls).not.toContain('ready');
 });

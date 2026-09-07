@@ -1,5 +1,6 @@
 import type { ReservedSQL } from 'bun';
 import { z } from 'zod';
+import { BoxError } from '../../../packages/box/client';
 import { db } from './store';
 import { ownerMayStartWork } from './lifecycle';
 import { recordResolvedSoftwareManifestInTransaction, SoftwareConflict, type SoftwareRoots, type SoftwareBaseRegistration } from './software';
@@ -185,7 +186,12 @@ export class SoftwareBuildCoordinator {
    });
    // Commit intent before POST. Even a missing GET after a lost POST never permits another POST.
    await update({snapshot_started_at:new Date(this.now())});
-   await effect(hooks.machines.snapshot,true);
+   try { await effect(hooks.machines.snapshot,true); }
+   catch(error) {
+    // This documented rejection proves capture was not accepted. A lost reply remains GET-only.
+    if(error instanceof BoxError && error.code==='box_snapshot_limit')throw new BuildFailure('software_snapshot_limit');
+    throw error;
+   }
   }catch(error){
    if(error instanceof Stopped)return;
    if(!row)return;

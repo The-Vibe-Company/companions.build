@@ -1,0 +1,67 @@
+apps/web/src/App.test.tsx
+  s_0d335c51e3b9b2::t_00d49c8829c9a4 61,189-190,235,330,334-336,356-357,362,383,393,470,485,505,507,728,731,764,892
+apps/web/src/App.tsx
+  s_41b4fa282e6d93::t_76ac409914aefe 31,205,408
+apps/web/src/components/CompanionAvatar.tsx
+  s_f946242dcf6ba9::t_812b25bd716891 30-33
+apps/web/src/components/CompanionHeader.css
+  s_d9d1c6ff95ba2c::t_8744bb78c8e47a 1-42
+apps/web/src/components/CompanionHeader.test.tsx
+  s_f946242dcf6ba9::t_182560d1f861d4 1-31
+apps/web/src/components/CompanionHeader.tsx
+  s_f946242dcf6ba9::t_c4bdd683f385c0 1-67
+apps/web/src/components/CreateCompanion.css
+  s_41b4fa282e6d93::t_b2d20dd0c58016 1-2,5,15-17,21,27,39-41,43,90-104
+apps/web/src/components/CreateCompanion.test.tsx
+  s_41b4fa282e6d93::t_6f81df500f746c 36,54
+apps/web/src/components/CreateCompanion.tsx
+  s_41b4fa282e6d93::t_852467b92756b0 2,17,247,256,260,262,265,273,288-292,298,303
+apps/web/src/components/ProductPanels.tsx
+  s_0d335c51e3b9b2::t_0e5ed1f1a4b755 139
+apps/web/src/components/SpecialistLibrary.css
+  s_f946242dcf6ba9::t_0c66de0bd0b542 2,7
+apps/web/src/maison.css
+  s_0d335c51e3b9b2::t_55fed915b272ff 236-237,240-257
+docs/design-system.md
+  s_f946242dcf6ba9::t_5a039d0fc22478 24-29,37,40,64-77
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "6f1ec25c544ad6f321298b11ecbc0b5ae5eee364",
+  "prompts": {},
+  "sessions": {
+    "s_0d335c51e3b9b2": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a07c1a-bb60-7030-8527-5149a8d74a6d",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "StanGirard <stan@quivr.app>"
+    },
+    "s_41b4fa282e6d93": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a07c30-42c1-7321-a8d2-d7d8a762350a",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "StanGirard <stan@quivr.app>"
+    },
+    "s_d9d1c6ff95ba2c": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a07c0a-2c34-7530-9cf2-84923d2d4845",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "StanGirard <stan@quivr.app>"
+    },
+    "s_f946242dcf6ba9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a06de4-a8a5-7cd3-b713-2a8d451f7200",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "StanGirard <stan@quivr.app>"
+    }
+  }
+}

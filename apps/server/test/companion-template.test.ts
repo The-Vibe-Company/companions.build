@@ -37,3 +37,17 @@ test('creation rejects foreign or missing templates and incompatible local snaps
  await expect(createCompanion(owner,{name:'Missing revision',provider:'box',templateId:own.id,templateRevision:99})).rejects.toBeInstanceOf(Conflict);
  const [{count:after}]=await db`SELECT count(*)::int AS count FROM companions`;expect(after).toBe(before);
 });
+test('concurrent creation retries pin one template revision and isolate keys by owner',async()=>{
+ const other=crypto.randomUUID();await db`INSERT INTO "user"(id,name,email,"emailVerified") VALUES(${other},'Retry owner',${other+'@example.com'},true)`;
+ const template=await saveTemplate(owner,{name:'Pinned',instructions:'Revision one',modelId:'model-one'}),clientCreationId=crypto.randomUUID();
+ const input={clientCreationId,name:'Durable creation',provider:'local' as const,templateId:template.id};
+ const attempts=await Promise.all(Array.from({length:20},()=>createCompanion(owner,input)));
+ expect(new Set(attempts.map(item=>item.id))).toEqual(new Set([attempts[0].id]));
+ expect(attempts[0]).toMatchObject({instructions:'Revision one',templateRevision:1,modelId:'model-one'});
+ await saveTemplate(owner,{id:template.id,expectedRevision:1,name:'Pinned',instructions:'Revision two',modelId:'model-two'});
+ expect(await createCompanion(owner,input)).toMatchObject({id:attempts[0].id,instructions:'Revision one',templateRevision:1,modelId:'model-one'});
+ await expect(createCompanion(owner,{...input,name:'Changed intent'})).rejects.toBeInstanceOf(Conflict);
+ const foreign=await createCompanion(other,{clientCreationId,name:'Independent key',instructions:'Other owner',provider:'local'});
+ expect(foreign.id).not.toBe(attempts[0].id);
+ expect(await db`SELECT id FROM companions WHERE client_creation_id=${clientCreationId}`).toHaveLength(2);
+});

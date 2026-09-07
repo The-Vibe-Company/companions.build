@@ -20,3 +20,6 @@ ALTER TABLE control_commands ADD COLUMN IF NOT EXISTS result_secret text;
 ALTER TABLE runs ADD COLUMN IF NOT EXISTS preview_text text;
 ALTER TABLE runs ADD COLUMN IF NOT EXISTS usage jsonb;
 ALTER TABLE companions ADD COLUMN IF NOT EXISTS model_id text;
+ALTER TABLE companions ADD COLUMN IF NOT EXISTS client_creation_id uuid;
+ALTER TABLE companions ADD COLUMN IF NOT EXISTS creation_fingerprint text;
+CREATE UNIQUE INDEX IF NOT EXISTS companions_owner_creation_id ON companions(owner_id,client_creation_id) WHERE client_creation_id IS NOT NULL;

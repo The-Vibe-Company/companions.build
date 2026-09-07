@@ -110,6 +110,7 @@ describe("first Companion flow", () => {
 
     const createCall = fetchMock.mock.calls.find(([, options]) => options?.method === "POST");
     expect(JSON.parse(createCall?.[1]?.body as string)).toEqual({
+      clientCreationId: expect.stringMatching(/^[0-9a-f-]{36}$/),
       name: "Ada",
       instructions: "Research customer questions.",
       provider: "box",
@@ -119,6 +120,31 @@ describe("first Companion flow", () => {
       "/api/companions/ada",
       expect.objectContaining({ credentials: "same-origin" }),
     ));
+  });
+
+  it("reuses one creation id when the response is lost and the user retries",async()=>{
+    const bodies:Array<Record<string,unknown>>=[];let attempts=0,persisted=false;
+    const fetchMock=vi.fn((input:RequestInfo|URL,options?:RequestInit)=>{
+      const path=String(input);
+      if(path==="/api/me")return response(me);
+      if(path==="/api/config")return response(config);
+      if(path==="/api/templates")return response({templates:[]});
+      if(path==="/api/companions"&&options?.method==="POST"){
+        bodies.push(JSON.parse(String(options.body)));attempts++;
+        if(attempts===1)return Promise.reject(new Error("Response lost"));
+        persisted=true;return response({companion});
+      }
+      if(path==="/api/companions")return response({companions:persisted?[companion]:[]});
+      if(path==="/api/companions/ada")return response({companion,messages:[],runs:[],activity:[]});
+      throw new Error(`Unexpected request: ${path}`);
+    });
+    vi.stubGlobal("fetch",fetchMock);const user=userEvent.setup();render(<App/>);
+    await user.type(await screen.findByLabelText("Name"),"Ada");await user.type(screen.getByLabelText("Mission"),"Research customer questions.");
+    await user.click(screen.getByRole("button",{name:"Create Companion"}));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Response lost");
+    await user.click(screen.getByRole("button",{name:"Create Companion"}));
+    expect(await screen.findByRole("heading",{name:"What should Ada work on?"})).toBeInTheDocument();
+    expect(bodies).toHaveLength(2);expect(bodies[0].clientCreationId).toMatch(/^[0-9a-f-]{36}$/);expect(bodies[1].clientCreationId).toBe(bodies[0].clientCreationId);
   });
 
   it("shows a recoverable error when initial configuration fails", async () => {

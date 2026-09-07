@@ -98,7 +98,7 @@ export async function handler(request: Request): Promise<Response> {
       if (request.method === "GET") return json({ companions: await listCompanions(ownerId) });
       if (request.method === "POST") {
         if(billingConfiguration().mode === "stripe" || process.env.NODE_ENV === "production") await requireProductActivation(ownerId);
-        const input = z.object({ name: z.string().trim().min(1).max(80), instructions: z.string().max(20_000).optional(), provider: z.enum(["local", "box"]), avatar: avatarSchema.optional(), templateId:idSchema.optional(), templateRevision:z.number().int().positive().optional() }).parse(await request.json());
+        const input = z.object({ clientCreationId:idSchema.optional(),name: z.string().trim().min(1).max(80), instructions: z.string().max(20_000).optional(), provider: z.enum(["local", "box"]), avatar: avatarSchema.optional(), templateId:idSchema.optional(), templateRevision:z.number().int().positive().optional() }).parse(await request.json());
         if (input.provider === "box" && (!config.boxKey || !config.boxTemplate)) return json({ error: "Box needs an API key and a prepared template." }, 409);
         if (input.provider === "local" && !config.localAvailable) return json({ error: "Local runtime is disabled." }, 409);
         return json({ companion: await createCompanion(ownerId, {...input,prepare:true}) }, 201);

@@ -43,12 +43,16 @@ test("Better Auth sessions isolate two personal accounts across every Companion 
   const me = await handler(new Request("http://127.0.0.1:4310/api/me", { headers: aliceHeaders }));
   expect(me.status).toBe(200);
   expect((await me.json() as any).user.email).toBe("alice@example.com");
-  const created = await handler(new Request("http://127.0.0.1:4310/api/companions", {
+  const clientCreationId=crypto.randomUUID();
+  const create=(name="Grace")=>handler(new Request("http://127.0.0.1:4310/api/companions", {
     method: "POST", headers: aliceHeaders,
-    body: JSON.stringify({ name: "Grace", instructions: "", provider: "local" }),
+    body: JSON.stringify({clientCreationId,name,instructions:"",provider:"local"}),
   }));
+  const [created,retried]=await Promise.all([create(),create()]);
   expect(created.status).toBe(201);
   const companion = (await created.json() as any).companion;
+  expect((await retried.json() as any).companion.id).toBe(companion.id);
+  expect((await create("Changed")).status).toBe(409);
   const url = `http://127.0.0.1:4310/api/companions/${companion.id}/messages`;
   const body = JSON.stringify({ clientMessageId: crypto.randomUUID(), content: "Durable" });
   expect((await handler(new Request(url, { method: "POST", body }))).status).toBe(401);

@@ -6,6 +6,7 @@ import {AgentControl} from '../../../packages/control/agent';
 import {db,migrate,createCompanion,acceptMessage} from '../src/store';
 import {applyControl,registerControl,controlHandlers} from '../src/control';
 import {addCustomPlugin,attachPlugin,listPluginAccounts,machinePlugins,disconnectPlugin} from '../src/plugins';
+import '../src/control-product';
 const owner='00000000-0000-4000-8000-000000000001';
 beforeAll(async()=>{await migrate();});
 test('control MCP persists a request and returns the controller result without a public callback',async()=>{
@@ -44,4 +45,12 @@ test('plugin secrets are write-only and attaching another owner account is refus
  expect(JSON.stringify(await listPluginAccounts(owner))).not.toContain('synthetic-plugin-secret');
  expect((await machinePlugins(c.id))[0].headers?.Authorization).toBe('Bearer synthetic-plugin-secret');
  await disconnectPlugin(owner,account.id);expect(await machinePlugins(c.id)).toHaveLength(0);
+});
+test('companion_create uses the durable control command as its creation identity',async()=>{
+ const commandId=crypto.randomUUID(),context={ownerId:owner,companionId:crypto.randomUUID(),runId:crypto.randomUUID(),commandId,isChild:false};
+ const first=await controlHandlers.companion_create!(context,{name:'Created by control',instructions:'Stable'} as any) as any;
+ const retried=await controlHandlers.companion_create!(context,{name:'Created by control',instructions:'Stable'} as any) as any;
+ expect(retried.id).toBe(first.id);
+ await expect(controlHandlers.companion_create!(context,{name:'Changed control intent'} as any)).rejects.toBeInstanceOf(Error);
+ expect(await db`SELECT id FROM companions WHERE owner_id=${owner} AND client_creation_id=${commandId}`).toHaveLength(1);
 });

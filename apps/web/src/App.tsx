@@ -146,6 +146,7 @@ function CreateCompanion({
   const [templateId, setTemplateId] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
+  const creationIntent = useRef<{ fingerprint: string; id: string } | null>(null);
 
   useEffect(() => {
     let current = true;
@@ -168,13 +169,16 @@ function CreateCompanion({
     setSubmitting(true);
     setError("");
     try {
-      const result = await api.createCompanion({
+      const input = {
         name: name.trim(),
         instructions: instructions.trim(),
         provider,
         avatar,
         ...(selectedTemplate ? { templateId: selectedTemplate.id, templateRevision: selectedTemplate.revision } : {}),
-      });
+      };
+      const fingerprint=JSON.stringify(input);
+      if(creationIntent.current?.fingerprint!==fingerprint)creationIntent.current={fingerprint,id:crypto.randomUUID()};
+      const result = await api.createCompanion({...input,clientCreationId:creationIntent.current.id});
       onCreated(result.companion);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Could not create Companion");

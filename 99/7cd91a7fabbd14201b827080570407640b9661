@@ -1,0 +1,21 @@
+apps/server/src/companion-mail.ts
+  s_0ff594810f62cd::t_a922f6cb90a4d8 31,115,119,129,202,230,287,294,334-343,348,364
+apps/server/test/companion-mail.test.ts
+  s_0ff594810f62cd::t_28a26f8006eb5b 4,86-176
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "997cd91a7fabbd14201b827080570407640b9661",
+  "prompts": {},
+  "sessions": {
+    "s_0ff594810f62cd": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a07d7f-3ff1-78d3-b4f4-b6d7c57a313d",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "StanGirard <stan@quivr.app>"
+    }
+  }
+}

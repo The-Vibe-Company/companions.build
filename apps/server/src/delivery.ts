@@ -1,7 +1,7 @@
 import { createHash, randomBytes } from "node:crypto";
-import nodemailer from "nodemailer";
 import { z } from "zod";
 import { config, encrypt } from "./config";
+import { createMailAdapter, type MailMessage } from "./mail";
 import { db } from "./store";
 import { ProductActivationRequired, requireProductActivation } from "./billing";
 import { queueDeliverySkillExports } from "./delivery-skills";
@@ -13,14 +13,16 @@ const createSchema = z.object({ clientDeliveryId: idSchema, companionId: idSchem
   templateIds: z.array(idSchema).max(20).refine(ids => new Set(ids).size === ids.length, "Template IDs must be unique").default([]),
   maintenanceRequested: z.boolean().default(false), includeSkills: z.boolean().default(true) });
 
-type Mail = { to: string; subject: string; text: string };
-let mailOverride: ((mail: Mail) => Promise<void>) | null = null;
-export function setDeliveryMailerForTests(deliver: ((mail: Mail) => Promise<void>) | null) { mailOverride = deliver; }
-async function sendInvite(mail: Mail) {
+const mailer = createMailAdapter({
+  provider: config.emailProvider, from: config.emailFrom, resendApiKey: config.resendApiKey,
+  smtpHost: config.smtpHost, smtpPort: config.smtpPort, smtpSecure: config.smtpSecure,
+  smtpUser: config.smtpUser, smtpPassword: config.smtpPassword,
+});
+let mailOverride: ((mail: MailMessage) => Promise<void>) | null = null;
+export function setDeliveryMailerForTests(deliver: ((mail: MailMessage) => Promise<void>) | null) { mailOverride = deliver; }
+async function sendInvite(mail: MailMessage) {
   if (mailOverride) return mailOverride(mail);
-  if (!config.smtpHost) return;
-  const transport = nodemailer.createTransport({ host: config.smtpHost, port: config.smtpPort, secure: config.smtpSecure, ...(config.smtpUser ? { auth: { user: config.smtpUser, pass: config.smtpPassword } } : {}) });
-  await transport.sendMail({ from: config.smtpFrom, ...mail });
+  await mailer.send(mail);
 }
 
 export async function migrateDelivery(sql = db) {
@@ -80,7 +82,7 @@ export type DeliveryInviteResult="sent"|"skipped"|"unknown"|"not_pending";
 export async function sendDeliveryReadyInvite(deliveryId:string):Promise<DeliveryInviteResult>{
  const [delivery]=await db`UPDATE companion_deliveries SET email_status='sending' WHERE id=${deliveryId} AND status='pending' AND skills_status='ready' AND email_status='pending' RETURNING id,recipient_email,profile_snapshot,expires_at`;
  if(!delivery)return "not_pending";
- if(!config.smtpHost&&!mailOverride){await db`UPDATE companion_deliveries SET email_status='skipped' WHERE id=${delivery.id} AND email_status='sending'`;return "skipped";}
+ if(!mailer.isConfigured&&!mailOverride){await db`UPDATE companion_deliveries SET email_status='skipped' WHERE id=${delivery.id} AND email_status='sending'`;return "skipped";}
  const link=`${config.authUrl.replace(/\/$/,"")}/deliveries/${delivery.id}`;
  try{
   await sendInvite({to:delivery.recipient_email,subject:`${String(delivery.profile_snapshot.name)} is ready for you`,text:`Sign in with ${delivery.recipient_email} to review and activate your independent Companion copy:\n\n${link}\n\nThe invitation expires in 14 days.`});

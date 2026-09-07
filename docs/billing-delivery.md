@@ -1,5 +1,19 @@
 # Billing and client delivery
 
+## Email delivery
+
+Magic-link sign-in and client invitations share one mail transport. Local development keeps using
+Mailpit through the launcher-provided `SMTP_HOST`, `SMTP_PORT`, and `SMTP_FROM` values. A hosted
+Resend deployment must explicitly set `EMAIL_PROVIDER=resend`, `EMAIL_FROM` to an address on a
+verified sending domain, and the secret `RESEND_API_KEY`. Hosted SMTP can instead set
+`EMAIL_PROVIDER=smtp` together with the existing `SMTP_*` variables; `EMAIL_FROM` overrides
+`SMTP_FROM` when both are present. Setting a Resend key without selecting the Resend provider does
+not enable it.
+
+Provider calls have a bounded timeout and expose only stable error codes. Delivery invitations
+retain their durable claim-before-send behavior: an ambiguous provider result is recorded as
+`unknown` and is never retried blindly.
+
 The hosted product uses a companions.build Stripe subscription and a durable internal usage ledger. Users never provide Box or model-provider payment credentials.
 
 ## Configuration and routes

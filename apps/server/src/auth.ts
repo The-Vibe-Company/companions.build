@@ -1,29 +1,22 @@
 import { betterAuth } from "better-auth";
 import { magicLink } from "better-auth/plugins";
-import nodemailer from "nodemailer";
 import { Pool } from "pg";
 import { config } from "./config";
+import { createMailAdapter } from "./mail";
 
 const pool = new Pool({ connectionString: config.databaseUrl, max: 8 });
 
 type DeliveredMagicLink = { email: string; url: string };
 let testDelivery: ((message: DeliveredMagicLink) => void | Promise<void>) | undefined;
+const mailer = createMailAdapter({
+  provider: config.emailProvider, from: config.emailFrom, resendApiKey: config.resendApiKey,
+  smtpHost: config.smtpHost, smtpPort: config.smtpPort, smtpSecure: config.smtpSecure,
+  smtpUser: config.smtpUser, smtpPassword: config.smtpPassword,
+});
 
 async function sendMagicLink(message: DeliveredMagicLink) {
   if (testDelivery) return testDelivery(message);
-  if (!config.smtpHost) {
-    throw new Error("SMTP_HOST is required to send sign-in links");
-  }
-  const transport = nodemailer.createTransport({
-    host: config.smtpHost,
-    port: config.smtpPort,
-    secure: config.smtpSecure,
-    auth: config.smtpUser && config.smtpPassword
-      ? { user: config.smtpUser, pass: config.smtpPassword }
-      : undefined,
-  });
-  await transport.sendMail({
-    from: config.smtpFrom,
+  await mailer.send({
     to: message.email,
     subject: "Sign in to companions.build",
     text: `Open this one-time link to sign in to companions.build:\n\n${message.url}\n\nThis link expires in 10 minutes.`,

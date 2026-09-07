@@ -80,7 +80,7 @@ export function LandingPage({ onLogin }: { onLogin: () => void }) {
       <h2>Three steps to your first companion.</h2>
       <div className="landing-steps">
         <article><div className="landing-step-art landing-step-faces">{people.map(person => <CompanionAvatar key={person.name} {...person} size={84} />)}</div><span>1</span><h3>Name it</h3><p>Pick a face and a name. Tell your companion what you’d like help with.</p></article>
-        <article><div className="landing-step-art landing-app-grid">{[["gmail", "Gmail"], ["notion", "Notion"], ["slack", "Slack"], ["github", "GitHub"]].map(([provider, name]) => <span key={provider}><ProviderMark provider={provider} name={name} /></span>)}</div><span>2</span><h3>Connect your apps</h3><p>Choose the accounts your companion can use. You decide what to share.</p></article>
+        <article><div className="landing-step-art landing-app-grid">{[["gmail", "Gmail"], ["notion", "Notion"], ["slack", "Slack"], ["github", "GitHub"]].map(([provider, name]) => <span key={provider}><ProviderMark provider={provider} name={name} /></span>)}</div><span>2</span><h3>Connect your apps</h3><p>Choose the accounts your companion can use. With Gmail, it can read messages and create drafts for you to review.</p></article>
         <article><div className="landing-step-art"><div className="landing-working"><CompanionAvatar name="Pip" avatar={{ shape: 2, color: 7, face: 1 }} size={30} />Pip is on it <i /><i /><i /></div></div><span>3</span><h3>Let it work</h3><p>Send a message for a one-off task, or set a routine for the things you need regularly.</p></article>
       </div>
     </section>
@@ -100,7 +100,7 @@ export function LandingPage({ onLogin }: { onLogin: () => void }) {
 
     <footer className="landing-footer">
       <div className="landing-peek" aria-hidden="true">{stories.map(story => <CompanionAvatar key={story.name} name={story.name} avatar={story.avatar} size={96} />)}</div>
-      <div><h2>Your first companion is waiting.</h2><p>Private beta · Invitation required</p><Cta onClick={onLogin} /><nav aria-label="Footer"><a href="#stories">Stories</a><a href="https://github.com/The-Vibe-Company/companions.build" target="_blank" rel="noreferrer">GitHub</a><a href="#questions">Help</a><a href="https://github.com/The-Vibe-Company/companions.build/blob/main/LICENSE" target="_blank" rel="noreferrer">MIT license</a></nav></div>
+      <div><h2>Your first companion is waiting.</h2><p>Private beta · Invitation required</p><Cta onClick={onLogin} /><nav aria-label="Footer"><a href="#stories">Stories</a><a href="https://github.com/The-Vibe-Company/companions.build" target="_blank" rel="noreferrer">GitHub</a><a href="#questions">Help</a><a href="/privacy">Privacy</a><a href="/terms">Terms</a><a href="https://github.com/The-Vibe-Company/companions.build/blob/main/LICENSE" target="_blank" rel="noreferrer">MIT license</a></nav></div>
     </footer>
   </main>;
 }

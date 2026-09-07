@@ -135,6 +135,17 @@ class VerifyTest(unittest.TestCase):
             "ExitCode": 1, "OOMKilled": False, "startupCodes": ["STARTUP_PI_EACCES"]}])
         self.assertNotIn("private-value", str(output.call_args_list))
 
+    def test_interrupting_failure_diagnostics_still_cleans_owned_resources(self):
+        runner = mock.Mock()
+        runner.execute.side_effect = RuntimeError('fixture failed')
+        runner.diagnose_owned_resources.side_effect = KeyboardInterrupt()
+        with tempfile.TemporaryDirectory() as directory, mock.patch.object(verify, "ROOT", Path(directory)), \
+             mock.patch.object(verify.os, "chdir"), mock.patch.object(verify, "Verifier", return_value=runner), \
+             mock.patch("builtins.print"), self.assertRaises(KeyboardInterrupt):
+            verify.main(['--profile', 'server'])
+        runner.clean_owned_resources.assert_called_once()
+        runner.write_report.assert_called_once()
+
 
 if __name__ == "__main__":
     unittest.main()

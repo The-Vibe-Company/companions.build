@@ -422,11 +422,13 @@ def main(argv=None):
             verifier.failure = {"type": type(error).__name__, "message": str(error)}
             print(f"ERROR: {error}", file=sys.stderr, flush=True)
         finally:
-            if verifier.failure:
-                verifier.diagnose_owned_resources()
-            verifier.clean_owned_resources()
-            verifier.write_report()
-            signal.signal(signal.SIGTERM, previous_sigterm)
+            try:
+                if verifier.failure:
+                    verifier.diagnose_owned_resources()
+            finally:
+                verifier.clean_owned_resources()
+                verifier.write_report()
+                signal.signal(signal.SIGTERM, previous_sigterm)
         return 0 if verifier.status == "passed" else 1
 
 

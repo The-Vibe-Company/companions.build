@@ -23,6 +23,7 @@ describe("account delivery", () => {
     const user = userEvent.setup();
     render(<AccountProduct user={{ id: "u1", name: "Alex", email: "alex@example.com" }} onSignOut={vi.fn()} />);
     expect(await screen.findByText("No subscription")).toBeInTheDocument();
+    expect(screen.getByText("Subscription + usage appear here.")).toBeInTheDocument();
     await user.click(screen.getByRole("checkbox", { name: "Allow maintenance" }));
     await user.click(screen.getByRole("button", { name: "Accept" }));
     await waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/api/deliveries/d1/accept", expect.objectContaining({ body: JSON.stringify({ grantMaintenance: true }) })));

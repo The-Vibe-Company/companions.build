@@ -18,7 +18,7 @@ The hosted product uses a companions.build Stripe subscription and a durable int
 
 ## Configuration and routes
 
-Hosted billing requires `STRIPE_SECRET_KEY`, distinct `STRIPE_MODEL_PRICE_ID` and `STRIPE_BOX_PRICE_ID` values, `STRIPE_WEBHOOK_SECRET`, `STRIPE_METER_EVENT_NAME`, `STRIPE_BOX_METER_EVENT_NAME`, and `APP_URL`. Model tokens and elapsed Box seconds use separate Stripe meters and separate recurring metered Prices. Missing or duplicate Price configuration produces an explicit unavailable state. It never projects an active plan. `BILLING_TEST_MODE=1` is accepted only outside production; it permits local delivery activation and returns a deterministic local Checkout destination without creating a subscription.
+Hosted billing requires `STRIPE_SECRET_KEY`, a fixed recurring `STRIPE_BASE_PRICE_ID`, distinct recurring metered `STRIPE_MODEL_PRICE_ID` and `STRIPE_BOX_PRICE_ID` values, `STRIPE_WEBHOOK_SECRET`, `STRIPE_METER_EVENT_NAME`, `STRIPE_BOX_METER_EVENT_NAME`, and `APP_URL`. Model tokens and elapsed Box seconds use separate Stripe meters. All three Price IDs must be distinct. Missing or duplicate Price configuration produces an explicit unavailable state and never projects an active plan. `BILLING_TEST_MODE=1` is accepted only outside production; it permits local delivery activation and returns a deterministic local Checkout destination without creating a subscription.
 
 - `GET /api/billing` returns configuration mode, subscription status, activation state, and owner-scoped usage totals.
 - `POST /api/billing/checkout` creates a Stripe-hosted subscription Checkout Session.
@@ -27,7 +27,7 @@ Hosted billing requires `STRIPE_SECRET_KEY`, distinct `STRIPE_MODEL_PRICE_ID` an
 
 `recordUsage({operationId, ownerId, companionId?, category, quantity, unit, occurredAt?, metadata?})` commits an immutable ledger row before attempting Stripe delivery. The accepted pairs are `model_tokens`/`token`, `box_seconds`/`second`, and the non-metered `box_lifecycle`/`event` audit category. `(ownerId, operationId)` deduplicates retries only when all billing data matches; a changed replay is rejected. Metadata is bounded and rejects credential-like keys or values. `flushPendingUsage(ownerId)` retries rows recorded before the account had a Stripe customer. Runtime failures must not be caused by temporary Stripe delivery failures.
 
-Stripe Checkout uses subscription mode with both configured metered Prices as line items; metered line items do not set a fixed quantity. The server stores the complete unique Price set for each Subscription received through signed events and separately tracks the Subscription selected by Checkout. Only that selected Subscription with exactly both configured Prices grants access. A missing, duplicate, additional, or different Price fails closed. Events for another Subscription cannot overwrite the selection, and out-of-order events cannot roll its status backward. Stripe's customer portal remains the payment and cancellation surface.
+Stripe Checkout uses subscription mode with the fixed base Price at quantity one and both metered Prices as separate line items; metered line items do not set a fixed quantity. The server stores the complete unique Price set for each Subscription received through signed events and separately tracks the Subscription selected by Checkout. Only that selected Subscription with exactly all three configured Prices grants access. A missing, duplicate, additional, or different Price fails closed. Existing two-Price fingerprints do not gain entitlement after this configuration change; a later signed Subscription event carrying the exact configured three-Price set must update them. Events for another Subscription cannot overwrite the selection, and out-of-order events cannot roll its status backward. Stripe's customer portal remains the payment and cancellation surface.
 
 ## Client delivery
 
@@ -39,6 +39,7 @@ Maintenance is a separate explicit grant. The sender may request it, but access 
 
 ## Stripe sources
 
+- [Set up a flat fee and overages pricing model](https://docs.stripe.com/billing/subscriptions/usage-based-v1/use-cases/flat-fee-and-overages) documents combining a fixed recurring Price with a usage-based Price on one Subscription.
 - [Build a subscriptions integration](https://docs.stripe.com/billing/subscriptions/build-subscriptions) documents subscription-mode Checkout, storing Customer and Subscription IDs from events, and creating portal sessions on demand.
 - [Stripe webhook delivery](https://docs.stripe.com/webhooks?lang=node) requires the raw request body, describes the five-minute signature tolerance, duplicate delivery, retries, and unordered events.
 - [Stripe signature troubleshooting](https://docs.stripe.com/webhooks/signature) documents the `Stripe-Signature` timestamp and `v1` signature format.
@@ -59,5 +60,6 @@ for Stripe mode. If either is absent, billing is unconfigured and cannot grant h
 ledger rows recorded outside Stripe mode are marked skipped rather than queued for provider
 delivery. `STRIPE_MODEL_PRICE_ID` must name the recurring metered Price attached to the model-token
 meter, and `STRIPE_BOX_PRICE_ID` the distinct recurring metered Price attached to the Box-second
-meter. Configure both Prices with the same compatible billing currency and interval. The
+meter. `STRIPE_BASE_PRICE_ID` must name the fixed recurring subscription Price. Configure all three
+Prices with the same compatible billing currency and interval. The
 application cannot infer commercial rates or create Prices without that configuration.

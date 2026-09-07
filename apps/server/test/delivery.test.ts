@@ -10,7 +10,7 @@ import { encrypt } from "../src/config";
 beforeAll(async () => { await migrate(); await migrateBilling(); await migrateDelivery(); await migrateDeliverySkills(); });
 afterEach(() => {
   setDeliveryMailerForTests(null);
-  for (const key of ["BILLING_TEST_MODE", "STRIPE_SECRET_KEY", "STRIPE_MODEL_PRICE_ID", "STRIPE_BOX_PRICE_ID", "STRIPE_WEBHOOK_SECRET", "STRIPE_METER_EVENT_NAME", "STRIPE_BOX_METER_EVENT_NAME", "APP_URL"]) delete process.env[key];
+  for (const key of ["BILLING_TEST_MODE", "STRIPE_SECRET_KEY", "STRIPE_BASE_PRICE_ID", "STRIPE_MODEL_PRICE_ID", "STRIPE_BOX_PRICE_ID", "STRIPE_WEBHOOK_SECRET", "STRIPE_METER_EVENT_NAME", "STRIPE_BOX_METER_EVENT_NAME", "APP_URL"]) delete process.env[key];
 });
 async function user(email: string) {
   const id = crypto.randomUUID();
@@ -201,6 +201,7 @@ test("an ambiguous mail failure becomes unknown and is never replayed", async ()
 
 test("a delivery stays pending when the recipient has no active subscription", async () => {
   process.env.STRIPE_SECRET_KEY = "sk_test_local";
+  process.env.STRIPE_BASE_PRICE_ID = "price_base_local";
   process.env.STRIPE_MODEL_PRICE_ID = "price_model_local";
   process.env.STRIPE_BOX_PRICE_ID = "price_box_local";
   process.env.STRIPE_WEBHOOK_SECRET = "whsec_local";

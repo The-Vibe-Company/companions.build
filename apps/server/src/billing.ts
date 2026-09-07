@@ -35,22 +35,25 @@ export interface BillingProvider {
 
 export function billingConfiguration(env: NodeJS.ProcessEnv = process.env) {
   const test = env.NODE_ENV !== "production" && env.BILLING_TEST_MODE === "1";
-  const required = ["STRIPE_SECRET_KEY", "STRIPE_MODEL_PRICE_ID", "STRIPE_BOX_PRICE_ID", "STRIPE_WEBHOOK_SECRET", "STRIPE_METER_EVENT_NAME", "STRIPE_BOX_METER_EVENT_NAME", "APP_URL"] as const;
+  const required = ["STRIPE_SECRET_KEY", "STRIPE_BASE_PRICE_ID", "STRIPE_MODEL_PRICE_ID", "STRIPE_BOX_PRICE_ID", "STRIPE_WEBHOOK_SECRET", "STRIPE_METER_EVENT_NAME", "STRIPE_BOX_METER_EVENT_NAME", "APP_URL"] as const;
   const missing = required.filter(key => !env[key]);
-  const duplicatePrices = !missing.length && env.STRIPE_MODEL_PRICE_ID === env.STRIPE_BOX_PRICE_ID;
+  const prices = [env.STRIPE_BASE_PRICE_ID, env.STRIPE_MODEL_PRICE_ID, env.STRIPE_BOX_PRICE_ID];
+  const duplicatePrices = !missing.length && new Set(prices).size !== prices.length;
   return { mode: test ? "test" as const : missing.length || duplicatePrices ? "unconfigured" as const : "stripe" as const, missing, duplicatePrices };
 }
 
 function configuredPriceFingerprint(env: NodeJS.ProcessEnv = process.env) {
-  return JSON.stringify([env.STRIPE_MODEL_PRICE_ID!, env.STRIPE_BOX_PRICE_ID!].sort());
+  return JSON.stringify([env.STRIPE_BASE_PRICE_ID!, env.STRIPE_MODEL_PRICE_ID!, env.STRIPE_BOX_PRICE_ID!].sort());
 }
 
 export function stripeCheckoutForm(input: { ownerId: string; email: string; customerId: string | null }, env: NodeJS.ProcessEnv = process.env) {
   const base = env.APP_URL!.replace(/\/$/, "");
   const form = new URLSearchParams({
     mode: "subscription", success_url: `${base}/account?checkout=complete`, cancel_url: `${base}/account`,
-    "line_items[0][price]": env.STRIPE_MODEL_PRICE_ID!,
-    "line_items[1][price]": env.STRIPE_BOX_PRICE_ID!,
+    "line_items[0][price]": env.STRIPE_BASE_PRICE_ID!,
+    "line_items[0][quantity]": "1",
+    "line_items[1][price]": env.STRIPE_MODEL_PRICE_ID!,
+    "line_items[2][price]": env.STRIPE_BOX_PRICE_ID!,
     client_reference_id: input.ownerId, "metadata[owner_id]": input.ownerId,
     "subscription_data[metadata][owner_id]": input.ownerId,
   });
@@ -206,9 +209,9 @@ const stripeEvent = z.object({ id: safeId, type: z.string().min(1).max(100), cre
 function stringValue(value: unknown) { return typeof value === "string" ? value : value && typeof value === "object" && "id" in value ? String((value as any).id) : null; }
 function subscriptionPriceFingerprint(object: Record<string, unknown>) {
   const data = (object.items as any)?.data;
-  if (!Array.isArray(data)) return null;
+  if (!Array.isArray(data)) return "[]";
   const prices = data.map(item => stringValue(item?.price)).filter((price): price is string => !!price);
-  if (prices.length !== data.length || new Set(prices).size !== prices.length) return null;
+  if (prices.length !== data.length || new Set(prices).size !== prices.length) return "[]";
   return JSON.stringify([...prices].sort());
 }
 export async function handleStripeWebhook(request: Request) {
@@ -247,7 +250,6 @@ export async function handleStripeWebhook(request: Request) {
         if (!subscription || !customer || !allowed.includes(status)) throw new Error("invalid_subscription");
         const periodEnd = Number(object.current_period_end ?? (object.items as any)?.data?.[0]?.current_period_end ?? 0);
         const priceId = subscriptionPriceFingerprint(object);
-        if (!priceId) throw new Error("invalid_subscription_prices");
         const [account] = ownerId
           ? await tx`SELECT u.id AS owner_id FROM "user" u LEFT JOIN billing_accounts a ON a.owner_id=u.id
               WHERE u.id=${ownerId} AND (a.stripe_customer_id IS NULL OR a.stripe_customer_id=${customer}) FOR UPDATE OF u`

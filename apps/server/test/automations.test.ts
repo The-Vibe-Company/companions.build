@@ -2,7 +2,7 @@ import { afterEach, beforeAll, expect, test } from "bun:test";
 import { db, migrate, createCompanion, acceptMessage } from "../src/store";
 import { acquireExecutor, claimQueuedRuns, tick } from "../src/executor";
 import { createRoutine, updateRoutine, deleteRoutine, listRoutines, routineHistory, scheduleDueRoutines,
-  migrateAutomations, testRoutine, enqueueBackground, nextRoutineFire, requestRunResume, AutomationConflict } from "../src/automations";
+  migrateAutomations, testRoutine, enqueueBackground, nextRoutineFire, requestRunResume, AutomationConflict, routineInput } from "../src/automations";
 import { encrypt } from "../src/config";
 import { handleAutomations } from "../src/automation-routes";
 
@@ -30,6 +30,45 @@ test("timezone calendars retain local wall time across DST and reject malformed 
   expect(nextRoutineFire("0 9 * * *", "Europe/Paris", new Date("2026-10-24T07:00:00Z")).toISOString()).toBe("2026-10-25T08:00:00.000Z");
   expect(() => nextRoutineFire("* * * * * *", "UTC")).toThrow("five-field");
   expect(() => nextRoutineFire("0 9 * * *", "Not/AZone")).toThrow("timezone");
+});
+
+test("routine inputs accept exactly one recurring or one-shot schedule", () => {
+  expect(routineInput.parse({name:"Once",prompt:"Remind me",runAt:"2026-09-08T15:00:00+02:00"})).toMatchObject({enabled:true});
+  expect(() => routineInput.parse({name:"Ambiguous",prompt:"No",runAt:"2026-09-08T15:00:00Z",cron:"0 9 * * *",timezone:"UTC"})).toThrow();
+  expect(() => routineInput.parse({name:"Local time",prompt:"No",runAt:"2026-09-08T15:00:00"})).toThrow();
+  expect(() => routineInput.parse({name:"Incomplete",prompt:"No",cron:"0 9 * * *"})).toThrow();
+});
+
+test("one-shot admission is durable, failures stay visible, and success archives only the active definition", async () => {
+  const id = await companion();
+  const routine = await createRoutine(id, {
+    name:"Proposal reminder",prompt:"Remind me to send the proposal",runAt:"2026-09-08T13:00:00Z",enabled:true,
+  },db,new Date("2026-09-07T12:00:00Z"));
+  expect(routine).toMatchObject({cron:null,timezone:null,enabled:true,lastRunStatus:null,lastError:null});
+  expect(new Date(routine.runAt).toISOString()).toBe("2026-09-08T13:00:00.000Z");
+  expect(new Date(routine.nextFireAt).toISOString()).toBe("2026-09-08T13:00:00.000Z");
+
+  await Promise.all(Array.from({length:12},()=>scheduleDueRoutines(db,new Date("2026-09-08T14:00:00Z"))));
+  expect(await scheduleDueRoutines(db,new Date("2026-09-09T14:00:00Z"))).toBe(0);
+  const [firstRun] = await db`SELECT id,status,scheduled_for FROM runs WHERE routine_id=${routine.id}`;
+  expect(firstRun.status).toBe("queued");
+  expect(new Date(firstRun.scheduled_for).toISOString()).toBe("2026-09-08T13:00:00.000Z");
+  expect((await listRoutines(id))[0]).toMatchObject({enabled:false,nextFireAt:null,lastRunStatus:null});
+  expect((await routineHistory(id,routine.id))!.missed).toHaveLength(0);
+
+  await db`UPDATE runs SET status='failed',error='Reminder delivery failed',finished_at=now() WHERE id=${firstRun.id}`;
+  expect((await listRoutines(id))[0]).toMatchObject({enabled:false,lastRunStatus:'failed',lastError:'Reminder delivery failed'});
+  expect((await routineHistory(id,routine.id))!.runs).toHaveLength(1);
+
+  const retried = await updateRoutine(id,routine.id,{runAt:"2026-09-10T13:00:00Z",enabled:true},db,new Date("2026-09-09T12:00:00Z"));
+  expect(retried).toMatchObject({enabled:true,lastRunStatus:null,lastError:null});
+  await scheduleDueRoutines(db,new Date("2026-09-10T13:00:00Z"));
+  const [secondRun] = await db`SELECT id FROM runs WHERE routine_id=${routine.id} AND id<>${firstRun.id}`;
+  await db`UPDATE runs SET status='succeeded',result_text='Reminder sent',finished_at=now() WHERE id=${secondRun.id}`;
+  expect(await listRoutines(id)).toHaveLength(0);
+  const history = await routineHistory(id,routine.id);
+  expect(history!.runs).toHaveLength(2);
+  expect(history!.runs.map((run:any)=>run.status).sort()).toEqual(['failed','succeeded']);
 });
 
 test("concurrent scheduler ticks catch up only the latest missed occurrence and never wake a machine", async () => {

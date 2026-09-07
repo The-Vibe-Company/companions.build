@@ -1,0 +1,345 @@
+{
+  "date": "2026-09-07",
+  "status": "rejected_experiment",
+  "candidateCommit": "0c2e53c",
+  "revertedBy": "6c9bd8e",
+  "template": "companions-agent-v12-20260907",
+  "wake": {
+    "admissionMs": 14.993833999999993,
+    "totalSeconds": 48.781088583999995,
+    "preparationSeconds": 33.42,
+    "executionSeconds": 14.843,
+    "newFileVerified": true
+  },
+  "baselinePreparationSeconds": 16.747,
+  "desktopVerified": true,
+  "decision": "Do not ship preview rediscovery before configuration. Its first authenticated probe failed and the candidate did not demonstrate a gain. Existing preparation code restored.",
+  "trace": [
+    {
+      "event": "preparation_trace",
+      "phase": "admission_health",
+      "startedMs": 46905.155,
+      "durationMs": 55.821,
+      "outcome": "error"
+    },
+    {
+      "event": "preparation_trace",
+      "phase": "box_get",
+      "startedMs": 47421.858,
+      "durationMs": 16.869,
+      "outcome": "archived"
+    },
+    {
+      "event": "preparation_trace",
+      "phase": "box_resume",
+      "startedMs": 47439.815,
+      "durationMs": 219.839,
+      "outcome": "ok"
+    },
+    {
+      "event": "preparation_trace",
+      "phase": "box_get",
+      "startedMs": 47925.86,
+      "durationMs": 13.704,
+      "outcome": "not_ready"
+    },
+    {
+      "event": "preparation_trace",
+      "phase": "box_get",
+      "startedMs": 48436.791,
+      "durationMs": 16.73,
+      "outcome": "not_ready"
+    },
+    {
+      "event": "preparation_trace",
+      "phase": "box_get",
+      "startedMs": 48945.156,
+      "durationMs": 13.843,
+      "outcome": "not_ready"
+    },
+    {
+      "event": "preparation_trace",
+      "phase": "box_get",
+      "startedMs": 49456.499,
+      "durationMs": 15.164,
+      "outcome": "not_ready"
+    },
+    {
+      "event": "preparation_trace",
+      "phase": "box_get",
+      "startedMs": 49962.525,
+      "durationMs": 14.579,
+      "outcome": "not_ready"
+    },
+    {
+      "event": "preparation_trace",
+      "phase": "box_get",
+      "startedMs": 50471.089,
+      "durationMs": 16.103,
+      "outcome": "not_ready"
+    },
+    {
+      "event": "preparation_trace",
+      "phase": "box_get",
+      "startedMs": 50980.234,
+      "durationMs": 18.212,
+      "outcome": "not_ready"
+    },
+    {
+      "event": "preparation_trace",
+      "phase": "box_get",
+      "startedMs": 51490.133,
+      "durationMs": 19.481,
+      "outcome": "not_ready"
+    },
+    {
+      "event": "preparation_trace",
+      "phase": "box_get",
+      "startedMs": 51999.32,
+      "durationMs": 15.748,
+      "outcome": "not_ready"
+    },
+    {
+      "event": "preparation_trace",
+      "phase": "box_get",
+      "startedMs": 52507.991,
+      "durationMs": 14.391,
+      "outcome": "not_ready"
+    },
+    {
+      "event": "preparation_trace",
+      "phase": "box_get",
+      "startedMs": 53019.095,
+      "durationMs": 18.031,
+      "outcome": "not_ready"
+    },
+    {
+      "event": "preparation_trace",
+      "phase": "box_get",
+      "startedMs": 53523.439,
+      "durationMs": 14.026,
+      "outcome": "not_ready"
+    },
+    {
+      "event": "preparation_trace",
+      "phase": "box_get",
+      "startedMs": 54031.338,
+      "durationMs": 17.005,
+      "outcome": "not_ready"
+    },
+    {
+      "event": "preparation_trace",
+      "phase": "box_get",
+      "startedMs": 54539.354,
+      "durationMs": 15.17,
+      "outcome": "not_ready"
+    },
+    {
+      "event": "preparation_trace",
+      "phase": "box_get",
+      "startedMs": 55048.781,
+      "durationMs": 20.562,
+      "outcome": "not_ready"
+    },
+    {
+      "event": "preparation_trace",
+      "phase": "box_get",
+      "startedMs": 55557.723,
+      "durationMs": 17.558,
+      "outcome": "not_ready"
+    },
+    {
+      "event": "preparation_trace",
+      "phase": "box_get",
+      "startedMs": 56066.734,
+      "durationMs": 25.359,
+      "outcome": "not_ready"
+    },
+    {
+      "event": "preparation_trace",
+      "phase": "box_get",
+      "startedMs": 56570.766,
+      "durationMs": 14.942,
+      "outcome": "not_ready"
+    },
+    {
+      "event": "preparation_trace",
+      "phase": "box_get",
+      "startedMs": 57083.492,
+      "durationMs": 17.194,
+      "outcome": "not_ready"
+    },
+    {
+      "event": "preparation_trace",
+      "phase": "box_get",
+      "startedMs": 57593.624,
+      "durationMs": 17.233,
+      "outcome": "not_ready"
+    },
+    {
+      "event": "preparation_trace",
+      "phase": "box_get",
+      "startedMs": 58103.005,
+      "durationMs": 13.768,
+      "outcome": "not_ready"
+    },
+    {
+      "event": "preparation_trace",
+      "phase": "box_get",
+      "startedMs": 58612.941,
+      "durationMs": 14.781,
+      "outcome": "not_ready"
+    },
+    {
+      "event": "preparation_trace",
+      "phase": "box_get",
+      "startedMs": 59122.461,
+      "durationMs": 15.1,
+      "outcome": "not_ready"
+    },
+    {
+      "event": "preparation_trace",
+      "phase": "box_get",
+      "startedMs": 59628.622,
+      "durationMs": 17.509,
+      "outcome": "ready"
+    },
+    {
+      "event": "preparation_trace",
+      "phase": "box_setup",
+      "startedMs": 59646.216,
+      "durationMs": 0,
+      "outcome": "ready"
+    },
+    {
+      "event": "preparation_trace",
+      "phase": "box_host",
+      "startedMs": 59647.298,
+      "durationMs": 11865.354,
+      "outcome": "ok"
+    },
+    {
+      "event": "preparation_trace",
+      "phase": "box_rediscovery_health",
+      "startedMs": 71515.201,
+      "durationMs": 32.642,
+      "outcome": "error"
+    },
+    {
+      "event": "preparation_trace",
+      "phase": "box_environment",
+      "startedMs": 71552.842,
+      "durationMs": 103.869,
+      "outcome": "ok"
+    },
+    {
+      "event": "preparation_trace",
+      "phase": "box_services",
+      "startedMs": 71659.324,
+      "durationMs": 1496.72,
+      "outcome": "ok"
+    },
+    {
+      "event": "preparation_trace",
+      "phase": "box_service_desktop",
+      "startedMs": 72911.682,
+      "durationMs": 127.546,
+      "outcome": "ok"
+    },
+    {
+      "event": "preparation_trace",
+      "phase": "box_service_agent",
+      "startedMs": 73041.909,
+      "durationMs": 36.696,
+      "outcome": "ok"
+    },
+    {
+      "event": "preparation_trace",
+      "phase": "box_service_proxy",
+      "startedMs": 73085.041,
+      "durationMs": 71.046,
+      "outcome": "ok"
+    },
+    {
+      "event": "preparation_trace",
+      "phase": "box_host",
+      "startedMs": 73165.005,
+      "durationMs": 3606.416,
+      "outcome": "error"
+    },
+    {
+      "event": "preparation_trace",
+      "phase": "box_get",
+      "startedMs": 76924.909,
+      "durationMs": 16.835,
+      "outcome": "ready"
+    },
+    {
+      "event": "preparation_trace",
+      "phase": "box_setup",
+      "startedMs": 76941.77,
+      "durationMs": 0,
+      "outcome": "ready"
+    },
+    {
+      "event": "preparation_trace",
+      "phase": "box_host",
+      "startedMs": 76942.932,
+      "durationMs": 2642.066,
+      "outcome": "ok"
+    },
+    {
+      "event": "preparation_trace",
+      "phase": "box_rediscovery_health",
+      "startedMs": 79588.098,
+      "durationMs": 84.48,
+      "outcome": "ready"
+    },
+    {
+      "event": "preparation_trace",
+      "phase": "lifecycle_health",
+      "startedMs": 79677.603,
+      "durationMs": 39.875,
+      "outcome": "ready"
+    },
+    {
+      "event": "preparation_trace",
+      "phase": "ready_checkpoint",
+      "startedMs": 79721.505,
+      "durationMs": 4.073,
+      "outcome": "ok"
+    },
+    {
+      "event": "preparation_trace",
+      "phase": "admission_health",
+      "startedMs": 79976.806,
+      "durationMs": 38.706,
+      "outcome": "ready"
+    },
+    {
+      "event": "preparation_trace",
+      "phase": "plugin_configuration",
+      "startedMs": 80018.028,
+      "durationMs": 51.941,
+      "outcome": "ok"
+    },
+    {
+      "event": "preparation_trace",
+      "phase": "run_staging",
+      "startedMs": 80015.56,
+      "durationMs": 56.643,
+      "outcome": "ok"
+    },
+    {
+      "event": "preparation_trace",
+      "phase": "admission_put",
+      "startedMs": 80081.169,
+      "durationMs": 136.506,
+      "outcome": "ok"
+    }
+  ],
+  "limits": [
+    "One baseline and one candidate sample; provider latency varies. This does not establish a causal latency regression magnitude.",
+    "The candidate passed behavior tests and real main/file/desktop acceptance, but functional correctness did not demonstrate the intended performance benefit."
+  ]
+}

@@ -1,0 +1,16 @@
+{
+  "date": "2026-09-07",
+  "status": "verified",
+  "ownedCompanionTestBoxes": 16,
+  "states": {
+    "archived": 16,
+    "absent": 0
+  },
+  "additionalSyntheticRecipientBox": "archived",
+  "v12ImageSourceAndVerifier": "Observed archived in provider inventory",
+  "localWorkspaceContainersRunning": 0,
+  "verificationContainersRemaining": 0,
+  "verificationVolumesRemaining": 0,
+  "localGatewayRelayAndTunnel": "Process handles confirmed terminated",
+  "scope": "Only companions.build-owned test resources were stopped. Box disks and local development data volumes retained; other projects and hosted application services unchanged."
+}

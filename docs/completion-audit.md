@@ -44,6 +44,17 @@ hosted acceptance. See `validation-v0.md` for dated evidence.
   10.5 seconds; wake preparation took 16.4 seconds. Initial viewer provisioning exceeded the
   60-second canary deadline and later recovered without manual repair. Real browser control then
   opened the system settings with mouse/keyboard. See `measurements/box-gateway-v12-2026-09-07.json`.
+- A traced wake prepared in 16.747 seconds: about 8.7 seconds until provider readiness,
+  4.647 seconds in the service command (only 182 ms measured inside the services), and
+  1.884 seconds publishing the port. A preview-rediscovery experiment failed its first health
+  probe and prepared in 33.42 seconds; it was reverted rather than shipped. Single samples
+  do not establish a causal slowdown magnitude. See `measurements/box-v12-wake-trace-2026-09-07.json`
+  and `measurements/box-v12-rediscovery-experiment-2026-09-07.json`.
+- The traced wake again exceeded the desktop provisioning deadline. A read-only observation
+  found the viewer packages installed, x11vnc running and novnc inactive; a subsequent wake
+  passed desktop acceptance without manual repair. The cause of that intermittent service
+  readiness remains unresolved. All owned test Boxes were archived after validation, and the
+  local stack/tunnel stopped: `measurements/test-resource-shutdown-2026-09-07.json`.
 - Real V12 main/background execution through the model gateway passes: a manual invocation of a
   disabled routine ran for 43.8 seconds while chat completed in 4.8 seconds, 29.6 seconds before the
   background task. Its independent file and all 3 provider ledger entries were verified; the routine

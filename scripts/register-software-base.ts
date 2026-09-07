@@ -2,8 +2,9 @@ import { createHash } from "node:crypto";
 import { lstat, mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { canonicalJson, softwareDistributionDescriptorSchema } from "../packages/box/software-distribution";
+import { softwareDistributionDescriptorSchema } from "../packages/box/software-distribution";
 import { calculateAgentReleaseDigest } from "./lib/agent-release";
+import {contentVerifiedJournal,distributionManifest,manifestDigest} from "./lib/distribution-verification";
 import { requirePinnedBun } from "./lib/pinned-bun";
 
 requirePinnedBun();
@@ -23,12 +24,12 @@ const run = (argv: string[]) => {
 export async function validateSoftwareBaseArtifact(name: string, root = process.cwd()) {
   if (!/^[a-z0-9][a-z0-9-]{0,59}$/.test(name)) throw new Error("Invalid immutable template name.");
   const journalPath = join(root, ".local", `template-${name}.json`);
-  const archivePath = join(root, ".local", "agent.tar.gz");
   const metadata = await lstat(journalPath);
   if (!metadata.isFile() || metadata.uid !== process.getuid?.() || (metadata.mode & 0o022) !== 0) throw new Error("Template journal is not an owned immutable file.");
   const journal = JSON.parse(await readFile(journalPath, "utf8"));
-  if (!completedSnapshotJournal(journal) || !/^[a-f0-9]{64}$/.test(journal.sha256)
+  if (!completedSnapshotJournal(journal) || !contentVerifiedJournal(journal) || journal.name!==name || !/^[a-f0-9]{64}$/.test(journal.sha256)
     || typeof journal.boxId !== "string" || typeof journal.key !== "string") throw new Error("Template journal is incomplete.");
+  const archivePath=join(root,".local","distributions",`${journal.sha256}.tar.gz`);
   const archive = new Uint8Array(await readFile(archivePath));
   if (sha(archive) !== journal.sha256) throw new Error("Template archive does not match its completed journal.");
   const entries = run(["/usr/bin/tar", "-tzf", archivePath]).trim().split("\n");
@@ -36,6 +37,7 @@ export async function validateSoftwareBaseArtifact(name: string, root = process.
   const directory = await mkdtemp(join(tmpdir(), "companions-software-base-"));
   try {
     run(["/usr/bin/tar", "-xzf", archivePath, "-C", directory]);
+    if(manifestDigest(await distributionManifest(directory))!==journal.manifestDigest)throw new Error("Template archive does not match its verified content manifest.");
     const [descriptorBytes, builder, keyring] = await Promise.all([
       readFile(join(directory, "software-builder.json")), readFile(join(directory, "companion-software-builder")), readFile(join(directory, "software-apt-keyring.gpg")),
     ]);
@@ -49,8 +51,6 @@ export async function validateSoftwareBaseArtifact(name: string, root = process.
     const payload = { ...descriptor, base };
     const calculated = calculateAgentReleaseDigest(directory, { builder, descriptorPayload: payload, keyring });
     if (calculated !== descriptor.base.distributionDigest) throw new Error("Software distribution digest does not match its archive.");
-    const current = await readFile(join(root, "dist", "agent", "software-builder.json"), "utf8");
-    if (`${canonicalJson(descriptor)}\n` !== current) throw new Error("Template descriptor is not the current locally built descriptor.");
     return { id: descriptor.base.id, providerSnapshotName: name, distributionDigest: descriptor.base.distributionDigest,
       resolverConfigDigest: descriptor.resolverConfigDigest, distro: descriptor.base.distro };
   } finally { await rm(directory, { recursive: true, force: true }); }

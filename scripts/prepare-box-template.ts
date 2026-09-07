@@ -1,8 +1,10 @@
-import { BoxClient, BoxError } from "../packages/box/client";
+import { BoxClient } from "../packages/box/client";
 import { config } from "../apps/server/src/config";
 import { createHash } from "node:crypto";
-import { mkdirSync, readdirSync } from "node:fs";
+import { mkdirSync, realpathSync } from "node:fs";
 import { resolve } from "node:path";
+import {open} from "node:fs/promises";
+import {distributionManifest,manifestDigest,publishDistribution,saveDistributionJournal,validateDistributionJournal} from "./lib/distribution-verification";
 import { softwareDistributionDescriptorSchema } from "../packages/box/software-distribution";
 import {templateInstallScript} from "./lib/template-install";
 import {requirePinnedBun} from "./lib/pinned-bun";
@@ -19,91 +21,51 @@ if (args.length > 1) {
   softwareConfig = args[2];
 }
 const box = new BoxClient(config.boxKey);
-mkdirSync(".local", { recursive: true, mode: 0o700 });
-const journal = Bun.file(`.local/template-${name}.json`);
-let state = await journal.exists() ? await journal.json() : { key: crypto.randomUUID(), startedAt: new Date().toISOString() };
-await Bun.write(journal, JSON.stringify(state));
-const wait = async (ready: () => Promise<boolean>) => {
-  const deadline = Date.now() + 10 * 60_000;
-  while (!await ready()) { if (Date.now() > deadline) throw new Error("Provider preparation timed out; rerun to reconcile."); await Bun.sleep(2000); }
-};
-const snapshotReady = async () => {
-  const result = await box.getSnapshot(name);
-  const status = result.snapshot?.status ?? result.namedSnapshot?.status ?? result.status;
-  if (status === "failed") throw new Error("The named snapshot capture failed. Inspect this distribution before creating another name.");
-  return status === "ready";
-};
-// A named distribution is immutable. A timed-out POST is reconciled, never resubmitted.
-if (state.snapshotRequestedAt || state.completedAt) {
-  try { await wait(snapshotReady); }
-  catch { throw new Error("Snapshot submission remains unresolved. Inspect the named snapshot before creating a new distribution name."); }
-  state.completedAt ??= new Date().toISOString();
-  await Bun.write(journal, JSON.stringify(state, null, 2));
-  if ((await box.get(state.boxId)).state !== "archived") await box.stop(state.boxId);
-  console.log(`Template ready. Set BOX_TEMPLATE=${name} in .env. Build Box archived.`);
-  process.exit(0);
+mkdirSync(".local/distributions", { recursive: true, mode: 0o700 });
+const journalPath=`.local/template-${name}.json`,journal=Bun.file(journalPath);
+let state:any=await journal.exists()?await journal.json():{version:1,name,key:crypto.randomUUID(),startedAt:new Date().toISOString()};
+if(state.version!==1)throw Error("DISTRIBUTION_LEGACY_JOURNAL_UNVERIFIED: use a new immutable name and fresh build Box; existing captures are not rebuilt.");
+if(state.name!==name)throw Error("DISTRIBUTION_JOURNAL_NAME_MISMATCH");
+await saveDistributionJournal(journalPath,state);
+// Pin one build before any upload or Box creation. An interrupted attempt continues
+// that exact archive, even if a later local build changes dist/agent.
+if(!state.manifest){
+ if(state.boxId||state.snapshotRequestedAt||state.completedAt)throw Error("DISTRIBUTION_LEGACY_JOURNAL_UNVERIFIED");
+ const build=Bun.spawn([process.execPath,"scripts/build-agent.ts",...(softwareConfig?["--software-config",softwareConfig]:[])],{stdout:"inherit",stderr:"inherit"});
+ if(await build.exited)throw Error("Agent build failed");
+ const directory=realpathSync("dist/agent");
+ const manifest=await distributionManifest(directory);
+ if(softwareConfig){
+  const descriptorBytes=Buffer.from(await Bun.file(`${directory}/software-builder.json`).arrayBuffer());
+  const descriptor=softwareDistributionDescriptorSchema.parse(JSON.parse(descriptorBytes.toString("utf8")));
+  state.software={baseId:descriptor.base.id,distributionDigest:descriptor.base.distributionDigest,resolverConfigDigest:descriptor.resolverConfigDigest,descriptorSha256:createHash("sha256").update(descriptorBytes).digest("hex")};
+ }
+ const tar=Bun.spawn(["tar","-czf",".local/agent.tar.gz","-C",directory,"."],{stdout:"inherit",stderr:"inherit"});
+ if(await tar.exited)throw Error("Archive creation failed");
+ // A concurrent operator modifying this release cannot silently change the pinned manifest.
+ if(manifestDigest(await distributionManifest(directory))!==manifestDigest(manifest))throw Error("DISTRIBUTION_LOCAL_CONTENT_CHANGED");
+ const archive=Buffer.from(await Bun.file(".local/agent.tar.gz").arrayBuffer()),digest=createHash("sha256").update(archive).digest("hex");
+ const immutableArchive=`.local/distributions/${digest}.tar.gz`;
+ if(await Bun.file(immutableArchive).exists()){
+  if(createHash("sha256").update(new Uint8Array(await Bun.file(immutableArchive).arrayBuffer())).digest("hex")!==digest)throw Error("DISTRIBUTION_ARCHIVE_MISMATCH");
+ }else{
+  const file=await open(immutableArchive,"wx",0o600);try{await file.writeFile(archive);await file.sync();}finally{await file.close();}
+ }
+ state.manifest=manifest;state.manifestDigest=manifestDigest(manifest);state.sha256=digest;
+ await saveDistributionJournal(journalPath,state);
 }
-try {
-  await box.getSnapshot(name);
-  throw new Error("This snapshot name already exists. Choose a new immutable distribution name.");
-} catch (error) {
-  if (!(error instanceof BoxError && error.status === 404)) throw error;
-}
-if (!state.boxId) {
-  if (Date.now() - Date.parse(state.startedAt) > 23 * 3600_000) throw new Error("Creation journal expired. Reconcile its Box before retrying.");
-  const result = await box.create(state.key);
-  state.boxId = result.id;
-  await Bun.write(journal, JSON.stringify(state));
-}
-console.log(`Preparing template ${name} on Box ${state.boxId}`);
-if ((await box.get(state.boxId)).state === "archived") await box.resume(state.boxId);
-await wait(async () => ["ready", "idle"].includes((await box.get(state.boxId)).state));
-const build = Bun.spawn([process.execPath, "scripts/build-agent.ts", ...(softwareConfig ? ["--software-config", softwareConfig] : [])], { stdout: "inherit", stderr: "inherit" });
-if (await build.exited) throw new Error("Agent build failed");
-if (softwareConfig) {
-  const descriptorBytes = Buffer.from(await Bun.file("dist/agent/software-builder.json").arrayBuffer());
-  const descriptor = softwareDistributionDescriptorSchema.parse(JSON.parse(descriptorBytes.toString("utf8")));
-  state.software = { baseId: descriptor.base.id, distributionDigest: descriptor.base.distributionDigest,
-    resolverConfigDigest: descriptor.resolverConfigDigest, descriptorSha256: createHash("sha256").update(descriptorBytes).digest("hex") };
-  await Bun.write(journal, JSON.stringify(state, null, 2));
-}
-const tar = Bun.spawn(["tar", "-czf", ".local/agent.tar.gz", "-C", "dist/agent", "."], { stdout: "inherit", stderr: "inherit" });
-if (await tar.exited) throw new Error("Archive creation failed");
-const archive = Buffer.from(await Bun.file(".local/agent.tar.gz").arrayBuffer());
-const digest = createHash("sha256").update(archive).digest("hex");
-const directory = `/tmp/companions-${digest.slice(0, 16)}`;
-await box.command(state.boxId, `mkdir -p ${directory}`);
-for (let start = 0, index = 0; start < archive.length; start += 3 * 1024 * 1024, index++) {
-  await box.writeFile(state.boxId, `${directory}/part-${String(index).padStart(5, "0")}`, archive.subarray(start, start + 3 * 1024 * 1024).toString("base64"), "base64");
-}
-await box.command(state.boxId, `cat ${directory}/part-* > ${directory}/agent.tar.gz && echo '${digest}  ${directory}/agent.tar.gz' | sha256sum -c -`, 60);
-// Resume may have started the baked services. Stop and verify only our units before
-// exchanging complete directories; never overwrite a running executable in place.
-await box.command(state.boxId, templateInstallScript(directory,digest), 60);
-// Remove only upload directories recorded for this owned build Box. Staging archives must
-// not accumulate inside every future snapshot and make cold copies progressively heavier.
-const stagingDirectories = new Set([directory]);
-for (const file of readdirSync(".local").filter(file => /^template-[a-z0-9-]+\.json$/.test(file))) {
-  const previous = await Bun.file(`.local/${file}`).json();
-  if (previous.boxId === state.boxId && typeof previous.sha256 === "string" && /^[a-f0-9]{64}$/.test(previous.sha256)) {
-    stagingDirectories.add(`/tmp/companions-${previous.sha256.slice(0,16)}`);
-  }
-}
-await box.command(state.boxId, `rm -rf -- ${[...stagingDirectories].join(" ")}`);
-state.snapshotRequestedAt = new Date().toISOString(); state.sha256 = digest;
-await Bun.write(journal, JSON.stringify(state, null, 2));
-try { await box.snapshot(state.boxId, name); }
-catch (error) {
-  if (error instanceof BoxError && error.code === "box_snapshot_limit") {
-    state.snapshotRejectedAt = new Date().toISOString(); state.snapshotRejectedCode = error.code;
-    delete state.snapshotRequestedAt;
-    await Bun.write(journal, JSON.stringify(state, null, 2));
-    throw new Error("Box rejected the save because the named snapshot quota is full. Reconcile obsolete owned distributions, then rerun; no snapshot was accepted.");
-  }
-  throw error;
-}
-await wait(snapshotReady);
-state.completedAt = new Date().toISOString(); state.sha256 = digest;
-await Bun.write(journal, JSON.stringify(state, null, 2));
-if ((await box.get(state.boxId)).state !== "archived") await box.stop(state.boxId);
-console.log(`Template ready. Set BOX_TEMPLATE=${name} in .env. Build Box archived.`);
+validateDistributionJournal(state);
+await publishDistribution(state,{
+ box,save:value=>saveDistributionJournal(journalPath,value),
+ async install(id){
+  const archive=Buffer.from(await Bun.file(`.local/distributions/${state.sha256}.tar.gz`).arrayBuffer());
+  if(createHash("sha256").update(archive).digest("hex")!==state.sha256)throw Error("DISTRIBUTION_ARCHIVE_MISMATCH");
+  const directory=`/tmp/companions-${state.sha256.slice(0,16)}`;
+  await box.command(id,`mkdir -p ${directory}`);
+  for(let start=0,index=0;start<archive.length;start+=3*1024*1024,index++)await box.writeFile(id,`${directory}/part-${String(index).padStart(5,"0")}`,archive.subarray(start,start+3*1024*1024).toString("base64"),"base64");
+  await box.command(id,`cat ${directory}/part-* > ${directory}/agent.tar.gz`,60);
+  await box.command(id,templateInstallScript(directory,state.sha256),60);
+  await box.command(id,`rm -rf -- ${directory}`);
+ },
+});
+console.log(`Template content verified on independent Box ${state.verification!.boxId}. Set BOX_TEMPLATE=${name}. Build and verification Boxes archived.`);

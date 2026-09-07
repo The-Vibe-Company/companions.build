@@ -55,8 +55,7 @@ describe("first Companion flow", () => {
     });
     vi.stubGlobal("fetch",fetchMock);
     const user=userEvent.setup();render(<App/>);
-    await user.click(await screen.findByRole("button",{name:"Edit Ada's personality"}));
-    await user.click(screen.getByRole("button", { name: "Back to settings" }));
+    await user.click(await screen.findByRole("button",{name:"Settings"}));
     await user.click(screen.getByRole("button",{name:"Delete companion"}));
     await user.click(screen.getByRole("button",{name:"Delete companion"}));
     expect(await screen.findByRole("heading",{name:"Your companions."})).toBeInTheDocument();

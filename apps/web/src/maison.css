@@ -168,3 +168,6 @@ button,a,input,textarea,select{transition:background-color 160ms ease,color 160m
  .home-heading .home-create-actions button { width:auto; overflow:visible; color:var(--foreground); padding-inline:14px; gap:8px; min-height:44px; }
  .home-heading .home-create-actions button:last-child { color:var(--primary-foreground); }
 }
+
+.companion-sections .companion-settings-access { margin-left:auto; }
+@media(max-width:480px) { .companion-sections { padding-inline:16px; gap:16px; } }

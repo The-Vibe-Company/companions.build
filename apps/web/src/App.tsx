@@ -548,7 +548,7 @@ function CompanionView({ detail, models, onRefresh, onUnauthorized, onMenu, onOp
   const [desktopOpen, setDesktopOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [activityOpen, setActivityOpen] = useState(false);
-  const finished = Boolean(detail.companion.temporary && detail.companion.retiredAt);
+  const finished = Boolean(detail.companion.retiredAt);
   const displayedStatus = finished ? "archived" : detail.companion.status;
 
   return (
@@ -563,7 +563,7 @@ function CompanionView({ detail, models, onRefresh, onUnauthorized, onMenu, onOp
           {(finished || detail.runs.some(run => isActiveRun(run.status)) || !!detail.questions?.length) && <Button variant="ghost" size="sm" onClick={() => setActivityOpen(true)} aria-label="Activity"><CalendarClock /><span>{detail.questions?.length ? 'Needs you' : 'Activity'}</span></Button>}
         </div>
       </header>
-      {!finished && <nav className="companion-sections" aria-label="Companion sections">{([['chat', 'Discussion'], ['automations', 'Automations'], ['team', 'Team']] as const).map(([key, label]) => <button key={key} aria-current={view === key ? 'page' : undefined} onClick={() => changeView(key)}>{label}</button>)}</nav>}
+      {!finished && <nav className="companion-sections" aria-label="Companion sections">{([['chat', 'Discussion'], ['automations', 'Automations'], ['team', 'Team']] as const).map(([key, label]) => <button key={key} aria-current={view === key ? 'page' : undefined} onClick={() => changeView(key)}>{label}</button>)}<button className="companion-settings-access" aria-haspopup="dialog" onClick={() => { setIdentityOpen(false); setSettingsOpen(true); }}>Settings</button></nav>}
       <div className="workspace-body" hidden={!finished && view !== 'chat'}>
         <Chat detail={detail} onRefresh={onRefresh} onUnauthorized={onUnauthorized} onOpenCompanion={onOpenCompanion} readOnly={finished} />
       </div>

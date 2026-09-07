@@ -1,0 +1,37 @@
+packages/agent/src/pi-executor.ts
+  s_f946242dcf6ba9::t_a60a40bcc8addf 74
+  s_f946242dcf6ba9::t_0a69863e1014fd 6,19,61,89,160
+  s_f946242dcf6ba9::t_2f8b47f49a2da6 8,38,43,50,60,62,75,77,92,158
+packages/agent/test/daemon.test.ts
+  s_f946242dcf6ba9::t_035969df3c53e3 64-77
+packages/agent/src/types.ts
+  s_f946242dcf6ba9::t_2f8b47f49a2da6 27-28
+packages/agent/src/environment.ts
+  s_f946242dcf6ba9::t_0a69863e1014fd 59,63-64
+  s_f946242dcf6ba9::t_3b66d5b0047362 65-66
+packages/agent/src/model-gateway.ts
+  s_f946242dcf6ba9::t_a60a40bcc8addf 49,53,57,70,75-79
+  s_f946242dcf6ba9::t_2f8b47f49a2da6 1-27,30-48,50-52,54-56,58-69,71-74,80-81
+  s_f946242dcf6ba9::t_035969df3c53e3 28-29
+packages/agent/test/initialization.test.ts
+  s_f946242dcf6ba9::t_035969df3c53e3 2-3,5,29-102
+packages/agent/src/daemon.ts
+  s_f946242dcf6ba9::t_2f8b47f49a2da6 5,61-62
+  s_f946242dcf6ba9::t_73b23a34eb058b 60
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "4a819a981e60edf5d6d8da5855ab47bdceb41d7d",
+  "prompts": {},
+  "sessions": {
+    "s_f946242dcf6ba9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a06de4-a8a5-7cd3-b713-2a8d451f7200",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "StanGirard <stan@quivr.app>"
+    }
+  }
+}

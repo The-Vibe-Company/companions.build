@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { portableSoftwareBuildRequestDigest } from "./software-build";
@@ -75,6 +75,68 @@ describe("root software builder CLI", () => {
     const exit = await runSoftwareBuilderCli(["status", value.buildId, value.requestDigest], { paths: value.paths, getuid: () => 0, platform: "linux",
       trustedOwnerUid: process.getuid!(), environment: {}, output: text => output.push(text), observe: async () => ({ version: 1, buildId: value.buildId, requestDigest: "d".repeat(64),
         phase: "verified", manifestDigest: "c".repeat(64), errorCode: null, revision: 2, updatedAt: new Date().toISOString(), bundleDirectory: "/private" }) });
-    expect(exit).toBe(2); expect(JSON.parse(output[0]!).errorCode).toBe("software_build_request_conflict");
+    expect(exit).toBe(0); expect(JSON.parse(output[0]!).errorCode).toBe("software_build_request_conflict");
   });
+});
+
+for (const stage of ["quiesce", "restore", "seal"] as const) {
+  test(`a ${stage} wrapper failure survives restart and prevents another unit command or install`, async () => {
+    const value=await fixture(), commands:string[][]=[], output:string[]=[];
+    let installs=0;
+    const verified={version:1 as const,buildId:value.buildId,requestDigest:value.requestDigest,phase:"verified" as const,
+      manifestDigest:value.manifestDigest,errorCode:null,revision:7,updatedAt:new Date().toISOString(),bundleDirectory:`${value.paths.state}/${value.buildId}/bundle`};
+    const deps={paths:value.paths,getuid:()=>0,platform:"linux" as const,trustedOwnerUid:process.getuid!(),environment:{},
+      output:(text:string)=>output.push(text),
+      run:(argv:string[])=>{
+        commands.push(argv);
+        return {exitCode:argv[1]==="is-active"?3:((stage==="quiesce"&&argv[1]==="disable")||(stage==="restore"&&argv[1]==="enable"))?1:0};
+      },build:async()=>{
+        installs++;
+        if(stage==="seal")await mkdir(`${value.paths.state}/${value.buildId}/capture-seal.json`);
+        return verified;
+      },observe:async()=>stage==="quiesce"?null:verified};
+    expect(await runSoftwareBuilderCli(["run",value.buildId,value.requestDigest],deps)).toBe(2);
+    const failure=JSON.parse(output.pop()!);
+    expect(failure).toMatchObject({phase:"failed",readyForCapture:false});
+    const stored=JSON.parse(await readFile(`${value.paths.state}/${value.buildId}/cli-failure.json`,"utf8"));
+    expect(stored).toEqual({version:1,requestDigest:value.requestDigest,errorCode:failure.errorCode});
+    const before={commands:commands.length,installs};
+    expect(await runSoftwareBuilderCli(["status",value.buildId,value.requestDigest],deps)).toBe(0);
+    expect(JSON.parse(output.pop()!)).toEqual(failure);
+    expect(await runSoftwareBuilderCli(["run",value.buildId,value.requestDigest],deps)).toBe(2);
+    expect(JSON.parse(output.pop()!)).toEqual(failure);
+    expect({commands:commands.length,installs}).toEqual(before);
+  });
+}
+
+test("pre-journal descriptor rejection is durable without copying its contents into status",async()=>{
+  const value=await fixture(),output:string[]=[];let effects=0;
+  await writeFile(value.paths.executable,"changed-builder");
+  const deps={paths:value.paths,getuid:()=>0,platform:"linux" as const,trustedOwnerUid:process.getuid!(),environment:{},
+    output:(text:string)=>output.push(text),run:()=>{effects++;return {exitCode:0};}};
+  expect(await runSoftwareBuilderCli(["run",value.buildId,value.requestDigest],deps)).toBe(2);
+  await writeFile(value.paths.executable,"compiled-builder");
+  expect(await runSoftwareBuilderCli(["status",value.buildId,value.requestDigest],deps)).toBe(0);
+  expect(JSON.parse(output.pop()!)).toMatchObject({phase:"failed",errorCode:"software_builder_identity_mismatch"});
+  expect(effects).toBe(0);
+});
+
+test("busy invocation is not persisted as a terminal wrapper failure",async()=>{
+  const value=await fixture(),output:string[]=[];
+  const deps={paths:value.paths,getuid:()=>0,platform:"linux" as const,trustedOwnerUid:process.getuid!(),environment:{},
+    output:(text:string)=>output.push(text),run:(argv:string[])=>({exitCode:argv[1]==="is-active"?3:0}),
+    build:async()=>{throw Error("software_build_busy");},observe:async()=>null};
+  expect(await runSoftwareBuilderCli(["run",value.buildId,value.requestDigest],deps)).toBe(2);
+  expect(await Bun.file(`${value.paths.state}/${value.buildId}/cli-failure.json`).exists()).toBe(false);
+  expect(await runSoftwareBuilderCli(["status",value.buildId,value.requestDigest],deps)).toBe(0);
+  expect(JSON.parse(output.pop()!)).toBeNull();
+});
+
+test("status validation failures use a failed exit-zero projection and never persist an outcome",async()=>{
+  const value=await fixture(),output:string[]=[];
+  await writeFile(value.paths.executable,"invalid-builder");
+  const exit=await runSoftwareBuilderCli(["status",value.buildId,value.requestDigest],{paths:value.paths,getuid:()=>0,platform:"linux",
+    trustedOwnerUid:process.getuid!(),environment:{},output:text=>output.push(text)});
+  expect(exit).toBe(0);expect(JSON.parse(output[0]!)).toMatchObject({phase:"failed",errorCode:"software_builder_identity_mismatch"});
+  expect(await Bun.file(`${value.paths.state}/${value.buildId}/cli-failure.json`).exists()).toBe(false);
 });

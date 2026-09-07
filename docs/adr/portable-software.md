@@ -181,6 +181,12 @@ export at `/tmp/companions-software-exports/<build-id>.manifest.json` through th
 API, validates it, and records it; the private bundle path is never returned or persisted. Provider
 snapshot capture remains a separate runtime checkpoint.
 
+Errors before the build journal exists or after package verification are recorded atomically in the
+root-owned build directory as `cli-failure.json`, bound to the request digest. A later `run` returns
+that terminal result before touching services or packages. A valid `status` command remains read-only
+and returns failed projections with exit code zero so provider command handling preserves the
+structured error. A busy existing helper is transient and never writes this terminal outcome.
+
 The operator registration command validates the completed locally owned template journal, archive
 SHA-256, current descriptor, compiled builder and keyring hashes, and reconstructed distribution
 digest before it calls the internal immutable-base registration and selection functions. It never

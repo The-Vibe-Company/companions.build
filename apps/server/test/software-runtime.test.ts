@@ -208,3 +208,17 @@ test('explicit snapshot quota rejection fails immediately and cleans up without 
  expect(m.calls).not.toContain('snapshotGet');
  expect(m.calls).not.toContain('ready');
 });
+
+test('production adapter observes terminal CLI failure without launching another stable unit',async()=>{
+ const {SoftwareBoxMachines}=await import('../src/software-box');
+ const f=await fixture(),commands:string[]=[];let archived=false;
+ await db`UPDATE portable_software_builds SET box_id='bx_failedwrapper',helper_request_digest=${digest},status='installing',create_started_at=now() WHERE id=${f.build.id}`;
+ const box={get:async()=>({id:'bx_failedwrapper',state:archived?'archived':'ready'}),
+  command:async(_id:string,command:string)=>{commands.push(command);return JSON.stringify({phase:'failed',requestDigest:digest,manifestDigest:null,errorCode:'software_builder_restore_failed',revision:0,readyForCapture:false});},
+  stop:async()=>{archived=true;}};
+ const machines=new SoftwareBoxMachines(box as any);
+ const hooks={machines,canStartWork:async()=>true,onReady:async()=>{throw Error('must not publish');}};
+ await f.c.progress(f.build.id,pid,hooks);await f.c.progress(f.build.id,pid,hooks);
+ expect(await f.row()).toMatchObject({status:'failed',cleanupStatus:'complete'});
+ expect(commands).toHaveLength(1);expect(commands[0]).toContain(' status ');expect(commands.join(' ')).not.toContain('systemd-run');
+});

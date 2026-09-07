@@ -17,6 +17,7 @@ const digest = z.string().regex(/^[a-f0-9]{64}$/);
 const aptRoot = z.object({ name: z.string().regex(/^[a-z0-9][a-z0-9+.-]{0,127}$/), version: z.string().min(1).max(192) }).strict();
 const npmRoot = z.object({ name: z.string().regex(/^(?:@[a-z0-9][a-z0-9._-]*\/[a-z0-9][a-z0-9._-]*|[a-z0-9][a-z0-9._-]*)$/), version: z.string().regex(/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/) }).strict();
 const requestSchema = z.object({ version: z.literal(1), aptRoots: z.array(aptRoot).max(32), npmRoots: z.array(npmRoot).max(32) }).strict();
+const failureSchema = z.object({ version: z.literal(1), requestDigest: digest, errorCode: z.string().regex(/^software_[a-z0-9_:.-]{1,160}$/) }).strict();
 const sealSchema = z.object({ version: z.literal(1), requestDigest: digest, manifestDigest: digest, distributionDigest: digest }).strict();
 const PRODUCT_UNITS = ["companions-agent-proxy.socket", "companions-agent-proxy.service", "companions-agent.service", "companions-desktop.service"] as const;
 const BASELINE_UNITS = ["companions-desktop.service", "companions-agent.service", "companions-agent-proxy.socket"] as const;
@@ -69,13 +70,29 @@ async function readSeal(path: string, ownerUid: number) {
   catch (error: any) { if (error?.code === "ENOENT") return null; throw new Error("software_builder_seal_invalid"); }
 }
 
-async function writeSeal(path: string, value: z.infer<typeof sealSchema>) {
+async function writeDurableJson(path: string, value: unknown) {
   const temporary = `${path}.${crypto.randomUUID()}.tmp`;
   const handle = await open(temporary, "wx", 0o600);
-  try { await handle.writeFile(`${JSON.stringify(sealSchema.parse(value))}\n`); await handle.sync(); } finally { await handle.close(); }
+  try { await handle.writeFile(`${JSON.stringify(value)}\n`); await handle.sync(); } finally { await handle.close(); }
   await rename(temporary, path);
   const directory = await open(path.slice(0, path.lastIndexOf("/")), "r");
   try { await directory.sync(); } finally { await directory.close(); }
+}
+
+function failureProjection(requestDigest: string | null, errorCode: string) {
+  return { phase: "failed", requestDigest, manifestDigest: null, errorCode, revision: 0, bundleDirectory: null, readyForCapture: false };
+}
+
+async function readFailure(path: string, requestDigest: string, ownerUid: number) {
+  try {
+    const failure = failureSchema.parse(JSON.parse(new TextDecoder().decode(await ownerControlledRegular(path, 4096, ownerUid))));
+    if (failure.requestDigest !== requestDigest) throw new Error("software_build_request_conflict");
+    return failure;
+  } catch (error: any) {
+    if (error?.code === "ENOENT") return null;
+    if (error?.message === "software_build_request_conflict") throw error;
+    throw new Error("software_builder_failure_record_invalid");
+  }
 }
 
 async function writePublicManifest(exportDirectory: string, buildId: string, bundleDirectory: string, expectedDigest: string, ownerUid: number) {
@@ -109,6 +126,10 @@ export async function runSoftwareBuilderCli(args: string[], deps: CliDeps = {}) 
   const paths: CliPaths = { descriptor: SOFTWARE_DESCRIPTOR_PATH, keyring: SOFTWARE_KEYRING_PATH, executable: SOFTWARE_BUILDER_PATH,
     state: SOFTWARE_STATE_DIRECTORY, export: SOFTWARE_EXPORT_DIRECTORY, forbidden: FORBIDDEN_STATE, ...deps.paths };
   const output = deps.output ?? console.log;
+  // Only a validated, root-controlled build directory may receive a durable outcome.
+  let failurePath: string | null = null;
+  let pinnedDigest: string | null = null;
+  const observation = args.length === 3 && args[0] === "status" && uuid.safeParse(args[1]).success && digest.safeParse(args[2]).success;
   try {
     if ((deps.platform ?? process.platform) !== "linux" || (deps.getuid ?? process.getuid)?.() !== 0) throw new Error("software_build_root_linux_required");
     if (Object.entries(deps.environment ?? process.env).some(([key, value]) => value !== undefined && !SAFE_PROCESS_ENVIRONMENT.has(key))) throw new Error("software_build_environment_not_clean");
@@ -117,6 +138,17 @@ export async function runSoftwareBuilderCli(args: string[], deps: CliDeps = {}) 
     const buildId = uuid.parse(args[1]);
     const requestDigest = digest.parse(args[2]);
     const trustedOwnerUid = deps.trustedOwnerUid ?? 0;
+    const buildDirectory = `${paths.state}/${buildId}`;
+    try {
+      await ownerControlledDirectory(paths.state, trustedOwnerUid);
+      await ownerControlledDirectory(buildDirectory, trustedOwnerUid);
+      const path = `${buildDirectory}/cli-failure.json`;
+      const failure = await readFailure(path, requestDigest, trustedOwnerUid);
+      if (failure) { output(JSON.stringify(failureProjection(requestDigest, failure.errorCode))); return operation === "status" ? 0 : 2; }
+      if (operation === "run") { failurePath = path; pinnedDigest = requestDigest; }
+    } catch (error: any) {
+      if (operation !== "status" || error?.code !== "ENOENT") throw error;
+    }
     const descriptorBytes = await ownerControlledRegular(paths.descriptor, 64 * 1024, trustedOwnerUid);
     const descriptor = softwareDistributionDescriptorSchema.parse(JSON.parse(new TextDecoder().decode(descriptorBytes)));
     const [keyring, executable] = await Promise.all([ownerControlledRegular(paths.keyring, 2 * 1024 * 1024, trustedOwnerUid), ownerControlledRegular(paths.executable, 128 * 1024 * 1024, trustedOwnerUid)]);
@@ -159,15 +191,21 @@ export async function runSoftwareBuilderCli(args: string[], deps: CliDeps = {}) 
       }
       if (!result.bundleDirectory || !result.manifestDigest) throw new Error("software_build_bundle_invalid");
       await writePublicManifest(paths.export, buildId, result.bundleDirectory, result.manifestDigest, trustedOwnerUid);
-      await writeSeal(sealPath, { version: 1, requestDigest, manifestDigest: result.manifestDigest!, distributionDigest: descriptor.base.distributionDigest });
+      await writeDurableJson(sealPath, sealSchema.parse({ version: 1, requestDigest, manifestDigest: result.manifestDigest!, distributionDigest: descriptor.base.distributionDigest }));
       ready = true;
     }
     output(JSON.stringify(projection(result, ready)));
     return result.phase === "failed" ? 2 : 0;
   } catch (error) {
-    output(JSON.stringify({ phase: "failed", requestDigest: digest.safeParse(args[2]).success ? args[2] : null, manifestDigest: null,
-      errorCode: stableFailure(error), revision: 0, bundleDirectory: null, readyForCapture: false }));
-    return 2;
+    const errorCode = stableFailure(error);
+    // A busy helper is an existing invocation, not a terminal installation failure.
+    // Status is strictly read-only, but its failed projection must survive Box command exit handling.
+    if (failurePath && pinnedDigest && errorCode !== "software_build_busy") {
+      try { await writeDurableJson(failurePath, failureSchema.parse({ version: 1, requestDigest: pinnedDigest, errorCode })); }
+      catch { /* A full/unavailable disk cannot record an outcome; never claim that it did. */ }
+    }
+    output(JSON.stringify(failureProjection(digest.safeParse(args[2]).success ? args[2] : null, errorCode)));
+    return observation ? 0 : 2;
   }
 }
 

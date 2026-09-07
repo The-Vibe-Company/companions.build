@@ -220,6 +220,7 @@ interface DeliveryState { status: "pending" | "accepted" | "revoked"; skillsStat
 export interface DeliverySent extends DeliveryState { id: string; clientEmail: string }
 export interface DeliveryReceived extends DeliveryState { id: string; name: string }
 export interface AgentTemplate { id: string; name: string; instructions: string; avatar: CompanionAvatarValue; revision: number; sourceCompanionId: string | null; softwareBuildId?: string | null; softwareResultId?: string | null; hasSnapshot: boolean }
+export interface CompanionTemplatePermission { templateId: string; maxChildren: number; name: string; revision: number }
 export interface AgentTemplateRevision { revision: number; name: string; instructions: string; avatar: CompanionAvatarValue; snapshotName: string | null; sourceCompanionId: string | null; softwareBuildId?: string | null; softwareResultId?: string | null; createdAt: string }
 export interface TemplateSoftwareStatus { templateId: string; templateRevision: number; build: null | { id: string; status: "queued" | "creating" | "resolving" | "installing" | "verifying" | "capturing" | "ready" | "failed"; verified: boolean; errorCode: string | null }; result: null | { id: string; verified: true } }
 export interface MaintenanceCompanion { id: string; name: string; avatar?: CompanionAvatarValue; status: string; error: string | null; grantId: string }
@@ -257,6 +258,7 @@ export const workspaceApi = {
   revokeDelivery: (id: string) => request<{ revoked: true }>(`/api/deliveries/${id}`, { method: "DELETE" }),
   revokeMaintenance: (id: string) => request<{ revoked: true }>(`/api/deliveries/${id}/maintenance`, { method: "DELETE" }),
   templates: () => request<{ templates: AgentTemplate[] }>("/api/templates"),
+  companionTemplates: (companionId: string) => request<{ templates: CompanionTemplatePermission[] }>(`/api/companions/${companionId}/templates`),
   createTemplate: (input: Pick<AgentTemplate, "name" | "instructions" | "avatar">) => request<{ id: string; revision: number }>("/api/templates", { method: "POST", body: JSON.stringify(input) }),
   updateTemplate: (id: string, input: Pick<AgentTemplate, "name" | "instructions" | "avatar" | "revision">) => request<{ id: string; revision: number }>(`/api/templates/${id}`, { method: "PATCH", body: JSON.stringify({ name: input.name, instructions: input.instructions, avatar: input.avatar, expectedRevision: input.revision }) }),
   templateRevisions: (id: string) => request<{ revisions: AgentTemplateRevision[] }>(`/api/templates/${id}/revisions`),

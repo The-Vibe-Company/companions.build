@@ -1,6 +1,6 @@
 import {db} from './store';
 import {z} from 'zod';
-import {listRoutines,createRoutine,updateRoutine,deleteRoutine,routineHistory,routineInput,requestRunResume,testRoutine} from './automations';
+import {listRoutines,createRoutine,updateRoutine,deleteRoutine,routineHistory,routineInput,routinePatchInput,requestRunResume,testRoutine} from './automations';
 const json=(v:unknown,status=200)=>Response.json(v,{status,headers:{'cache-control':'no-store'}});
 export async function handleAutomations(request:Request,ownerId:string):Promise<Response|null>{
  const path=new URL(request.url).pathname;
@@ -36,7 +36,7 @@ export async function handleAutomations(request:Request,ownerId:string):Promise<
  }
  if(request.method==='GET')return match[2]?json(await routineHistory(id,match[2])):json({routines:await listRoutines(id)});
  if(request.method==='POST'&&!match[2])return json({routine:await createRoutine(id,routineInput.parse(await request.json()))},201);
- if(request.method==='PATCH'&&match[2])return json({routine:await updateRoutine(id,match[2],routineInput.partial().parse(await request.json()))});
+ if(request.method==='PATCH'&&match[2])return json({routine:await updateRoutine(id,match[2],routinePatchInput.parse(await request.json()))});
  if(request.method==='DELETE'&&match[2])return json({ok:await deleteRoutine(id,match[2])});
  return json({error:'Method not allowed.'},405);
 }

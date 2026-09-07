@@ -7,6 +7,7 @@ import {db,migrate,createCompanion,acceptMessage} from '../src/store';
 import {applyControl,registerControl,controlHandlers} from '../src/control';
 import {addCustomPlugin,attachPlugin,listPluginAccounts,machinePlugins,disconnectPlugin} from '../src/plugins';
 import '../src/control-product';
+import '../src/runtime-product';
 const owner='00000000-0000-4000-8000-000000000001';
 beforeAll(async()=>{await migrate();});
 test('control MCP persists a request and returns the controller result without a public callback',async()=>{
@@ -53,4 +54,24 @@ test('companion_create uses the durable control command as its creation identity
  expect(retried.id).toBe(first.id);
  await expect(controlHandlers.companion_create!(context,{name:'Changed control intent'} as any)).rejects.toBeInstanceOf(Error);
  expect(await db`SELECT id FROM companions WHERE owner_id=${owner} AND client_creation_id=${commandId}`).toHaveLength(1);
+});
+
+
+test('agent control configures and tests a routine without enabling it, then rejects its deleted identity', async () => {
+ const companion=await createCompanion(owner,{name:'Routine control',instructions:'',provider:'local'});
+ const runId=await acceptMessage(owner,companion.id,crypto.randomUUID(),'Configure my routine');
+ await db`UPDATE runs SET status='running',dispatched=true,started_at=now() WHERE id=${runId}`;
+ const invoke=(operation:string,input:unknown,id=crypto.randomUUID())=>applyControl(companion.id,{id,runId,operation,input});
+ const routine=await invoke('routine_save',{name:'Daily check',prompt:'Check the repository',cron:'0 9 * * *',timezone:'Europe/Paris',enabled:false}) as any;
+ expect(routine.id).toBeString();
+ const edited=await invoke('routine_save',{id:routine.id,prompt:'Review the repository'}) as any;
+ expect(edited).toMatchObject({prompt:'Review the repository',enabled:false,nextFireAt:null});
+ const commandId=crypto.randomUUID();
+ const tested=await invoke('routine_test',{id:routine.id},commandId) as any;
+ expect(tested.runId).toBeString();
+ expect(await invoke('routine_test',{id:routine.id},commandId)).toEqual(tested);
+ expect((await db`SELECT content,lane,source,status FROM runs WHERE id=${tested.runId}`)[0]).toMatchObject({content:'Review the repository',lane:'background',source:'routine',status:'queued'});
+ expect(await invoke('routine_delete',{id:routine.id})).toEqual({deleted:true});
+ expect(await invoke('routine_test',{id:routine.id})).toEqual({error:'Routine not found.'});
+ expect(await db`SELECT id FROM runs WHERE companion_id=${companion.id} AND source='routine'`).toHaveLength(1);
 });

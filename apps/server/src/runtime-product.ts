@@ -102,13 +102,13 @@ export const productHooks:ExecutorHooks={
 
 import {registerControl} from './control';
 import {listPluginAccounts,selectedPlugins,attachPlugin} from './plugins';
-import {listRoutines,createRoutine,updateRoutine,deleteRoutine,routineInput,requestRunResume} from './automations';
+import {listRoutines,createRoutine,updateRoutine,deleteRoutine,routineInput,routinePatchInput,requestRunResume} from './automations';
 import {z} from 'zod';
 registerControl({
  routines:context=>listRoutines(context.companionId),
  routine_save:async(context,raw)=>{
   const input=z.object({id:z.string().uuid().optional()}).passthrough().parse(raw);const {id,...value}=input;
-  return id?updateRoutine(context.companionId,id,routineInput.partial().parse(value)):createRoutine(context.companionId,routineInput.parse(value));
+  return id?updateRoutine(context.companionId,id,routinePatchInput.parse(value)):createRoutine(context.companionId,routineInput.parse(value));
  },
  routine_delete:async(context,input)=>({deleted:await deleteRoutine(context.companionId,z.object({id:z.string().uuid()}).parse(input).id)}),
  plugins:async context=>({accounts:await listPluginAccounts(context.ownerId),selected:await selectedPlugins(context.ownerId,context.companionId)}),

@@ -11,6 +11,8 @@ export const routineInput = z.object({
   cron: z.string().trim().min(1).max(100), timezone: z.string().trim().min(1).max(100),
   enabled: z.boolean().default(true),
 }).strict();
+// Patch omission must preserve the stored enabled state; creation defaults are not patch values.
+export const routinePatchInput = routineInput.partial().extend({enabled: z.boolean().optional()});
 export type RoutineInput = z.infer<typeof routineInput>;
 
 export async function migrateAutomations(sql: Database = db) {
@@ -49,7 +51,7 @@ export async function createRoutine(companionId: string, value: RoutineInput, sq
   });
 }
 export async function updateRoutine(companionId: string, id: string, value: Partial<RoutineInput>, sql: Database = db, now = new Date()) {
-  const patch = routineInput.partial().parse(value);
+  const patch = routinePatchInput.parse(value);
   return sql.begin(async tx => {
     const [current] = await tx`SELECT * FROM routines WHERE companion_id=${companionId} AND id=${id} AND deleted_at IS NULL FOR UPDATE`;
     if (!current) return null;

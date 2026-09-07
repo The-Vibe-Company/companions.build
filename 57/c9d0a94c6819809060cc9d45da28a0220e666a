@@ -1,0 +1,31 @@
+docs/measurements/desktop-2026-09-07.json
+  s_f946242dcf6ba9::t_48be75b8aad531 1-15
+experiments/desktop-boundary/README.md
+  s_f946242dcf6ba9::t_9acc8e05d40238 63-68
+experiments/desktop-boundary/network-worker.py
+  s_f946242dcf6ba9::t_677b1f39b8e43c 21-26
+experiments/desktop-boundary/production.py
+  s_f946242dcf6ba9::t_c53de4fac690fd 68-71
+packages/agent/src/index.ts
+  s_f946242dcf6ba9::t_f25c206c81bad7 12-19,24-27,40
+packages/box/linux/desktop-state.py
+  s_f946242dcf6ba9::t_f7a66fe03ad9d0 15
+packages/box/linux/headless-mounts.sh
+  s_f946242dcf6ba9::t_ac4d8d012c4604 5-14,39
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "57c9d0a94c6819809060cc9d45da28a0220e666a",
+  "prompts": {},
+  "sessions": {
+    "s_f946242dcf6ba9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a06de4-a8a5-7cd3-b713-2a8d451f7200",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "StanGirard <stan@quivr.app>"
+    }
+  }
+}

@@ -1,0 +1,33 @@
+apps/server/src/admission.ts
+  s_895cd30c8c0144::t_3bcb2de5977540 27,35-41,47-53,193-197,199,202-203,211-213,243,245,259,264,281
+apps/server/test/control.test.ts
+  s_895cd30c8c0144::t_ab3b0ea856a989 9-10,52-59
+  s_f0346c90274a7b::t_43422b8637824a 60
+apps/server/test/admission.test.ts
+  s_895cd30c8c0144::t_a59c164ff94c99 85-118
+  s_895cd30c8c0144::t_0f8bcde1e06ce0 68-72
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "b3177fc5dccd2438d18ae2fcad3eb193b1fe0843",
+  "prompts": {},
+  "sessions": {
+    "s_895cd30c8c0144": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a07d31-b106-7d00-912b-601ce8884ca0",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "StanGirard <stan@quivr.app>"
+    },
+    "s_f0346c90274a7b": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a07d79-c546-7d50-9722-768df9e521b4",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "StanGirard <stan@quivr.app>"
+    }
+  }
+}

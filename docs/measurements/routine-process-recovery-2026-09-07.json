@@ -5,7 +5,7 @@
   "test": "apps/server/test/routine-process-recovery.test.ts",
   "checks": [
     "SIGKILL a scheduler child while its occurrence INSERT is waiting on an owned advisory checkpoint gate. PostgreSQL rolls back the run and missed window; next_fire_at remains unchanged.",
-    "A fresh scheduler child commits one latest-due occurrence, then receives SIGKILL before returning control to a long-lived caller.",
+    "A fresh scheduler child commits one latest-due occurrence, then receives SIGKILL after reporting that the scheduler call committed.",
     "Another fresh scheduler process sees no due occurrence at the same instant; accepted run identity and one missed window remain durable."
   ],
   "validation": {

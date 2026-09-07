@@ -1,0 +1,22 @@
+{
+  "date": "2026-09-07",
+  "status": "passed",
+  "applicationSourceCommit": "7834b7e",
+  "template": "companions-agent-v12-20260907",
+  "scope": "Real clock admission by the local executor, durable PostgreSQL occurrence, real Pi/GLM on an existing V12 Box through the model gateway. No manual routine test or injected scheduler timestamp.",
+  "scheduledFor": "2026-09-07T05:27:00.000Z",
+  "acceptedAt": "2026-09-07T05:27:00.384Z",
+  "schedulerDelayMs": 384,
+  "finishedAt": "2026-09-07T05:27:05.671Z",
+  "totalRunSeconds": 5.287019,
+  "oneOccurrence": true,
+  "routineDisabled": true,
+  "routineRemoved": true,
+  "providerCalls": 1,
+  "providerTokens": 3593,
+  "ledgerEntries": 1,
+  "limits": [
+    "Single scheduled occurrence on an already prepared Box, not sustained scheduling or a wake timing guarantee.",
+    "Local authenticated control plane with real Box/model; hosted authenticated activation remains a separate acceptance."
+  ]
+}

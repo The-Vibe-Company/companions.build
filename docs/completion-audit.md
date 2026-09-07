@@ -49,6 +49,10 @@ hosted acceptance. See `validation-v0.md` for dated evidence.
   background task. Its independent file and all 3 provider ledger entries were verified; the routine
   was removed. This is not a clock-fired or sustained-load proof. See
   `measurements/routine-chat-gateway-v12-2026-09-07.json`.
+- A real clock-fired V12 routine also passes: admission at the scheduled UTC instant +384 ms,
+  a real GLM response after 5.3 seconds, exactly one occurrence and one provider ledger entry.
+  The fixture was disabled and removed; completed-journal recovery creates no new work. See
+  `measurements/routine-clock-v12-2026-09-07.json`. Sustained scheduling remains unproven.
 - Scheduler recovery now includes actual Bun process termination around the PostgreSQL occurrence
   checkpoint: incomplete admission rolls back, and committed admission retains one run after restart.
   See `measurements/routine-process-recovery-2026-09-07.json`. This uses a fixed schedule instant.

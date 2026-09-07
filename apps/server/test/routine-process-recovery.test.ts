@@ -5,7 +5,7 @@ import { createRoutine, routineHistory } from '../src/automations';
 beforeAll(migrate);
 
 /** A real process dies while PostgreSQL is inside the occurrence checkpoint, then
- * after commit but before its caller can acknowledge completion. No Box is contacted. */
+ * after a completed scheduler call. No Box is contacted. */
 test('scheduler process death rolls back incomplete admission and preserves committed occurrence identity', async () => {
   const companion = await createCompanion('00000000-0000-4000-8000-000000000001', {
     name: 'Scheduler process recovery', instructions: '', provider: 'local',

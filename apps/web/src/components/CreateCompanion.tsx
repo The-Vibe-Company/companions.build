@@ -1,4 +1,4 @@
-import { type FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { type FormEvent, useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { Box, Check, ChevronRight, Computer, LoaderCircle, Plus, UsersRound } from "lucide-react";
 import {
   api,
@@ -56,6 +56,8 @@ function failureMessage(cause: unknown, fallback: string) {
 
 export function CreateCompanion({ config, onCreated, compact = false, ownerId, onSetupLockedChange }: CreateCompanionProps) {
   const restored = useRef(readStoredCreation(ownerId));
+  const appearanceId = useId();
+  const [appearanceExpanded, setAppearanceExpanded] = useState(false);
   const firstProvider: "local" | "box" = config.boxAvailable ? "box" : "local";
   const [name, setName] = useState(restored.current?.request.name ?? "");
   const [instructions, setInstructions] = useState(restored.current?.request.instructions ?? "");
@@ -237,6 +239,8 @@ export function CreateCompanion({ config, onCreated, compact = false, ownerId, o
         <h2>{name.trim() || "Your companion"}</h2>
         <p>{instructions.trim() || "What would you like them to take care of?"}</p>
       </div>
+      <button className="create-appearance-toggle" type="button" aria-expanded={appearanceExpanded} aria-controls={appearanceId} onClick={() => setAppearanceExpanded(value => !value)}>Customize appearance<ChevronRight /></button>
+      <div id={appearanceId} className={cn("create-appearance-controls", appearanceExpanded && "is-expanded")}>
       <fieldset disabled={selectionLocked} className="create-avatar-choice create-avatar-colors">
         <legend>Color</legend>
         <div>{AVATAR_COLORS.map((color, index) => <button key={color} type="button" aria-label={`Color ${index + 1}`} aria-pressed={avatar.color === index} onClick={() => setAvatar(current => ({ ...current, color: index }))}><span style={{ background: color }}/></button>)}</div>
@@ -249,6 +253,7 @@ export function CreateCompanion({ config, onCreated, compact = false, ownerId, o
         <legend>Face</legend>
         <div>{Array.from({ length: 5 }, (_, face) => <button key={face} type="button" aria-label={`Face ${face + 1}`} aria-pressed={avatar.face === face} onClick={() => setAvatar(current => ({ ...current, face }))}><CompanionAvatar name={`Face ${face + 1}`} avatar={{ ...avatar, face }} size={32}/></button>)}</div>
       </fieldset>
+      </div>
     </section>
 
     <section className="create-companion-fields">

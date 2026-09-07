@@ -210,3 +210,28 @@ may register OAuth clients, and stores consent links only in the private
 `.local/plugin-oauth-consent.json`. Those links expire and must never be committed. A successful
 start is not a successful connection: human consent and an authenticated provider tool call are
 separate acceptance steps. GitHub, Slack and Gmail also require deployment OAuth-client settings.
+
+## Activity and Team acceptance
+
+`apps/server/test/tasks.test.ts` covers task ownership, cross-Companion isolation, bounded cursors
+with timestamp ties, task files and cancellation isolation. Dispatched main turns are rejected by
+the per-task cancellation route to protect shared native Pi responses. `events.test.ts` covers
+committed Team changes, rollback silence and owner boundaries.
+
+Web integration tests cover event-driven Team refresh and delayed success/401 responses after
+switching Companions. TaskActivity behavior tests cover lazy details, pagination, action failures
+and refresh races. Local browser checks must confirm navigation, task details and small-screen
+status visibility without launching a Box.
+
+## Reference design acceptance
+
+The web behavior suite protects owner-scoped resumable creation, optional grant recovery, locked
+navigation during setup, account isolation, superseded account responses, dirty Settings exits,
+and profile revision conflicts. The reference redesign passed 121 web tests and the production
+build. Backend changes in the preceding Activity/Team lot passed the full PostgreSQL 18 verifier
+(`77d89f959f69`); the visual refactor does not change executor behavior.
+
+Manual browser checks cover Discussion, Activity list/detail, Team, Settings and applications,
+the Specialists library/editor, and `/new` at 1440×900 and 390×844. Mobile creation keeps all
+appearance choices available with 44px targets behind its disclosure; pill navigation reveals the
+active section. These checks use existing read-only data and never create or wake a live Box.

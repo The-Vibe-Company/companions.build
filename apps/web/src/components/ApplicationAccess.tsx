@@ -26,8 +26,8 @@ function groupAccounts(accounts: PluginAccount[], catalog: PluginServer[] = []):
   for (const account of accounts) {
     const server = account.serverId ? servers.get(account.serverId) : undefined;
     const provider = account.provider ?? server?.provider ?? undefined;
-    const key = provider ?? account.serverId ?? account.label;
-    const group = groups.get(key) ?? { key, provider, name: server?.name ?? titleCase(provider ?? account.serverId ?? account.label), accounts: [] };
+    const key = provider === "custom" ? account.serverId ?? account.id : provider ?? account.serverId ?? account.id;
+    const group = groups.get(key) ?? { key, provider, name: server?.name ?? (provider === "custom" ? account.label : titleCase(provider ?? account.serverId ?? account.label)), accounts: [] };
     group.accounts.push(account);
     groups.set(key, group);
   }

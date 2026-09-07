@@ -1,4 +1,11 @@
 import {
+  ArrowUp,
+  Blocks,
+  Clock3,
+  MessageCircle,
+  Settings,
+  UsersRound,
+  Activity,
   Box,
   Check,
   ChevronRight,
@@ -13,8 +20,6 @@ import {
   PanelLeftClose,
   Paperclip,
   Plus,
-  Send,
-  Server,
   Trash2,
   UserRound,
   Waypoints,
@@ -29,6 +34,7 @@ import {
 } from "@/components/ai-elements/conversation";
 import { Message, MessageContent, MessageResponse } from "@/components/ai-elements/message";
 import { Button } from "@/components/ui/button";
+import { ApplicationAccess } from "@/components/ApplicationAccess";
 import { ConnectionActions } from "@/components/ConnectionActions";
 import { Textarea } from "@/components/ui/textarea";
 import {
@@ -36,7 +42,6 @@ import {
   ApiError,
   type AppConfig,
   type AccountUser,
-  type AgentTemplate,
   type Companion,
   type CompanionDetail,
   type CustomPluginInput,
@@ -48,10 +53,12 @@ import {
 } from "@/api";
 import { Question } from "@/components/Question";
 import { cn } from "@/lib/utils";
-import { AvatarPicker, CompanionAvatar, DEFAULT_AVATAR, type CompanionAvatarValue } from "@/components/CompanionAvatar";
+import { CompanionAvatar, DEFAULT_AVATAR, AVATAR_COLORS } from "@/components/CompanionAvatar";
 import { AccountProduct, DesktopSheet } from "@/components/ProductPanels";
 import { RoutineSettings, TriggerSettings } from "@/components/AutomationPanels";
+const CreateCompanion = lazy(() => import("@/components/CreateCompanion").then(module => ({ default: module.CreateCompanion })));
 const TaskActivity = lazy(() => import("@/components/TaskActivity").then(module => ({ default: module.TaskActivity })));
+const SpecialistLibrary = lazy(() => import("@/components/SpecialistLibrary").then(module => ({ default: module.SpecialistLibrary })));
 const TeamPanel = lazy(() => import("@/components/TeamPanel").then(module => ({ default: module.TeamPanel })));
 const CreateTeamWizard = lazy(() => import("@/components/CreateTeamWizard").then(module => ({ default: module.CreateTeamWizard })));
 import { ProviderMark } from "@/components/ProviderMark";
@@ -147,140 +154,6 @@ function AccessGate() {
   );
 }
 
-function CreateCompanion({
-  config,
-  onCreated,
-  compact = false,
-}: {
-  config: AppConfig;
-  onCreated: (companion: Companion) => void;
-  compact?: boolean;
-}) {
-  const firstProvider = config.boxAvailable ? "box" : "local";
-  const [name, setName] = useState("");
-  const [instructions, setInstructions] = useState("");
-  const [provider, setProvider] = useState<"local" | "box">(firstProvider);
-  const [avatar, setAvatar] = useState<CompanionAvatarValue>(DEFAULT_AVATAR);
-  const [templates, setTemplates] = useState<AgentTemplate[]>([]);
-  const [templateId, setTemplateId] = useState("");
-  const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState("");
-  const creationIntent = useRef<{ fingerprint: string; id: string } | null>(null);
-
-  useEffect(() => {
-    let current = true;
-    void workspaceApi.templates().then(result => { if (current) setTemplates(result.templates); }).catch(() => {});
-    return () => { current = false; };
-  }, []);
-
-  const selectedTemplate = templates.find(template => template.id === templateId);
-  const selectedTemplateNeedsBox = !!(selectedTemplate?.hasSnapshot || selectedTemplate?.softwareBuildId || selectedTemplate?.softwareResultId);
-  function chooseTemplate(id: string) {
-    setTemplateId(id);
-    const template = templates.find(item => item.id === id);
-    if (!template) return;
-    setName(template.name); setInstructions(template.instructions); setAvatar(template.avatar);
-    if ((template.hasSnapshot || template.softwareBuildId || template.softwareResultId) && config.boxAvailable) setProvider("box");
-  }
-
-  async function submit(event: FormEvent) {
-    event.preventDefault();
-    if (!name.trim() || !instructions.trim()) return;
-    setSubmitting(true);
-    setError("");
-    try {
-      const input = {
-        name: name.trim(),
-        instructions: instructions.trim(),
-        provider,
-        avatar,
-        ...(selectedTemplate ? { templateId: selectedTemplate.id, templateRevision: selectedTemplate.revision } : {}),
-      };
-      const fingerprint=JSON.stringify(input);
-      if(creationIntent.current?.fingerprint!==fingerprint)creationIntent.current={fingerprint,id:crypto.randomUUID()};
-      const result = await api.createCompanion({...input,clientCreationId:creationIntent.current.id});
-      onCreated(result.companion);
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Could not create Companion");
-    } finally {
-      setSubmitting(false);
-    }
-  }
-
-  return (
-    <form className={cn("create-form", compact && "create-form--compact")} onSubmit={submit}>
-      {!compact && (
-        <div className="create-intro">
-          <h1>Create your first Companion</h1>
-          <p>Give them a name and a clear mission. Their chat stays here while they work.</p>
-        </div>
-      )}
-      {compact && <h2>New Companion</h2>}
-
-      {templates.length > 0 && <div className="field template-source"><label htmlFor={compact ? "template-compact" : "template"}>Start from</label><select id={compact ? "template-compact" : "template"} value={templateId} onChange={event => chooseTemplate(event.target.value)}><option value="">Blank Companion</option>{templates.map(template => {const needsBox=!!(template.hasSnapshot||template.softwareBuildId||template.softwareResultId);return <option key={template.id} value={template.id} disabled={needsBox&&!config.boxAvailable}>{template.name} · v{template.revision}{needsBox&&!config.boxAvailable ? " · cloud unavailable" : ""}</option>;})}</select><span className="field-hint">Templates prefill the mission and pin this Companion to the version shown.</span></div>}
-
-      <details className="create-personality"><summary><CompanionAvatar name="Your companion" avatar={avatar} size={48}/><span>Give them a little personality<small>Choose a shape, color and expression</small></span><ChevronRight/></summary><AvatarPicker value={avatar} onChange={setAvatar} /></details>
-
-      <div className="field">
-        <label htmlFor={compact ? "name-compact" : "name"}>Name</label>
-        <input
-          id={compact ? "name-compact" : "name"}
-          value={name}
-          onChange={(event) => setName(event.target.value)}
-          placeholder="Ada"
-          autoFocus
-        />
-      </div>
-      <div className="field">
-        <label htmlFor={compact ? "mission-compact" : "mission"}>Mission</label>
-        <Textarea
-          id={compact ? "mission-compact" : "mission"}
-          value={instructions}
-          onChange={(event) => setInstructions(event.target.value)}
-          placeholder="Research customer questions and turn the findings into clear briefs."
-          rows={compact ? 3 : 4}
-        />
-        <span className="field-hint">Set the mission this Companion will start with.</span>
-      </div>
-
-      <details className="create-advanced"><summary>Computer preferences</summary><fieldset className="provider-picker">
-        <legend>Computer</legend>
-        <label className={cn("provider-option", provider === "local" && "provider-option--selected", (!config.localAvailable || selectedTemplateNeedsBox) && "provider-option--disabled")}>
-          <input
-            type="radio"
-            name="provider"
-            value="local"
-            checked={provider === "local"}
-            onChange={() => setProvider("local")}
-            disabled={!config.localAvailable || selectedTemplateNeedsBox}
-          />
-          <Computer />
-          <span><strong>Local</strong><small>Runs on this machine</small></span>
-          {provider === "local" && <Check className="provider-check" />}
-        </label>
-        <label className={cn("provider-option", provider === "box" && "provider-option--selected", !config.boxAvailable && "provider-option--disabled")}>
-          <input
-            type="radio"
-            name="provider"
-            value="box"
-            checked={provider === "box"}
-            onChange={() => setProvider("box")}
-            disabled={!config.boxAvailable}
-          />
-          <Box />
-          <span><strong>Box</strong><small>Persistent cloud computer</small></span>
-          {provider === "box" && <Check className="provider-check" />}
-        </label>
-      </fieldset></details>
-      {error && <p className="field-error" role="alert">{error}</p>}
-      <Button className="create-submit" type="submit" disabled={!name.trim() || !instructions.trim() || submitting || (!config.localAvailable && !config.boxAvailable)}>
-        {submitting ? <LoaderCircle className="spin" /> : <Plus />}
-        Create Companion
-      </Button>
-    </form>
-  );
-}
-
 function Sidebar({
   companions,
   selectedId,
@@ -291,7 +164,11 @@ function Sidebar({
   user,
   open,
   onClose,
+  currentPath,
+  locked = false,
 }: {
+  locked?: boolean;
+  currentPath: string;
   companions: Companion[];
   selectedId: string | null;
   onSelect: (id: string) => void;
@@ -305,31 +182,34 @@ function Sidebar({
   return (
     <>
       {open && <button className="sidebar-scrim" onClick={onClose} aria-label="Close navigation" />}
-      <aside className={cn("sidebar", open && "sidebar--open")} aria-label="Companions">
+      <aside className={cn("sidebar", open && "sidebar--open")} aria-label="Companions" inert={locked || undefined}>
         <div className="sidebar-header">
-          <button className="wordmark wordmark-button" onClick={() => onNavigate("/")}>companions<span>.build</span></button>
+          <button className="wordmark wordmark-button" aria-label="companions.build home" onClick={() => onNavigate("/")}>c.</button>
           <Button variant="ghost" size="icon" className="sidebar-close" onClick={onClose} aria-label="Close navigation"><PanelLeftClose /></Button>
         </div>
-        <div className="sidebar-label"><span>Your companions</span><details className="create-menu" onBlur={event => { if (!event.currentTarget.contains(event.relatedTarget as Node)) event.currentTarget.open = false; }} onKeyDown={event => { if (event.key === 'Escape') { event.currentTarget.open = false; event.currentTarget.querySelector('summary')?.focus(); } }}><summary aria-label="Create"><Plus /></summary><div className="create-popover"><button onClick={event => { event.currentTarget.closest('details')?.removeAttribute('open'); onCreate(); }}>New Companion</button><button onClick={event => { event.currentTarget.closest('details')?.removeAttribute('open'); onCreateTeam(); }}>Create a team</button></div></details></div>
         <nav className="companion-list">
           {companions.map((companion) => (
             <button
               key={companion.id}
               className={cn("companion-link", selectedId === companion.id && "companion-link--active")}
+              title={companion.name}
+              aria-label={`${companion.name}, Companion · ${statusLabel(companion.status)}`}
+              style={{ "--companion-color": AVATAR_COLORS[companion.avatar?.color ?? DEFAULT_AVATAR.color] } as React.CSSProperties}
               onClick={() => onSelect(companion.id)}
               aria-current={selectedId === companion.id ? "page" : undefined}
             >
-              <CompanionAvatar name={companion.name} avatar={companion.avatar} size={34} />
+              <span className="rail-character"><CompanionAvatar name={companion.name} avatar={companion.avatar} sleeping={companion.status === "archived"} size={44} /><StatusDot status={companion.status} /></span>
               <span className="companion-link-copy">
-                <strong>{companion.name}</strong>
-                <small><StatusDot status={companion.status} />{statusLabel(companion.status)}</small>
+                <small>{statusLabel(companion.status)}</small>
               </span>
               <ChevronRight className="companion-chevron" />
             </button>
           ))}
         </nav>
+        <div className="rail-create"><details className="create-menu" onBlur={event => { if (!event.currentTarget.contains(event.relatedTarget as Node)) event.currentTarget.open = false; }} onKeyDown={event => { if (event.key === 'Escape') { event.currentTarget.open = false; event.currentTarget.querySelector('summary')?.focus(); } }}><summary aria-label="Create"><Plus /></summary><div className="create-popover"><button onClick={event => { event.currentTarget.closest('details')?.removeAttribute('open'); onCreate(); }}>New Companion</button><button onClick={event => { event.currentTarget.closest('details')?.removeAttribute('open'); onCreateTeam(); }}>Create a team</button></div></details></div>
+        <nav className="rail-library" aria-label="Workspace"><button aria-current={currentPath === "/specialists" ? "page" : undefined} onClick={() => onNavigate("/specialists")}><UsersRound /><span>Specialists</span></button><button aria-current={currentPath === "/connections" ? "page" : undefined} onClick={() => onNavigate("/connections")}><Blocks /><span>Apps</span></button></nav>
         <details className="account-menu" onBlur={event=>{if(!event.currentTarget.contains(event.relatedTarget as Node))event.currentTarget.open=false;}} onKeyDown={event=>{if(event.key==='Escape'){event.currentTarget.open=false;event.currentTarget.querySelector('summary')?.focus();}}}>
-          <summary><span className="account-initial">{user.email.slice(0,1).toUpperCase()}</span><span>Your account</span><ChevronRight /></summary>
+          <summary aria-label="Your account"><span className="account-initial">{user.email.slice(0,1).toUpperCase()}</span><span className="sr-only">Your account</span></summary>
           <div className="account-popover"><p>{user.email}</p><button onClick={event=>{event.currentTarget.closest('details')?.removeAttribute('open');onNavigate('/connections');}}><Waypoints/>Connections</button><button onClick={event=>{event.currentTarget.closest('details')?.removeAttribute('open');onNavigate('/account');}}><UserRound/>Account & subscription</button></div>
         </details>
       </aside>
@@ -427,18 +307,20 @@ function Chat({ detail, onRefresh, onUnauthorized, onOpenCompanion, readOnly = f
               {!readOnly && <div className="chat-suggestions">{['Plan my day', 'Help with a project', 'Set up a routine'].map(prompt=><button type="button" key={prompt} onClick={()=>{setDraft(prompt);textareaRef.current?.focus();}}>{prompt}<ChevronRight/></button>)}</div>}
             </ConversationEmptyState>
           ) : detail.messages.map((message) => (
-            <Message from={message.role} key={message.id}>
-              {message.role === "assistant" && <span className="message-author">{detail.companion.name}</span>}
-              <MessageContent><MessageResponse>{message.content}</MessageResponse></MessageContent>
+            <Message from={message.role} key={message.id} className="thread-message">
+              <div className="thread-avatar" aria-hidden="true">{message.role === "assistant" ? <CompanionAvatar name={detail.companion.name} avatar={detail.companion.avatar} size={32} /> : <span className="user-avatar"><UserRound /></span>}</div>
+              <div className="thread-message-body"><div className="message-meta"><span className="message-author">{message.role === "assistant" ? detail.companion.name : "You"}</span><time className="message-time" dateTime={message.createdAt}>{readableDate(message.createdAt)}</time></div>
+              <MessageContent className="thread-content"><MessageResponse>{message.content}</MessageResponse></MessageContent>
               {message.files?.length ? <div className="message-files">{message.files.map((file) => <a key={file.id} href={file.url} target="_blank" rel="noreferrer"><FileText /><span>{file.name}</span></a>)}</div> : null}
               {message.role === "user" && <SpecialistsForRun detail={detail} runId={message.runId} onOpen={onOpenCompanion} />}
-              <time className="message-time" dateTime={message.createdAt}>{readableDate(message.createdAt)}</time>
+              </div>
             </Message>
           ))}
           {activePreview && (
-            <Message from="assistant" className="message-preview">
-              <span className="message-author">{detail.companion.name}</span>
-              <MessageContent><MessageResponse>{activePreview}</MessageResponse></MessageContent>
+            <Message from="assistant" className="thread-message message-preview">
+              <div className="thread-avatar" aria-hidden="true"><CompanionAvatar name={detail.companion.name} avatar={detail.companion.avatar} size={32} /></div>
+              <div className="thread-message-body"><div className="message-meta"><span className="message-author">{detail.companion.name}</span></div>
+              <MessageContent className="thread-content"><MessageResponse>{activePreview}</MessageResponse></MessageContent></div>
             </Message>
           )}
           {activeRun && (
@@ -479,7 +361,7 @@ function Chat({ detail, onRefresh, onUnauthorized, onOpenCompanion, readOnly = f
                 <Button type="button" variant="outline" size="sm" onClick={cancel}><CircleStop />Cancel</Button>
               )}
               <Button type="submit" size="icon" disabled={!draft.trim() || sending} aria-label="Send message">
-                {sending ? <LoaderCircle className="spin" /> : <Send />}
+                {sending ? <LoaderCircle className="spin" /> : <ArrowUp />}
               </Button>
             </div>
           </div>
@@ -489,30 +371,9 @@ function Chat({ detail, onRefresh, onUnauthorized, onOpenCompanion, readOnly = f
   );
 }
 
-function CompanionConnections({ companionId }: { companionId: string }) {
-  const [all, setAll] = useState<PluginAccount[]>([]); const [selected, setSelected] = useState<PluginAccount[]>([]); const [error, setError] = useState("");
-  const [busy, setBusy] = useState("");
-  const mutationPending = useRef(false);
-  const load = useCallback(async () => { const [plugins, current] = await Promise.all([workspaceApi.plugins(), workspaceApi.companionPlugins(companionId)]); setAll(plugins.accounts); setSelected(current.accounts); }, [companionId]);
-  useEffect(() => { void load().then(() => setError("")).catch(cause => setError(cause instanceof Error ? cause.message : "Could not load connections")); }, [load]);
-  const selectedIds = new Set(selected.map((item) => item.id));
-  async function toggle(accountId: string) {
-    if (mutationPending.current) return;
-    mutationPending.current = true;
-    setBusy(accountId); setError("");
-    let mutationError = "";
-    try { await (selectedIds.has(accountId) ? workspaceApi.unselectPlugin(companionId, accountId) : workspaceApi.selectPlugin(companionId, accountId)); }
-    catch (cause) { mutationError = cause instanceof Error ? cause.message : "Could not update this application"; }
-    try { await load(); }
-    catch (cause) { if (!mutationError) mutationError = cause instanceof Error ? cause.message : "Could not reload applications"; }
-    setError(mutationError); setBusy(""); mutationPending.current = false;
-  }
-  return <div className="settings-stack">{all.length === 0 ? <p className="settings-empty">Connect an account from Connections first.</p> : all.map((account) => <label className="connection-choice" key={account.id}><span className="provider-dot">{(account.provider ?? account.label).slice(0, 1).toUpperCase()}</span><span><strong>{account.label}</strong><small>{account.provider ?? account.serverId}</small></span><input type="checkbox" checked={selectedIds.has(account.id)} disabled={!!busy} onChange={() => void toggle(account.id)} /></label>)}{error && <p className="field-error" role="alert">{error}</p>}</div>;
-}
-
 type NavigationGuard = (action: () => void, updateHistory?: boolean) => boolean;
 
-function CompanionView({ detail, models, onRefresh, onUnauthorized, onMenu, onOpenCompanion, onDeleted, onRegisterNavigationGuard, onLocationChange, refreshVersion }: { detail: CompanionDetail; models: Array<{ id: string; name: string }>; onDeleted: (ids: string[]) => void; onRefresh: () => Promise<void>; onUnauthorized: () => void; onMenu: () => void; onOpenCompanion: (id: string) => void; onRegisterNavigationGuard: (guard: NavigationGuard | null) => void; onLocationChange: (location: string) => void; refreshVersion: number }) {
+function CompanionView({ detail, models, onRefresh, onUnauthorized, onMenu, onOpenCompanion, onDeleted, onRegisterNavigationGuard, onLocationChange, refreshVersion, onNavigate }: { onNavigate: (path: string) => void; detail: CompanionDetail; models: Array<{ id: string; name: string }>; onDeleted: (ids: string[]) => void; onRefresh: () => Promise<void>; onUnauthorized: () => void; onMenu: () => void; onOpenCompanion: (id: string) => void; onRegisterNavigationGuard: (guard: NavigationGuard | null) => void; onLocationChange: (location: string) => void; refreshVersion: number }) {
   type CompanionSection = 'chat' | 'automations' | 'team' | 'activity' | 'computer' | 'applications' | 'settings';
   const finished = Boolean(detail.companion.retiredAt);
   const readView = (): CompanionSection => {
@@ -522,6 +383,13 @@ function CompanionView({ detail, models, onRefresh, onUnauthorized, onMenu, onOp
     return value === 'team' || value === 'automations' || value === 'activity' || value === 'computer' || value === 'applications' || value === 'settings' ? value : 'chat';
   };
   const [view, setView] = useState(readView);
+  const sectionNavigation = useRef<HTMLElement>(null);
+  useEffect(() => {
+    const revealCurrentSection = () => sectionNavigation.current?.querySelector<HTMLElement>('[aria-current="page"]')?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
+    revealCurrentSection();
+    window.addEventListener('resize', revealCurrentSection);
+    return () => window.removeEventListener('resize', revealCurrentSection);
+  }, [view]);
   const [settingsVisited, setSettingsVisited] = useState(() => readView() === 'settings');
   const settingsRef = useRef<SettingsSheetHandle>(null);
   useEffect(() => { const restore = () => { const restoredView = readView(); setView(restoredView); if (restoredView === 'settings') setSettingsVisited(true); }; window.addEventListener('popstate', restore); return () => window.removeEventListener('popstate', restore); }, []);
@@ -555,13 +423,18 @@ function CompanionView({ detail, models, onRefresh, onUnauthorized, onMenu, onOp
         <Button className="mobile-menu" variant="ghost" size="icon" onClick={onMenu} aria-label="Open navigation"><Menu /></Button>
         <button className="header-identity identity-link" disabled={finished} aria-label={`Edit ${detail.companion.name}'s personality`} onClick={() => changeView('settings')}>
           <CompanionAvatar name={detail.companion.name} avatar={detail.companion.avatar} size={38} />
-          <div><h1>{detail.companion.name}</h1><span><StatusDot status={displayedStatus} />{finished ? "Finished" : statusLabel(displayedStatus)}</span></div>
+          <div><h1>{detail.companion.name}</h1><span className="header-purpose">{finished ? "Finished specialist" : detail.companion.instructions || statusLabel(displayedStatus)}</span></div>
         </button>
         <div className="header-actions">
           {!!detail.questions?.length && !finished && <Button variant="ghost" size="sm" onClick={() => changeView('chat')} aria-label="Answer pending questions"><CircleAlert /><span>Needs you</span></Button>}
         </div>
+        <nav ref={sectionNavigation} className="companion-sections" aria-label="Companion sections">
+          <button aria-label="Discussion" aria-current={view === 'chat' ? 'page' : undefined} onClick={() => changeView('chat')}><MessageCircle /><span>Discussion</span></button>
+          {!finished && <><button aria-label="Team" aria-current={view === 'team' ? 'page' : undefined} onClick={() => changeView('team')}><UsersRound /><span>Team</span></button><button aria-label="Automations" aria-current={view === 'automations' ? 'page' : undefined} onClick={() => changeView('automations')}><Clock3 /><span>Automations</span></button></>}
+          <button aria-label="Activity" aria-current={view === 'activity' ? 'page' : undefined} onClick={() => changeView('activity')}><Activity /><span>Activity</span>{detail.runs.some(run => isActiveRun(run.status)) && <span className="nav-live-dot" aria-label="Work in progress" />}</button>
+          {!finished && <><button aria-label="Applications" aria-current={view === 'applications' ? 'page' : undefined} onClick={() => changeView('applications')}><Blocks /><span>Apps</span></button>{detail.companion.provider === 'box' && <button className="nav-icon" title="Computer" aria-label="Computer" aria-current={view === 'computer' ? 'page' : undefined} onClick={() => changeView('computer')}><Computer /></button>}<button className="nav-icon" title="Settings" aria-label="Settings" aria-current={view === 'settings' ? 'page' : undefined} onClick={() => changeView('settings')}><Settings /></button></>}
+        </nav>
       </header>
-      <nav className="companion-sections" aria-label="Companion sections">{(finished ? [['chat', 'Discussion'], ['activity', 'Activity']] as const : [['chat', 'Discussion'], ['automations', 'Automations'], ['team', 'Team'], ['activity', 'Activity'], ...(detail.companion.provider === 'box' ? [['computer', 'Computer']] as const : []), ['applications', 'Applications'], ['settings', 'Settings']] as const).map(([key, label]) => <button key={key} aria-current={view === key ? 'page' : undefined} onClick={() => changeView(key)}>{label}</button>)}</nav>
       <div className="workspace-body" hidden={view !== 'chat'}>
         <Chat detail={detail} onRefresh={onRefresh} onUnauthorized={onUnauthorized} onOpenCompanion={onOpenCompanion} readOnly={finished} />
       </div>
@@ -569,8 +442,8 @@ function CompanionView({ detail, models, onRefresh, onUnauthorized, onMenu, onOp
       {!finished && view === 'team' && <section className="companion-page" aria-label="Team"><Suspense fallback={<div className="companion-page-inner" role="status">Opening your team…</div>}><TeamPanel companion={detail.companion} refreshVersion={refreshVersion} onOpenCompanion={onOpenCompanion}/></Suspense></section>}
       {view === 'activity' && <section className="companion-page" aria-label="Activity"><Suspense fallback={<div className="companion-page-inner" role="status">Opening activity…</div>}><TaskActivity companion={detail.companion} refreshVersion={refreshVersion} specialists={detail.specialists} onOpenCompanion={onOpenCompanion} onOpenDiscussion={() => changeView('chat')} /></Suspense></section>}
       {!finished && view === 'computer' && <section className="companion-page" aria-label="Computer"><DesktopSheet embedded companion={detail.companion} onClose={() => changeView('chat')} onRefresh={onRefresh} /></section>}
-      {!finished && view === 'applications' && <section className="companion-page" aria-label="Applications"><div className="companion-page-inner"><header className="section-intro"><h2>Applications</h2><p>Choose which connected accounts {detail.companion.name} can use.</p></header><CompanionConnections companionId={detail.companion.id} /></div></section>}
-      {!finished && settingsVisited && <div className="companion-page" hidden={view !== 'settings'}><SettingsSheet ref={settingsRef} embedded active={view === 'settings'} detail={detail} models={models} onClose={() => changeView('chat')} onSaved={onRefresh} onDeleted={onDeleted} connections={null} onActivity={() => changeView('activity')} onDesktop={() => changeView('computer')} /></div>}
+      {!finished && view === 'applications' && <section className="companion-page" aria-label="Applications"><div className="companion-page-inner"><header className="section-intro"><h2>Applications</h2><p>Choose which connected accounts {detail.companion.name} can use.</p></header><ApplicationAccess key={detail.companion.id} companionId={detail.companion.id} onConnect={() => onNavigate("/connections")} /></div></section>}
+      {!finished && settingsVisited && <div className="companion-page" hidden={view !== 'settings'}><SettingsSheet ref={settingsRef} embedded active={view === 'settings'} detail={detail} models={models} onClose={() => changeView('chat')} onSaved={onRefresh} onDeleted={onDeleted} connections={view === "settings" ? <ApplicationAccess key={detail.companion.id} companionId={detail.companion.id} onConnect={() => onNavigate("/connections")} /> : null} onActivity={() => changeView('activity')} onDesktop={() => changeView('computer')} /></div>}
     </main>
   );
 }
@@ -670,14 +543,29 @@ export function App() {
   const detailRequest = useRef(0);
   const [loading, setLoading] = useState(true);
   const [pageError, setPageError] = useState("");
-  const [createOpen, setCreateOpen] = useState(false);
+  const [createOpen, setCreateOpen] = useState(() => window.location.pathname === "/new");
+  const creationLock = useRef(false);
+  const [creationLocked, setCreationLocked] = useState(false);
   const [teamCreateOpen, setTeamCreateOpen] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const navigationGuard = useRef<NavigationGuard | null>(null);
   const acceptedLocation = useRef(window.location.pathname + window.location.search);
   const registerNavigationGuard = useCallback((guard: NavigationGuard | null) => { navigationGuard.current = guard; }, []);
 
+  const setupLockedChange = useCallback((locked: boolean) => {
+    creationLock.current = locked;
+    setCreationLocked(locked);
+    if (locked) {
+      setCreateOpen(true);
+      if (window.location.pathname !== "/new") window.history.pushState({}, "", "/new");
+      acceptedLocation.current = "/new";
+      setCurrentPath("/new");
+      setSelectedId(null);
+    }
+  }, []);
+
   function leaveCompanion(action: () => void) {
+    if (creationLock.current) return;
     if (selectedId && navigationGuard.current) navigationGuard.current(action);
     else action();
   }
@@ -739,6 +627,11 @@ export function App() {
 
   useEffect(() => {
     const onPopState = (event: PopStateEvent) => {
+      if (creationLock.current) {
+        event.stopImmediatePropagation();
+        window.history.pushState({}, "", acceptedLocation.current);
+        return;
+      }
       const target = window.location.pathname + window.location.search;
       const targetId = selectedIdFromPath();
       const accept = () => {
@@ -747,7 +640,7 @@ export function App() {
         setCurrentPath(window.location.pathname);
         if (targetId !== selectedId) setDetail(null);
         setSelectedId(targetId);
-        setCreateOpen(false);
+        setCreateOpen(window.location.pathname === "/new");
         setTeamCreateOpen(false);
       };
       if (selectedId && targetId !== selectedId && navigationGuard.current) {
@@ -828,7 +721,7 @@ export function App() {
       acceptedLocation.current = path;
       setCurrentPath(path);
       setSelectedId(selectedIdFromPath());
-      setCreateOpen(false);
+      setCreateOpen(path === "/new");
       setTeamCreateOpen(false);
       setSidebarOpen(false);
     });
@@ -876,8 +769,10 @@ export function App() {
       <Sidebar
         companions={companions}
         selectedId={selectedId}
+        currentPath={currentPath}
+        locked={creationLocked}
         onSelect={selectCompanion}
-        onCreate={() => leaveCompanion(() => { setCreateOpen(true); setTeamCreateOpen(false); setSidebarOpen(false); })}
+        onCreate={() => navigate("/new")}
         onCreateTeam={() => leaveCompanion(() => { setTeamCreateOpen(true); setCreateOpen(false); setSidebarOpen(false); })}
         onNavigate={navigate}
         user={user}
@@ -889,18 +784,19 @@ export function App() {
       )}
       {teamCreateOpen ? <main className="team-onboarding" id="main-content"><Suspense fallback={<div className="companion-page-inner" role="status">Opening team creation…</div>}><CreateTeamWizard config={config} companions={companions.filter(item => !item.temporary && !item.retiredAt)} onCancel={() => setTeamCreateOpen(false)} onCreated={companion => { handleCreated(companion); window.history.replaceState({}, '', `/companions/${companion.id}?view=team`); }} /></Suspense></main> : currentPath === "/account" && !createOpen ? (
         <AccountPage user={user} onSignOut={signOut} onMenu={() => setSidebarOpen(true)} />
+      ) : currentPath === "/specialists" && !createOpen ? (
+        <Suspense fallback={<main className="detail-loading" id="main-content" role="status">Opening specialists…</main>}><SpecialistLibrary onMenu={() => setSidebarOpen(true)} /></Suspense>
       ) : currentPath === "/connections" && !createOpen ? (
         <ConnectionsPage onMenu={() => setSidebarOpen(true)} />
       ) : companions.length === 0 || createOpen ? (
         <main className="onboarding" id="main-content">
-          <div className="onboarding-mobile-header"><Button variant="ghost" size="icon" onClick={() => setSidebarOpen(true)} aria-label="Open navigation"><Menu /></Button><span className="wordmark">companions.build</span></div>
-          <CreateCompanion config={config} onCreated={handleCreated} compact={companions.length > 0} />
-          <div className="model-note"><Server />Using {config.model}</div>
+          <div className="onboarding-mobile-header"><Button disabled={creationLocked} variant="ghost" size="icon" onClick={() => setSidebarOpen(true)} aria-label="Open navigation"><Menu /></Button><span className="wordmark">companions.build</span></div>
+          <Suspense fallback={<div className="detail-loading" role="status">Opening creation…</div>}><CreateCompanion ownerId={user.id} onSetupLockedChange={setupLockedChange} config={config} onCreated={handleCreated} compact={companions.length > 0} /></Suspense>
         </main>
       ) : !selectedId ? (
-        <Home companions={companions} onSelect={selectCompanion} onCreateTeam={() => leaveCompanion(() => setTeamCreateOpen(true))} onCreate={() => leaveCompanion(() => setCreateOpen(true))} onMenu={() => setSidebarOpen(true)} />
+        <Home companions={companions} onSelect={selectCompanion} onCreateTeam={() => leaveCompanion(() => setTeamCreateOpen(true))} onCreate={() => navigate("/new")} onMenu={() => setSidebarOpen(true)} />
       ) : detail && detail.companion.id === selectedId ? (
-        <CompanionView onDeleted={handleDeleted} key={detail.companion.id} detail={detail} refreshVersion={detailVersion} models={config.models ?? [{ id: config.model, name: config.model }]} onRefresh={loadDetail} onUnauthorized={() => setAuthRequired(true)} onMenu={() => setSidebarOpen(true)} onOpenCompanion={selectCompanion} onRegisterNavigationGuard={registerNavigationGuard} onLocationChange={location => { acceptedLocation.current = location; }} />
+        <CompanionView onNavigate={navigate} onDeleted={handleDeleted} key={detail.companion.id} detail={detail} refreshVersion={detailVersion} models={config.models ?? [{ id: config.model, name: config.model }]} onRefresh={loadDetail} onUnauthorized={() => setAuthRequired(true)} onMenu={() => setSidebarOpen(true)} onOpenCompanion={selectCompanion} onRegisterNavigationGuard={registerNavigationGuard} onLocationChange={location => { acceptedLocation.current = location; }} />
       ) : (
         <main className="detail-loading" id="main-content"><LoaderCircle className="spin" /><span>Opening Companion…</span></main>
       )}

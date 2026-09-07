@@ -1,4 +1,4 @@
-.specialist-library{min-width:0;min-height:100%;overflow:auto;background:var(--background);color:var(--foreground)}
+.specialist-library{flex:1;min-width:0;min-height:0;height:100%;overflow:auto;background:var(--background);color:var(--foreground)}
 .specialist-library__inner{width:min(100%,972px);margin:0 auto;padding:40px 36px 72px}
 .specialist-library__heading{display:flex;align-items:flex-end;justify-content:space-between;gap:24px;margin-bottom:22px}
 .specialist-library__title{display:flex;align-items:flex-start;gap:12px;min-width:0}.specialist-library__title h1{margin:0;font-size:2rem;line-height:1.15;letter-spacing:-.035em;font-weight:560}.specialist-library__title p{max-width:680px;margin:10px 0 0;color:var(--muted-foreground);font-size:.9rem;line-height:1.55}.specialist-library__menu{display:none}

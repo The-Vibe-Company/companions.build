@@ -189,6 +189,7 @@ export const SettingsSheet = forwardRef<SettingsSheetHandle, Props>(function Set
               {error && <p className="field-error" role="alert">{error}</p>}
               <p className="settings-save-status" role="status">{saving ? 'Saving…' : saved ? 'Changes saved' : dirty ? 'Unsaved changes' : ''}</p>
             </form>
+            {active && connections && <section className="settings-applications" aria-label="Applications"><h3>Apps & accounts</h3>{connections}</section>}
             <div className="settings-columns">
               <section className="settings-computer" aria-labelledby="settings-computer-title">
                 <h3 id="settings-computer-title">Computer & model</h3>

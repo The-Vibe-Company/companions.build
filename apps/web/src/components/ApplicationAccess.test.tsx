@@ -47,6 +47,18 @@ describe("ApplicationAccess",()=>{
     expect(checkbox).toBeChecked();
   });
 
+  it("keeps distinct custom MCP servers separate", async () => {
+    const first={...linearWork,id:"internal",serverId:null,provider:"custom",label:"Internal tools"};
+    const second={...linearWork,id:"reports",serverId:null,provider:"custom",label:"Reports"};
+    vi.spyOn(workspaceApi,"plugins").mockResolvedValue({catalog:[],accounts:[first,second]});
+    vi.spyOn(workspaceApi,"companionPlugins").mockResolvedValue({accounts:[first]});
+    render(<ApplicationAccess companionId="ada"/>);
+    expect(await screen.findByRole("heading",{name:"Internal tools"})).toBeInTheDocument();
+    expect(screen.getByRole("heading",{name:"Reports"})).toBeInTheDocument();
+    expect(screen.getByRole("checkbox",{name:"Internal tools"})).toBeChecked();
+    expect(screen.getByRole("checkbox",{name:"Reports"})).not.toBeChecked();
+  });
+
   it("groups several accounts per provider and grants each account separately",async()=>{
     let selected=[linearWork];
     vi.spyOn(workspaceApi,"plugins").mockResolvedValue(plugins);

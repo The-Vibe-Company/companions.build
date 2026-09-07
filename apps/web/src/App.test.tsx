@@ -3,6 +3,8 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "./App";
 
+beforeEach(() => window.sessionStorage.clear());
+
 const config = { localAvailable: true, boxAvailable: true, model: "scripted/test" };
 const me = { user: { id: "user-1", email: "stan@example.com", name: "Stan" } };
 const companion = {
@@ -166,6 +168,8 @@ describe("first Companion flow", () => {
     let created = false;
     const fetchMock = vi.fn((input: RequestInfo | URL, options?: RequestInit) => {
       const path = String(input);
+      if (path === "/api/plugins") return response({catalog:[],accounts:[]});
+      if (path === "/api/templates") return response({templates:[]});
       if (path === "/api/me") return response(me);
       if (path === "/api/config") return response(config);
       if (path === "/api/companions" && options?.method === "POST") {
@@ -182,10 +186,10 @@ describe("first Companion flow", () => {
     render(<App />);
     expect(await screen.findByRole("heading", { name: "Create your first Companion" })).toBeInTheDocument();
     await user.type(screen.getByLabelText("Name"), "Ada");
-    await user.type(screen.getByLabelText("Mission"), "Research customer questions.");
-    await user.click(screen.getByText("Computer preferences"));
+    await user.type(screen.getByLabelText("Purpose"), "Research customer questions.");
+    await user.click(screen.getByText("Advanced"));
     await user.click(screen.getByText("Persistent cloud computer"));
-    await user.click(screen.getByRole("button", { name: "Create Companion" }));
+    await user.click(screen.getByRole("button", { name: "Create companion" }));
 
     expect(await screen.findByRole("heading", { name: "A little less on your mind." })).toBeInTheDocument();
     expect(screen.getByText(/Messages will wait safely/)).toBeInTheDocument();
@@ -198,6 +202,7 @@ describe("first Companion flow", () => {
     const createCall = fetchMock.mock.calls.find(([, options]) => options?.method === "POST");
     expect(JSON.parse(createCall?.[1]?.body as string)).toEqual({
       clientCreationId: expect.stringMatching(/^[0-9a-f-]{36}$/),
+      prepare: false,
       name: "Ada",
       instructions: "Research customer questions.",
       provider: "box",
@@ -213,6 +218,7 @@ describe("first Companion flow", () => {
     const bodies:Array<Record<string,unknown>>=[];let attempts=0,persisted=false;
     const fetchMock=vi.fn((input:RequestInfo|URL,options?:RequestInit)=>{
       const path=String(input);
+      if (path === "/api/plugins") return response({catalog:[],accounts:[]});
       if(path==="/api/me")return response(me);
       if(path==="/api/config")return response(config);
       if(path==="/api/templates")return response({templates:[]});
@@ -226,10 +232,10 @@ describe("first Companion flow", () => {
       throw new Error(`Unexpected request: ${path}`);
     });
     vi.stubGlobal("fetch",fetchMock);const user=userEvent.setup();render(<App/>);
-    await user.type(await screen.findByLabelText("Name"),"Ada");await user.type(screen.getByLabelText("Mission"),"Research customer questions.");
-    await user.click(screen.getByRole("button",{name:"Create Companion"}));
+    await user.type(await screen.findByLabelText("Name"),"Ada");await user.type(screen.getByLabelText("Purpose"),"Research customer questions.");
+    await user.click(screen.getByRole("button",{name:"Create companion"}));
     expect(await screen.findByRole("alert")).toHaveTextContent("Response lost");
-    await user.click(screen.getByRole("button",{name:"Create Companion"}));
+    await user.click(screen.getByRole("button",{name:"Resume setup"}));
     expect(await screen.findByRole("heading",{name:"A little less on your mind."})).toBeInTheDocument();
     expect(bodies).toHaveLength(2);expect(bodies[0].clientCreationId).toMatch(/^[0-9a-f-]{36}$/);expect(bodies[1].clientCreationId).toBe(bodies[0].clientCreationId);
   });
@@ -238,6 +244,8 @@ describe("first Companion flow", () => {
     let unavailable = true;
     const fetchMock = vi.fn((input: RequestInfo | URL) => {
       const path = String(input);
+      if (path === "/api/plugins") return response({catalog:[],accounts:[]});
+      if (path === "/api/templates") return response({templates:[]});
       if (path === "/api/me") return response(me);
       if (path === "/api/config" && unavailable) return Promise.reject(new Error("Service unavailable"));
       if (path === "/api/config") return response(config);
@@ -267,7 +275,7 @@ describe("first Companion flow", () => {
     });
     vi.stubGlobal("fetch", fetchMock);
     render(<App />);
-    expect(await screen.findByRole("button", { name: /Ada, Companion Ada Sleeping/ })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: /Ada, Companion · Sleeping/ })).toBeInTheDocument();
   });
 
   it("keeps send available during active work and clears drafts when switching Companions", async () => {
@@ -327,7 +335,7 @@ describe("first Companion flow", () => {
     expect(window.location.search).toBe("?view=applications");
     expect(screen.getByRole("region", { name: "Applications" })).toHaveTextContent("Choose which connected accounts Ada can use.");
 
-    await user.click(screen.getByRole("button", { name: /Browser Ready/ }));
+    await user.click(screen.getByRole("button", { name: /Browser, Companion · Ready/ }));
     const browserComposer = await screen.findByRole("textbox", { name: "Message Browser" });
     expect(browserComposer).toHaveValue("");
   });
@@ -493,7 +501,7 @@ describe("first Companion flow", () => {
     render(<App />);
 
     expect(await screen.findByRole("textbox", { name: "Message Ada" })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "Ada" }).parentElement).toHaveTextContent("Sleeping");
+    expect(screen.getByRole("button", { name: /Ada, Companion.*Sleeping/ })).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "Edit Ada's personality" }));
     expect(screen.getByRole("region", { name: "Companion settings" })).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "Computer" }));
@@ -706,6 +714,7 @@ describe("first Companion flow", () => {
     let body: Record<string, unknown> | null = null;
     const fetchMock = vi.fn((input: RequestInfo | URL, options?: RequestInit) => {
       const path = String(input);
+      if (path === "/api/plugins") return response({catalog:[],accounts:[]});
       if (path === "/api/me") return response(me);
       if (path === "/api/config") return response(config);
       if (path === "/api/templates") return response({ templates: [template] });
@@ -716,14 +725,14 @@ describe("first Companion flow", () => {
     });
     vi.stubGlobal("fetch", fetchMock);
     const user = userEvent.setup(); render(<App />);
+    await user.click(await screen.findByText("Advanced"));
     await user.selectOptions(await screen.findByLabelText("Start from"), "template-1");
     expect(screen.getByLabelText("Name")).toHaveValue("Research lead");
-    expect(screen.getByLabelText("Mission")).toHaveValue("Investigate the market");
-    await user.click(screen.getByText("Computer preferences"));
+    expect(screen.getByLabelText("Purpose")).toHaveValue("Investigate the market");
     expect(screen.getByRole("radio", { name: /Local/ })).toBeDisabled();
     expect(screen.getByRole("radio", { name: /Persistent cloud computer/ })).toBeChecked();
     await user.clear(screen.getByLabelText("Name")); await user.type(screen.getByLabelText("Name"), "Client researcher");
-    await user.click(screen.getByRole("button", { name: "Create Companion" }));
+    await user.click(screen.getByRole("button", { name: "Create companion" }));
     await waitFor(() => expect(body).not.toBeNull());
     expect(body).toMatchObject({ name: "Client researcher", instructions: "Investigate the market", provider: "box", templateId: "template-1", templateRevision: 7, avatar: template.avatar });
   });
@@ -753,7 +762,6 @@ it("preserves the configured default model when editing only a Companion identit
  });
  vi.stubGlobal("fetch",fetchMock);const user=userEvent.setup();render(<App/>);
  await user.click(await screen.findByRole("button",{name:"Edit Ada's personality"}));
- await user.click(screen.getByText("Model preferences"));
  expect(screen.getByLabelText("Model")).toHaveValue("");
  await user.clear(screen.getByLabelText("Name"));await user.type(screen.getByLabelText("Name"),"Ada renamed");
  await user.click(screen.getByRole("button",{name:"Discussion"}));
@@ -792,7 +800,7 @@ it("opens automations directly, preserves the chat draft, and restores sections 
   expect(await screen.findByRole("button", { name: "New routine" })).toBeInTheDocument();
   await user.click(screen.getByRole("button", { name: "Discussion" }));
   expect(screen.getByRole("textbox", { name: "Message Ada" })).toHaveValue("Keep this thought");
-  await user.click(screen.getByRole("button", { name: /^Ada, Companion Ada/ }));
+  await user.click(screen.getByRole("button", { name: /^Ada, Companion ·/ }));
   expect(await screen.findByRole("textbox", { name: "Message Ada" })).toHaveValue("Keep this thought");
   expect(fetchMock.mock.calls.every(([path]) => !String(path).endsWith("/prepare"))).toBe(true);
 });
@@ -828,4 +836,70 @@ it("operates connection actions by keyboard and closes on Escape, outside focus 
   expect(manage).toHaveAttribute("aria-expanded", "false");
   expect(check).not.toHaveBeenCalled();
   expect(disconnect).not.toHaveBeenCalled();
+});
+
+it("opens the shared libraries from the rail without losing unsaved settings", async () => {
+  window.history.replaceState({}, "", "/companions/ada?view=settings");
+  const profile={id:"writer",name:"Writer",instructions:"Write updates",revision:1,avatar:companion.avatar,sourceCompanionId:null,hasSnapshot:false};
+  vi.stubGlobal("fetch",vi.fn((input:RequestInfo|URL)=>{
+    const path=String(input);
+    if(path==="/api/me")return response(me);
+    if(path==="/api/config")return response(config);
+    if(path==="/api/companions")return response({companions:[companion]});
+    if(path==="/api/companions/ada")return response({companion,messages:[],runs:[],activity:[]});
+    if(path==="/api/plugins")return response({catalog:[],accounts:[]});
+    if(path==="/api/companions/ada/plugins")return response({accounts:[]});
+    if(path==="/api/templates")return response({templates:[profile]});
+    throw new Error(`Unexpected request ${path}`);
+  }));
+  const user=userEvent.setup();render(<App/>);
+  await user.type(await screen.findByLabelText("Name")," draft");
+  await user.click(screen.getByRole("button",{name:"Specialists"}));
+  expect(await screen.findByRole("heading",{name:"Keep your changes?"})).toBeInTheDocument();
+  expect(window.location.pathname).toBe("/companions/ada");
+  await user.click(screen.getByRole("button",{name:"Keep editing"}));
+  expect(screen.getByLabelText("Name")).toHaveValue("Ada draft");
+  await user.click(screen.getByRole("button",{name:"Specialists"}));
+  await user.click(screen.getByRole("button",{name:"Discard changes"}));
+  expect(await screen.findByRole("heading",{name:"Specialists"})).toBeInTheDocument();
+  expect(window.location.pathname).toBe("/specialists");
+  expect(await screen.findByText("Writer")).toBeInTheDocument();
+  await user.click(screen.getByRole("button",{name:"Apps"}));
+  expect(await screen.findByRole("heading",{name:"Connections"})).toBeInTheDocument();
+  expect(window.location.pathname).toBe("/connections");
+  vi.unstubAllGlobals();
+});
+
+it("keeps creation on screen until selected accounts finish saving", async () => {
+  window.history.replaceState({}, "", "/new");
+  const account={id:"work",serverId:"linear",provider:"linear",label:"Work workspace",healthStatus:"unchecked",healthCode:null,checkedAt:null};
+  let releaseGrant!:()=>void;
+  let created=false;
+  vi.stubGlobal("fetch",vi.fn((input:RequestInfo|URL,options?:RequestInit)=>{
+    const path=String(input);
+    if(path==="/api/me")return response(me);
+    if(path==="/api/config")return response(config);
+    if(path==="/api/templates")return response({templates:[]});
+    if(path==="/api/plugins")return response({catalog:[],accounts:[account]});
+    if(path==="/api/companions"&&options?.method==="POST"){created=true;return response({companion});}
+    if(path==="/api/companions")return response({companions:created?[companion]:[]});
+    if(path==="/api/companions/ada")return response({companion,messages:[],runs:[],activity:[]});
+    if(path==="/api/companions/ada/plugins/work")return new Promise<Response>(resolve=>{releaseGrant=()=>resolve(new Response(JSON.stringify({ok:true})));});
+    throw new Error(`Unexpected request ${path}`);
+  }));
+  const user=userEvent.setup();render(<App/>);
+  await user.type(await screen.findByLabelText("Name"),"Ada");
+  await user.type(screen.getByLabelText("Purpose"),"Research customer questions.");
+  await user.click(await screen.findByRole("checkbox",{name:"Work workspace"}));
+  await user.click(screen.getByRole("button",{name:"Create companion"}));
+  await waitFor(()=>expect(releaseGrant).toBeTypeOf("function"));
+  await user.click(screen.getByRole("button",{name:"Apps"}));
+  expect(window.location.pathname).toBe("/new");
+  act(()=>{window.history.pushState({},"","/connections");window.dispatchEvent(new PopStateEvent("popstate"));});
+  expect(window.location.pathname).toBe("/new");
+  expect(screen.getByLabelText("Name")).toBeDisabled();
+  await act(async()=>releaseGrant());
+  expect(await screen.findByRole("textbox",{name:"Message Ada"})).toBeInTheDocument();
+  expect(window.location.pathname).toBe("/companions/ada");
+  vi.unstubAllGlobals();
 });

@@ -82,3 +82,6 @@
 .settings-columns .settings-delivery summary { min-height:44px; font-size:.8125rem; }
 
 @media(max-width:760px) { .settings-identity-row textarea { height:66px; } }
+
+.settings-applications { padding:16px 0 28px; }
+.settings-applications>h3 { margin:0 0 14px; font-size:.9375rem; font-weight:620; }

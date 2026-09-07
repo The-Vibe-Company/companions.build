@@ -1,0 +1,25 @@
+apps/server/src/triggers.ts
+  s_f946242dcf6ba9::t_6333f11e18de2c 348,373-374,377-386,389,428-444
+apps/server/src/worker.ts
+  s_f946242dcf6ba9::t_d6aecfe0ae70be 4,12
+apps/server/test/triggers.test.ts
+  s_f946242dcf6ba9::t_bb45e220704d28 3-5,76,86,165,192-255
+docs/triggers.md
+  s_f946242dcf6ba9::t_1b9f51bd2810f6 19,32,35-36,39
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "21701fa25748aa2cabc347fd65205d14efc88608",
+  "prompts": {},
+  "sessions": {
+    "s_f946242dcf6ba9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a06de4-a8a5-7cd3-b713-2a8d451f7200",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "StanGirard <stan@quivr.app>"
+    }
+  }
+}

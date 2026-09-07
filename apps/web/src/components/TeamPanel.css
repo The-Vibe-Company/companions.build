@@ -1,32 +1,32 @@
 .team-panel {
-  width: min(100%, 760px);
+  width: min(100%, 900px);
   margin: 0 auto;
   padding: 48px 36px 72px;
   color: var(--foreground);
 }
-.team-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 32px; margin-bottom: 48px; }
+.team-heading { display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; margin-bottom: 24px; }
 .team-heading > div { min-width: 0; }
-.team-heading h1 { margin: 0; font-size: 1.65rem; line-height: 1.2; font-weight: 620; letter-spacing: -.04em; overflow-wrap: anywhere; }
+.team-heading h1 { margin: 0; font-size: 2rem; line-height: 1.15; font-weight: 560; letter-spacing: -.035em; overflow-wrap: anywhere; }
 .team-heading p { max-width: 58ch; margin: 10px 0 0; color: var(--muted-foreground); font-size: .9375rem; line-height: 1.55; }
 .team-heading > button { min-height: 44px; flex: 0 0 auto; }
-.team-section-label { margin-bottom: 12px; color: var(--muted-foreground); font-size: .75rem; font-weight: 650; }
-.team-coordinator { margin-bottom: 44px; }
+.team-section-label { margin-bottom: 8px; color: var(--muted-foreground); font-size: .75rem; font-weight: 620; }
+.team-coordinator { margin-bottom: 28px; }
 .team-person { display: grid; grid-template-columns: 48px minmax(0, 1fr) auto; align-items: center; gap: 16px; min-width: 0; }
-.team-person--coordinator { grid-template-columns: 56px minmax(0, 1fr); padding: 20px 0 24px; border-bottom: 1px solid var(--border); }
+.team-person--coordinator { grid-template-columns: 56px minmax(0, 1fr); min-height: 80px; padding: 8px 4px; border-block: 1px solid var(--border); }
 .team-person > div { min-width: 0; }
 .team-person strong { display: block; font-size: .9375rem; font-weight: 620; overflow-wrap: anywhere; }
 .team-person p { display: -webkit-box; margin: 5px 0 0; overflow: hidden; color: var(--muted-foreground); font-size: .8125rem; line-height: 1.5; overflow-wrap: anywhere; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
 .team-person > button { min-height: 40px; box-shadow: none; }
 .team-list { border-top: 1px solid var(--border); }
 .team-member { border-bottom: 1px solid var(--border); }
-.team-member > .team-person { min-height: 88px; padding: 16px 0; }
+.team-member > .team-person { min-height: 80px; padding: 10px 4px; }
 .team-empty { border-block: 1px solid var(--border); padding: 28px 0; }
 .team-empty p, .team-empty span { margin: 0; }
 .team-empty p { font-size: .9375rem; font-weight: 580; }
 .team-empty span { display: block; margin-top: 7px; color: var(--muted-foreground); font-size: .8375rem; }
 .team-error { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin: -20px 0 28px; border-radius: 9px; padding: 12px 14px; background: oklch(.96 .025 28); color: oklch(.42 .15 29); font-size: .8125rem; }
 .team-error > button { flex: 0 0 auto; }
-.team-add { margin-top: 40px; border-top: 1px solid var(--border); padding-top: 28px; }
+.team-add { margin-top: 28px; border: 1px solid var(--border); border-radius: 14px; padding: 20px; }
 .team-add-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; margin-bottom: 20px; }
 .team-add-heading h2, .team-work h2 { margin: 0; font-size: 1.05rem; font-weight: 620; letter-spacing: -.02em; }
 .team-add-heading p, .team-work > div > p { margin: 6px 0 0; color: var(--muted-foreground); font-size: .8125rem; line-height: 1.5; }
@@ -54,16 +54,17 @@
 .team-uncertain { display: grid; justify-items: start; gap: 8px; border-radius: 9px; padding: 16px; background: oklch(.96 .025 75); color: oklch(.37 .05 65); font-size: .8375rem; }
 .team-uncertain p { margin: 0; line-height: 1.5; }
 .team-uncertain > button { margin-top: 4px; }
-.team-task { margin: 0 0 16px 64px; border-radius: 10px; padding: 16px; background: var(--secondary); }
+.team-task { margin: 0 4px 12px 64px; border-radius: 14px; padding: 16px; background: var(--secondary); }
 .team-task .field { margin: 0; }
 .team-task textarea { background: var(--card); }
-.team-advanced { margin-left: 64px; }
+.team-advanced { margin: 0 4px 12px 64px; }
 .team-advanced > summary { width: max-content; min-height: 44px; }
 .team-advanced > summary:hover { color: var(--foreground); }
-.team-advanced-content { display: grid; gap: 14px; padding: 2px 0 20px; }
+.team-advanced-content { display: grid; gap: 14px; padding: 16px; border-radius: 14px; background: var(--secondary); }
 .team-advanced-content > label { display: flex; align-items: center; justify-content: space-between; gap: 16px; color: var(--muted-foreground); font-size: .8125rem; }
 .team-advanced-content select { min-height: 40px; max-width: min(100%, 260px); border: 1px solid var(--input); border-radius: 8px; padding: 7px 10px; background: var(--card); color: var(--foreground); }
-.team-profile-edit { display: grid; gap: 16px; border-bottom: 1px solid var(--border); padding-bottom: 20px; }
+.team-profile-edit { display: grid; grid-template-columns:1fr 1fr; gap: 14px 16px; border-bottom: 1px solid var(--border); padding-bottom: 18px; }
+.team-profile-edit>p:first-child,.team-profile-edit .team-edit-avatar,.team-profile-edit .field:nth-of-type(2),.team-profile-edit>.field-error,.team-profile-edit>.team-save-status{grid-column:1 / -1}.team-profile-edit>button{grid-column:2;justify-self:end}
 .team-profile-edit > p:first-child { margin: 0; color: var(--muted-foreground); font-size: .8125rem; line-height: 1.5; }
 .team-profile-edit .field { margin: 0; }
 .team-profile-edit .avatar-picker { padding-top: 4px; }
@@ -93,7 +94,8 @@
   .team-heading > button { width: 100%; }
   .team-person { grid-template-columns: 48px minmax(0, 1fr); }
   .team-person > button { grid-column: 1 / -1; width: 100%; }
-  .team-task, .team-advanced { margin-left: 0; }
+  .team-task, .team-advanced { margin-left: 0; margin-right:0; }
+  .team-profile-edit { grid-template-columns:1fr; }.team-profile-edit>*{grid-column:1!important}.team-profile-edit>button{justify-self:stretch;width:100%}
   .team-restore { align-items: stretch; flex-direction: column; }
   .team-restore > button { min-height: 40px; }
 }

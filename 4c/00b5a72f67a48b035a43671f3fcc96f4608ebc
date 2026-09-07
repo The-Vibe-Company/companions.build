@@ -1,0 +1,21 @@
+packages/agent/test/git-credentials.test.ts
+  s_895cd30c8c0144::t_70aa91c1fc6763 2,4,19-21,30-33
+packages/control/git-credentials.ts
+  s_895cd30c8c0144::t_70aa91c1fc6763 1-2,17,20,22-32,54,57
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "4c00b5a72f67a48b035a43671f3fcc96f4608ebc",
+  "prompts": {},
+  "sessions": {
+    "s_895cd30c8c0144": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a07d31-b106-7d00-912b-601ce8884ca0",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "StanGirard <stan@quivr.app>"
+    }
+  }
+}

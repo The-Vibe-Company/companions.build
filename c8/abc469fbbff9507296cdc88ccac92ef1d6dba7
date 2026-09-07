@@ -1,0 +1,49 @@
+apps/server/src/templates.ts
+  s_f946242dcf6ba9::t_0307f07e6a386d 77,82
+  s_f946242dcf6ba9::t_345f15612d4d8d 5,78,83-84
+apps/server/src/api.ts
+  s_f946242dcf6ba9::t_1382952facb7de 22,37-49,153
+apps/server/src/control-help.ts
+  s_f946242dcf6ba9::t_45e2000c81a588 9
+packages/control/agent.ts
+  s_f946242dcf6ba9::t_45e2000c81a588 13,62
+apps/server/src/delegation.ts
+  s_f946242dcf6ba9::t_c90a9e845aad2c 7,18-21,25-26
+apps/server/src/store.ts
+  s_f946242dcf6ba9::t_c90a9e845aad2c 4,69,86-88,91-92
+apps/server/src/software-readiness.ts
+  s_f946242dcf6ba9::t_c90a9e845aad2c 1-43
+apps/server/src/control-product.ts
+  s_f946242dcf6ba9::t_45e2000c81a588 12,26-35
+apps/server/src/control.ts
+  s_f946242dcf6ba9::t_45e2000c81a588 30,34,66
+apps/server/src/activation.ts
+  s_f946242dcf6ba9::t_e3e60fdebad5aa 10
+packages/agent/src/pi-executor.ts
+  s_f946242dcf6ba9::t_45e2000c81a588 173
+apps/server/src/software.ts
+  s_f946242dcf6ba9::t_345f15612d4d8d 129-131
+  s_f946242dcf6ba9::t_e38031118337a9 153-186
+apps/server/test/software.test.ts
+  s_f946242dcf6ba9::t_d96d2cbfb2cb38 13,16-17
+  s_f946242dcf6ba9::t_b31c2d23b4904c 232-241
+  s_f946242dcf6ba9::t_0307f07e6a386d 286-311
+  s_f946242dcf6ba9::t_019bcd28bbae74 256
+  s_f946242dcf6ba9::t_3b9fb3b7605265 3,18-22,82-101,231,242-255,257-285,312-351
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "c8abc469fbbff9507296cdc88ccac92ef1d6dba7",
+  "prompts": {},
+  "sessions": {
+    "s_f946242dcf6ba9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a06de4-a8a5-7cd3-b713-2a8d451f7200",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "StanGirard <stan@quivr.app>"
+    }
+  }
+}

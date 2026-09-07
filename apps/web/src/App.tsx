@@ -529,25 +529,22 @@ function CompanionConnections({ companionId }: { companionId: string }) {
   const load = useCallback(async () => { try { const [plugins, current] = await Promise.all([workspaceApi.plugins(), workspaceApi.companionPlugins(companionId)]); setAll(plugins.accounts); setSelected(current.accounts); } catch (cause) { setError(cause instanceof Error ? cause.message : "Could not load connections"); } }, [companionId]);
   useEffect(() => { void load(); }, [load]);
   const selectedIds = new Set(selected.map((item) => item.id));
-  return <div className="settings-stack"><div className="settings-intro"><Waypoints /><div><h3>Connections</h3><p>Choose which connected accounts this Companion can use.</p></div></div>{all.length === 0 ? <p className="settings-empty">Connect an account from Connections first.</p> : all.map((account) => <label className="connection-choice" key={account.id}><span className="provider-dot">{(account.provider ?? account.label).slice(0, 1).toUpperCase()}</span><span><strong>{account.label}</strong><small>{account.provider ?? account.serverId}</small></span><input type="checkbox" checked={selectedIds.has(account.id)} onChange={() => void (selectedIds.has(account.id) ? workspaceApi.unselectPlugin(companionId, account.id) : workspaceApi.selectPlugin(companionId, account.id)).then(load)} /></label>)}{error && <p className="field-error">{error}</p>}</div>;
+  return <div className="settings-stack">{all.length === 0 ? <p className="settings-empty">Connect an account from Connections first.</p> : all.map((account) => <label className="connection-choice" key={account.id}><span className="provider-dot">{(account.provider ?? account.label).slice(0, 1).toUpperCase()}</span><span><strong>{account.label}</strong><small>{account.provider ?? account.serverId}</small></span><input type="checkbox" checked={selectedIds.has(account.id)} onChange={() => void (selectedIds.has(account.id) ? workspaceApi.unselectPlugin(companionId, account.id) : workspaceApi.selectPlugin(companionId, account.id)).then(load)} /></label>)}{error && <p className="field-error">{error}</p>}</div>;
 }
 
 function CompanionView({ detail, models, onRefresh, onUnauthorized, onMenu, onOpenCompanion, onDeleted }: { detail: CompanionDetail; models: Array<{ id: string; name: string }>; onDeleted: (ids: string[]) => void; onRefresh: () => Promise<void>; onUnauthorized: () => void; onMenu: () => void; onOpenCompanion: (id: string) => void }) {
-  type CompanionSection = 'chat' | 'automations' | 'team' | 'settings';
-  type SettingsPage = 'home' | 'identity' | 'connections' | 'delivery' | 'delete' | 'activity' | 'computer';
-  const readView = (): CompanionSection => { const value = new URLSearchParams(window.location.search).get('view'); return value === 'team' || value === 'automations' || value === 'settings' ? value : 'chat'; };
+  type CompanionSection = 'chat' | 'automations' | 'team' | 'activity' | 'computer' | 'settings';
+  const readView = (): CompanionSection => { const value = new URLSearchParams(window.location.search).get('view'); return value === 'team' || value === 'automations' || value === 'activity' || value === 'computer' || value === 'settings' ? value : 'chat'; };
   const [view, setView] = useState(readView);
-  const [automationView, setAutomationView] = useState(() => new URLSearchParams(window.location.search).get('kind') === 'events' ? 'events' : 'routines');
-  const [settingsPage, setSettingsPage] = useState<SettingsPage>('identity');
   const [settingsVisited, setSettingsVisited] = useState(() => readView() === 'settings');
-  useEffect(() => { const restore = () => { const restoredView = readView(); setView(restoredView); if (restoredView === 'settings') setSettingsVisited(true); setAutomationView(new URLSearchParams(window.location.search).get('kind') === 'events' ? 'events' : 'routines'); }; window.addEventListener('popstate', restore); return () => window.removeEventListener('popstate', restore); }, []);
-  function changeView(next: CompanionSection, kind = automationView) {
+  useEffect(() => { const restore = () => { const restoredView = readView(); setView(restoredView); if (restoredView === 'settings') setSettingsVisited(true); }; window.addEventListener('popstate', restore); return () => window.removeEventListener('popstate', restore); }, []);
+  function changeView(next: CompanionSection) {
     const url = new URL(window.location.href);
     if (next === 'chat') url.searchParams.delete('view'); else url.searchParams.set('view', next);
-    if (next === 'automations' && kind === 'events') url.searchParams.set('kind', kind); else url.searchParams.delete('kind');
+    url.searchParams.delete('kind');
     if (url.pathname + url.search !== window.location.pathname + window.location.search) window.history.pushState({}, '', url.pathname + url.search);
     if (next === 'settings') setSettingsVisited(true);
-    setView(next); setAutomationView(kind);
+    setView(next);
   }
   const finished = Boolean(detail.companion.retiredAt);
   const displayedStatus = finished ? "archived" : detail.companion.status;
@@ -556,22 +553,23 @@ function CompanionView({ detail, models, onRefresh, onUnauthorized, onMenu, onOp
     <main className="workspace" id="main-content">
       <header className="chat-header">
         <Button className="mobile-menu" variant="ghost" size="icon" onClick={onMenu} aria-label="Open navigation"><Menu /></Button>
-        <button className="header-identity identity-link" disabled={finished} aria-label={`Edit ${detail.companion.name}'s personality`} onClick={() => { setSettingsPage('identity'); changeView('settings'); }}>
+        <button className="header-identity identity-link" disabled={finished} aria-label={`Edit ${detail.companion.name}'s personality`} onClick={() => changeView('settings')}>
           <CompanionAvatar name={detail.companion.name} avatar={detail.companion.avatar} size={38} />
           <div><h1>{detail.companion.name}</h1><span><StatusDot status={displayedStatus} />{finished ? "Finished" : statusLabel(displayedStatus)}</span></div>
         </button>
         <div className="header-actions">
-          {(finished || detail.runs.some(run => isActiveRun(run.status)) || !!detail.questions?.length) && <Button variant="ghost" size="sm" onClick={() => { setSettingsPage('activity'); changeView('settings'); }} aria-label="Activity"><CalendarClock /><span>{detail.questions?.length ? 'Needs you' : 'Activity'}</span></Button>}
+          {(finished || detail.runs.some(run => isActiveRun(run.status)) || !!detail.questions?.length) && <Button variant="ghost" size="sm" onClick={() => changeView('activity')} aria-label="Activity"><CalendarClock /><span>{detail.questions?.length ? 'Needs you' : 'Activity'}</span></Button>}
         </div>
       </header>
-      <nav className="companion-sections" aria-label="Companion sections">{(finished ? [['chat', 'Discussion'], ['settings', 'Activity']] as const : [['chat', 'Discussion'], ['automations', 'Automations'], ['team', 'Team'], ['settings', 'Settings']] as const).map(([key, label]) => <button key={key} aria-current={view === key ? 'page' : undefined} onClick={() => changeView(key)}>{label}</button>)}</nav>
+      <nav className="companion-sections" aria-label="Companion sections">{(finished ? [['chat', 'Discussion'], ['activity', 'Activity']] as const : [['chat', 'Discussion'], ['automations', 'Automations'], ['team', 'Team'], ['activity', 'Activity'], ...(detail.companion.provider === 'box' ? [['computer', 'Computer']] as const : []), ['settings', 'Settings']] as const).map(([key, label]) => <button key={key} aria-current={view === key ? 'page' : undefined} onClick={() => changeView(key)}>{label}</button>)}</nav>
       <div className="workspace-body" hidden={view !== 'chat'}>
         <Chat detail={detail} onRefresh={onRefresh} onUnauthorized={onUnauthorized} onOpenCompanion={onOpenCompanion} readOnly={finished} />
       </div>
-      {!finished && view === 'automations' && <section className="companion-page" aria-label="Automations"><div className="companion-page-inner"><header className="section-intro"><h2>A little help, on repeat.</h2><p>Set the timing. Your companion takes it from there.</p></header><nav className="automation-sections" aria-label="Automation type"><button aria-current={automationView === 'routines' ? 'page' : undefined} onClick={() => changeView('automations', 'routines')}>Routines</button><button aria-current={automationView === 'events' ? 'page' : undefined} onClick={() => changeView('automations', 'events')}>Events</button></nav>{automationView === 'routines' ? <RoutineSettings companionId={detail.companion.id}/> : <TriggerSettings companionId={detail.companion.id}/>}</div></section>}
+      {!finished && view === 'automations' && <section className="companion-page" aria-label="Automations"><div className="companion-page-inner"><header className="section-intro"><h2>A little help, on repeat.</h2><p>Set the timing. Your companion takes it from there.</p></header><div className="automation-group"><RoutineSettings companionId={detail.companion.id}/></div><div className="automation-group" id="events"><TriggerSettings companionId={detail.companion.id}/></div></div></section>}
       {!finished && view === 'team' && <section className="companion-page" aria-label="Team"><Suspense fallback={<div className="companion-page-inner" role="status">Opening your team…</div>}><TeamPanel companion={detail.companion} onOpenCompanion={onOpenCompanion}/></Suspense></section>}
-      {finished && view === 'settings' && <section className="companion-page" aria-label="Activity"><ActivityPanel embedded detail={detail} onOpenCompanion={onOpenCompanion} /></section>}
-      {!finished && settingsVisited && <div className="companion-page" hidden={view !== 'settings'}><SettingsSheet embedded active={view === 'settings'} initialPage={settingsPage} onPageChange={setSettingsPage} detail={detail} models={models} onClose={() => changeView('chat')} onSaved={onRefresh} onDeleted={onDeleted} connections={<CompanionConnections companionId={detail.companion.id} />} onActivity={() => setSettingsPage('activity')} onDesktop={() => setSettingsPage('computer')} activity={<ActivityPanel embedded detail={detail} onOpenCompanion={onOpenCompanion} />} computer={<DesktopSheet embedded companion={detail.companion} onClose={() => setSettingsPage('identity')} onRefresh={onRefresh} />} /></div>}
+      {view === 'activity' && <section className="companion-page" aria-label="Activity"><ActivityPanel embedded detail={detail} onOpenCompanion={onOpenCompanion} /></section>}
+      {!finished && view === 'computer' && <section className="companion-page" aria-label="Computer"><DesktopSheet embedded companion={detail.companion} onClose={() => changeView('chat')} onRefresh={onRefresh} /></section>}
+      {!finished && settingsVisited && <div className="companion-page" hidden={view !== 'settings'}><SettingsSheet embedded active={view === 'settings'} detail={detail} models={models} onClose={() => changeView('chat')} onSaved={onRefresh} onDeleted={onDeleted} connections={<CompanionConnections companionId={detail.companion.id} />} onActivity={() => changeView('activity')} onDesktop={() => changeView('computer')} /></div>}
     </main>
   );
 }

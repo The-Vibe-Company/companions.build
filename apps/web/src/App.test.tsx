@@ -255,7 +255,7 @@ describe("first Companion flow", () => {
     expect(screen.queryByRole("complementary", { name: "Activity" })).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Activity" }));
     expect(screen.getByRole("complementary", { name: "Activity" })).toBeInTheDocument();
-    expect(window.location.search).toBe("?view=settings");
+    expect(window.location.search).toBe("?view=activity");
     expect(screen.getByRole("link", { name: "report.md" })).toHaveAttribute("href", "/api/companions/ada/files/report");
     await user.click(screen.getByRole("button", { name: "Discussion" }));
     expect(screen.getByRole("textbox", { name: "Message Ada" })).toHaveValue("Queue this next");
@@ -626,8 +626,7 @@ it("opens automations directly, preserves the chat draft, and restores sections 
   expect(window.location.search).toBe("?view=automations");
   expect(await screen.findByRole("button", { name: "New routine" })).toBeInTheDocument();
   expect(screen.queryByRole("textbox", { name: "Message Ada" })).not.toBeInTheDocument();
-  await user.click(screen.getByRole("button", { name: "Events" }));
-  expect(window.location.search).toBe("?view=automations&kind=events");
+  expect(screen.getByRole("button", { name: "New trigger" })).toBeInTheDocument();
   window.history.replaceState({}, "", "/companions/ada?view=automations");
   fireEvent.popState(window);
   expect(await screen.findByRole("button", { name: "New routine" })).toBeInTheDocument();

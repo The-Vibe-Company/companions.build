@@ -102,15 +102,23 @@ describe("agent daemon protocol", () => {
     const state = mkdtempSync(join(tmpdir(), "companion-agent-"));
     let finish!: (code: number) => void;
     const exited = new Promise<number>(resolve => { finish = resolve; });
-    const app = daemon(state, new ControlledExecutor(), new InitializationRunner(state, () => ({ pid: 1, exited, killGroup() {} })));
+    // Pi does not expose an accepting root until execute() starts, after initialization.
+    class InitializingExecutor extends ControlledExecutor { acceptingRoot() { return null; } }
+    const app = daemon(state, new InitializingExecutor(), new InitializationRunner(state, () => ({ pid: 1, exited, killGroup() {} })));
     await app.daemon.fetch(request(`/runs/${id}`, { method: "PUT", body: JSON.stringify({ content: "mission", instructions: "", initScript: "prepare" }) }));
     await Bun.sleep(0);
     const next = "01993c9a-b0c2-7000-8000-000000000008";
     expect((await app.daemon.fetch(request(`/runs/${next}`, { method: "PUT", body: JSON.stringify({ content: "follow-up", instructions: "", initScript: "prepare" }) }))).status).toBe(409);
     expect((await app.daemon.fetch(request(`/runs/${next}`))).status).toBe(404);
     expect(app.executor.steers).toHaveLength(0);
+    expect((await app.daemon.fetch(request(`/runs/${next}`, { method: "PUT", body: JSON.stringify({ content: "background", instructions: "", lane: "background", initScript: "prepare" }) }))).status).toBe(409);
+    expect((await app.daemon.fetch(request(`/runs/${next}`))).status).toBe(404);
     finish(0); await Bun.sleep(0);
     expect(app.executor.calls).toHaveLength(1);
+    app.executor.finish(id, "first done"); await Bun.sleep(0);
+    expect((await app.daemon.fetch(request(`/runs/${next}`, { method: "PUT", body: JSON.stringify({ content: "follow-up", instructions: "", initScript: "prepare" }) }))).status).toBe(202);
+    await Bun.sleep(0);
+    expect(app.executor.calls).toHaveLength(2);
   });
 
   test("a run-bound gateway token is required in gateway mode, rotates across retries, and is never journaled",async()=>{

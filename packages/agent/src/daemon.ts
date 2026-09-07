@@ -77,6 +77,10 @@ export class AgentDaemon {
       return accepted.kind === "conflict" ? json({ error: "IDEMPOTENCY_CONFLICT" }, 409) : json(accepted.run);
     }
     const lane = input.lane ?? "main";
+    // Pi has no accepting root before execute(), but initialization already owns
+    // this machine. Leave new requests unaccepted so either lane can retry safely.
+    const initializingRoot = this.initializing.keys().next().value;
+    if (initializingRoot) return json({ error: "BUSY", activeRunId: initializingRoot }, 409);
     if (lane === "background" && this.resumingBackground) return json({ error: "BUSY" }, 409);
     const activeRoot = lane === "main" && this.executor.acceptingRoot
       ? this.executor.acceptingRoot(lane) : this.activeRuns[lane];

@@ -1,7 +1,8 @@
 import {afterEach,describe,expect,test} from 'bun:test';
-import {existsSync,mkdtempSync,readFileSync,readdirSync,rmSync,statSync} from 'node:fs';
+import {chmodSync,existsSync,mkdtempSync,readFileSync,readdirSync,rmSync,statSync,writeFileSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {dirname,join} from 'node:path';
+import {fileURLToPath} from 'node:url';
 import {GitCredentialBroker,runGitCredentialHelper} from '../../control/git-credentials';
 import type {MachinePlugin} from '../../plugins/catalog';
 
@@ -52,13 +53,44 @@ describe('GitCredentialBroker',()=>{
     }finally{broker.close();}
   });
 
+  test('Git never stores broker tokens in inherited helpers or falls back after revocation',async()=>{
+    const directory=state(),broker=new GitCredentialBroker(directory);
+    const credentialFile=join(directory,'stored-credentials'),configFile=join(directory,'gitconfig');
+    const helper=join(directory,'agent-helper');
+    const modulePath=fileURLToPath(new URL('../../control/git-credentials.ts',import.meta.url));
+    writeFileSync(helper,`#!${process.execPath}\nimport {runGitCredentialHelper} from ${JSON.stringify(modulePath)};\nprocess.exit(await runGitCredentialHelper(process.argv[3],process.argv[4]));\n`);
+    chmodSync(helper,0o700);
+    writeFileSync(configFile,`[credential]\n\thelper = store --file=${credentialFile}\n`);
+    const env={...process.env,GIT_CONFIG_NOSYSTEM:'1',GIT_CONFIG_GLOBAL:configFile,...broker.environment(helper,{})};
+    async function credential(operation:string,body:string){
+      const child=Bun.spawn(['git','credential',operation],{cwd:directory,env,stdin:new Blob([body]),stdout:'pipe',stderr:'pipe'});
+      const [code,output]=await Promise.all([child.exited,new Response(child.stdout).text(),new Response(child.stderr).text()]);
+      return {code,output};
+    }
+    const query='protocol=https\nhost=github.com\npath=owner/private.git\n\n';
+    try{
+      broker.update([plugin('github-one','broker-fixture-token')]);
+      const filled=await credential('fill',query);
+      expect(filled.code).toBe(0);
+      expect(filled.output).toContain('password=broker-fixture-token');
+      expect((await credential('approve',filled.output)).code).toBe(0);
+      expect(existsSync(credentialFile)).toBe(false);
+      writeFileSync(credentialFile,'https://x-access-token:legacy-fixture-token@github.com/owner/private.git\n');
+      broker.update([]);
+      const revoked=await credential('fill',query);
+      expect(revoked.code).not.toBe(0);
+      expect(revoked.output).not.toContain('fixture-token');
+    }finally{broker.close();}
+  });
+
   test('configures clean URLs to use the compiled helper and disables prompts',()=>{
     const broker=new GitCredentialBroker(state());
     try{
       const environment=broker.environment('/opt/companions/companion-agent',{});
       expect(environment.GIT_TERMINAL_PROMPT).toBe('0');
       expect(environment.GIT_CONFIG_KEY_0).toBe('credential.https://github.com.helper');
-      expect(environment.GIT_CONFIG_VALUE_0).toContain("'/opt/companions/companion-agent' --git-credential-helper");
+      expect(environment.GIT_CONFIG_VALUE_0).toBe('');
+      expect(environment.GIT_CONFIG_VALUE_1).toContain("'/opt/companions/companion-agent' --git-credential-helper");
       expect(JSON.stringify(environment)).not.toContain('Bearer');
     }finally{broker.close();}
   });

@@ -42,11 +42,15 @@ export class GitCredentialBroker {
     const count=parseConfigCount(current.GIT_CONFIG_COUNT);
     return {
       GIT_TERMINAL_PROMPT:'0',
-      GIT_CONFIG_COUNT:String(count+2),
+      GIT_CONFIG_COUNT:String(count+3),
+      // An empty helper resets inherited store/cache helpers for GitHub. Otherwise
+      // Git sends the broker token to every helper after successful authentication.
       [`GIT_CONFIG_KEY_${count}`]:`credential.https://${GITHUB_HOST}.helper`,
-      [`GIT_CONFIG_VALUE_${count}`]:`!${shellQuote(executable)} --git-credential-helper ${shellQuote(this.socketPath)}`,
-      [`GIT_CONFIG_KEY_${count+1}`]:'credential.useHttpPath',
-      [`GIT_CONFIG_VALUE_${count+1}`]:'true',
+      [`GIT_CONFIG_VALUE_${count}`]:'',
+      [`GIT_CONFIG_KEY_${count+1}`]:`credential.https://${GITHUB_HOST}.helper`,
+      [`GIT_CONFIG_VALUE_${count+1}`]:`!${shellQuote(executable)} --git-credential-helper ${shellQuote(this.socketPath)}`,
+      [`GIT_CONFIG_KEY_${count+2}`]:'credential.useHttpPath',
+      [`GIT_CONFIG_VALUE_${count+2}`]:'true',
     };
   }
 

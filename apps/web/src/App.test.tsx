@@ -40,6 +40,25 @@ describe("first Companion flow", () => {
 
   afterEach(() => vi.unstubAllGlobals());
 
+  it.each([
+    ["/about", "Your AI companions. Give them something to do."],
+    ["/privacy", "Privacy Policy"],
+    ["/terms", "Terms of Use"],
+  ])("serves %s publicly without an authentication request", (path, heading) => {
+    vi.useFakeTimers();
+    window.history.replaceState({}, "", path);
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    try {
+      render(<App />);
+      expect(screen.getByRole("heading", { name: heading })).toBeInTheDocument();
+      act(() => vi.advanceTimersByTime(9_000));
+      expect(fetchMock).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("removes a deleted companion from navigation and returns home", async () => {
     window.history.replaceState({}, "", "/companions/ada");
     const ready = {...companion,status:"ready"};
@@ -613,7 +632,7 @@ describe("first Companion flow", () => {
 
   it("completes OAuth in a popup, refreshes owned connections, and disables unavailable providers",async()=>{
     window.history.replaceState({},"","/connections");
-    const account={id:"account-1",serverId:"app.linear/linear",label:"Linear",provider:"linear"};let completed=false;
+    const account={id:"account-1",serverId:"app.linear/linear",label:"Default",provider:"linear"};let completed=false;
     const fetchMock=vi.fn((input:RequestInfo|URL,options?:RequestInit)=>{
       const path=String(input);
       if(path==="/api/me")return response(me);
@@ -632,14 +651,57 @@ describe("first Companion flow", () => {
     const user=userEvent.setup();render(<App/>);
     await user.click(await screen.findByRole("button",{name:"Connect"}));
     await waitFor(()=>expect(popup.location.href).toBe("https://oauth.example/authorize"));
+    expect(fetchMock).toHaveBeenCalledWith("/api/plugins/connect",expect.objectContaining({method:"POST",body:JSON.stringify({serverId:"app.linear/linear",label:""})}));
     expect(screen.getByRole("button",{name:"Unavailable"})).toBeDisabled();
     completed=true;window.dispatchEvent(new MessageEvent("message",{origin:window.location.origin,source:popup as unknown as Window,data:{type:"companions:plugin-oauth",status:"connected"}}));
     expect(await screen.findByText("Connection added.")).toBeInTheDocument();
-    await user.click(await screen.findByRole("button",{name:"Manage Linear"}));
+    expect(screen.getAllByText("Linear").length).toBeGreaterThan(1);
+    expect(screen.getByText("Default")).toBeInTheDocument();
+    await user.click(await screen.findByRole("button",{name:"Manage Default"}));
     await user.click(screen.getByRole("button",{name:"Disconnect"}));
-    await user.click(screen.getByRole("button",{name:"Confirm disconnect Linear"}));
+    await user.click(screen.getByRole("button",{name:"Confirm disconnect Default"}));
     expect(await screen.findByText("Connection removed.")).toBeInTheDocument();
-    await waitFor(()=>expect(screen.queryByRole("button",{name:"Manage Linear"})).not.toBeInTheDocument());
+    await waitFor(()=>expect(screen.queryByRole("button",{name:"Manage Default"})).not.toBeInTheDocument());
+  });
+
+  it("asks for a name before adding another provider account and renames the first account",async()=>{
+    window.history.replaceState({},"","/connections");
+    let account={id:"linear-default",serverId:"app.linear/linear",label:"Default",provider:"linear",healthStatus:"unchecked",healthCode:null,checkedAt:null};
+    const bodies:unknown[]=[];
+    const fetchMock=vi.fn((input:RequestInfo|URL,options?:RequestInit)=>{
+      const path=String(input);
+      if(path==="/api/me")return response(me);
+      if(path==="/api/config")return response(config);
+      if(path==="/api/companions")return response({companions:[]});
+      if(path==="/api/plugins")return response({catalog:[{id:"app.linear/linear",name:"Linear",provider:"linear",available:true}],accounts:[account]});
+      if(path==="/api/plugins/connect"&&options?.method==="POST"){bodies.push(JSON.parse(String(options.body)));return response({url:"https://oauth.example/authorize"});}
+      if(path==="/api/plugins/linear-default"&&options?.method==="PATCH"){const {label}=JSON.parse(String(options.body));account={...account,label};return response({account});}
+      throw Error(`Unexpected request: ${path}`);
+    });
+    vi.stubGlobal("fetch",fetchMock);
+    const popup={closed:false,location:{href:""},close:vi.fn()};vi.spyOn(window,"open").mockReturnValue(popup as unknown as Window);
+    const user=userEvent.setup();render(<App/>);
+    await user.click(await screen.findByRole("button",{name:"Connect"}));
+    expect(screen.getByRole("textbox",{name:"Account name"})).toHaveFocus();
+    expect(bodies).toHaveLength(0);
+    await user.click(screen.getByRole("button",{name:"Cancel"}));
+    expect(screen.queryByRole("textbox",{name:"Account name"})).not.toBeInTheDocument();
+    expect(bodies).toHaveLength(0);
+    await user.click(screen.getByRole("button",{name:"Connect"}));
+    await user.type(screen.getByRole("textbox",{name:"Account name"}),"Client workspace");
+    await user.click(screen.getByRole("button",{name:"Connect account"}));
+    expect(bodies).toEqual([{serverId:"app.linear/linear",label:"Client workspace"}]);
+    window.dispatchEvent(new MessageEvent("message",{origin:window.location.origin,source:popup as unknown as Window,data:{type:"companions:plugin-oauth",status:"cancelled"}}));
+    expect(await screen.findByText("Connection cancelled.")).toBeInTheDocument();
+    await user.click(screen.getByRole("button",{name:"Manage Default"}));
+    await user.click(screen.getByRole("button",{name:"Rename account"}));
+    const rename=screen.getByRole("textbox",{name:"Account name"});
+    await user.clear(rename);await user.type(rename,"Personal");
+    await user.click(screen.getByRole("button",{name:"Save name"}));
+    expect(await screen.findByText("Personal saved.")).toBeInTheDocument();
+    expect(screen.getAllByText("Linear").length).toBeGreaterThan(1);
+    expect(screen.getByText("Personal")).toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledWith("/api/plugins/linear-default",expect.objectContaining({method:"PATCH",body:JSON.stringify({label:"Personal"})}));
   });
 
   it("checks connection health, shows safe persisted states, and reuses OAuth for recovery",async()=>{
@@ -678,7 +740,7 @@ describe("first Companion flow", () => {
     expect(screen.getByRole("button",{name:"Manage Linear work"})).toBeInTheDocument();
     await user.click(screen.getByRole("button",{name:"Reconnect"}));
     await waitFor(()=>expect(popup.location.href).toBe("https://oauth.example/reconnect"));
-    expect(fetchMock).toHaveBeenCalledWith("/api/plugins/connect",expect.objectContaining({method:"POST",body:JSON.stringify({serverId:"io.github.github/github-mcp-server",label:"GitHub"})}));
+    expect(fetchMock).toHaveBeenCalledWith("/api/plugins/connect",expect.objectContaining({method:"POST",body:JSON.stringify({serverId:"io.github.github/github-mcp-server",label:"GitHub client"})}));
   });
 
   it("adds HTTP and stdio MCP servers with write-only secret values", async () => {
@@ -827,9 +889,9 @@ it("opens automations directly, preserves the chat draft, and restores sections 
 // The disclosure uses ordinary buttons, so Tab follows the browser's native order.
 it("operates connection actions by keyboard and closes on Escape, outside focus and pointer", async () => {
   const { ConnectionActions } = await import("./components/ConnectionActions");
-  const check = vi.fn(), disconnect = vi.fn();
+  const check = vi.fn(), rename = vi.fn(async()=>true), disconnect = vi.fn();
   const user = userEvent.setup();
-  render(<><ConnectionActions label="Work account" busy={false} onCheck={check} onDisconnect={disconnect}/><button>Outside</button></>);
+  render(<><ConnectionActions label="Work account" providerName="Linear" busy={false} onCheck={check} onRename={rename} onDisconnect={disconnect}/><button>Outside</button></>);
   const manage = screen.getByRole("button", { name: "Manage Work account" });
   manage.focus();
   await user.keyboard("{Enter}");

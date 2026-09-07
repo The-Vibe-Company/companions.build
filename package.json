@@ -11,6 +11,7 @@
     "typecheck": "tsc",
     "test:server": "bun scripts/test-server.ts",
     "test:agent": "bun test packages/agent/test/daemon.test.ts packages/agent/test/environment.test.ts packages/agent/test/initialization.test.ts packages/agent/test/memory.test.ts",
+    "test:plugins": "bun test apps/server/test/plugin-oauth.test.ts packages/plugins/tools.test.ts",
     "verify": "python3 scripts/verify.py",
     "build:agent": "bun scripts/build-agent.ts",
     "box:template": "bun scripts/prepare-box-template.ts"

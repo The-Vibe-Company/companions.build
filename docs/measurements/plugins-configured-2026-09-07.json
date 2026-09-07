@@ -1,0 +1,66 @@
+{
+  "observedAt": "2026-09-07T20:33:18.052449+00:00",
+  "scope": "provider_oauth_configuration",
+  "providers": {
+    "github": {
+      "configuredOnApi": true,
+      "configuredOnExecutor": true,
+      "matchingClientConfiguration": true
+    },
+    "slack": {
+      "configuredOnApi": true,
+      "configuredOnExecutor": true,
+      "matchingClientConfiguration": true
+    },
+    "gmail": {
+      "configuredOnApi": true,
+      "configuredOnExecutor": true,
+      "matchingClientConfiguration": true
+    }
+  },
+  "callback": "https://companions.build/api/plugins/callback",
+  "github": {
+    "applicationCreated": true,
+    "accountConsentCompleted": true,
+    "persistedHealth": "ready"
+  },
+  "slack": {
+    "applicationCreated": true,
+    "publicDistributionEnabled": true,
+    "tokenRotationEnabled": true,
+    "botScopes": [
+      "chat:write"
+    ],
+    "accountConsentCompleted": false
+  },
+  "gmail": {
+    "projectId": "companions-build-prod",
+    "webClientCreated": true,
+    "apisEnabled": [
+      "gmail.googleapis.com",
+      "gmailmcp.googleapis.com"
+    ],
+    "scopes": [
+      "https://www.googleapis.com/auth/gmail.readonly",
+      "https://www.googleapis.com/auth/gmail.compose"
+    ],
+    "publishingStatus": "testing",
+    "accountConsentCompleted": false
+  },
+  "limitations": [
+    "Google branding/domain setup and public verification are not yet completed.",
+    "Credential presence does not prove account consent or authenticated tool access."
+  ],
+  "publicPagePaths": [
+    "/about",
+    "/privacy",
+    "/terms"
+  ],
+  "validation": {
+    "integratedWebTestsPassed": 37,
+    "pluginServerTestsPassed": 8,
+    "rootTypecheck": "passed",
+    "webProductionBuild": "passed",
+    "linuxAgentBuild": "passed"
+  }
+}

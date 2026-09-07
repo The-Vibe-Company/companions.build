@@ -22,4 +22,7 @@ it("presents the supplied landing structure with truthful private-beta actions",
   await userEvent.click(screen.getAllByRole("button", { name: /Log in to private beta/ })[0]);
   expect(onLogin).toHaveBeenCalledOnce();
   expect(screen.getAllByRole("link", { name: "Open source" })[0]).toHaveAttribute("href", "https://github.com/The-Vibe-Company/companions.build");
+  expect(screen.getByRole("link", { name: "Privacy" })).toHaveAttribute("href", "/privacy");
+  expect(screen.getByRole("link", { name: "Terms" })).toHaveAttribute("href", "/terms");
+  expect(screen.getByText(/With Gmail, it can read messages and create drafts/)).toBeInTheDocument();
 });

@@ -290,6 +290,7 @@ export const workspaceApi = {
   plugins: () => request<PluginsResponse>("/api/plugins"),
   checkPlugin: (id: string) => request<{ account: PluginHealthResult }>(`/api/plugins/accounts/${id}/check`, { method: "POST" }),
   connectPlugin: (serverId: string, label: string) => request<{ url?: string; account?: PluginAccount }>("/api/plugins/connect", { method: "POST", body: JSON.stringify({ serverId, label }) }),
+  renamePlugin: (id: string, label: string) => request<{ account: PluginAccount }>(`/api/plugins/${id}`, { method: "PATCH", body: JSON.stringify({ label }) }),
   addCustomPlugin: (input: CustomPluginInput) => request<{ id: string }>("/api/plugins/custom", { method: "POST", body: JSON.stringify(input) }),
   deletePlugin: (id: string) => request<{ ok: true }>(`/api/plugins/${id}`, { method: "DELETE" }),
   companionPlugins: (id: string) => request<{ accounts: PluginAccount[] }>(`/api/companions/${id}/plugins`),

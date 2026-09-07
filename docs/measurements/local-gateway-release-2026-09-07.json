@@ -1,0 +1,110 @@
+{
+  "status": "passed",
+  "run": "dab217ec03ef",
+  "seconds": 47.3,
+  "steps": [
+    {
+      "name": "database",
+      "exitCode": 0,
+      "seconds": 0.182
+    },
+    {
+      "name": "storage",
+      "exitCode": 0,
+      "seconds": 0.191
+    },
+    {
+      "name": "storage-bucket",
+      "exitCode": 0,
+      "seconds": 0.249
+    },
+    {
+      "name": "install",
+      "exitCode": 0,
+      "seconds": 0.069
+    },
+    {
+      "name": "web-install",
+      "exitCode": 0,
+      "seconds": 0.129
+    },
+    {
+      "name": "typecheck",
+      "exitCode": 0,
+      "seconds": 2.105
+    },
+    {
+      "name": "agent-unit",
+      "exitCode": 0,
+      "seconds": 1.47
+    },
+    {
+      "name": "distribution-content-linux",
+      "exitCode": 0,
+      "seconds": 0.83
+    },
+    {
+      "name": "agent-build",
+      "exitCode": 0,
+      "seconds": 0.283
+    },
+    {
+      "name": "system",
+      "exitCode": 0,
+      "seconds": 30.692
+    },
+    {
+      "name": "web-tests",
+      "exitCode": 0,
+      "seconds": 3.106
+    },
+    {
+      "name": "web-build",
+      "exitCode": 0,
+      "seconds": 3.101
+    },
+    {
+      "name": "postgres-restore-seed",
+      "exitCode": 0,
+      "seconds": 0.311
+    },
+    {
+      "name": "postgres-backup",
+      "exitCode": 0,
+      "seconds": 0.142
+    },
+    {
+      "name": "postgres-backup-copy",
+      "exitCode": 0,
+      "seconds": 0.023
+    },
+    {
+      "name": "postgres-crash",
+      "exitCode": 0,
+      "seconds": 0.25
+    },
+    {
+      "name": "postgres-recovery",
+      "exitCode": 0,
+      "seconds": 0.192
+    },
+    {
+      "name": "postgres-restore-copy",
+      "exitCode": 0,
+      "seconds": 0.038
+    },
+    {
+      "name": "postgres-restore",
+      "exitCode": 0,
+      "seconds": 0.281
+    },
+    {
+      "name": "postgres-restore-verify",
+      "exitCode": 0,
+      "seconds": 0.179
+    }
+  ],
+  "date": "2026-09-07",
+  "sourceCommit": "31fec15",
+  "scope": "Isolated local PostgreSQL 17, MinIO, compiled Linux Pi, server behavior, web tests/build and database dump/crash/restore; no live provider or hosted acceptance implied."
+}

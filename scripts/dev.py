@@ -113,7 +113,7 @@ try:
         database_address = subprocess.check_output(["docker", "port", postgres_name, "5432/tcp"], text=True).strip()
         env["DATABASE_URL"] = f"postgres://companions:companions@{database_address}/companions"
         for _ in range(60):
-            ready = subprocess.run(["docker", "exec", postgres_name, "pg_isready", "-U", "companions"],
+            ready = subprocess.run(["docker", "exec", postgres_name, "pg_isready", "-h", "127.0.0.1", "-U", "companions"],
                                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             if ready.returncode == 0:
                 break

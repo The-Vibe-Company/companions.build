@@ -257,7 +257,7 @@ describe("first Companion flow", () => {
         ],
         activity: [],
       });
-      if (path === "/api/companions/specialist") return response({ companion: specialist, messages: [], runs: [], specialists: [], activity: [] });
+      if (path === "/api/companions/specialist") return response({ companion: specialist, messages: [{ id: "child-result", role: "assistant", content: "Vendor landscape complete.", createdAt: companion.createdAt, runId: "run-child", files: [{ id: "child-file", runId: "run-child", kind: "agent_output", name: "vendors.md", mimeType: "text/markdown", size: 12, url: "/api/companions/specialist/files/child-file" }] }], runs: [], specialists: [], activity: [] });
       throw new Error(`Unexpected request: ${path}`);
     });
     vi.stubGlobal("fetch", fetchMock);
@@ -266,7 +266,7 @@ describe("first Companion flow", () => {
     expect(await screen.findByText("Compare the vendors")).toBeInTheDocument();
     const specialistLink = screen.getByRole("button", { name: "Open Researcher's chat" });
     expect(specialistLink).toHaveTextContent("Researcher");
-    expect(specialistLink).toHaveTextContent("Sleeping");
+    expect(specialistLink).toHaveTextContent("Finished");
     expect(screen.getAllByRole("img", { name: "Ada, Companion" })).toHaveLength(2);
     expect(screen.queryByRole("button", { name: /Researcher.*Sleeping/ })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Open Analyst's chat" })).not.toBeInTheDocument();
@@ -276,9 +276,33 @@ describe("first Companion flow", () => {
     await user.click(screen.getAllByRole("button", { name: "Close activity" }).at(-1)!);
 
     await user.click(specialistLink);
-    expect(await screen.findByRole("textbox", { name: "Message Researcher" })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "Researcher" }).parentElement).toHaveTextContent("Sleeping");
+    expect(await screen.findByText("Vendor landscape complete.")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "vendors.md" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Researcher" }).parentElement).toHaveTextContent("Finished");
+    expect(screen.queryByRole("textbox", { name: "Message Researcher" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Desktop" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Settings for Researcher" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Activity" })).toBeInTheDocument();
     expect(window.location.pathname).toBe("/companions/specialist");
+  });
+
+  it("keeps a normally archived permanent Companion wakeable from chat", async () => {
+    window.history.replaceState({}, "", "/companions/ada");
+    const archived = { ...companion, status: "archived" as const, retiredAt: null, temporary: false };
+    vi.stubGlobal("fetch", vi.fn((input: RequestInfo | URL) => {
+      const path = String(input);
+      if (path === "/api/me") return response(me);
+      if (path === "/api/config") return response(config);
+      if (path === "/api/companions") return response({ companions: [archived] });
+      if (path === "/api/companions/ada") return response({ companion: archived, messages: [], runs: [], specialists: [], activity: [] });
+      throw new Error(`Unexpected request: ${path}`);
+    }));
+    render(<App />);
+
+    expect(await screen.findByRole("textbox", { name: "Message Ada" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Ada" }).parentElement).toHaveTextContent("Sleeping");
+    expect(screen.getByRole("button", { name: "Desktop" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Settings for Ada" })).toBeInTheDocument();
   });
 
   it("drops files through the durable upload path and preserves the draft for an exact retry", async () => {

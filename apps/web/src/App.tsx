@@ -85,10 +85,11 @@ function SpecialistsForRun({ detail, runId, onOpen }: { detail: CompanionDetail;
   if (!specialists.length) return null;
   return <div className="task-specialists" aria-label="Specialists for this task">
     {specialists.map(({ delegationId, companion }) => {
-      const status = companion.retiredAt ? "archived" : companion.status;
+      const finished = Boolean(companion.retiredAt);
+      const status = finished ? "archived" : companion.status;
       return <button type="button" key={delegationId} className="task-specialist" onClick={() => onOpen(companion.id)} aria-label={`Open ${companion.name}'s chat`}>
         <CompanionAvatar name={companion.name} avatar={companion.avatar} size={28} />
-        <span><strong>{companion.name}</strong><small><StatusDot status={status} />{statusLabel(status)}</small></span>
+        <span><strong>{companion.name}</strong><small><StatusDot status={status} />{finished ? "Finished" : statusLabel(status)}</small></span>
         <ChevronRight />
       </button>;
     })}
@@ -369,7 +370,7 @@ function ActivityPanel({ detail, onClose, onOpenCompanion }: { detail: Companion
   );
 }
 
-function Chat({ detail, onRefresh, onUnauthorized, onOpenCompanion }: { detail: CompanionDetail; onRefresh: () => Promise<void>; onUnauthorized: () => void; onOpenCompanion: (id: string) => void }) {
+function Chat({ detail, onRefresh, onUnauthorized, onOpenCompanion, readOnly = false }: { detail: CompanionDetail; onRefresh: () => Promise<void>; onUnauthorized: () => void; onOpenCompanion: (id: string) => void; readOnly?: boolean }) {
   const [draft, setDraft] = useState("");
   const [files, setFiles] = useState<File[]>([]);
   const [sending, setSending] = useState(false);
@@ -482,7 +483,7 @@ function Chat({ detail, onRefresh, onUnauthorized, onOpenCompanion }: { detail: 
         <ConversationScrollButton aria-label="Scroll to latest message" />
       </Conversation>
       {(detail.questions??[]).map(question=><Question key={question.id} companionId={detail.companion.id} question={question} onAnswered={onRefresh}/>)}
-      <form className={cn("composer-wrap", dragActive && "composer-wrap--drop")} onSubmit={send} onDragEnter={dragEnter} onDragOver={dragOver} onDragLeave={dragLeave} onDrop={drop}>
+      {!readOnly && <form className={cn("composer-wrap", dragActive && "composer-wrap--drop")} onSubmit={send} onDragEnter={dragEnter} onDragOver={dragOver} onDragLeave={dragLeave} onDrop={drop}>
         <span className="sr-only" aria-live="polite">{fileNotice}</span>
         {actionError && <p className="composer-error" role="alert">{actionError}</p>}
         {files.length > 0 && <div className="pending-files">{files.map((file, index) => <span key={`${file.name}-${file.lastModified}`}><FileText />{file.name}<button type="button" onClick={() => setFiles((current) => current.filter((_, item) => item !== index))} aria-label={`Remove ${file.name}`}><X /></button></span>)}</div>}
@@ -515,7 +516,7 @@ function Chat({ detail, onRefresh, onUnauthorized, onOpenCompanion }: { detail: 
             </div>
           </div>
         </div>
-      </form>
+      </form>}
     </section>
   );
 }
@@ -567,7 +568,8 @@ function CompanionView({ detail, models, onRefresh, onUnauthorized, onMenu, onOp
   const [desktopOpen, setDesktopOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [activityOpen, setActivityOpen] = useState(false);
-  const displayedStatus = detail.companion.retiredAt ? "archived" : detail.companion.status;
+  const finished = Boolean(detail.companion.temporary && detail.companion.retiredAt);
+  const displayedStatus = finished ? "archived" : detail.companion.status;
 
   return (
     <main className="workspace" id="main-content">
@@ -575,21 +577,21 @@ function CompanionView({ detail, models, onRefresh, onUnauthorized, onMenu, onOp
         <Button className="mobile-menu" variant="ghost" size="icon" onClick={onMenu} aria-label="Open navigation"><Menu /></Button>
         <div className="header-identity">
           <CompanionAvatar name={detail.companion.name} avatar={detail.companion.avatar} size={38} />
-          <div><h1>{detail.companion.name}</h1><span><StatusDot status={displayedStatus} />{statusLabel(displayedStatus)}</span></div>
+          <div><h1>{detail.companion.name}</h1><span><StatusDot status={displayedStatus} />{finished ? "Finished" : statusLabel(displayedStatus)}</span></div>
         </div>
         <div className="header-actions">
-          {detail.companion.provider === "box" && (
+          {!finished && detail.companion.provider === "box" && (
             <Button variant="outline" size="sm" onClick={() => setDesktopOpen(true)} aria-label="Desktop">
               <Computer />
               <span>Desktop</span>
             </Button>
           )}
           <Button variant="ghost" size="sm" onClick={() => setActivityOpen(true)} aria-label="Activity"><CalendarClock /><span>Activity</span></Button>
-          <Button variant="ghost" size="icon" onClick={() => setSettingsOpen(true)} aria-label={`Settings for ${detail.companion.name}`}><Settings /></Button>
+          {!finished && <Button variant="ghost" size="icon" onClick={() => setSettingsOpen(true)} aria-label={`Settings for ${detail.companion.name}`}><Settings /></Button>}
         </div>
       </header>
       <div className="workspace-body">
-        <Chat detail={detail} onRefresh={onRefresh} onUnauthorized={onUnauthorized} onOpenCompanion={onOpenCompanion} />
+        <Chat detail={detail} onRefresh={onRefresh} onUnauthorized={onUnauthorized} onOpenCompanion={onOpenCompanion} readOnly={finished} />
       </div>
       {activityOpen && <div className="activity-layer"><button className="sheet-scrim" onClick={() => setActivityOpen(false)} aria-label="Close activity" /><ActivityPanel detail={detail} onClose={() => setActivityOpen(false)} onOpenCompanion={(id) => { setActivityOpen(false); onOpenCompanion(id); }} /></div>}
       {settingsOpen && <SettingsSheet detail={detail} models={models} onClose={() => setSettingsOpen(false)} onSaved={onRefresh} />}

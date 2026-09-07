@@ -4,7 +4,7 @@ import { z } from "zod";
 process.env.NODE_ENV = "test";
 const { handler } = await import("../apps/server/src/api");
 const { setMagicLinkDeliveryForTests } = await import("../apps/server/src/auth");
-const { assertMigrated, migrate } = await import("../apps/server/src/store");
+const { assertMigrated, db, migrate } = await import("../apps/server/src/store");
 
 const stateSchema = z.object({ email: z.string().email(), cookie: z.string().min(1), companionId: z.string().uuid(),
   clientCreationId: z.string().uuid(), clientMessageId: z.string().uuid(), runId: z.string().uuid() }).strict();
@@ -48,6 +48,11 @@ if (operation === "seed") {
   const me = await request("/api/me", { headers });
   if (me.status !== 200 || (await me.json() as any).user?.email !== state.email) throw new Error("postgres_restore_session_missing");
   if ((await request("/api/me")).status !== 401) throw new Error("postgres_restore_auth_boundary_failed");
+  const retriedCreation = await request("/api/companions", { method: "POST", headers,
+    body: JSON.stringify({ clientCreationId: state.clientCreationId, name: "Restore proof", instructions: "Keep this durable.", provider: "local" }) });
+  if (retriedCreation.status !== 201 || (await retriedCreation.json() as any).companion?.id !== state.companionId) {
+    throw new Error("postgres_restore_companion_idempotency_missing");
+  }
   const detail = await request(`/api/companions/${state.companionId}`, { headers });
   if (detail.status !== 200) throw new Error("postgres_restore_companion_missing");
   const body = await detail.json() as any;
@@ -58,6 +63,12 @@ if (operation === "seed") {
   const retried = await request(`/api/companions/${state.companionId}/messages`, { method: "POST", headers,
     body: JSON.stringify({ clientMessageId: state.clientMessageId, content: "Survive the database recovery." }) });
   if (retried.status !== 202 || (await retried.json() as any).runId !== state.runId) throw new Error("postgres_restore_idempotency_missing");
+  const [counts] = await db`SELECT
+    (SELECT count(*)::int FROM companions WHERE id=${state.companionId} AND client_creation_id=${state.clientCreationId}) AS companions,
+    (SELECT count(*)::int FROM runs WHERE id=${state.runId} AND companion_id=${state.companionId} AND client_message_id=${state.clientMessageId}) AS runs,
+    (SELECT count(*)::int FROM messages WHERE companion_id=${state.companionId} AND run_id=${state.runId}
+      AND role='user' AND content='Survive the database recovery.') AS messages`;
+  if (counts.companions !== 1 || counts.runs !== 1 || counts.messages !== 1) throw new Error("postgres_restore_duplicate_rows");
 }
 
 // Better Auth's PostgreSQL pool has an idle lifetime; the acceptance has awaited every write/read.

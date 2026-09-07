@@ -1,4 +1,6 @@
 """Verify a fresh checkout with isolated PostgreSQL, real Pi/Linux and frontend tests."""
+import argparse
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -10,13 +12,23 @@ import urllib.request
 import uuid
 from bun import ROOT, module
 
+POSTGRES_IMAGES = {
+    "17": "postgres:17.6-alpine@sha256:ef257d85f76e48da1c64832459b59fcaba1a4dac97bf5d7450c77753542eee94",
+    "18": "postgres@sha256:4ef4dbc939d61acea57712655ddb4b4ab27419c913f94cca0cd57cb3ea3c2280",
+}
+parser = argparse.ArgumentParser()
+parser.add_argument("--postgres", choices=POSTGRES_IMAGES, default="17", help="PostgreSQL major used for both the crash source and isolated recovery target")
+args = parser.parse_args()
+
 os.chdir(ROOT)
 bun = module.toolchain()
+postgres_image = POSTGRES_IMAGES[args.postgres]
 run_id = uuid.uuid4().hex[:12]
 artifacts = ROOT / ".artifacts/verification" / run_id
 artifacts.mkdir(parents=True)
 artifacts.chmod(0o700)
 database_name = f"companions-verify-postgres-{run_id}"
+database_volume = f"companions-verify-postgres-data-{run_id}"
 storage_name = f"companions-verify-minio-{run_id}"
 verification_label = f"companions.build.verification={run_id}"
 env = {**os.environ, "AGENT_TEST_MODE": "1", "COMPANIONS_VERIFY_RUN": run_id}
@@ -41,9 +53,12 @@ def run(label, args, cwd=ROOT, timeout=180):
 
 status = "failed"
 try:
+    postgres_data_path = "/var/lib/postgresql" if args.postgres == "18" else "/var/lib/postgresql/data"
+    run("database-volume", ["docker", "volume", "create", "--label", verification_label, database_volume])
     run("database", ["docker", "run", "--detach", "--name", database_name, "--label", verification_label,
         "--publish", "127.0.0.1::5432",
-        "--env", "POSTGRES_USER=companions", "--env", "POSTGRES_PASSWORD=companions", "--env", "POSTGRES_DB=companions", "postgres:17.6-alpine@sha256:ef257d85f76e48da1c64832459b59fcaba1a4dac97bf5d7450c77753542eee94"])
+        "--volume", f"{database_volume}:{postgres_data_path}",
+        "--env", "POSTGRES_USER=companions", "--env", "POSTGRES_PASSWORD=companions", "--env", "POSTGRES_DB=companions", postgres_image])
     mapping = subprocess.check_output(["docker", "port", database_name, "5432/tcp"], text=True).strip()
     env["DATABASE_URL"] = f"postgres://companions:companions@{mapping}/companions"
     for attempt in range(60):
@@ -90,11 +105,15 @@ try:
     run("postgres-backup", ["docker", "exec", database_name, "pg_dump", "--username", "companions", "--dbname", "companions", "--format", "custom", "--file", "/tmp/companions.dump"])
     run("postgres-backup-copy", ["docker", "cp", f"{database_name}:/tmp/companions.dump", str(backup)])
     backup.chmod(0o600)
+    backup_sha256 = hashlib.sha256(backup.read_bytes()).hexdigest()
     run("postgres-crash", ["docker", "kill", database_name])
     recovery_name = f"companions-verify-postgres-recovery-{run_id}"
+    recovery_volume = f"companions-verify-postgres-recovery-data-{run_id}"
+    run("postgres-recovery-volume", ["docker", "volume", "create", "--label", verification_label, recovery_volume])
     run("postgres-recovery", ["docker", "run", "--detach", "--name", recovery_name, "--label", verification_label,
-        "--publish", "127.0.0.1::5432", "--env", "POSTGRES_USER=companions", "--env", "POSTGRES_PASSWORD=companions",
-        "--env", "POSTGRES_DB=companions", "postgres:17.6-alpine@sha256:ef257d85f76e48da1c64832459b59fcaba1a4dac97bf5d7450c77753542eee94"])
+        "--publish", "127.0.0.1::5432", "--volume", f"{recovery_volume}:{postgres_data_path}",
+        "--env", "POSTGRES_USER=companions", "--env", "POSTGRES_PASSWORD=companions",
+        "--env", "POSTGRES_DB=companions", postgres_image])
     recovery_mapping = subprocess.check_output(["docker", "port", recovery_name, "5432/tcp"], text=True).strip()
     for attempt in range(60):
         if subprocess.run(["docker", "exec", recovery_name, "pg_isready", "-h", "127.0.0.1", "-U", "companions"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode == 0: break
@@ -109,8 +128,14 @@ try:
 finally:
     owned = subprocess.run(["docker", "ps", "-aq", "--filter", f"label=companions.build.verification={run_id}"], text=True, capture_output=True)
     if owned.returncode == 0 and owned.stdout.split():
-        cleanup = subprocess.run(["docker", "rm", "-f", *owned.stdout.split()], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        cleanup = subprocess.run(["docker", "rm", "-f", "-v", *owned.stdout.split()], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         if cleanup.returncode: status = "failed"
-    report = {"status": status, "run": run_id, "seconds": round(time.monotonic()-started, 3), "steps": steps}
+    volumes = subprocess.run(["docker", "volume", "ls", "-q", "--filter", f"label=companions.build.verification={run_id}"], text=True, capture_output=True)
+    if volumes.returncode == 0 and volumes.stdout.split():
+        cleanup = subprocess.run(["docker", "volume", "rm", *volumes.stdout.split()], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        if cleanup.returncode: status = "failed"
+    report = {"status": status, "run": run_id, "seconds": round(time.monotonic()-started, 3),
+        "postgres": {"major": int(args.postgres), "image": postgres_image,
+            **({"backupSha256": backup_sha256} if "backup_sha256" in locals() else {})}, "steps": steps}
     (artifacts / "summary.json").write_text(json.dumps(report, indent=2))
     print(f"{status.upper()}: {artifacts.relative_to(ROOT)}", flush=True)

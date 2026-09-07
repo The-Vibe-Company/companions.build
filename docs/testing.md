@@ -27,6 +27,16 @@ keys only inside the mode-0700 evidence directory. A real restore must recover t
 application-managed auth and encryption keys from its secret store alongside PostgreSQL; those keys
 are intentionally not embedded in the database backup.
 
+Use the explicit PostgreSQL 18 variant to exercise the same populated crash-and-restore path on the
+pinned production database major:
+
+```sh
+python3 scripts/verify.py --postgres 18
+```
+
+The selected major applies to both the source and recovery containers. The default remains
+PostgreSQL 17 for the ordinary local loop; neither variant contacts a hosted database.
+
 This command proves the integrated controlled path with a real PostgreSQL database, private object
 storage, the compiled Pi/Bun program in Linux, the deterministic model, MCP fixtures, API, worker,
 executor, and web build. It does not contact Box, Stripe, email delivery services, OAuth providers,

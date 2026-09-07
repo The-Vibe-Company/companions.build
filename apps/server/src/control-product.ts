@@ -9,6 +9,7 @@ import {handleMaintenance} from './maintenance';
 import {db,createCompanion} from './store';
 import {config} from './config';
 import {handleAutomations} from './automation-routes';
+import {prepareTemplateSoftware,softwareRootsSchema,templateSoftwareStatus} from './software';
 const uuid=z.string().uuid();
 async function maintenanceRequest(ownerId:string,companionId:string,suffix:string,method='GET',body?:unknown){
  return (await handleMaintenance(new Request(`http://control/api/maintenance/companions/${companionId}${suffix}`,{method,...(body===undefined?{}:{body:JSON.stringify(body)})}),ownerId))!.json();
@@ -22,6 +23,16 @@ registerControl({
  maintenance_task:async(context,raw)=>{const {companionId,prompt}=z.object({companionId:uuid,prompt:z.string().min(1).max(50_000)}).parse(raw);return maintenanceRequest(context.ownerId,companionId,'/tasks','POST',{clientMessageId:context.commandId,prompt});},
  template_history:async(context,raw)=>({revisions:await listTemplateRevisions(context.ownerId,z.object({templateId:uuid}).parse(raw).templateId)}),
  template_rollback:async(context,raw)=>{const {templateId,...input}=z.object({templateId:uuid,targetRevision:z.number().int().positive(),expectedRevision:z.number().int().positive()}).parse(raw);return rollbackTemplate(context.ownerId,templateId,input);},
+ software_prepare:async(context,raw)=>{
+  if(context.isChild)return {error:'Ask your parent to prepare template software.'};
+  const input=z.object({templateId:uuid,expectedRevision:z.number().int().positive()}).extend(softwareRootsSchema.shape).strict().parse(raw);
+  return prepareTemplateSoftware(context.ownerId,context.commandId,input);
+ },
+ software_status:async(context,raw)=>{
+  if(context.isChild)return {error:'Ask your parent to inspect template software.'};
+  const input=z.object({templateId:uuid,buildId:uuid.optional()}).strict().parse(raw);
+  return templateSoftwareStatus(context.ownerId,input.templateId,input.buildId);
+ },
  companion_create:async(context,raw)=>{
   if(context.isChild)return {error:'Ask your parent to create Companions.'};
   const input=z.object({name:z.string().trim().min(1).max(80),instructions:z.string().max(20_000).optional(),templateId:uuid.optional(),templateRevision:z.number().int().positive().optional()}).parse(raw);

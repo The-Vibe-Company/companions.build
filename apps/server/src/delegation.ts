@@ -4,6 +4,7 @@ import { db } from './store';
 import { encrypt } from './config';
 import { LifecycleConflict } from './templates';
 import { requestRunResume } from './automations';
+import {requireSoftwareReady,SoftwareReadinessError} from './software-readiness';
 export async function spawnChild(ownerId:string,parentId:string,parentRunId:string|null,commandId:string,input:unknown,sql:any=db){
  const value=z.object({templateId:z.string().uuid(),prompt:z.string().min(1).max(50_000)}).parse(input);
  return sql.begin(async(tx:any)=>{
@@ -14,11 +15,15 @@ export async function spawnChild(ownerId:string,parentId:string,parentRunId:stri
   if(parentRunId&&!(await tx`SELECT id FROM runs WHERE id=${parentRunId} AND companion_id=${parentId}`).length)throw new LifecycleConflict('Parent task unavailable.');
   const [template]=await tx`SELECT t.*,p.max_children FROM agent_templates t JOIN template_permissions p ON p.template_id=t.id WHERE t.id=${value.templateId} AND t.owner_id=${ownerId} AND p.parent_id=${parentId}`;
   if(!template)throw new LifecycleConflict('Template is not authorized.');
+  let resolvedSnapshot:string|null;
+  try{resolvedSnapshot=await requireSoftwareReady(ownerId,template.software_build_id,template.snapshot_name,tx);}
+  catch(error){if(error instanceof SoftwareReadinessError)throw new LifecycleConflict(error.message);throw error;}
+  if(resolvedSnapshot&&parent.provider!=='box')throw new LifecycleConflict('This prepared template requires Box.');
   const [count]=await tx`SELECT count(*)::int AS count FROM companions WHERE parent_id=${parentId} AND template_id=${value.templateId} AND retired_at IS NULL`;
   if(count.count>=template.max_children)throw new LifecycleConflict('The authorized child limit has been reached.');
   const childId=crypto.randomUUID(),runId=crypto.randomUUID();
-  await tx`INSERT INTO companions(id,owner_id,name,instructions,avatar,model_id,provider,create_key,agent_secret,parent_id,temporary,prepare_requested,template_id,template_revision,snapshot_name)
-   VALUES(${childId},${ownerId},${template.name},${template.instructions},${template.avatar},${template.model_id},${parent.provider},${crypto.randomUUID()},${encrypt(randomBytes(32).toString('hex'))},${parentId},true,true,${template.id},${template.revision},${template.snapshot_name})`;
+  await tx`INSERT INTO companions(id,owner_id,name,instructions,avatar,model_id,provider,create_key,agent_secret,parent_id,temporary,prepare_requested,template_id,template_revision,snapshot_name,software_build_id)
+   VALUES(${childId},${ownerId},${template.name},${template.instructions},${template.avatar},${template.model_id},${parent.provider},${crypto.randomUUID()},${encrypt(randomBytes(32).toString('hex'))},${parentId},true,true,${template.id},${template.revision},${resolvedSnapshot},${template.software_build_id})`;
   await tx`INSERT INTO runs(id,companion_id,client_message_id,content,lane,source) VALUES(${runId},${childId},${commandId},${value.prompt},'background','delegation')`;
   await tx`INSERT INTO delegations(id,parent_id,parent_run_id,target_id,run_id) VALUES(${commandId},${parentId},${parentRunId},${childId},${runId})`;
   return {companionId:childId,runId};

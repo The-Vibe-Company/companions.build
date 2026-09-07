@@ -126,6 +126,9 @@ export async function enqueueTemplateSoftware(ownerId: string, commandId: string
       }
       throw new SoftwareConflict("Template missing or changed.");
     }
+    const [capture] = await tx`SELECT id FROM template_candidates WHERE template_id=${parsed.templateId}
+      AND status IN ('queued','capturing','ready') LIMIT 1`;
+    if (capture) throw new SoftwareConflict("Finish the current template capture before preparing software.");
 
     const requestFingerprint = userFingerprint(parsed.templateId, parsed.expectedRevision, base.id, roots);
     const nextRevision = parsed.expectedRevision + 1;
@@ -145,6 +148,40 @@ export async function enqueueTemplateSoftware(ownerId: string, commandId: string
 export async function getSoftwareBuild(ownerId: string, buildId: string, sql: any = db): Promise<SoftwareBuildRecord | null> {
   const [row] = await sql`SELECT * FROM portable_software_builds WHERE id=${z.string().uuid().parse(buildId)} AND owner_id=${ownerId}`;
   return row ? buildResult(row) : null;
+}
+
+export async function templateSoftwareStatus(ownerId: string, templateId: string, buildId?: string, sql: any = db) {
+  const id = z.string().uuid().parse(templateId);
+  const [template] = await sql`SELECT revision,software_build_id FROM agent_templates WHERE id=${id} AND owner_id=${ownerId}`;
+  if (!template) throw new SoftwareConflict("Template unavailable.");
+  const selected = buildId ? z.string().uuid().parse(buildId) : template.software_build_id;
+  if (!selected) return { templateId: id, templateRevision: template.revision as number, build: null };
+  const [build] = await sql`SELECT id,template_revision,base_id,requested_roots,status,error_code,created_at,updated_at,finished_at,
+      helper_request_digest IS NOT NULL AND manifest_id IS NOT NULL AND resolved_manifest_digest IS NOT NULL
+        AND snapshot_started_at IS NOT NULL AND finished_at IS NOT NULL AND status='ready' AS verified
+    FROM portable_software_builds WHERE id=${selected} AND template_id=${id} AND owner_id=${ownerId}`;
+  if (!build) throw new SoftwareConflict("Software build unavailable.");
+  return {
+    templateId: id,
+    templateRevision: template.revision as number,
+    build: {
+      id: build.id as string,
+      templateRevision: build.template_revision as number,
+      baseId: build.base_id as string,
+      roots: softwareRootsSchema.parse(build.requested_roots),
+      status: build.status as SoftwareBuildStatus,
+      errorCode: build.error_code ?? null,
+      verified: !!build.verified,
+      createdAt: build.created_at,
+      updatedAt: build.updated_at,
+      finishedAt: build.finished_at ?? null,
+    },
+  };
+}
+
+export async function prepareTemplateSoftware(ownerId: string, commandId: string, input: unknown, sql: any = db) {
+  const build = await enqueueTemplateSoftware(ownerId, commandId, input, sql);
+  return templateSoftwareStatus(ownerId, build.templateId, build.id, sql);
 }
 
 /** Runtime checkpoint supplied by the portable software helper after it binds operator configuration. */

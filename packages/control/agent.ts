@@ -10,7 +10,7 @@ import { z } from 'zod';
 import { pluginTools } from '../plugins/tools';
 import type { MachinePlugin } from '../plugins/catalog';
 
-const operations=['history_search','identity','companion_create','models','configure','companions','routines','routine_save','routine_delete','routine_history','routine_test','plugins','plugin_select','plugin_catalog','plugin_connect','plugin_custom','plugin_check','plugin_disconnect','triggers','trigger_save','trigger_delete','trigger_test','trigger_history','delegate','task_status','task_answer','task_cancel','deliveries','delivery_prepare','maintenance','maintenance_inspect','maintenance_configure','maintenance_prepare','maintenance_task','maintenance_history','templates','template_permission','prepare','template_save','template_history','template_rollback','spawn','adopt_template','ask_user','desktop_takeover','desktop_release'] as const;
+const operations=['history_search','identity','companion_create','models','configure','companions','routines','routine_save','routine_delete','routine_history','routine_test','plugins','plugin_select','plugin_catalog','plugin_connect','plugin_custom','plugin_check','plugin_disconnect','triggers','trigger_save','trigger_delete','trigger_test','trigger_history','delegate','task_status','task_answer','task_cancel','deliveries','delivery_prepare','maintenance','maintenance_inspect','maintenance_configure','maintenance_prepare','maintenance_task','maintenance_history','templates','template_permission','prepare','template_save','template_history','template_rollback','software_prepare','software_status','spawn','adopt_template','ask_user','desktop_takeover','desktop_release'] as const;
 export type ControlOperation=typeof operations[number];
 /** Durable local MCP outbox. The executor visits Box; Box need not reach a local web server. */
 export class AgentControl {
@@ -59,7 +59,7 @@ export class AgentControl {
     const client=new Client({name:'companion-agent',version:'0.2.0'});
     const [a,b]=InMemoryTransport.createLinkedPair();await server.connect(a);await client.connect(b);
     const plugins=pluginTools(()=>this.plugins);
-    const tool:ToolDefinition={name:'companion_control',label:'Companion control',description:'Use the companion-control MCP to configure this product: identity, instructions, routines, plugins, triggers, delegation and templates. Call identity with empty input to discover schemas. Never claim a configuration changed before this tool confirms it.',parameters:Type.Object({operation:Type.Union(operations.map(x=>Type.Literal(x))),input:Type.Record(Type.String(),Type.Unknown())}),async execute(_id,params,signal){
+    const tool:ToolDefinition={name:'companion_control',label:'Companion control',description:'Use the companion-control MCP to configure this product: identity, instructions, routines, plugins, triggers, delegation, templates and prepared software. Call identity with empty input to discover schemas. Never claim a configuration changed before this tool confirms it.',parameters:Type.Object({operation:Type.Union(operations.map(x=>Type.Literal(x))),input:Type.Record(Type.String(),Type.Unknown())}),async execute(_id,params,signal){
       const result=await client.callTool({name:'companion_control',arguments:params as Record<string,unknown>},undefined,{signal,timeout:(params as any).operation==='ask_user'?2*3600_000+5000:125_000});
       return {content:result.content as any,details:{}};
     }};

@@ -7,5 +7,6 @@ export async function requireHostedActivation(ownerId:string,sql:any=db){
 export function mutationStartsWork(path:string,method:string){
  if(!['POST','PATCH','PUT'].includes(method))return false;
  if(path==='/api/companions'&&method==='POST')return true;
+ if(/^\/api\/templates\/[^/]+\/software\/prepare$/.test(path)&&method==='POST')return true;
  return /^\/api\/companions\/[^/]+\/(messages|prepare|desktop(?:\/takeover)?|desktop-takeover|replicas|spawn|adopt-template|routines(?:\/[^/]+(?:\/test)?)?|triggers(?:\/[^/]+(?:\/(?:test|register))?)?)$/.test(path);
 }

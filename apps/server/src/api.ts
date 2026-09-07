@@ -19,6 +19,7 @@ import { handleAutomations } from "./automation-routes";
 import { avatarSchema, configureCompanion } from "./control";
 import { handleCompanionEvents } from "./events";
 import { serveStaticWeb } from "./static-web";
+import { prepareTemplateSoftware, softwareRootsSchema, SoftwareConflict, SoftwareUnavailable, templateSoftwareStatus } from "./software";
 
 const idSchema = z.string().uuid();
 const json = (body: unknown, status = 200, headers: Record<string, string> = {}) => Response.json(body, { status, headers: { "Cache-Control": "no-store", ...headers } });
@@ -32,6 +33,19 @@ async function lifecycleRoute(request:Request,ownerId:string):Promise<Response|n
  if(revisions){const id=idSchema.parse(revisions[1]);
   if(revisions[2]==='revisions'&&request.method==='GET')return json({revisions:await listTemplateRevisions(ownerId,id)});
   if(revisions[2]==='rollback'&&request.method==='POST')return json(await rollbackTemplate(ownerId,id,await request.json()));
+ }
+ const software=path.match(/^\/api\/templates\/([^/]+)\/software\/(prepare|status)$/);
+ if(software){
+  const templateId=idSchema.parse(software[1]);
+  if(software[2]==='status'&&request.method==='GET'){
+   const buildId=new URL(request.url).searchParams.get('buildId')??undefined;
+   return json(await templateSoftwareStatus(ownerId,templateId,buildId));
+  }
+  if(software[2]==='prepare'&&request.method==='POST'){
+   const body=z.object({clientCommandId:idSchema,expectedRevision:z.number().int().positive()}).extend(softwareRootsSchema.shape).strict().parse(await request.json());
+   const {clientCommandId,...input}=body;
+   return json(await prepareTemplateSoftware(ownerId,clientCommandId,{templateId,...input}),202);
+  }
  }
  const template=path.match(/^\/api\/templates\/([^/]+)$/);
  if(template&&request.method==='PATCH')return json(await handleLifecycle({operation:'template_save',input:{...await request.json() as object,id:idSchema.parse(template[1])}},ownerId));
@@ -136,6 +150,7 @@ export async function handler(request: Request): Promise<Response> {
     if (error instanceof AuthenticationRequired) return json({ error: "Authentication required." }, 401);
     if (error instanceof z.ZodError || error instanceof SyntaxError) return json({ error: "Invalid request." }, 400);
     if (error instanceof PluginError) return json({error:error.message},400);
+    if (error instanceof SoftwareConflict || error instanceof SoftwareUnavailable) return json({error:error.message},409);
     if (error instanceof ProductActivationRequired) return json({error:error.message},402);
     if (error instanceof LifecycleConflict) return json({error:error.message},409);
     if (error instanceof Conflict) return json({ error: error.message }, 409);

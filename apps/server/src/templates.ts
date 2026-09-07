@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { db } from './store';
 import { avatarSchema } from './control';
 import { queueTemplateSkillExport } from './delivery-skills';
+import {requireSoftwareReady,SoftwareReadinessError} from './software-readiness';
 export class LifecycleConflict extends Error {}
 export const templateInput=z.object({name:z.string().trim().min(1).max(80),instructions:z.string().max(20_000).default(''),avatar:avatarSchema.default({shape:0,color:0,face:0}),modelId:z.string().min(1).max(200).nullable().optional()});
 export async function listTemplates(ownerId:string,sql:any=db) {
@@ -73,11 +74,14 @@ export async function adoptTemplate(ownerId:string,parentId:string,commandId:str
   const [parent]=await tx`SELECT id FROM companions WHERE id=${parentId} AND owner_id=${ownerId} AND parent_id IS NULL AND NOT temporary AND retired_at IS NULL FOR UPDATE`;
   const [prior]=await tx`SELECT id,template_id,source_companion_id,expected_revision FROM template_candidates WHERE id=${commandId}`;
   if(prior){if(!parent||prior.template_id!==value.templateId||prior.source_companion_id!==value.childId||prior.expected_revision!==value.expectedRevision)throw new LifecycleConflict('Request identifier changed.');return {candidateId:prior.id};}
-  const [child]=await tx`SELECT id FROM companions WHERE id=${value.childId} AND parent_id=${parentId} AND owner_id=${ownerId} AND temporary AND retired_at IS NULL AND archive_requested_at IS NULL AND provider='box' FOR UPDATE`;
-  const [template]=await tx`SELECT t.id FROM agent_templates t JOIN template_permissions p ON p.template_id=t.id WHERE t.id=${value.templateId} AND t.owner_id=${ownerId} AND p.parent_id=${parentId} AND t.revision=${value.expectedRevision} FOR UPDATE OF t`;
+  const [child]=await tx`SELECT id,software_build_id FROM companions WHERE id=${value.childId} AND parent_id=${parentId} AND owner_id=${ownerId} AND temporary AND retired_at IS NULL AND archive_requested_at IS NULL AND provider='box' FOR UPDATE`;
+  const [template]=await tx`SELECT t.id,t.software_build_id,t.snapshot_name FROM agent_templates t JOIN template_permissions p ON p.template_id=t.id WHERE t.id=${value.templateId} AND t.owner_id=${ownerId} AND p.parent_id=${parentId} AND t.revision=${value.expectedRevision} FOR UPDATE OF t`;
   const active=template?await tx`SELECT id FROM template_candidates WHERE template_id=${value.templateId} AND status IN ('queued','capturing','ready') LIMIT 1`:[];
   if(active.length)throw new LifecycleConflict('A template capture is already in progress.');
   if(!parent||!child||!template)throw new LifecycleConflict('Child or template unavailable or changed.');
+  if(child.software_build_id!==template.software_build_id)throw new LifecycleConflict('The child does not use this template software revision.');
+  try{await requireSoftwareReady(ownerId,template.software_build_id,template.snapshot_name,tx);}
+  catch(error){if(error instanceof SoftwareReadinessError)throw new LifecycleConflict(error.message);throw error;}
   await tx`INSERT INTO template_candidates(id,template_id,source_companion_id,expected_revision,snapshot_name) VALUES(${commandId},${value.templateId},${value.childId},${value.expectedRevision},${'companions-'+commandId})`;
   await queueTemplateSkillExport(tx,ownerId,value.templateId,value.childId,value.expectedRevision+1);
   return {candidateId:commandId};

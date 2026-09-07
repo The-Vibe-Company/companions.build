@@ -56,6 +56,35 @@ function artifactMap(items: SoftwareArtifact[]) {
   return map;
 }
 
+async function verifyNpmArchive(file: string, entry: PortableSoftwareManifest["npm"]["packages"][number], packages: PortableSoftwareManifest["npm"]["packages"]) {
+  const inspected = Bun.spawnSync(["tar", "-xOf", file, "package/package.json"], { stdout: "pipe", stderr: "pipe" });
+  if (inspected.exitCode !== 0) throw new Error("software_npm_archive_invalid");
+  let metadata: any;
+  try { metadata = JSON.parse(inspected.stdout.toString()); } catch { throw new Error("software_npm_archive_invalid"); }
+  if (metadata.name !== entry.name || metadata.version !== entry.version) throw new Error("software_npm_identity_mismatch");
+  if (["preinstall", "install", "postinstall", "prepare"].some(name => typeof metadata.scripts?.[name] === "string")) throw new Error("software_npm_lifecycle_unsupported");
+  if (metadata.optionalDependencies || metadata.peerDependencies || metadata.bundledDependencies || metadata.bundleDependencies) throw new Error("software_npm_dependency_kind_unsupported");
+  const lockedNames = entry.dependencies.map(id => packages.find(candidate => candidate.id === id)!.name).sort();
+  const declared = Object.entries(metadata.dependencies ?? {});
+  if (declared.some(([, spec]) => typeof spec !== "string" || !/^[0-9xX*<>=~^| .-]+$/.test(spec))) throw new Error("software_npm_dependency_source_unsupported");
+  if (JSON.stringify(declared.map(([name]) => name).sort()) !== JSON.stringify(lockedNames)) throw new Error("software_npm_dependency_lock_mismatch");
+}
+
+export async function verifyNpmArtifacts(graph: PortableSoftwareManifest["npm"], artifacts: SoftwareArtifact[]) {
+  const byId = artifactMap(artifacts);
+  if (byId.size !== graph.packages.length) throw new Error("software_artifact_set_mismatch");
+  const directory = await mkdtemp(join(tmpdir(), "companions-npm-verify-"));
+  try {
+    for (const [index, entry] of graph.packages.entries()) {
+      const bytes = byId.get(entry.id);
+      if (!bytes || `sha512-${createHash("sha512").update(bytes).digest("base64")}` !== entry.integrity) throw new Error("software_npm_integrity_mismatch");
+      const file = join(directory, `${index}.tgz`);
+      await writeFile(file, bytes, { mode: 0o600 });
+      await verifyNpmArchive(file, entry, graph.packages);
+    }
+  } finally { await rm(directory, { recursive: true, force: true }); }
+}
+
 export type CompiledSoftwareBundle = { directory: string; manifest: PortableSoftwareManifest; repositories: SoftwareRepositories };
 
 export async function compileSoftwareBundle(input: {
@@ -93,17 +122,7 @@ export async function compileSoftwareBundle(input: {
     if (!bytes || `sha512-${createHash("sha512").update(bytes).digest("base64")}` !== entry.integrity) throw new Error("software_npm_integrity_mismatch");
     const file = join(directory, "npm", `${manifest.npm.packages.indexOf(entry)}.tgz`);
     await writeFile(file, bytes, { mode: 0o600 });
-    const inspected = Bun.spawnSync(["tar", "-xOf", file, "package/package.json"], { stdout: "pipe", stderr: "pipe" });
-    if (inspected.exitCode !== 0) throw new Error("software_npm_archive_invalid");
-    let metadata: any;
-    try { metadata = JSON.parse(inspected.stdout.toString()); } catch { throw new Error("software_npm_archive_invalid"); }
-    if (metadata.name !== entry.name || metadata.version !== entry.version) throw new Error("software_npm_identity_mismatch");
-    if (["preinstall", "install", "postinstall", "prepare"].some(name => typeof metadata.scripts?.[name] === "string")) throw new Error("software_npm_lifecycle_unsupported");
-    if (metadata.optionalDependencies || metadata.peerDependencies || metadata.bundledDependencies || metadata.bundleDependencies) throw new Error("software_npm_dependency_kind_unsupported");
-    const lockedNames = entry.dependencies.map(id => manifest.npm.packages.find(candidate => candidate.id === id)!.name).sort();
-    const declared = Object.entries(metadata.dependencies ?? {});
-    if (declared.some(([, spec]) => typeof spec !== "string" || !/^[0-9xX*<>=~^| .-]+$/.test(spec))) throw new Error("software_npm_dependency_source_unsupported");
-    if (JSON.stringify(declared.map(([name]) => name).sort()) !== JSON.stringify(lockedNames)) throw new Error("software_npm_dependency_lock_mismatch");
+    await verifyNpmArchive(file, entry, manifest.npm.packages);
   }
   await writeFile(join(directory, "manifest.json"), JSON.stringify(manifest), { mode: 0o600 });
   await writeFile(join(directory, "repositories.json"), JSON.stringify(repositories), { mode: 0o600 });

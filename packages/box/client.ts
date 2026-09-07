@@ -36,6 +36,8 @@ export class BoxClient {
     return this.parseBox(await this.request("/boxes", "POST", { noEnv: true, type: "small", ttlSeconds: 21600, ...(template ? { from: template } : {}) }, { "Idempotency-Key": key }));
   }
   async get(id: string) { return this.parseBox(await this.request(`/boxes/${encodeURIComponent(id)}`)); }
+  async limits() { return this.request('/limits'); }
+  async extend(id:string,ttlSeconds:number) { await this.request(`/boxes/${encodeURIComponent(id)}`,'PATCH',{ttlSeconds}); }
   async resume(id: string) { await this.request(`/boxes/${encodeURIComponent(id)}/resume`, "POST", { noEnv: true, ttlSeconds: 21600 }); }
   async command(id: string, command: string, timeoutSeconds = 30) {
     const result = await this.request(`/boxes/${encodeURIComponent(id)}/commands`, "POST", { command, timeoutSeconds });

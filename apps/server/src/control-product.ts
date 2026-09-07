@@ -1,4 +1,8 @@
 import {listTemplateRevisions,rollbackTemplate} from './templates';
+import {updateSpecialistDraft,readSpecialistDraft} from './specialist-drafts';
+import {proposeSpecialistImprovement} from './specialist-improvements';
+import {BoxClient} from '../../../packages/box/client';
+import {renewMachineLease} from './admission';
 import {z} from 'zod';
 import {registerControl} from './control';
 import {startPluginConnection,addCustomPlugin,disconnectPlugin,listPluginCatalog,checkPluginAccount} from './plugins';
@@ -15,6 +19,29 @@ async function maintenanceRequest(ownerId:string,companionId:string,suffix:strin
  return (await handleMaintenance(new Request(`http://control/api/maintenance/companions/${companionId}${suffix}`,{method,...(body===undefined?{}:{body:JSON.stringify(body)})}),ownerId))!.json();
 }
 registerControl({
+ specialist_keep_alive:async(context,raw)=>{
+  const {companionId}=z.object({companionId:z.string().uuid()}).parse(raw);
+  const [child]=await db`SELECT id FROM companions WHERE id=${companionId} AND parent_id=${context.companionId} AND owner_id=${context.ownerId} AND temporary AND retired_at IS NULL`;
+  return child?await renewMachineLease(context.ownerId,companionId):{error:'Intervention is not owned by this parent.'};
+ },
+ specialist_configure:async(context,raw)=>{
+  const [source]=await db`SELECT specialist_draft_id FROM companions WHERE id=${context.companionId} AND owner_id=${context.ownerId}`;
+  if(!source?.specialist_draft_id)return {error:'Open the specialist configuration conversation first.'};
+  if(!raw||!Object.keys(raw as object).length)return readSpecialistDraft(context.ownerId,source.specialist_draft_id);
+  return updateSpecialistDraft(context.ownerId,source.specialist_draft_id,raw);
+ },
+ specialist_propose_improvement:async(context,raw)=>proposeSpecialistImprovement(context.ownerId,context.companionId,context.commandId,raw),
+ specialist_install:async(context,raw)=>{
+  const {packages}=z.object({packages:z.array(z.string().regex(/^[a-z0-9][a-z0-9+.-]{0,100}$/)).min(1).max(20)}).parse(raw);
+  const [source]=await db`SELECT box_id,provider,specialist_draft_id FROM companions WHERE id=${context.companionId} AND owner_id=${context.ownerId} AND retired_at IS NULL`;
+  if(!source?.specialist_draft_id||source.provider!=='box'||!source.box_id||!config.boxKey)return {error:'System packages can be prepared only in a Box specialist draft. Use user-space tools or ask the parent to prepare an improvement.'};
+  // Control command is durably claimed before this executor-only effect. An unknown result is not replayed.
+  const changed=await db`UPDATE specialist_drafts SET generation=generation+1 WHERE companion_id=${context.companionId} AND status IN ('editing','error') RETURNING template_id`;
+  if(!changed.length)return {error:'The draft is busy; wait before installing.'};
+  const box=new BoxClient(config.boxKey);
+  await box.command(source.box_id,`sudo -n timeout --kill-after=5s 80s apt-get -y install -- ${packages.join(' ')} >/dev/null 2>&1`,90);
+  return {installed:packages,recipe:{packages},verified:true};
+ },
  maintenance:async context=>(await handleMaintenance(new Request('http://control/api/maintenance'),context.ownerId))!.json(),
  maintenance_inspect:async(context,raw)=>maintenanceRequest(context.ownerId,z.object({companionId:uuid}).parse(raw).companionId,''),
  maintenance_history:async(context,raw)=>maintenanceRequest(context.ownerId,z.object({companionId:uuid}).parse(raw).companionId,'/actions'),

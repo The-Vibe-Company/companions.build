@@ -1,3 +1,4 @@
+import {restoreSpecialistWorkspace} from './specialist-box';
 import {tracePreparation,preparationState,preparationMeasurement,type PreparationPhase} from './preparation-trace';
 import { mkdirSync, writeFileSync, unlinkSync, realpathSync } from "node:fs";
 import { join, resolve } from "node:path";
@@ -116,6 +117,8 @@ export async function prepareBox(companion: any, checkpoint: (boxId: string) => 
   if (machine.setupStatus && machine.setupStatus !== "done") return null;
   if (companion.endpoint_secret && companion.config_digest === environmentDigest(companion.agent_secret)) {preparationState(companion.id,'box_endpoint','reused');return decrypt(companion.endpoint_secret);}
   const values = { ...modelEnvironment(decrypt(companion.agent_secret)), AGENT_STATE_DIR: companion.template_id ? `/home/user/.companions/agents/${companion.id}` : "/home/user/.companions" };
+  await beforeEffect();
+  await box.command(id,restoreSpecialistWorkspace(values.AGENT_STATE_DIR));
   // systemd EnvironmentFile uses double quoted values, not shell expansion.
   const envText = Object.entries(values).map(([key, value]) => `${key}="${value.replace(/\\/g, "\\\\").replace(/"/g, '\\"').replace(/\n/g, "\\n")}"`).join("\n");
   await beforeEffect();

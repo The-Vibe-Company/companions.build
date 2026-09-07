@@ -13,7 +13,7 @@ const idSchema = z.string().uuid();
 const createSchema = z.object({ clientDeliveryId: idSchema, companionId: idSchema,
   clientEmail: z.string().trim().email().max(320).transform(value => value.toLowerCase()),
   templateIds: z.array(idSchema).max(20).refine(ids => new Set(ids).size === ids.length, "Template IDs must be unique").default([]),
-  maintenanceRequested: z.boolean().default(false), includeSkills: z.boolean().default(true) });
+  maintenanceRequested: z.boolean().default(false), includeSkills: z.boolean().default(true), includeSpecialistDisks:z.boolean().default(false) });
 
 const mailer = createMailAdapter({
   provider: config.emailProvider, from: config.emailFrom, resendApiKey: config.resendApiKey,
@@ -32,14 +32,16 @@ export async function migrateDelivery(sql = db) {
   await sql.begin(async tx => { await tx`SELECT pg_advisory_xact_lock(721440141)`; await tx.unsafe(schema); });
 }
 
-async function portableTemplates(ownerId: string, companionId: string, ids: string[], sql:any=db) {
+async function portableTemplates(ownerId: string, companionId: string, ids: string[], sql:any=db,includeDisks=false) {
   const [{ exists }] = await sql`SELECT to_regclass('public.agent_templates') IS NOT NULL AS exists`;
   if (!exists || ids.length === 0) return [];
-  const templates: Array<{ sourceTemplateId:string;sourceCompanionId:string|null;skillBundleId:string|null;softwareBuildId:string|null;softwareResultId:string|null;templateRevision:number;name: string; instructions: string; avatar: unknown; modelId:string|null; maxChildren: number }> = [];
+  const templates: Array<{ sourceTemplateId:string;sourceCompanionId:string|null;skillBundleId:string|null;softwareBuildId:string|null;softwareResultId:string|null;templateRevision:number;name: string; instructions: string; avatar: unknown; modelId:string|null; maxChildren: number;preparedDisk?:string|null;initScript?:string;connections?:Array<{slot:string;required:boolean;provider:string;label:string;server_id:string|null}> }> = [];
   for (const id of ids) {
-    const [row] = await sql`SELECT t.id,t.name,t.instructions,t.avatar,t.model_id,t.source_companion_id,t.skill_bundle_id,t.software_build_id,t.software_result_id,t.revision,p.max_children FROM agent_templates t JOIN template_permissions p ON p.template_id=t.id AND p.parent_id=${companionId} WHERE t.id=${id} AND t.owner_id=${ownerId} FOR SHARE OF t,p`;
-    if (!row) throw new DeliveryConflict("A selected template is unavailable.");
-    templates.push({ sourceTemplateId:row.id,sourceCompanionId:row.source_companion_id,skillBundleId:row.skill_bundle_id,softwareBuildId:row.software_build_id??null,softwareResultId:row.software_result_id??null,templateRevision:row.revision,name: row.name, instructions: row.instructions, avatar: row.avatar ?? null, modelId:row.model_id??null, maxChildren: row.max_children });
+    const [row] = await sql`SELECT t.id,t.name,t.instructions,t.avatar,t.model_id,t.source_companion_id,t.skill_bundle_id,t.software_build_id,t.software_result_id,t.revision,t.has_published,t.prepared_disk_snapshot,t.init_script,p.max_children FROM agent_templates t JOIN template_permissions p ON p.template_id=t.id AND p.parent_id=${companionId} WHERE t.id=${id} AND t.owner_id=${ownerId} FOR SHARE OF t,p`;
+    if (!row||!row.has_published) throw new DeliveryConflict("A selected template is unavailable.");
+    if(row.prepared_disk_snapshot&&!includeDisks)throw new DeliveryConflict('Confirm sharing the prepared specialist disk, including its files and browser sessions.');
+    const connections=await sql`SELECT slot,required,provider,label,server_id FROM specialist_connections WHERE template_id=${id}`;
+    templates.push({preparedDisk:row.prepared_disk_snapshot??null,initScript:row.init_script,connections, sourceTemplateId:row.id,sourceCompanionId:row.source_companion_id,skillBundleId:row.skill_bundle_id,softwareBuildId:row.software_build_id??null,softwareResultId:row.software_result_id??null,templateRevision:row.revision,name: row.name, instructions: row.instructions, avatar: row.avatar ?? null, modelId:row.model_id??null, maxChildren: row.max_children });
   }
   return templates;
 }
@@ -48,7 +50,7 @@ export class DeliveryConflict extends Error {}
 export async function createDelivery(ownerId: string, raw: unknown) {
   const input = createSchema.parse(raw);
   const fingerprint = createHash("sha256").update(JSON.stringify({ companionId: input.companionId,
-    clientEmail: input.clientEmail, templateIds: input.templateIds, maintenanceRequested: input.maintenanceRequested,includeSkills:input.includeSkills })).digest("hex");
+    clientEmail: input.clientEmail, templateIds: input.templateIds, maintenanceRequested: input.maintenanceRequested,includeSkills:input.includeSkills,...(input.includeSpecialistDisks?{includeSpecialistDisks:true}:{}) })).digest("hex");
   const [prior] = await db`SELECT id,recipient_email,expires_at,maintenance_requested,request_fingerprint,skills_status,skills_error,software_status,software_error
     FROM companion_deliveries WHERE source_owner_id=${ownerId} AND client_delivery_id=${input.clientDeliveryId}`;
   if (prior) {
@@ -60,12 +62,12 @@ export async function createDelivery(ownerId: string, raw: unknown) {
   const inserted = await db.begin(async tx=>{
    const [source] = await tx`SELECT * FROM companions WHERE id=${input.companionId} AND owner_id=${ownerId} FOR SHARE`;
    if(!source)return null;
-   const templates=await portableTemplates(ownerId,input.companionId,input.templateIds,tx);
+   const templates=await portableTemplates(ownerId,input.companionId,input.templateIds,tx,input.includeSpecialistDisks);
    const profile={name:source.name,instructions:source.instructions,avatar:source.avatar??null,modelId:source.model_id??null};
    const rows=await tx`INSERT INTO companion_deliveries (id,client_delivery_id,request_fingerprint,source_owner_id,source_companion_id,recipient_email,profile_snapshot,template_profiles,maintenance_requested,expires_at,include_skills,skills_status)
     VALUES (${id},${input.clientDeliveryId},${fingerprint},${ownerId},${input.companionId},${input.clientEmail},${profile},${templates},${input.maintenanceRequested},${expiresAt},${input.includeSkills},${input.includeSkills?'pending':'ready'})
     ON CONFLICT(source_owner_id,client_delivery_id) DO NOTHING RETURNING id`;
-   if(rows[0]&&input.includeSkills)await queueDeliverySkillExports(tx,{deliveryId:id,ownerId,companionId:input.companionId,templates});
+   if(rows[0]&&input.includeSkills)await queueDeliverySkillExports(tx,{deliveryId:id,ownerId,companionId:input.companionId,templates:templates.filter(t=>!t.preparedDisk)});
    if(rows[0])await pinDeliverySoftware(tx,id,ownerId,[{key:'main',softwareBuildId:source.software_build_id,softwareResultId:source.software_result_id},...templates.map(t=>({key:t.sourceTemplateId,softwareBuildId:t.softwareBuildId,softwareResultId:t.softwareResultId,templateRevision:t.templateRevision}))]);
    return rows;
   });
@@ -115,12 +117,16 @@ async function copyPortableTemplates(sql: any, ownerId: string, companionId: str
   const [{ exists }] = await sql`SELECT to_regclass('public.agent_templates') IS NOT NULL AS exists`;
   if (!exists || !Array.isArray(templates)) return;
   for (const raw of templates) {
-    const profile = z.object({ sourceTemplateId:z.string().uuid(),name: z.string().min(1).max(80), instructions: z.string().max(20_000), avatar: z.unknown().nullable(), modelId:z.string().min(1).max(200).nullable().optional(), maxChildren: z.number().int().min(1).max(20) }).parse(raw);
+    const profile = z.object({ sourceTemplateId:z.string().uuid(),name: z.string().min(1).max(80), instructions: z.string().max(20_000), avatar: z.unknown().nullable(), modelId:z.string().min(1).max(200).nullable().optional(), maxChildren: z.number().int().min(1).max(20),preparedDisk:z.string().nullable().optional(),initScript:z.string().default(''),connections:z.array(z.object({slot:z.string(),required:z.boolean(),provider:z.string().default('custom'),label:z.string().default('Integration'),server_id:z.string().nullable().optional()})).default([]) }).parse(raw);
     const [exported]=await sql`SELECT bundle_id FROM portable_skill_exports WHERE delivery_id=${deliveryId} AND target_kind='delivery_template' AND source_template_id=${profile.sourceTemplateId} AND status='ready'`;
     const templateId = crypto.randomUUID();
     const prepared=software.get(profile.sourceTemplateId);
-    await sql`INSERT INTO agent_templates (id,owner_id,name,instructions,avatar,model_id,snapshot_name,source_companion_id,skill_bundle_id,software_result_id) VALUES (${templateId},${ownerId},${profile.name},${profile.instructions},${profile.avatar},${profile.modelId??null},${prepared?.snapshot??null},NULL,${exported?.bundle_id??null},${prepared?.id??null})`;
-    await sql`INSERT INTO template_revisions(template_id,revision,owner_id,name,instructions,avatar,model_id,snapshot_name,source_companion_id,skill_bundle_id,software_result_id) VALUES(${templateId},1,${ownerId},${profile.name},${profile.instructions},${profile.avatar},${profile.modelId??null},${prepared?.snapshot??null},NULL,${exported?.bundle_id??null},${prepared?.id??null}) ON CONFLICT DO NOTHING`;
+    await sql`INSERT INTO agent_templates (id,owner_id,name,instructions,avatar,model_id,snapshot_name,source_companion_id,skill_bundle_id,software_result_id) VALUES (${templateId},${ownerId},${profile.name},${profile.instructions},${profile.avatar},${profile.modelId??null},${profile.preparedDisk??prepared?.snapshot??null},NULL,${exported?.bundle_id??null},${prepared?.id??null})`;
+    await sql`INSERT INTO template_revisions(template_id,revision,owner_id,name,instructions,avatar,model_id,snapshot_name,source_companion_id,skill_bundle_id,software_result_id) VALUES(${templateId},1,${ownerId},${profile.name},${profile.instructions},${profile.avatar},${profile.modelId??null},${profile.preparedDisk??prepared?.snapshot??null},NULL,${exported?.bundle_id??null},${prepared?.id??null}) ON CONFLICT DO NOTHING`;
+    await sql`UPDATE agent_templates SET init_script=${profile.initScript},prepared_disk_snapshot=${profile.preparedDisk??null} WHERE id=${templateId}`;
+    await sql`UPDATE template_revisions SET init_script=${profile.initScript} WHERE template_id=${templateId} AND revision=1`;
+    for(const slot of profile.connections)await sql`INSERT INTO specialist_connections(template_id,slot,required,provider,label,server_id) VALUES(${templateId},${slot.slot},${slot.required},${slot.provider},${slot.label},${slot.server_id??null})`;
+    await sql`INSERT INTO specialist_revision_connections SELECT template_id,1,slot,account_id,required,provider,label,server_id FROM specialist_connections WHERE template_id=${templateId}`;
     await sql`INSERT INTO template_permissions (parent_id,template_id,max_children) VALUES (${companionId},${templateId},${profile.maxChildren})`;
   }
 }

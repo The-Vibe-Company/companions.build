@@ -1,4 +1,8 @@
 import {privateBetaEmails} from "./private-beta";
+import {createSpecialistDraft,openSpecialistDraft,readSpecialistDraft,updateSpecialistDraft,requestSpecialistPublication,requestSpecialistTest,assessSpecialistTest} from './specialist-drafts';
+import {specialistConnections,overrideSpecialistConnection} from './specialist-connections';
+import {listSpecialistImprovements,decideSpecialistImprovement} from './specialist-improvements';
+import {effectiveAccountLimits,setPersonalActiveLimit,cancelMachineAdmission,AdmissionConflict} from './admission';
 import {requireHostedActivation,mutationStartsWork} from "./activation";
 import {handleModelGateway,MODEL_GATEWAY_MAX_REQUEST_BYTES} from './model-gateway';
 import {handleMaintenance} from "./maintenance";
@@ -29,9 +33,42 @@ const idSchema = z.string().uuid();
 const json = (body: unknown, status = 200, headers: Record<string, string> = {}) => Response.json(body, { status, headers: { "Cache-Control": "no-store", ...headers } });
 async function lifecycleRoute(request:Request,ownerId:string):Promise<Response|null> {
  const path=new URL(request.url).pathname;
+ if(path==='/api/account/specialist-limits'){
+  if(request.method==='PATCH'){const {active}=z.object({active:z.number().int().min(0).max(1000).nullable()}).parse(await request.json());return json({limits:await setPersonalActiveLimit(ownerId,active)});}
+  if(request.method==='GET')return json({limits:await effectiveAccountLimits(ownerId),requests:await db`SELECT id,companion_id AS "companionId",state,waiting_reason AS "waitingReason",kind FROM machine_admission_requests WHERE owner_id=${ownerId} AND state IN ('queued','admitted','cancelling') ORDER BY requested_at,id`});
+ }
+ const cancelAdmission=path.match(/^\/api\/account\/specialist-requests\/([^/]+)\/cancel$/);
+ if(cancelAdmission&&request.method==='POST')return json(await cancelMachineAdmission(ownerId,idSchema.parse(cancelAdmission[1])),202);
+ const improvements=path.match(/^\/api\/companions\/([^/]+)\/specialist-improvements$/);
+ if(improvements&&request.method==='GET')return json({improvements:await listSpecialistImprovements(ownerId,idSchema.parse(improvements[1]))});
+ const decision=path.match(/^\/api\/specialist-improvements\/([^/]+)\/(apply|reject)$/);
+ if(decision&&request.method==='POST')return json(await decideSpecialistImprovement(ownerId,idSchema.parse(decision[1]),decision[2] as 'apply'|'reject',await request.json()),202);
+ const connectionRoute=path.match(/^\/api\/companions\/([^/]+)\/specialists\/([^/]+)\/connections$/);
+ if(connectionRoute){
+  const parent=idSchema.parse(connectionRoute[1]),template=idSchema.parse(connectionRoute[2]);
+  if(request.method==='GET')return json({connections:await specialistConnections(ownerId,parent,template)});
+  if(request.method==='PATCH')return json(await overrideSpecialistConnection(ownerId,parent,template,await request.json()));
+ }
  if(path==='/api/templates') {
   if(request.method==='GET')return json({templates:await handleLifecycle({operation:'templates'},ownerId)});
-  if(request.method==='POST')return json(await handleLifecycle({operation:'template_save',input:await request.json()},ownerId),201);
+  if(request.method==='POST'){
+   const input=await request.json() as any;
+   if(input.draft===true)return json(await createSpecialistDraft(ownerId,input),201);
+   return json(await handleLifecycle({operation:'template_save',input},ownerId),201);
+  }
+ }
+ const draftRoute=path.match(/^\/api\/templates\/([^/]+)\/draft(?:\/(test|publish)(?:\/([^/]+)\/assessment)?)?$/);
+ if(draftRoute){
+  const templateId=idSchema.parse(draftRoute[1]);
+  if(!draftRoute[2]){
+   if(request.method==='GET'){const result=await readSpecialistDraft(ownerId,templateId);return result?json(result):json({error:'Draft not found.'},404);}
+   if(request.method==='POST')return json(await openSpecialistDraft(ownerId,templateId,await request.json()),201);
+   if(request.method==='PATCH')return json(await updateSpecialistDraft(ownerId,templateId,await request.json()));
+  }
+  if(request.method==='POST'){
+   if(draftRoute[3])return json(await assessSpecialistTest(ownerId,templateId,idSchema.parse(draftRoute[3]),await request.json()));
+   return json(await (draftRoute[2]==='publish'?requestSpecialistPublication:requestSpecialistTest)(ownerId,templateId,await request.json()),202);
+  }
  }
  const revisions=path.match(/^\/api\/templates\/([^/]+)\/(revisions|rollback)$/);
  if(revisions){const id=idSchema.parse(revisions[1]);
@@ -165,6 +202,7 @@ export async function handler(request: Request): Promise<Response> {
     if (error instanceof SoftwareConflict || error instanceof SoftwareUnavailable) return json({error:error.message},409);
     if (error instanceof ProductActivationRequired) return json({error:error.message},402);
     if (error instanceof LifecycleConflict) return json({error:error.message},409);
+    if (error instanceof AdmissionConflict) return json({error:error.message},409);
     if (error instanceof Conflict) return json({ error: error.message }, 409);
     console.error(error instanceof BoxError ? `api_request_failed:${error.code}:${error.status}` : "api_request_failed");
     return json({ error: "The request could not be completed. Please try again." }, 500);

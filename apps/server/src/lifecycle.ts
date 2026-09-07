@@ -1,3 +1,7 @@
+import {refreshSpecialistProviderLimits,renewSpecialistProviderLifetime} from './specialist-provider';
+import {progressSpecialistDrafts} from './specialist-runtime';
+import {specialistBoxMachines} from './specialist-box';
+import {synchronizeSpecialistConnections} from './specialist-connections';
 import {privateBetaEmails} from "./private-beta";
 import {tracePreparation} from './preparation-trace';
 import {progressRetirements} from './retirement';
@@ -42,6 +46,7 @@ export interface LifecycleMachines {
  snapshotStatus(name:string):Promise<'missing'|'pending'|'ready'|'failed'>;
 }
 const machines:LifecycleMachines={
+ ...specialistBoxMachines(provider),
  prepare:(companion,checkpoint,configured,beforeEffect)=>companion.provider==='local'?prepareLocal(companion,true,beforeEffect):prepareBox(companion,checkpoint,configured,beforeEffect),
  health:(endpoint,token)=>agentRequest(endpoint,token,'/health'),pause:pauseMachine,archive:archiveMachine,
  async cancel(companion,runId,beforeEffect){
@@ -68,6 +73,7 @@ export async function requestDesktop(ownerId:string,companionId:string,taken:boo
    desktop_taken=${taken},prepare_requested=prepare_requested OR (${taken} AND (status<>'ready' OR endpoint_secret IS NULL OR archived_at IS NOT NULL)),desktop_checked_at=null,error=null
    WHERE id=${companionId} AND owner_id=${ownerId} AND retired_at IS NULL AND archive_requested_at IS NULL
    AND NOT (${source==='agent'&&!taken} AND desktop_taken)
+   AND NOT EXISTS(SELECT 1 FROM specialist_drafts d WHERE d.companion_id=companions.id AND d.status NOT IN ('editing','error'))
    RETURNING id,desktop_taken AS "taken",desktop_paused_at AS "pausedAt",desktop_generation AS generation`;
  if(!row&&source==='agent'&&!taken)throw new LifecycleConflict('HUMAN_DESKTOP_RELEASE_REQUIRED');
  return row??null;
@@ -114,7 +120,9 @@ export async function progressLifecycle(sql:any=db,hooks:LifecycleHooks={},machi
   if(!lock.owned)throw Error('Executor ownership required');
  }
  await assertLeader();
- await progressMachineAdmissions(sql);
+ await refreshSpecialistProviderLimits(sql,provider);
+ await renewSpecialistProviderLifetime(sql,provider,companionId,()=>assertLeader());
+ await progressMachineAdmissions(sql,{eligible:async request=>{try{await sql.begin((tx:any)=>synchronizeSpecialistConnections(request.companion_id,tx));return {eligible:true};}catch{return {eligible:false,reason:'connection_or_permission_required'};}}});
  // External preparation runs concurrently; SQL transactions on the reserved connection
  // remain serialized and fenced so one failure cannot roll back another machine's identity.
  let checkpoints:Promise<unknown>=Promise.resolve();
@@ -125,6 +133,11 @@ export async function progressLifecycle(sql:any=db,hooks:LifecycleHooks={},machi
   })) as Promise<T>;
   checkpoints=result.catch(()=>undefined);return result;
  }
+ await progressSpecialistDrafts(sql,machine,{assertLeader:()=>assertLeader(),checkpoint},async(companion)=>{
+  const [prior]=await sql`SELECT id,state FROM machine_admission_requests WHERE companion_id=${companion.id} AND state IN ('queued','admitted','cancelling')`;
+  if(prior)return prior.state==='admitted';
+  return (await requestMachineAdmission(companion.owner_id,{requestId:companion.create_key,companionId:companion.id,kind:'capture'},sql)).state==='admitted';
+ },companionId,hooks.filesDurable??(async()=>false));
  await progressIdleMachines(sql,machine,{companionId,canArchive:hooks.canArchiveMachine,assertEffect:()=>assertLeader()});
  await progressRetirements(sql,companionId,machine,()=>assertLeader(),checkpoint,(tx,companion)=>usage(tx,companion,'archived'));
  // GUI coordination never pauses the Pi daemon or headless work. Periodic reconciliation
@@ -151,6 +164,11 @@ export async function progressLifecycle(sql:any=db,hooks:LifecycleHooks={},machi
    await assertLeader();
   }
   try {
+   if(companion.prepare_requested&&(companion.temporary||companion.specialist_draft_id)){
+    const [prior]=await sql`SELECT state FROM machine_admission_requests WHERE companion_id=${companion.id} AND state IN ('queued','admitted','cancelling')`;
+    if(!prior){const admitted=await requestMachineAdmission(companion.owner_id,{requestId:crypto.randomUUID(),companionId:companion.id,kind:companion.archived_at?'resume':companion.temporary?'test':'configuration'},sql);if(admitted.state!=='admitted')return;}
+    else if(prior.state!=='admitted')return;
+   }
    const digest=environmentDigest(companion.agent_secret,companion.provider);
    const reusable=companion.status==='ready'&&companion.endpoint_secret&&companion.box_id&&companion.config_digest===digest;
    if(companion.prepare_requested&&!companion.archive_requested_at&&!reusable&&!await (hooks.canStartWork??ownerMayStartWork)(companion.owner_id)){
@@ -260,7 +278,7 @@ export async function progressLifecycle(sql:any=db,hooks:LifecycleHooks={},machi
   }catch{/* Durable capturing intent remains observable; no blind POST retry. */}
  }
  // Snapshot source retention and output durability precede all child archive requests.
- for(const delegation of await sql`SELECT d.*,r.status,r.result_text,r.error,c.owner_id,c.temporary FROM delegations d JOIN runs r ON r.id=d.run_id JOIN companions c ON c.id=d.target_id WHERE (${companionId}::uuid IS NULL OR d.target_id=${companionId}) AND d.finished_at IS NULL AND r.status IN ('succeeded','failed','cancelled','interrupted') ORDER BY d.created_at LIMIT 50`){
+ for(const delegation of await sql`SELECT d.*,r.status,r.result_text,r.error,r.init_warning,c.owner_id,c.temporary FROM delegations d JOIN runs r ON r.id=d.run_id JOIN companions c ON c.id=d.target_id WHERE (${companionId}::uuid IS NULL OR d.target_id=${companionId}) AND d.finished_at IS NULL AND r.status IN ('succeeded','failed','cancelled','interrupted') ORDER BY d.created_at LIMIT 50`){
   if(!delegation.files_saved_at){
    await assertLeader();
    if(!hooks.filesDurable||!await hooks.filesDurable({...delegation,id:delegation.run_id,companion_id:delegation.target_id}).catch(()=>false))continue;
@@ -276,10 +294,10 @@ export async function progressLifecycle(sql:any=db,hooks:LifecycleHooks={},machi
     await tx`SELECT id FROM companions WHERE owner_id=${delegation.owner_id} AND id=${delegation.target_id} FOR UPDATE`;
     const [current]=await tx`SELECT * FROM delegations WHERE id=${delegation.id} FOR UPDATE`;
     if(!current||current.returned_run_id||current.finished_at)return;
-    const result={status:delegation.status,text:delegation.result_text??null,error:delegation.error??null,runId:delegation.run_id,companionId:delegation.target_id};
+    const result={status:delegation.status,text:delegation.result_text??null,error:delegation.error??null,initWarning:delegation.init_warning??null,runId:delegation.run_id,companionId:delegation.target_id};
     if(!parent||parent.retired_at||parent.archive_requested_at||!parentCanStart){await tx`UPDATE delegations SET result=${result},finished_at=now() WHERE id=${delegation.id}`;if(delegation.temporary)await tx`UPDATE companions SET archive_requested_at=COALESCE(archive_requested_at,now()),prepare_requested=false WHERE id=${delegation.target_id}`;return;}
     const returned=crypto.randomUUID();
-    const content='Delegated task finished. Review this result and any retained files; if useful, adopt the child Box as a template before finishing this review.\n'+JSON.stringify(result);
+    const content='Delegated task finished. Review this result and any retained files. Improvements must be proposed with specialist_propose_improvement and prepared in a draft for human publication.\n'+JSON.stringify(result);
     await tx`INSERT INTO runs(id,companion_id,client_message_id,content,lane,source) VALUES(${returned},${delegation.parent_id},${returned},${content},'background','delegation')`;
     await tx`UPDATE delegations SET result=${result},returned_run_id=${returned} WHERE id=${delegation.id}`;
     await handoffDelegationFiles(delegation.owner_id,delegation.id,returned,tx);
@@ -292,7 +310,7 @@ export async function progressLifecycle(sql:any=db,hooks:LifecycleHooks={},machi
    const [child]=await tx`SELECT * FROM companions WHERE id=${delegation.target_id} FOR UPDATE`;
    if(child.temporary&&(await tx`SELECT id FROM template_candidates WHERE source_companion_id=${child.id} AND status IN ('queued','capturing','ready')`).length)return;
    await tx`UPDATE delegations SET finished_at=now() WHERE id=${delegation.id}`;
-   if(child.temporary)await tx`UPDATE companions SET archive_requested_at=COALESCE(archive_requested_at,now()),prepare_requested=false WHERE id=${child.id}`;
+   if(child.temporary)await tx`UPDATE companions SET machine_activity_at=now(),prepare_requested=false WHERE id=${child.id}`;
   });
  }
  for(const companion of await sql`SELECT * FROM companions WHERE (${companionId}::uuid IS NULL OR id=${companionId}) AND temporary AND archive_requested_at IS NOT NULL AND retired_at IS NULL AND NOT desktop_taken AND desktop_paused_at IS NULL ORDER BY archive_requested_at LIMIT 50`){

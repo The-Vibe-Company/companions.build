@@ -1,3 +1,4 @@
+import {synchronizeSpecialistConnections} from './specialist-connections';
 import { randomBytes } from 'node:crypto';
 import { z } from 'zod';
 import { db } from './store';
@@ -15,7 +16,7 @@ export async function spawnChild(ownerId:string,parentId:string,parentRunId:stri
   if(prior){if(prior.content!==value.prompt||prior.template_id!==value.templateId)throw new LifecycleConflict('Request identifier changed.');return {companionId:prior.target_id,runId:prior.run_id};}
   if(parentRunId&&!(await tx`SELECT id FROM runs WHERE id=${parentRunId} AND companion_id=${parentId}`).length)throw new LifecycleConflict('Parent task unavailable.');
   const [template]=await tx`SELECT t.*,p.max_children FROM agent_templates t JOIN template_permissions p ON p.template_id=t.id WHERE t.id=${value.templateId} AND t.owner_id=${ownerId} AND p.parent_id=${parentId}`;
-  if(!template)throw new LifecycleConflict('Template is not authorized.');
+  if(!template||!template.has_published||template.max_children===0)throw new LifecycleConflict('Template is not authorized or has not been published.');
   let resolvedSnapshot:string|null;
   try{resolvedSnapshot=await requireSoftwareReady(ownerId,template.software_build_id,template.software_result_id,template.snapshot_name,tx);}
   catch(error){if(error instanceof SoftwareReadinessError)throw new LifecycleConflict(error.message);throw error;}
@@ -23,12 +24,14 @@ export async function spawnChild(ownerId:string,parentId:string,parentRunId:stri
   const [count]=await tx`SELECT count(*)::int AS count FROM companions WHERE parent_id=${parentId} AND template_id=${value.templateId} AND retired_at IS NULL`;
   if(count.count>=template.max_children)throw new LifecycleConflict('The authorized child limit has been reached.');
   const childId=crypto.randomUUID(),runId=crypto.randomUUID();
-  await tx`INSERT INTO companions(id,owner_id,name,instructions,avatar,model_id,provider,create_key,agent_secret,parent_id,temporary,prepare_requested,template_id,template_revision,snapshot_name,software_build_id,software_result_id)
-   VALUES(${childId},${ownerId},${template.name},${template.instructions},${template.avatar},${template.model_id},${parent.provider},${crypto.randomUUID()},${encrypt(randomBytes(32).toString('hex'))},${parentId},true,false,${template.id},${template.revision},${resolvedSnapshot},${template.software_build_id},${template.software_result_id})`;
+  await tx`INSERT INTO companions(id,owner_id,name,instructions,avatar,model_id,init_script,provider,create_key,agent_secret,parent_id,temporary,prepare_requested,template_id,template_revision,snapshot_name,software_build_id,software_result_id)
+   VALUES(${childId},${ownerId},${template.name},${template.instructions},${template.avatar},${template.model_id},${template.init_script},${parent.provider},${crypto.randomUUID()},${encrypt(randomBytes(32).toString('hex'))},${parentId},true,false,${template.id},${template.revision},${resolvedSnapshot},${template.software_build_id},${template.software_result_id})`;
   await tx`INSERT INTO runs(id,companion_id,client_message_id,content,lane,source) VALUES(${runId},${childId},${commandId},${value.prompt},'background','delegation')`;
   await tx`INSERT INTO delegations(id,parent_id,parent_run_id,target_id,run_id) VALUES(${commandId},${parentId},${parentRunId},${childId},${runId})`;
-  await requestMachineAdmissionInTransaction(tx,ownerId,{requestId:commandId,companionId:childId,kind:'intervention'});
-  return {companionId:childId,runId};
+  await synchronizeSpecialistConnections(childId,tx);
+  const admission=await requestMachineAdmissionInTransaction(tx,ownerId,{requestId:commandId,companionId:childId,kind:'intervention'});
+  if(admission.state==='refused')throw new LifecycleConflict('The specialist queue is full. Wait before submitting more work.');
+  return {companionId:childId,runId,admission};
  });
 }
 export async function delegateTask(ownerId:string,parentId:string,parentRunId:string,commandId:string,input:unknown,sql:any=db){

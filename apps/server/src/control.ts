@@ -5,7 +5,7 @@ import {controlHelp} from './control-help';
 import {availableModels,validateModel} from './models';
 import { z } from 'zod';
 import {encrypt,decrypt} from './config';
-import { db } from './store';
+import { db, Conflict } from './store';
 import type { ControlOperation } from '../../../packages/control/agent';
 export type ControlContext={ownerId:string;companionId:string;runId:string;commandId:string;isChild:boolean};
 export type ControlHandler=(context:ControlContext,input:unknown)=>Promise<unknown>;
@@ -43,6 +43,7 @@ export const avatarSchema=z.object({shape:z.number().int().min(0).max(7),color:z
 export const identitySchema=z.object({name:z.string().trim().min(1).max(80).optional(),instructions:z.string().max(20_000).optional(),avatar:avatarSchema.optional(),modelId:z.string().min(1).max(200).nullable().optional()});
 export async function configureCompanion(ownerId:string,id:string,input:unknown,sql:any=db) {
   const value=identitySchema.parse(input);
+  if((await sql`SELECT template_id FROM specialist_drafts WHERE companion_id=${id}`).length)throw new Conflict('Configure this specialist through its draft controls.');
   if(value.modelId)await validateModel(value.modelId);
   const [row]=await sql`UPDATE companions SET model_id=CASE WHEN ${value.modelId!==undefined} THEN ${value.modelId??null} ELSE model_id END,name=COALESCE(${value.name??null},name),instructions=COALESCE(${value.instructions??null},instructions),avatar=COALESCE(${value.avatar??null},avatar) WHERE id=${id} AND owner_id=${ownerId} AND retired_at IS NULL RETURNING id,name,instructions,avatar,model_id AS "modelId"`;
   return row??null;

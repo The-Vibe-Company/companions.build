@@ -1,0 +1,39 @@
+packages/box/software-install.ts
+  s_f946242dcf6ba9::t_4d8bc8211a1b4e 59-87,125
+packages/box/software-resolve.test.ts
+  s_f946242dcf6ba9::t_91761710450bc2 1-35,37-75,84-85
+  s_f946242dcf6ba9::t_5bb0a93711e6fe 36
+  s_f946242dcf6ba9::t_f8f86673ce5a1b 76-83
+scripts/test-portable-npm-registry.ts
+  s_f946242dcf6ba9::t_91761710450bc2 1-8
+packages/box/software-resolve.ts
+  s_f946242dcf6ba9::t_38d3d064357ac0 1-3,5-11,13-23,25-37,41-43,45-51,53,55-56,58-59,61,63-66,70-71,73-74,76-107,109-110,114-133,136-159,161-167
+  s_f946242dcf6ba9::t_c81f21b8dff0d7 38
+  s_f946242dcf6ba9::t_64eed13388a6ba 12,24,108,112-113
+  s_f946242dcf6ba9::t_3d7732d2028bec 44,57,111,160
+  s_f946242dcf6ba9::t_138743d0d2cfad 52,54,60,62,67-69,72,75
+  s_f946242dcf6ba9::t_d814c720c95c21 39-40
+  s_f946242dcf6ba9::t_4ca356279d90fd 4,134-135
+scripts/verify.py
+  s_f946242dcf6ba9::t_91761710450bc2 79
+bun.lock
+  s_f946242dcf6ba9::t_f6c31273cd6d31 16,23,266-267,546,620-621
+package.json
+  s_f946242dcf6ba9::t_643be90c5cdf0e 24,27,43
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "d5b7cb6d186ffb6ebd68d1b1d38c2832b439e555",
+  "prompts": {},
+  "sessions": {
+    "s_f946242dcf6ba9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a06de4-a8a5-7cd3-b713-2a8d451f7200",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "StanGirard <stan@quivr.app>"
+    }
+  }
+}

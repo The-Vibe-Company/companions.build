@@ -130,3 +130,37 @@ it('unmounts computer controls when the settings page is inactive', async () => 
   view.rerender(<SettingsSheet {...props} active={false}/>);
   expect(screen.queryByText('Computer controls')).not.toBeInTheDocument();
 });
+
+it('keeps appearance progressive and saves only the selected appearance values',async()=>{
+ const avatar={shape:7,color:10,face:4};
+ const save=vi.spyOn(api,'updateCompanion').mockResolvedValue({companion:{...detail.companion,avatar}});
+ render(<SettingsSheet embedded detail={detail} models={[]} connections={null} onDeleted={vi.fn()} onClose={vi.fn()} onSaved={vi.fn().mockResolvedValue(undefined)} onActivity={vi.fn()} onDesktop={vi.fn()}/>);
+ const user=userEvent.setup();
+ expect(screen.getByRole('button',{name:'Shape 8'})).not.toBeVisible();
+ await user.click(screen.getByRole('button',{name:'Change appearance'}));
+ expect(document.querySelector('.settings-appearance')).toHaveAttribute('open');
+ expect(document.querySelector('.settings-appearance summary')).toHaveFocus();
+ await user.click(screen.getByRole('button',{name:'Shape 8'}));
+ await user.click(screen.getByRole('button',{name:'Color 11'}));
+ await user.click(screen.getByRole('button',{name:'Face 5'}));
+ await user.click(screen.getByRole('button',{name:'Save changes'}));
+ await waitFor(()=>expect(save).toHaveBeenCalledWith('ada',{avatar}));
+});
+
+it('saves the visible model preference with the identity form and disables editing while saving',async()=>{
+ let finish!: (value:{companion:CompanionDetail['companion']})=>void;
+ const save=vi.spyOn(api,'updateCompanion').mockImplementation(()=>new Promise(resolve=>{finish=resolve;}));
+ render(<SettingsSheet embedded detail={detail} models={[{id:'chosen',name:'Chosen model'}]} connections={null} onDeleted={vi.fn()} onClose={vi.fn()} onSaved={vi.fn().mockResolvedValue(undefined)} onActivity={vi.fn()} onDesktop={vi.fn()}/>);
+ const user=userEvent.setup();
+ expect(screen.getByRole('button',{name:'Save changes'})).toBeDisabled();
+ await user.selectOptions(screen.getByLabelText('Model'),'chosen');
+ await user.click(screen.getByRole('button',{name:'Save changes'}));
+ expect(save).toHaveBeenCalledWith('ada',{modelId:'chosen'});
+ expect(screen.getByLabelText('Name')).toBeDisabled();
+ expect(screen.getByLabelText('Purpose')).toBeDisabled();
+ expect(screen.getByLabelText('Model')).toBeDisabled();
+ expect(screen.getByRole('button',{name:'Change appearance'})).toBeDisabled();
+ finish({companion:{...detail.companion,modelId:'chosen'}});
+ await waitFor(()=>expect(screen.getByRole('status')).toHaveTextContent('Changes saved'));
+ expect(screen.getByLabelText('Model')).toBeEnabled();
+});

@@ -29,9 +29,9 @@ const SHAPES = [
 
 function Face({ face, dark }: { face: number; dark: boolean }) {
   const ink = "#242622";
-  const stroke = { stroke: dark ? "white" : ink, strokeWidth: 3.2, strokeLinecap: "round" as const, fill: "none" };
-  const eye = (x: number) => <g key={x}><ellipse cx={x} cy="44" rx="7.5" ry="9" fill="white"/><ellipse cx={x+1.4} cy="45" rx="4.2" ry="5.5" fill={ink}/></g>;
-  return <>{face===4 ? <><path {...stroke} d="M29 44Q36 50 43 44M57 44Q64 50 71 44"/></> : <>{eye(36)}{face===2?<path {...stroke} d="M58 44Q65 49 71 43"/>:eye(64)}</>}
+  const stroke = { stroke: dark ? "white" : ink, strokeWidth: 3.6, strokeLinecap: "round" as const, fill: "none" };
+  const eye = (x: number) => <g key={x}><circle cx={x} cy="46" r="6.5" fill={ink} stroke={dark ? "#fff" : undefined} strokeWidth={dark ? 1 : undefined}/><circle cx={x+2.5} cy="43.5" r="2" fill="#fff"/></g>;
+  return <>{face===4 ? <><path {...stroke} d="M30 47Q37 52 44 47M56 47Q63 52 70 47"/></> : <>{eye(37)}{face===2?<path {...stroke} d="M58 44Q65 49 71 43"/>:eye(63)}</>}
     {face===3?<ellipse cx="50" cy="64" rx="4" ry="5" fill={dark ? "white" : ink}/>:face===1?<path d="M42 60Q50 74 59 60Z" fill={dark ? "white" : ink}/>:<path {...stroke} d={face===4?"M44 64H56":"M44 62Q50 68 57 62"}/>}</>;
 }
 
@@ -40,21 +40,23 @@ export function CompanionAvatar({
   avatar = DEFAULT_AVATAR,
   size = 40,
   className,
+  sleeping = false,
 }: {
   name: string;
   avatar?: CompanionAvatarValue | null;
   size?: number;
   className?: string;
+  sleeping?: boolean;
 }) {
   const safe = {
     shape: SHAPES[avatar?.shape ?? -1] ? avatar!.shape : DEFAULT_AVATAR.shape,
     color: AVATAR_COLORS[avatar?.color ?? -1] ? avatar!.color : DEFAULT_AVATAR.color,
-    face: avatar?.face != null && avatar.face >= 0 && avatar.face <= 4 ? avatar.face : DEFAULT_AVATAR.face,
+    face: avatar?.face != null && Number.isInteger(avatar.face) && avatar.face >= 0 && avatar.face <= 4 ? avatar.face : DEFAULT_AVATAR.face,
   };
   return (
-    <svg className={cn("character-mark", className)} width={size} height={size} style={{ width: size, height: size }} viewBox="0 0 100 100" role="img" aria-label={`${name}, Companion`}>
-      <g fill={AVATAR_COLORS[safe.color]}>{SHAPES[safe.shape]}</g>
-      <Face face={safe.face} dark={safe.color === 0 || safe.color === 1} />
+    <svg className={cn("character-mark", className)} width={size} height={size} style={{ width: size, height: size }} viewBox="-4 -4 108 108" role="img" aria-label={`${name}, Companion`}>
+      <g fill={AVATAR_COLORS[safe.color]} stroke="#242622" strokeWidth={4.5} strokeLinejoin="round">{SHAPES[safe.shape]}</g>
+      <Face face={sleeping ? 4 : safe.face} dark={safe.color === 0 || safe.color === 1} />
     </svg>
   );
 }

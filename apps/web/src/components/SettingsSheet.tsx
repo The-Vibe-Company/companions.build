@@ -1,5 +1,5 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState, type FormEvent, type ReactNode } from 'react';
-import { ArrowLeft, Check, ChevronRight, Computer, CalendarClock, LoaderCircle, UserRound, Waypoints, Send, Trash2, X } from 'lucide-react';
+import { ArrowLeft, ChevronRight, Computer, CalendarClock, LoaderCircle, Pencil, UserRound, Waypoints, Send, Trash2, X } from 'lucide-react';
 import { api, type CompanionDetail, type AppConfig } from '@/api';
 import { Button } from './ui/button';
 import { Textarea } from './ui/textarea';
@@ -33,6 +33,7 @@ export type SettingsSheetHandle = { requestLeave: (action: () => void) => boolea
 
 export const SettingsSheet = forwardRef<SettingsSheetHandle, Props>(function SettingsSheet({ embedded = false, active = true, activity, computer, detail, models, initialPage = 'home', onPageChange, onClose, onDeleted, onSaved, onActivity, onDesktop, connections }, ref) {
   const [deliveryExpanded, setDeliveryExpanded] = useState(false);
+  const appearance = useRef<HTMLDetailsElement>(null);
   const [page, setPage] = useState<Page>(embedded && initialPage === 'home' ? 'identity' : initialPage);
   const [name, setName] = useState(detail.companion.name);
   const [instructions, setInstructions] = useState(detail.companion.instructions);
@@ -174,21 +175,30 @@ export const SettingsSheet = forwardRef<SettingsSheetHandle, Props>(function Set
             {deleteError && <p className="field-error" role="alert">{deleteError}</p>}
             <div><Button ref={keepCompanion} variant="outline" disabled={deleting} onClick={() => goToPage(embedded ? 'identity' : 'home')}>Keep companion</Button><Button variant="destructive" disabled={deleting} onClick={() => void deleteCompanion()}>{deleting && <LoaderCircle className="spin" />}{deleting ? 'Deleting…' : 'Delete companion'}</Button></div>
           </div>}
-          {page === 'identity' && <form className="identity-form" onSubmit={save} onChange={() => setSaved(false)}>
-            <fieldset className="identity-fields" disabled={saving}>
-              {!embedded && <AvatarPicker value={avatar} onChange={value => { setAvatar(value); setSaved(false); }} />}
-              <div className="field"><label htmlFor="identity-name">Name</label><input id="identity-name" value={name} onChange={event => setName(event.target.value)} maxLength={80} /></div>
-              <div className="field"><label htmlFor="identity-mission">Purpose</label><Textarea id="identity-mission" value={instructions} onChange={event => setInstructions(event.target.value)} rows={5} maxLength={20000} /></div>
-              {embedded && <details className="settings-appearance"><summary><CompanionAvatar name={name || detail.companion.name} avatar={avatar} size={40}/><span>Appearance</span><ChevronRight/></summary><AvatarPicker value={avatar} onChange={value => { setAvatar(value); setSaved(false); }}/></details>}
-              {!!models?.length && <details className="advanced-panel"><summary>Model preferences</summary>
-                <div className="field"><label htmlFor="identity-model">Model</label><select id="identity-model" value={modelId} onChange={event => setModelId(event.target.value)}><option value="">Default model</option>{models.map(model => <option value={model.id} key={model.id}>{model.name}</option>)}</select></div>
-              </details>}
-            </fieldset>
-            {error && <p className="field-error" role="alert">{error}</p>}
-            <div className="sheet-actions"><span role="status">{saving ? 'Saving…' : saved ? 'Changes saved' : dirty ? 'Unsaved changes' : ''}</span><Button type="submit" disabled={saving || !name.trim() || !dirty}>{saving ? <LoaderCircle className="spin" /> : <Check />}Save changes</Button></div>
-          </form>}
-          {embedded && page === 'identity' && <details className="settings-delivery" onToggle={event => setDeliveryExpanded(event.currentTarget.open)}><summary><span>Client delivery</span><ChevronRight/></summary>{deliveryExpanded && <DeliverySettings companionId={detail.companion.id}/>}</details>}
-          {embedded && page === 'identity' && <button type="button" className="settings-delete-entry" disabled={saving || deleting} onClick={() => { setDeleteError(''); goToPage('delete'); }}><Trash2 />Delete companion</button>}
+          {page === 'identity' && <>
+            <form id="companion-identity-form" className="identity-form" onSubmit={save} onChange={() => setSaved(false)}>
+              <fieldset className="identity-fields" disabled={saving}>
+                <div className="settings-identity-row">
+                  <button type="button" className="settings-avatar-button" aria-label="Change appearance" onClick={() => { if (appearance.current) { appearance.current.open = true; appearance.current.querySelector('summary')?.focus(); } }}><CompanionAvatar name={name || detail.companion.name} avatar={avatar} size={78}/><span aria-hidden="true"><Pencil/></span></button>
+                  <div className="field"><label htmlFor="identity-name">Name</label><input id="identity-name" value={name} onChange={event => setName(event.target.value)} maxLength={80}/></div>
+                  <div className="field"><label htmlFor="identity-mission">Purpose</label><Textarea id="identity-mission" value={instructions} onChange={event => setInstructions(event.target.value)} rows={2} maxLength={20000}/></div>
+                  <Button type="submit" className="settings-save" aria-label="Save changes" disabled={saving || !name.trim() || !dirty}>{saving && <LoaderCircle className="spin"/>}Save</Button>
+                </div>
+                <details ref={appearance} className="settings-appearance"><summary><span>Appearance</span><ChevronRight/></summary><AvatarPicker value={avatar} onChange={value => { setAvatar(value); setSaved(false); }}/></details>
+              </fieldset>
+              {error && <p className="field-error" role="alert">{error}</p>}
+              <p className="settings-save-status" role="status">{saving ? 'Saving…' : saved ? 'Changes saved' : dirty ? 'Unsaved changes' : ''}</p>
+            </form>
+            <div className="settings-columns">
+              <section className="settings-computer" aria-labelledby="settings-computer-title">
+                <h3 id="settings-computer-title">Computer & model</h3>
+                <div className="settings-computer-state"><Computer/><span>{detail.companion.status === 'ready' ? 'Ready' : detail.companion.status === 'archived' ? 'Sleeping' : detail.companion.status === 'preparing' ? 'Preparing…' : detail.companion.status === 'error' ? 'Unavailable' : 'Not started'}</span>{detail.companion.provider === 'box' && <button type="button" onClick={() => leave(onDesktop)}>Open computer<ChevronRight/></button>}</div>
+                {!!models?.length && <div className="field"><label htmlFor="identity-model">Model</label><select id="identity-model" form="companion-identity-form" disabled={saving} value={modelId} onChange={event => { setModelId(event.target.value); setSaved(false); }}><option value="">Default model</option>{models.map(model => <option value={model.id} key={model.id}>{model.name}</option>)}</select></div>}
+              </section>
+              <section className="settings-client" aria-labelledby="settings-client-title"><h3 id="settings-client-title">Client delivery</h3><p>Send an independent copy to a client.</p><details className="settings-delivery" onToggle={event => setDeliveryExpanded(event.currentTarget.open)}><summary><span>Prepare delivery</span><ChevronRight/></summary>{deliveryExpanded && <DeliverySettings companionId={detail.companion.id}/>}</details></section>
+            </div>
+            <button type="button" className="settings-delete-entry" disabled={saving || deleting} onClick={() => { setDeleteError(''); goToPage('delete'); }}><Trash2/>Delete companion</button>
+          </>}
           {page === 'activity' && activity}
           {active && page === 'computer' && computer}
           {page === 'connections' && connections}

@@ -1,0 +1,35 @@
+{
+  "date": "2026-09-07",
+  "status": "passed",
+  "service": "api",
+  "sourceCommit": "8531bda466e19255bb3dfba8a4a843e1a1e489aa",
+  "deploymentId": "f215b299-2850-4e90-812d-47ba72b44194",
+  "checks": {
+    "sourceVerified": true,
+    "invalidAndPublicDesktopRejected": true,
+    "publicChecks": [
+      {
+        "path": "/health",
+        "status": 200
+      },
+      {
+        "path": "/",
+        "status": 200
+      },
+      {
+        "path": "/api/companions",
+        "status": 401
+      },
+      {
+        "path": "/api/companions/00000000-0000-4000-8000-000000000001/desktop",
+        "status": 401
+      }
+    ],
+    "liveBoxesWoken": 0
+  },
+  "scope": "Production API source hashes and local provider-response stubs inside the running container, plus external unauthenticated HTTP checks. Executor and worker application source remain 7834b7e; their behavior was not changed by this API desktop correction.",
+  "limitations": [
+    "No hosted authenticated desktop session or Box startup was exercised.",
+    "Provider noVNC startup latency remains unresolved."
+  ]
+}

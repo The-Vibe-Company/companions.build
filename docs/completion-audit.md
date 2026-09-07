@@ -58,7 +58,9 @@ hosted acceptance. See `validation-v0.md` for dated evidence.
 - Desktop responses now distinguish explicit provider provisioning from malformed/error replies.
   Requests require private access; retired, archiving and foreign Companions are rejected before
   any provider desktop call. The integrated PostgreSQL18 suite passes without waking a Box.
-  See `measurements/desktop-response-boundary-2026-09-07.json`. This does not resolve the
+  The API is deployed at `8531bda`; source hashes and external auth denial are verified.
+  See `measurements/desktop-response-boundary-2026-09-07.json` and
+  `measurements/hosted-desktop-boundary-2026-09-07.json`. This does not resolve the
   intermittent noVNC service startup above.
 - Real V12 main/background execution through the model gateway passes: a manual invocation of a
   disabled routine ran for 43.8 seconds while chat completed in 4.8 seconds, 29.6 seconds before the

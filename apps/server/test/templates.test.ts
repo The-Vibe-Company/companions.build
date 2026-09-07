@@ -11,24 +11,27 @@ async function owner() {
   return id;
 }
 
-test("template saves append immutable revisions and rollback appends the selected state", async () => {
+test("template saves append immutable model revisions and rollback appends the selected state", async () => {
   const ownerId = await owner();
   const otherId = await owner();
-  const created = await saveTemplate(ownerId, { name: "Developer", instructions: "Version one", avatar: { shape: 1, color: 2, face: 3 } });
+  const created = await saveTemplate(ownerId, { name: "Developer", instructions: "Version one", avatar: { shape: 1, color: 2, face: 3 }, modelId: "model-v1" });
   expect(created.revision).toBe(1);
   await saveTemplate(ownerId, { id: created.id, expectedRevision: 1, name: "Developer plus", instructions: "Version two", avatar: { shape: 2, color: 3, face: 4 } });
 
   expect(await listTemplateRevisions(otherId, created.id)).toEqual([]);
-  expect((await listTemplateRevisions(ownerId, created.id)).map((row:any) => [row.revision, row.instructions])).toEqual([[2, "Version two"], [1, "Version one"]]);
+  expect((await listTemplateRevisions(ownerId, created.id)).map((row:any) => [row.revision, row.instructions, row.modelId])).toEqual([[2, "Version two", "model-v1"], [1, "Version one", "model-v1"]]);
 
-  expect(await rollbackTemplate(ownerId, created.id, { targetRevision: 1, expectedRevision: 2 })).toEqual({ id: created.id, revision: 3 });
-  const [current] = await db`SELECT name,instructions,avatar,revision,snapshot_name FROM agent_templates WHERE id=${created.id}`;
-  expect(current).toMatchObject({ name: "Developer", instructions: "Version one", avatar: { shape: 1, color: 2, face: 3 }, revision: 3, snapshot_name: null });
-  expect((await listTemplateRevisions(ownerId, created.id)).map((row:any) => row.revision)).toEqual([3, 2, 1]);
+  await saveTemplate(ownerId, { id: created.id, expectedRevision: 2, name: "Platform default", instructions: "Version three", avatar: { shape: 2, color: 3, face: 4 }, modelId: null });
+  expect((await listTemplateRevisions(ownerId, created.id))[0]).toMatchObject({ revision: 3, modelId: null });
 
-  await expect(rollbackTemplate(ownerId, created.id, { targetRevision: 2, expectedRevision: 2 })).rejects.toBeInstanceOf(LifecycleConflict);
-  await expect(rollbackTemplate(otherId, created.id, { targetRevision: 2, expectedRevision: 3 })).rejects.toBeInstanceOf(LifecycleConflict);
-  expect((await db`SELECT revision FROM agent_templates WHERE id=${created.id}`)[0].revision).toBe(3);
+  expect(await rollbackTemplate(ownerId, created.id, { targetRevision: 1, expectedRevision: 3 })).toEqual({ id: created.id, revision: 4 });
+  const [current] = await db`SELECT name,instructions,avatar,model_id,revision,snapshot_name FROM agent_templates WHERE id=${created.id}`;
+  expect(current).toMatchObject({ name: "Developer", instructions: "Version one", avatar: { shape: 1, color: 2, face: 3 }, model_id: "model-v1", revision: 4, snapshot_name: null });
+  expect((await listTemplateRevisions(ownerId, created.id)).map((row:any) => row.revision)).toEqual([4, 3, 2, 1]);
+
+  await expect(rollbackTemplate(ownerId, created.id, { targetRevision: 2, expectedRevision: 3 })).rejects.toBeInstanceOf(LifecycleConflict);
+  await expect(rollbackTemplate(otherId, created.id, { targetRevision: 2, expectedRevision: 4 })).rejects.toBeInstanceOf(LifecycleConflict);
+  expect((await db`SELECT revision FROM agent_templates WHERE id=${created.id}`)[0].revision).toBe(4);
 });
 
 test("snapshot activation records a restorable revision without contacting a machine", async () => {

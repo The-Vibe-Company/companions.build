@@ -31,11 +31,11 @@ export async function migrateDelivery(sql = db) {
 async function portableTemplates(ownerId: string, companionId: string, ids: string[], sql:any=db) {
   const [{ exists }] = await db`SELECT to_regclass('public.agent_templates') IS NOT NULL AS exists`;
   if (!exists || ids.length === 0) return [];
-  const templates: Array<{ sourceTemplateId:string;sourceCompanionId:string|null;skillBundleId:string|null;name: string; instructions: string; avatar: unknown; maxChildren: number }> = [];
+  const templates: Array<{ sourceTemplateId:string;sourceCompanionId:string|null;skillBundleId:string|null;name: string; instructions: string; avatar: unknown; modelId:string|null; maxChildren: number }> = [];
   for (const id of ids) {
-    const [row] = await sql`SELECT t.id,t.name,t.instructions,t.avatar,t.source_companion_id,t.skill_bundle_id,p.max_children FROM agent_templates t JOIN template_permissions p ON p.template_id=t.id AND p.parent_id=${companionId} WHERE t.id=${id} AND t.owner_id=${ownerId}`;
+    const [row] = await sql`SELECT t.id,t.name,t.instructions,t.avatar,t.model_id,t.source_companion_id,t.skill_bundle_id,p.max_children FROM agent_templates t JOIN template_permissions p ON p.template_id=t.id AND p.parent_id=${companionId} WHERE t.id=${id} AND t.owner_id=${ownerId}`;
     if (!row) throw new DeliveryConflict("A selected template is unavailable.");
-    templates.push({ sourceTemplateId:row.id,sourceCompanionId:row.source_companion_id,skillBundleId:row.skill_bundle_id,name: row.name, instructions: row.instructions, avatar: row.avatar ?? null, maxChildren: row.max_children });
+    templates.push({ sourceTemplateId:row.id,sourceCompanionId:row.source_companion_id,skillBundleId:row.skill_bundle_id,name: row.name, instructions: row.instructions, avatar: row.avatar ?? null, modelId:row.model_id??null, maxChildren: row.max_children });
   }
   return templates;
 }
@@ -96,11 +96,11 @@ async function copyPortableTemplates(sql: any, ownerId: string, companionId: str
   const [{ exists }] = await sql`SELECT to_regclass('public.agent_templates') IS NOT NULL AS exists`;
   if (!exists || !Array.isArray(templates)) return;
   for (const raw of templates) {
-    const profile = z.object({ sourceTemplateId:z.string().uuid(),name: z.string().min(1).max(80), instructions: z.string().max(20_000), avatar: z.unknown().nullable(), maxChildren: z.number().int().min(1).max(20) }).parse(raw);
+    const profile = z.object({ sourceTemplateId:z.string().uuid(),name: z.string().min(1).max(80), instructions: z.string().max(20_000), avatar: z.unknown().nullable(), modelId:z.string().min(1).max(200).nullable().optional(), maxChildren: z.number().int().min(1).max(20) }).parse(raw);
     const [exported]=await sql`SELECT bundle_id FROM portable_skill_exports WHERE delivery_id=${deliveryId} AND target_kind='delivery_template' AND source_template_id=${profile.sourceTemplateId} AND status='ready'`;
     const templateId = crypto.randomUUID();
-    await sql`INSERT INTO agent_templates (id,owner_id,name,instructions,avatar,snapshot_name,source_companion_id,skill_bundle_id) VALUES (${templateId},${ownerId},${profile.name},${profile.instructions},${profile.avatar},NULL,NULL,${exported?.bundle_id??null})`;
-    await sql`INSERT INTO template_revisions(template_id,revision,owner_id,name,instructions,avatar,snapshot_name,source_companion_id,skill_bundle_id) VALUES(${templateId},1,${ownerId},${profile.name},${profile.instructions},${profile.avatar},NULL,NULL,${exported?.bundle_id??null}) ON CONFLICT DO NOTHING`;
+    await sql`INSERT INTO agent_templates (id,owner_id,name,instructions,avatar,model_id,snapshot_name,source_companion_id,skill_bundle_id) VALUES (${templateId},${ownerId},${profile.name},${profile.instructions},${profile.avatar},${profile.modelId??null},NULL,NULL,${exported?.bundle_id??null})`;
+    await sql`INSERT INTO template_revisions(template_id,revision,owner_id,name,instructions,avatar,model_id,snapshot_name,source_companion_id,skill_bundle_id) VALUES(${templateId},1,${ownerId},${profile.name},${profile.instructions},${profile.avatar},${profile.modelId??null},NULL,NULL,${exported?.bundle_id??null}) ON CONFLICT DO NOTHING`;
     await sql`INSERT INTO template_permissions (parent_id,template_id,max_children) VALUES (${companionId},${templateId},${profile.maxChildren})`;
   }
 }

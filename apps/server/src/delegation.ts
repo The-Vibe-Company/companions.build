@@ -17,8 +17,8 @@ export async function spawnChild(ownerId:string,parentId:string,parentRunId:stri
   const [count]=await tx`SELECT count(*)::int AS count FROM companions WHERE parent_id=${parentId} AND template_id=${value.templateId} AND retired_at IS NULL`;
   if(count.count>=template.max_children)throw new LifecycleConflict('The authorized child limit has been reached.');
   const childId=crypto.randomUUID(),runId=crypto.randomUUID();
-  await tx`INSERT INTO companions(id,owner_id,name,instructions,avatar,provider,create_key,agent_secret,parent_id,temporary,prepare_requested,template_id,template_revision,snapshot_name)
-   VALUES(${childId},${ownerId},${template.name},${template.instructions},${template.avatar},${parent.provider},${crypto.randomUUID()},${encrypt(randomBytes(32).toString('hex'))},${parentId},true,true,${template.id},${template.revision},${template.snapshot_name})`;
+  await tx`INSERT INTO companions(id,owner_id,name,instructions,avatar,model_id,provider,create_key,agent_secret,parent_id,temporary,prepare_requested,template_id,template_revision,snapshot_name)
+   VALUES(${childId},${ownerId},${template.name},${template.instructions},${template.avatar},${template.model_id},${parent.provider},${crypto.randomUUID()},${encrypt(randomBytes(32).toString('hex'))},${parentId},true,true,${template.id},${template.revision},${template.snapshot_name})`;
   await tx`INSERT INTO runs(id,companion_id,client_message_id,content,lane,source) VALUES(${runId},${childId},${commandId},${value.prompt},'background','delegation')`;
   await tx`INSERT INTO delegations(id,parent_id,parent_run_id,target_id,run_id) VALUES(${commandId},${parentId},${parentRunId},${childId},${runId})`;
   return {companionId:childId,runId};

@@ -14,7 +14,7 @@ const owned:string[]=[];
 beforeAll(async()=>{await migrate();await migrateLifecycle();await migrateDeliverySkills();await db`INSERT INTO "user"(id,name,email,"emailVerified") VALUES(${other},'Other','lifecycle-other@example.test',true) ON CONFLICT DO NOTHING`;});
 afterEach(async()=>{for(const id of owned.splice(0)){await db`UPDATE delegations SET finished_at=now() WHERE parent_id=${id}`;await db`UPDATE template_candidates SET status='failed' WHERE source_companion_id IN (SELECT id FROM companions WHERE parent_id=${id}) AND status IN ('queued','capturing','ready')`;await db`UPDATE runs SET status='cancelled',finished_at=now() WHERE companion_id=${id} AND status IN ('queued','preparing','running','needs_input')`;await db`UPDATE companions SET retired_at=now(),prepare_requested=false,desktop_taken=false,desktop_paused_at=null WHERE id=${id} OR parent_id=${id}`;}});
 async function parent(ownerId=owner,provider:'local'|'box'='box'){const value=await createCompanion(ownerId,{name:'Parent',instructions:'',provider});owned.push(value.id);await db`UPDATE companions SET prepare_requested=false WHERE id=${value.id}`;return value.id as string;}
-async function setup(){const id=await parent();const template=await saveTemplate(owner,{name:'Developer',instructions:'Use the supplied brief.'});await allowTemplate(owner,id,{templateId:template.id,maxChildren:2});return {id,template};}
+async function setup(){const id=await parent();const template=await saveTemplate(owner,{name:'Developer',instructions:'Use the supplied brief.',modelId:'specialist-model'});await allowTemplate(owner,id,{templateId:template.id,maxChildren:2});return {id,template};}
 async function leader(){const sql=await acquireExecutor();if(!sql)throw Error('Test executor lock unavailable');return {sql,async close(){await sql`SELECT pg_advisory_unlock(721440139)`;sql.release();}};}
 function fake(desktop=false){
  const calls:string[]=[];let snapshot:'missing'|'pending'|'ready'|'failed'='missing';
@@ -46,7 +46,7 @@ test('concurrent spawns obey the parent limit and children cannot create childre
  const children=attempts.filter(item=>item.status==='fulfilled').map(item=>(item as PromiseFulfilledResult<any>).value);
  expect(children).toHaveLength(2);expect(attempts.filter(item=>item.status==='rejected')).toHaveLength(6);
  const [child]=await db`SELECT * FROM companions WHERE id=${children[0].companionId}`;
- expect(child).toMatchObject({parent_id:id,temporary:true,prepare_requested:true,template_revision:1});
+ expect(child).toMatchObject({parent_id:id,temporary:true,prepare_requested:true,template_revision:1,model_id:'specialist-model'});
  await expect(spawnChild(owner,child.id,null,crypto.randomUUID(),{templateId:template.id,prompt:'More'})).rejects.toBeInstanceOf(LifecycleConflict);
  await expect(allowTemplate(owner,child.id,{templateId:template.id,maxChildren:2})).rejects.toBeInstanceOf(LifecycleConflict);
  expect((await db`SELECT agent_secret FROM companions WHERE parent_id=${id}`)[0].agent_secret).not.toBe((await db`SELECT agent_secret FROM companions WHERE id=${id}`)[0].agent_secret);
@@ -57,7 +57,7 @@ test('duplicate spawn returns the same child and pins its template revision',asy
  const first=await spawnChild(owner,id,null,command,input);expect(await spawnChild(owner,id,null,command,input)).toEqual(first);
  await expect(spawnChild(owner,id,null,command,{...input,prompt:'Changed'})).rejects.toBeInstanceOf(LifecycleConflict);
  await saveTemplate(owner,{id:template.id,expectedRevision:1,name:'Changed',instructions:'New brief'});
- expect((await db`SELECT instructions,template_revision FROM companions WHERE id=${first.companionId}`)[0]).toMatchObject({instructions:'Use the supplied brief.',template_revision:1});
+ expect((await db`SELECT instructions,model_id,template_revision FROM companions WHERE id=${first.companionId}`)[0]).toMatchObject({instructions:'Use the supplied brief.',model_id:'specialist-model',template_revision:1});
 });
 
 test('open desktop persists a wake without chat; confirmed takeover survives browser closure and releases',async()=>{
@@ -148,7 +148,7 @@ test('concurrent promotion publishes once and its revision survives source retir
   await progressLifecycle(lock.sql,{deliverySkills:f.deliverySkills},f.machine);
   f.setSnapshot('ready');await progressLifecycle(lock.sql,{deliverySkills:f.deliverySkills},f.machine);
   expect(f.calls.filter(call=>call.startsWith('snapshot companions-'))).toHaveLength(1);
-  expect((await db`SELECT revision,snapshot_name,source_companion_id FROM agent_templates WHERE id=${template.id}`)[0]).toMatchObject({revision:2,snapshot_name:'companions-'+commands[winnerIndex],source_companion_id:winner.companionId});
+  expect((await db`SELECT revision,snapshot_name,source_companion_id,model_id FROM agent_templates WHERE id=${template.id}`)[0]).toMatchObject({revision:2,snapshot_name:'companions-'+commands[winnerIndex],source_companion_id:winner.companionId,model_id:'specialist-model'});
   expect(await db`SELECT revision FROM template_revisions WHERE template_id=${template.id} AND revision=2`).toHaveLength(1);
   expect((await db`SELECT status FROM template_candidates WHERE template_id=${template.id}`)[0].status).toBe('activated');
 
@@ -159,8 +159,8 @@ test('concurrent promotion publishes once and its revision survives source retir
   expect(retired.retired_at).not.toBeNull();
 
   const replica=await spawnChild(owner,id,null,crypto.randomUUID(),{templateId:template.id,prompt:'Use promoted environment'});
-  const [fresh]=await db`SELECT id,template_revision,snapshot_name,create_key,agent_secret,box_id,endpoint_secret,skills_staged_hash FROM companions WHERE id=${replica.companionId}`;
-  expect(fresh).toMatchObject({template_revision:2,snapshot_name:'companions-'+commands[winnerIndex],box_id:null,endpoint_secret:null,skills_staged_hash:null});
+  const [fresh]=await db`SELECT id,template_revision,snapshot_name,create_key,agent_secret,box_id,endpoint_secret,skills_staged_hash,model_id FROM companions WHERE id=${replica.companionId}`;
+  expect(fresh).toMatchObject({template_revision:2,snapshot_name:'companions-'+commands[winnerIndex],box_id:null,endpoint_secret:null,skills_staged_hash:null,model_id:'specialist-model'});
   expect(fresh.id).not.toBe(retired.id);expect(fresh.create_key).not.toBe(retired.create_key);expect(fresh.agent_secret).not.toBe(retired.agent_secret);
   const [promoted]=await db`SELECT source_companion_id FROM template_revisions WHERE template_id=${template.id} AND revision=2`;
   expect(promoted.source_companion_id).toBe(winner.companionId);

@@ -69,7 +69,7 @@ test("two clients receive isolated copies from one source without history, files
   expect(await db`SELECT id FROM attachments WHERE companion_id=${source.id}`).toHaveLength(1);
   expect(await selectedPlugins(sender, source.id)).toHaveLength(1);
 
-  const template = await saveTemplate(sender, { name: "Researcher", instructions: "Initial template", avatar: { shape: 1, color: 2, face: 3 } });
+  const template = await saveTemplate(sender, { name: "Researcher", instructions: "Initial template", avatar: { shape: 1, color: 2, face: 3 }, modelId: "research-model" });
   await allowTemplate(sender, source.id, { templateId: template.id, maxChildren: 2 });
   setDeliveryMailerForTests(async () => {});
   const [firstDelivery, secondDelivery] = await Promise.all([
@@ -96,8 +96,9 @@ test("two clients receive isolated copies from one source without history, files
   const secondTemplates = await listTemplates(secondOwner);
   expect(firstTemplates).toHaveLength(1);
   expect(secondTemplates).toHaveLength(1);
-  expect(firstTemplates[0]).toMatchObject({ name: "Researcher", instructions: "Initial template", sourceCompanionId: null, hasSnapshot: false, revision: 1 });
-  expect(secondTemplates[0]).toMatchObject({ name: "Researcher", instructions: "Initial template", sourceCompanionId: null, hasSnapshot: false, revision: 1 });
+  expect(firstTemplates[0]).toMatchObject({ name: "Researcher", instructions: "Initial template", modelId: "research-model", sourceCompanionId: null, hasSnapshot: false, revision: 1 });
+  expect(secondTemplates[0]).toMatchObject({ name: "Researcher", instructions: "Initial template", modelId: "research-model", sourceCompanionId: null, hasSnapshot: false, revision: 1 });
+  expect((await listTemplateRevisions(firstOwner, firstTemplates[0].id))[0]).toMatchObject({ revision: 1, modelId: "research-model" });
   expect(firstTemplates[0].id).not.toBe(secondTemplates[0].id);
   expect(firstTemplates[0].id).not.toBe(template.id);
   expect(secondTemplates[0].id).not.toBe(template.id);

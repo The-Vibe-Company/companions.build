@@ -60,6 +60,7 @@ const CreateTeamWizard = lazy(() => import("@/components/CreateTeamWizard").then
 import { ProviderMark } from "@/components/ProviderMark";
 import { SettingsSheet, type SettingsSheetHandle } from "@/components/SettingsSheet";
 import { LandingPage } from "@/components/LandingPage";
+import { LegalPage, type LegalPageKind } from "@/components/LegalPage";
 
 const LIST_INTERVAL = 8_000;
 const MAX_CHAT_FILES = 5;
@@ -67,6 +68,12 @@ const MAX_CHAT_FILE_BYTES = 10 * 1024 * 1024;
 
 function selectedIdFromPath() {
   return window.location.pathname.match(/^\/companions\/([^/]+)$/)?.[1] ?? null;
+}
+
+function legalPageFromPath(pathname = window.location.pathname): LegalPageKind | null {
+  if (/^\/privacy\/?$/.test(pathname)) return "privacy";
+  if (/^\/terms\/?$/.test(pathname)) return "terms";
+  return null;
 }
 
 function readableDate(value: string) {
@@ -505,6 +512,9 @@ function LoadingApp() {
 }
 
 export function App() {
+  const publicLegalPage = legalPageFromPath();
+  const publicHomepage = /^\/about\/?$/.test(window.location.pathname);
+  const publicRoute = Boolean(publicLegalPage || publicHomepage);
   const [authRequired, setAuthRequired] = useState(false);
   const [user, setUser] = useState<AccountUser | null>(null);
   const [currentPath, setCurrentPath] = useState(window.location.pathname);
@@ -599,7 +609,7 @@ export function App() {
     }
   }, [handleApiError]);
 
-  useEffect(() => { void bootstrap(); }, [bootstrap]);
+  useEffect(() => { if (!publicRoute) void bootstrap(); }, [bootstrap, publicRoute]);
 
   useEffect(() => {
     const onPopState = (event: PopStateEvent) => {
@@ -671,10 +681,10 @@ export function App() {
   }, [loading, selectedId, authRequired, loadDetail, loadList]);
 
   useEffect(() => {
-    if (authRequired) return;
+    if (authRequired || publicRoute) return;
     const timer = window.setInterval(() => { void loadList(); }, LIST_INTERVAL);
     return () => window.clearInterval(timer);
-  }, [authRequired, loadList]);
+  }, [authRequired, loadList, publicRoute]);
 
   function selectCompanion(id: string) {
     const select = () => {
@@ -732,6 +742,8 @@ export function App() {
     setCurrentPath("/login");
   }
 
+  if (publicLegalPage) return <LegalPage kind={publicLegalPage} />;
+  if (publicHomepage) return <LandingPage onLogin={openLogin} />;
   if (authRequired) return currentPath === "/" ? <LandingPage onLogin={openLogin} /> : <AccessGate />;
   if (loading) return <LoadingApp />;
   if (!config || !user) {

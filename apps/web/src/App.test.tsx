@@ -40,6 +40,25 @@ describe("first Companion flow", () => {
 
   afterEach(() => vi.unstubAllGlobals());
 
+  it.each([
+    ["/about", "Your AI companions. Give them something to do."],
+    ["/privacy", "Privacy Policy"],
+    ["/terms", "Terms of Use"],
+  ])("serves %s publicly without an authentication request", (path, heading) => {
+    vi.useFakeTimers();
+    window.history.replaceState({}, "", path);
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    try {
+      render(<App />);
+      expect(screen.getByRole("heading", { name: heading })).toBeInTheDocument();
+      act(() => vi.advanceTimersByTime(9_000));
+      expect(fetchMock).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("removes a deleted companion from navigation and returns home", async () => {
     window.history.replaceState({}, "", "/companions/ada");
     const ready = {...companion,status:"ready"};

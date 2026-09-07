@@ -10,16 +10,17 @@ const people: Array<{ name: string; avatar: CompanionAvatarValue }> = [
 ];
 
 const stories = [
-  { name: "June", job: "inbox", avatar: { shape: 3, color: 7, face: 0 }, did: "Reads support email every morning, drafts replies in your tone, and brings you the ones that need a decision.", who: "For an indie app maker" },
-  { name: "Nova", job: "your app", avatar: { shape: 1, color: 2, face: 0 }, did: "Watches for errors, fixes small ones, opens a pull request for the rest, and explains the change like a colleague would.", who: "For a small product team" },
-  { name: "Bo", job: "the shop", avatar: { shape: 6, color: 4, face: 1 }, did: "Answers customer questions, brings refunds to you for approval, and prepares a Friday summary of what sold.", who: "For an online shop" },
+  { name: "June", job: "a clearer inbox", avatar: { shape: 3, color: 7, face: 0 }, did: "Summarizes the messages that matter and drafts replies for you to review. Make it a morning routine.", who: "“Catch me up on my emails.”" },
+  { name: "Nova", job: "a head start", avatar: { shape: 1, color: 2, face: 0 }, did: "Researches a topic, compares options, and brings back a shortlist with sources you can check.", who: "“Find a place for our next weekend away.”" },
+  { name: "Bo", job: "ideas into words", avatar: { shape: 6, color: 4, face: 1 }, did: "Turns scattered notes into a first draft. A document, a presentation outline, or a post, ready for your edits.", who: "“Turn these notes into something I can share.”" },
 ] satisfies Array<{ name: string; job: string; avatar: CompanionAvatarValue; did: string; who: string }>;
 
 const questions = [
+  ["What is an AI companion?", "An AI teammate you create and talk to in chat. It can use the apps you connect to do tasks, keep context between conversations, and run routines you set."],
   ["Do I need to know how to code?", "No. Give your companion a name and a job in a sentence. Everything else is a conversation."],
   ["Can it do things I didn't ask for?", "It works with the accounts you explicitly grant. Its activity is written down, and you can stop active work."],
-  ["What are specialists?", "Reusable helpers a companion can bring in for a specific job, such as research, writing, or checking."],
-  ["Where does it run?", "On a persistent cloud computer, or locally when that option is available in your deployment."],
+  ["Can I give it a regular task?", "Yes. Set a routine for a daily email summary, a weekly report, or another recurring task. Your companion runs it on the schedule you choose."],
+  ["Where does it run?", "Your companion has its own computer in the cloud. It can work on your tasks and run scheduled routines even when your laptop is closed."],
   ["Who can join the private beta?", "Access is currently limited to invited, verified email addresses."],
 ];
 
@@ -36,8 +37,8 @@ export function LandingPage({ onLogin }: { onLogin: () => void }) {
     const description = document.querySelector<HTMLMetaElement>('meta[name="description"]');
     const previousTitle = document.title;
     const previousDescription = description?.content;
-    document.title = "companions.build — Your persistent AI teammate";
-    if (description) description.content = "Name an AI companion, give it a job, and work together from one durable chat.";
+    document.title = "companions.build — Your AI companions";
+    if (description) description.content = "AI companions that work with your apps to research, write, organize, and handle everyday tasks.";
     return () => {
       document.title = previousTitle;
       if (description && previousDescription != null) description.content = previousDescription;
@@ -61,38 +62,38 @@ export function LandingPage({ onLogin }: { onLogin: () => void }) {
     <section className="landing-hero">
       <div className="landing-hero-copy">
         <div className="landing-badge"><i />Open source · Private beta</div>
-        <h1>A companion for whatever’s on your mind.</h1>
-        <p>A little help with everyday tasks, big ideas, and everything in between. Give your companion a name, tell it what you need, and take it from there.</p>
+        <h1><span>Your AI companions.</span>{" "}<span>Give them something to do.</span></h1>
+        <p>Create your own AI teammates to research, write, organize, and handle everyday tasks. They work with your apps, remember your preferences, and follow the routines you set.</p>
         <div className="landing-hero-action"><Cta onClick={onLogin} /><span>Invitation required</span></div>
-        <div className="landing-promises"><span>Uses only granted accounts</span><span>Every step written down</span><span>Take the mouse any time</span></div>
+        <div className="landing-promises"><span>Your apps, connected</span><span>Your preferences, remembered</span><span>Your routines, taken care of</span></div>
       </div>
-      <div className="landing-lineup" aria-label="A team of Companions">
-        <div className="landing-bubble landing-bubble--companion">Two errors overnight. I fixed a typo and opened a pull request for the other. Review it?</div>
-        <div className="landing-bubble landing-bubble--person">I’ll read it first.</div>
+      <div className="landing-lineup" aria-label="Example conversation with your companions">
+        <div className="landing-bubble landing-bubble--companion">I found three places for your weekend away, all within budget. Here’s how they compare.</div>
+        <div className="landing-bubble landing-bubble--person">Perfect. Show me your shortlist.</div>
         {people.map((person, index) => <CompanionAvatar key={person.name} {...person} size={[130, 210, 150][index]} className={`landing-person landing-person--${index + 1}`} />)}
       </div>
     </section>
 
-    <div className="landing-tools"><span>Works with the tools you already use</span><div>{[["linear", "Linear"], ["github", "GitHub"], ["slack", "Slack"], ["gmail", "Gmail"]].map(([provider, name]) => <span key={provider}><ProviderMark provider={provider} name={name} />{name}</span>)}</div></div>
+    <div className="landing-tools"><span>Works with the tools you already use</span><div>{[["gmail", "Gmail"], ["notion", "Notion"], ["slack", "Slack"], ["github", "GitHub"]].map(([provider, name]) => <span key={provider}><ProviderMark provider={provider} name={name} />{name}</span>)}</div></div>
 
     <section className="landing-section" id="how-it-works">
       <h2>Three steps to your first companion.</h2>
       <div className="landing-steps">
-        <article><div className="landing-step-art landing-step-faces">{people.map(person => <CompanionAvatar key={person.name} {...person} size={84} />)}</div><span>1</span><h3>Name it</h3><p>Pick a face, a name, and one sentence about the job. That is the whole setup.</p></article>
-        <article><div className="landing-step-art landing-app-grid">{[["linear", "Linear"], ["github", "GitHub"], ["slack", "Slack"], ["gmail", "Gmail"]].map(([provider, name]) => <span key={provider}><ProviderMark provider={provider} name={name} /></span>)}</div><span>2</span><h3>Hand over your tools</h3><p>Connect the accounts it may use. Choose each one, and take access back any time.</p></article>
-        <article><div className="landing-step-art"><div className="landing-working"><CompanionAvatar name="Pip" avatar={{ shape: 2, color: 7, face: 1 }} size={30} />Pip is on it <i /><i /><i /></div></div><span>3</span><h3>Let it work</h3><p>Ask in chat or set a schedule. It can bring in specialists when a job needs more hands.</p></article>
+        <article><div className="landing-step-art landing-step-faces">{people.map(person => <CompanionAvatar key={person.name} {...person} size={84} />)}</div><span>1</span><h3>Name it</h3><p>Pick a face and a name. Tell your companion what you’d like help with.</p></article>
+        <article><div className="landing-step-art landing-app-grid">{[["gmail", "Gmail"], ["notion", "Notion"], ["slack", "Slack"], ["github", "GitHub"]].map(([provider, name]) => <span key={provider}><ProviderMark provider={provider} name={name} /></span>)}</div><span>2</span><h3>Connect your apps</h3><p>Choose the accounts your companion can use. You decide what to share.</p></article>
+        <article><div className="landing-step-art"><div className="landing-working"><CompanionAvatar name="Pip" avatar={{ shape: 2, color: 7, face: 1 }} size={30} />Pip is on it <i /><i /><i /></div></div><span>3</span><h3>Let it work</h3><p>Send a message for a one-off task, or set a routine for the things you need regularly.</p></article>
       </div>
     </section>
 
     <section className="landing-stories" id="stories"><div>
-      <h2>What you can ask a companion to do.</h2>
-      <p>Three ways to set up one persistent teammate.</p>
+      <h2>Start with something on your list.</h2>
+      <p>A little admin. A new idea. Something you’ve been meaning to get to.</p>
       <div className="landing-story-grid">{stories.map(story => <article key={story.name}><CompanionAvatar name={story.name} avatar={story.avatar} size={72} /><div><h3>{story.name} <span>· {story.job}</span></h3><p>{story.did}</p></div><small>{story.who}</small></article>)}</div>
     </div></section>
 
     <section className="landing-control">
-      <div><h2>You stay in charge.</h2><p>Companions work with the access you grant. You can follow durable activity, stop active work, and open the computer to see what is happening.</p></div>
-      <div className="landing-question"><header><CompanionAvatar name="Bo" avatar={{ shape: 6, color: 4, face: 1 }} size={36} /><strong>Bo needs you</strong></header><p>Two customers asked for refunds this morning. Should I approve both, or do you want to look first?</p><div><span>Approve both</span><span>Let me look</span></div></div>
+      <div><h2>You stay in charge.</h2><p>Choose which accounts to connect, see what your companion is doing, and stop a task whenever you need. You can open its computer and take over, too.</p></div>
+      <div className="landing-question"><header><CompanionAvatar name="Bo" avatar={{ shape: 6, color: 4, face: 1 }} size={36} /><strong>Bo needs you</strong></header><p>For your weekend away, would you prefer somewhere by the sea or in the mountains?</p><div><span>By the sea</span><span>In the mountains</span></div></div>
     </section>
 
     <section className="landing-faq" id="questions"><h2>Questions people ask first.</h2>{questions.map(([question, answer]) => <details key={question}><summary>{question}<span aria-hidden="true">+</span></summary><p>{answer}</p></details>)}</section>

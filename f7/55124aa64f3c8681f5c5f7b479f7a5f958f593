@@ -1,0 +1,23 @@
+scripts/live-box-canary.ts
+  s_f946242dcf6ba9::t_0b44e056e53994 5,12-13,16-18,90
+scripts/live-box-desktop-wait.test.ts
+  s_f946242dcf6ba9::t_dce3b30303a3a9 1-35
+scripts/live-box-desktop-wait.ts
+  s_f946242dcf6ba9::t_790d23520a3389 1-30
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "f755124aa64f3c8681f5c5f7b479f7a5f958f593",
+  "prompts": {},
+  "sessions": {
+    "s_f946242dcf6ba9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a06de4-a8a5-7cd3-b713-2a8d451f7200",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "StanGirard <stan@quivr.app>"
+    }
+  }
+}

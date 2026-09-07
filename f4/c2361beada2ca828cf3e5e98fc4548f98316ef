@@ -1,0 +1,23 @@
+docs/completion-audit.md
+  s_f946242dcf6ba9::t_e1723c2816995e 47-51,82-87
+docs/measurements/routine-chat-gateway-v12-2026-09-07.json
+  s_f946242dcf6ba9::t_1bbe3a321dea3e 1-43
+docs/v0.md
+  s_f946242dcf6ba9::t_0e7becfab51d0c 168
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "f4c2361beada2ca828cf3e5e98fc4548f98316ef",
+  "prompts": {},
+  "sessions": {
+    "s_f946242dcf6ba9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a06de4-a8a5-7cd3-b713-2a8d451f7200",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "StanGirard <stan@quivr.app>"
+    }
+  }
+}

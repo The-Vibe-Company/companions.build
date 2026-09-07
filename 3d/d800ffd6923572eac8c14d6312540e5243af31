@@ -1,0 +1,35 @@
+scripts/test-server.ts
+  s_9604d1144930ab::t_60f538119fcec4 5-11,14
+scripts/check_test.py
+  s_9604d1144930ab::t_60f538119fcec4 1-31
+scripts/verify_test.py
+  s_9604d1144930ab::t_345cedd01d2e7d 37-38,55-56
+  s_9604d1144930ab::t_e73b3ca858f000 14-17,71-75
+  s_9604d1144930ab::t_60f538119fcec4 1-13,18-36,39-54,57-70,76-82
+scripts/validation_evidence.py
+  s_9604d1144930ab::t_e73b3ca858f000 1-22,26-27
+  s_9604d1144930ab::t_b3692734639034 23-25
+scripts/check.py
+  s_9604d1144930ab::t_60f538119fcec4 1-33
+scripts/verify.py
+  s_9604d1144930ab::t_e73b3ca858f000 3,18,60-74,237,291,298
+  s_9604d1144930ab::t_ebd145f04f9d29 1,9-10,12,16,24-38,40-59,75-102,104-106,108-115,117-234,236,243-257,262-290,292-297,299-328
+  s_9604d1144930ab::t_d313566f686184 238-242
+  s_9604d1144930ab::t_4e7f89978bacbf 39,235,258-261
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "3dd800ffd6923572eac8c14d6312540e5243af31",
+  "prompts": {},
+  "sessions": {
+    "s_9604d1144930ab": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a07d28-c099-7e50-b6d2-edf218c193d5",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "StanGirard <stan@quivr.app>"
+    }
+  }
+}

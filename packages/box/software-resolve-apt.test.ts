@@ -48,7 +48,7 @@ describe("trusted apt resolver", () => {
     const resolved = await resolveAptSoftware([{ name: "portable-app", version: "1.0-1" }], {
       platform: "linux", getuid: () => 0, builder: true, directory: f.directory, baseStatusPath: f.status, run: f.run,
       base: { family: "ubuntu", suite: "noble", architecture: "amd64" },
-      repository: { family: "ubuntu", snapshot: "20260907T000000Z", architecture: "amd64", keyring: new Uint8Array([1, 2]), sources: [{ origin: "https://snapshot.ubuntu.com/ubuntu", suite: "noble", components: ["main"], inReleaseSha256: createHash("sha256").update(f.release).digest("hex") }] },
+      repository: { family: "ubuntu", snapshot: "20260907T000000Z", architecture: "amd64", keyring: new Uint8Array([1, 2]), sources: [{ origin: "https://snapshot.ubuntu.com/ubuntu/20260907T000000Z", suite: "noble", components: ["main"], inReleaseSha256: createHash("sha256").update(f.release).digest("hex") }] },
     });
     expect(resolved.apt.roots).toEqual(["portable-app:amd64=1.0-1"]);
     expect(resolved.apt.packages.map(item => item.id)).toEqual(["portable-app:amd64=1.0-1", "portable-helper:amd64=1.0-1"]);
@@ -56,15 +56,16 @@ describe("trusted apt resolver", () => {
     expect(resolved.baseDependencies).toEqual([{ id: "libc6:amd64=2.39-0ubuntu8", name: "libc6", version: "2.39-0ubuntu8", architecture: "amd64" }]);
     expect(resolved.aptArtifacts).toHaveLength(2);
     const apt = f.commands.filter(command => command[0] === "apt-get");
-    expect(apt.every(command => command.includes("--snapshot") && command.includes("20260907T000000Z"))).toBe(true);
+    expect(apt.every(command => !command.includes("--snapshot"))).toBe(true);
     expect(apt.flat().some(arg => /allow-unauthenticated|trusted=yes/i.test(arg))).toBe(false);
     expect(apt.flat()).toContain("Dir::Etc::netrc=-");
   });
 
   test("fails closed outside the builder and on release or base drift", async () => {
     const f = await fixture();
-    const common: any = { platform: "linux", getuid: () => 0, builder: true, directory: f.directory, baseStatusPath: f.status, run: f.run, base: { family: "ubuntu", suite: "noble", architecture: "amd64" }, repository: { family: "ubuntu", snapshot: "20260907T000000Z", architecture: "amd64", keyring: new Uint8Array([1]), sources: [{ origin: "https://snapshot.ubuntu.com/ubuntu", suite: "noble", components: ["main"], inReleaseSha256: "0".repeat(64) }] } };
+    const common: any = { platform: "linux", getuid: () => 0, builder: true, directory: f.directory, baseStatusPath: f.status, run: f.run, base: { family: "ubuntu", suite: "noble", architecture: "amd64" }, repository: { family: "ubuntu", snapshot: "20260907T000000Z", architecture: "amd64", keyring: new Uint8Array([1]), sources: [{ origin: "https://snapshot.ubuntu.com/ubuntu/20260907T000000Z", suite: "noble", components: ["main"], inReleaseSha256: "0".repeat(64) }] } };
     await expect(resolveAptSoftware([{ name: "portable-app", version: "1.0-1" }], { ...common, builder: false })).rejects.toThrow("software_apt_isolated_builder_required");
+    await expect(resolveAptSoftware([{ name: "portable-app", version: "1.0-1" }], { ...common, repository: { ...common.repository, sources: [{ ...common.repository.sources[0], origin: "https://archive.ubuntu.com/ubuntu" }] } })).rejects.toThrow("software_apt_snapshot_not_immutable");
     await expect(resolveAptSoftware([{ name: "portable-app", version: "1.0-1" }], common)).rejects.toThrow("software_apt_release_mismatch");
     await expect(resolveAptSoftware([{ name: "portable-app", version: "1.0-1" }], { ...common, base: { ...common.base, suite: "jammy" } })).rejects.toThrow("software_base_mismatch");
   });

@@ -1,0 +1,42 @@
+{
+  "date": "2026-09-07",
+  "status": "passed",
+  "scope": "read-only signed Ubuntu snapshot resolution and isolated clean-container installation",
+  "builder": {
+    "platform": "linux/amd64",
+    "image": "ubuntu@sha256:33ceb71981b602c1a7443a53469e4dba065f7503eab3078a2d7a57a2ab987517",
+    "observedDistribution": {
+      "family": "ubuntu",
+      "suite": "noble",
+      "architecture": "amd64",
+      "version": "24.04.4"
+    },
+    "bunToolImage": "oven/bun:1.4.2-debian@sha256:4f6e31d1a54d6a3dd312daef655fc998101b5043d52e12592ac293ef04b9bc73",
+    "ubuntuArchiveKeyringSha256": "80a36b0a6de2f69f49d2df75ef473ccde121e9e190b9ea01d20a4f63778d5c31"
+  },
+  "repository": {
+    "snapshot": "20240423T230000Z",
+    "origin": "https://snapshot.ubuntu.com/ubuntu/20240423T230000Z",
+    "suite": "noble",
+    "components": ["main", "universe"],
+    "inReleaseSha256": "b82f6477958d5470e2d77ffaaa16b8ef84015f811929775529eea8c1669ae512"
+  },
+  "requestedRoots": [{ "name": "hello", "version": "2.10-3build1" }],
+  "resolvedArtifacts": [{
+    "id": "hello:amd64=2.10-3build1",
+    "sha256": "e68cf4365b7aa9c4e2af4af6eee1710d6f967059b7b4af62786e8870d7366333",
+    "dependencies": []
+  }],
+  "baseDependencies": [{ "id": "libc6:amd64=2.39-0ubuntu8.8" }],
+  "observations": {
+    "aptSignatureVerification": true,
+    "inReleasePinMatched": true,
+    "packagesIndexShaMatchedDeb": true,
+    "dpkgIdentityAndVersionMatched": true,
+    "binaryExecuted": "/usr/bin/hello --version",
+    "mutableArchiveUsedForResolution": false,
+    "boxContacted": false,
+    "hostAptContacted": false
+  },
+  "command": "python3 scripts/test-portable-apt-canary.py"
+}

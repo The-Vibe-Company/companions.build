@@ -64,6 +64,7 @@ export async function resolveAptSoftware(roots: ExactAptRoot[], options: AptReso
   if (!tokenPattern.test(repository.family) || !tokenPattern.test(repository.architecture) || !snapshotPattern.test(repository.snapshot) || !repository.keyring.byteLength || repository.keyring.byteLength > 1024 * 1024 || !repository.sources.length) throw new Error("software_apt_repository_invalid");
   const sourcesConfig = repository.sources.map(source => ({ ...source, origin: safeOrigin(source.origin) }));
   if (sourcesConfig.some(source => !tokenPattern.test(source.suite) || !shaPattern.test(source.inReleaseSha256) || !source.components.length || new Set(source.components).size !== source.components.length || source.components.some(component => !tokenPattern.test(component)))) throw new Error("software_apt_repository_invalid");
+  if (sourcesConfig.some(source => !new URL(source.origin).pathname.split("/").includes(repository.snapshot))) throw new Error("software_apt_snapshot_not_immutable");
   if (new Set(sourcesConfig.map(source => `${source.origin}\0${source.suite}`)).size !== sourcesConfig.length) throw new Error("software_apt_repository_invalid");
   if (repository.family !== options.base.family || repository.architecture !== options.base.architecture || !sourcesConfig.some(source => source.suite === options.base.suite)) throw new Error("software_base_mismatch");
   if (!roots.length || roots.length > 32 || roots.some(root => !namePattern.test(root.name) || !versionPattern.test(root.version)) || new Set(roots.map(root => root.name)).size !== roots.length) throw new Error("software_apt_roots_invalid");
@@ -76,10 +77,10 @@ export async function resolveAptSoftware(roots: ExactAptRoot[], options: AptReso
     await Promise.all([mkdir(join(lists, "partial"), { recursive: true }), mkdir(join(archives, "partial"), { recursive: true })]);
     await Promise.all([chmod(directory, 0o755), chmod(lists, 0o755), chmod(archives, 0o755)]);
     await writeFile(keyring, repository.keyring, { mode: 0o644 });
-    await writeFile(sources, sourcesConfig.map(source => `Types: deb\nURIs: ${source.origin}\nSuites: ${source.suite}\nComponents: ${source.components.join(" ")}\nArchitectures: ${repository.architecture}\nSigned-By: ${keyring}\nSnapshot: ${repository.snapshot}\n`).join("\n"));
+    await writeFile(sources, sourcesConfig.map(source => `Types: deb\nURIs: ${source.origin}\nSuites: ${source.suite}\nComponents: ${source.components.join(" ")}\nArchitectures: ${repository.architecture}\nSigned-By: ${keyring}\n`).join("\n"));
     await cp(options.baseStatusPath ?? "/var/lib/dpkg/status", statusPath);
     const aptOptions = ["-o", `Dir::Etc::sourcelist=${sources}`, "-o", "Dir::Etc::sourceparts=-", "-o", "Dir::Etc::netrc=-", "-o", "Dir::Etc::netrcparts=-", "-o", "Dir::Etc::trusted=-", "-o", "Dir::Etc::trustedparts=-", "-o", `Dir::State::lists=${lists}`, "-o", `Dir::State::status=${statusPath}`, "-o", `Dir::Cache::archives=${archives}`, "-o", "Acquire::AllowInsecureRepositories=false", "-o", "Acquire::AllowDowngradeToInsecureRepositories=false", "-o", "APT::Install-Recommends=false"];
-    await execute(["apt-get", ...aptOptions, "--snapshot", repository.snapshot, "update"]);
+    await execute(["apt-get", ...aptOptions, "update"]);
     let indexBytes = 0;
     for (const file of await filesBelow(lists, "")) indexBytes += (await stat(file)).size;
     if (indexBytes > (options.maxIndexBytes ?? 256 * 1024 * 1024)) throw new Error("software_apt_indexes_too_large");
@@ -87,7 +88,7 @@ export async function resolveAptSoftware(roots: ExactAptRoot[], options: AptReso
     const releaseHashes = await Promise.all(releases.map(async file => createHash("sha256").update(await readFile(file)).digest("hex")));
     const expectedReleaseHashes = sourcesConfig.map(source => source.inReleaseSha256).sort();
     if (JSON.stringify(releaseHashes.sort()) !== JSON.stringify(expectedReleaseHashes)) throw new Error("software_apt_release_mismatch");
-    await execute(["apt-get", ...aptOptions, "--snapshot", repository.snapshot, "--download-only", "--reinstall", "--no-install-recommends", "--yes", "install", ...roots.map(root => `${root.name}=${root.version}`)]);
+    await execute(["apt-get", ...aptOptions, "--download-only", "--reinstall", "--no-install-recommends", "--yes", "install", ...roots.map(root => `${root.name}=${root.version}`)]);
     const debs = await filesBelow(archives, ".deb");
     if (debs.length > (options.maxPackages ?? 512)) throw new Error("software_apt_graph_too_large");
     let bytesTotal = 0;

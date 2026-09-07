@@ -1,0 +1,102 @@
+apps/server/src/companion-mail.sql
+  s_895cd30c8c0144::t_f61408b6a6db62 1-30
+apps/web/src/components/AutomationPanels.tsx
+  s_895cd30c8c0144::t_f61408b6a6db62 11-12,27-28,43,51,59,64,152,155-157,161,167,169,174
+apps/web/src/components/CreateCompanion.css
+  s_895cd30c8c0144::t_f61408b6a6db62 22
+apps/server/src/automations.sql
+  s_895cd30c8c0144::t_f61408b6a6db62 31-41,53-61,77-92
+apps/server/test/companion-mail.test.ts
+  s_895cd30c8c0144::t_f61408b6a6db62 1-194
+apps/server/test/mail-linux-acceptance.test.ts
+  s_895cd30c8c0144::t_f61408b6a6db62 1-87
+apps/web/src/components/SettingsSheet.tsx
+  s_895cd30c8c0144::t_f61408b6a6db62 2,29,35,165
+apps/server/src/runtime-product.ts
+  s_895cd30c8c0144::t_f61408b6a6db62 1,46-54
+apps/server/test/automations.test.ts
+  s_895cd30c8c0144::t_f61408b6a6db62 5,35-72
+  s_895cd30c8c0144::t_38d08f58adc0cb 73
+docs/specs/companion-mail.md
+  s_895cd30c8c0144::t_f61408b6a6db62 1-64
+apps/web/src/components/ProductPanels.test.tsx
+  s_895cd30c8c0144::t_f61408b6a6db62 5,9
+packages/control/agent.ts
+  s_895cd30c8c0144::t_f7e6bd295d1a73 17
+.env.example
+  s_895cd30c8c0144::t_f61408b6a6db62 70-73
+apps/server/src/api.ts
+  s_895cd30c8c0144::t_f61408b6a6db62 1,126-127,137,146-147
+apps/server/src/control-help.ts
+  s_895cd30c8c0144::t_f61408b6a6db62 5-9,13
+docs/v0.md
+  s_895cd30c8c0144::t_f61408b6a6db62 277-297
+apps/web/src/App.test.tsx
+  s_895cd30c8c0144::t_f61408b6a6db62 220,270,297,826,993
+apps/web/src/components/ProductPanels.tsx
+  s_895cd30c8c0144::t_f61408b6a6db62 7,85
+apps/web/src/components/MailPanel.css
+  s_895cd30c8c0144::t_f61408b6a6db62 1-113
+apps/server/src/executor.ts
+  s_895cd30c8c0144::t_f61408b6a6db62 1,395-403
+apps/server/test/control.test.ts
+  s_895cd30c8c0144::t_f61408b6a6db62 89-102
+apps/web/src/components/MailPanel.tsx
+  s_895cd30c8c0144::t_f61408b6a6db62 1-149
+docs/companions-build.md
+  s_895cd30c8c0144::t_f61408b6a6db62 746-753
+apps/server/src/store.ts
+  s_895cd30c8c0144::t_f7e6bd295d1a73 7
+apps/server/src/automations.ts
+  s_895cd30c8c0144::t_f61408b6a6db62 9,12-21,23-31,33,51-63,71-72,77-78,82,87-101,177-186,192-194
+apps/web/src/components/CreateCompanion.test.tsx
+  s_895cd30c8c0144::t_f61408b6a6db62 4,23,44-59,230
+packages/agent/src/scripted-model.ts
+  s_895cd30c8c0144::t_f61408b6a6db62 46-51
+apps/server/src/control-product.ts
+  s_895cd30c8c0144::t_f61408b6a6db62 1,22-26
+apps/server/test/companion-mail-auth.test.ts
+  s_895cd30c8c0144::t_f61408b6a6db62 1-26
+apps/web/src/components/MailPanel.test.tsx
+  s_895cd30c8c0144::t_f61408b6a6db62 1-59
+package.json
+  s_895cd30c8c0144::t_f61408b6a6db62 24,27,31-32,49-50
+apps/server/test/mail-control-authority.test.ts
+  s_895cd30c8c0144::t_f61408b6a6db62 1-37
+apps/server/src/companion-mail-auth.ts
+  s_895cd30c8c0144::t_f61408b6a6db62 1-25
+apps/web/src/components/CreateCompanion.tsx
+  s_895cd30c8c0144::t_f61408b6a6db62 6,13,44-46,63,82-86,97,112-114,132,137-138,203,223-226,235-240,270,303
+  s_895cd30c8c0144::t_5235c9867a3dc5 304
+apps/server/src/companion-mail.ts
+  s_895cd30c8c0144::t_f61408b6a6db62 1-425
+apps/server/src/control.ts
+  s_895cd30c8c0144::t_f61408b6a6db62 10,12,21,35,37,69
+apps/web/src/api.ts
+  s_895cd30c8c0144::t_f61408b6a6db62 266-269,350,406-436
+  s_895cd30c8c0144::t_480aabaed65a1d 437-438
+apps/web/src/maison.css
+  s_895cd30c8c0144::t_f61408b6a6db62 144
+apps/web/src/components/CompanionHeader.tsx
+  s_895cd30c8c0144::t_f61408b6a6db62 2,8,61
+apps/web/src/App.tsx
+  s_895cd30c8c0144::t_f61408b6a6db62 55,396,435,440
+bun.lock
+  s_895cd30c8c0144::t_b5bb16c3ee515e 12,15,19-20,28-29,189-200,241-242,245-254,273-276,309-312,325-328,357-358,373-374,379-380,387-394,403-406,435-438,481-486,501,505-506,511-512,529-536,543-544,583-584,589-590,595-596,623-624,631-636,647-650,663-666,697-702,731-732,755-758,763-764
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "3d672cf52bcb3920b2cc7db72a84b54610da6c7b",
+  "prompts": {},
+  "sessions": {
+    "s_895cd30c8c0144": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a07d31-b106-7d00-912b-601ce8884ca0",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "StanGirard <stan@quivr.app>"
+    }
+  }
+}

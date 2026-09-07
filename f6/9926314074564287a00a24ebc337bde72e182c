@@ -1,0 +1,27 @@
+apps/server/src/admission.sql
+  s_895cd30c8c0144::t_8669fa1e7fbe0e 16-18,21-23
+apps/server/test/admission.test.ts
+  s_895cd30c8c0144::t_f2efc250af9a2e 207,209,212-218,220
+  s_895cd30c8c0144::t_97fe4185850546 30-31,33
+  s_895cd30c8c0144::t_11bc7c1ca9d70d 8,27,32,45-46,58,67,81,93,117,133,152,159-196,205-206,208,210
+  s_895cd30c8c0144::t_b0e102983f05bf 197-204
+  s_895cd30c8c0144::t_8993d4dde66022 20-21,24,211,219
+apps/server/src/admission.ts
+  s_895cd30c8c0144::t_8669fa1e7fbe0e 41-50,52-53,55,61,63-66,68-74,76-81,100,105-108,115-120,207
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "f69926314074564287a00a24ebc337bde72e182c",
+  "prompts": {},
+  "sessions": {
+    "s_895cd30c8c0144": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a07d31-b106-7d00-912b-601ce8884ca0",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "StanGirard <stan@quivr.app>"
+    }
+  }
+}

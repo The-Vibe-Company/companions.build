@@ -1,0 +1,21 @@
+docs/completion-audit.md
+  s_f946242dcf6ba9::t_c132f1c38bcb55 29-31,42,44-45
+docs/v0.md
+  s_f946242dcf6ba9::t_74a671b7a64334 165
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "ab26f16b0a943c1b91239b728421414be2bad010",
+  "prompts": {},
+  "sessions": {
+    "s_f946242dcf6ba9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a06de4-a8a5-7cd3-b713-2a8d451f7200",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "StanGirard <stan@quivr.app>"
+    }
+  }
+}

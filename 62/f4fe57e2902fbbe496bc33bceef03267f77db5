@@ -1,0 +1,28 @@
+packages/agent/test/daemon.test.ts
+  s_895cd30c8c0144::t_4c3a8dc9246848 118-121
+  s_895cd30c8c0144::t_92b75a97db43e6 105-107,114-115
+packages/agent/src/daemon.ts
+  s_895cd30c8c0144::t_963983f24e6444 80-83
+packages/agent/test/git-credentials.test.ts
+  s_895cd30c8c0144::t_4c3a8dc9246848 5,56-60
+  s_895cd30c8c0144::t_963983f24e6444 92-93
+  s_895cd30c8c0144::t_8307844fba8b8e 2,61-85
+packages/control/git-credentials.ts
+  s_895cd30c8c0144::t_963983f24e6444 45-47,49-53
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "62f4fe57e2902fbbe496bc33bceef03267f77db5",
+  "prompts": {},
+  "sessions": {
+    "s_895cd30c8c0144": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a07d31-b106-7d00-912b-601ce8884ca0",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "StanGirard <stan@quivr.app>"
+    }
+  }
+}

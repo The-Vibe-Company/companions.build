@@ -26,11 +26,11 @@ describe("TeamPanel", () => {
     const user = userEvent.setup();
     render(<TeamPanel companion={companion} onOpenCompanion={vi.fn()} />);
 
-    expect(await screen.findByText("Investigate sources")).toBeInTheDocument();
+    expect(await screen.findByText("Investigate sources", { selector: ".team-person p" })).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Add specialist" }));
     await user.click(screen.getByRole("button", { name: "Add to team" }));
 
-    expect(await screen.findByText("Turn findings into clear prose")).toBeInTheDocument();
+    expect(await screen.findByText("Turn findings into clear prose", { selector: ".team-person p" })).toBeInTheDocument();
     expect(fetchMock).toHaveBeenCalledWith("/api/companions/c1/templates/t2", expect.objectContaining({ method: "PUT", body: JSON.stringify({ maxChildren: 2 }) }));
     expect(fetchMock.mock.calls.some(([path, options]) => String(path) === "/api/companions/c1/replicas" && (options as RequestInit | undefined)?.method === "POST")).toBe(false);
   });
@@ -67,7 +67,7 @@ describe("TeamPanel", () => {
     expect(screen.getByText(/was created/)).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Retry adding" }));
 
-    expect(await screen.findByText("Analyze product data")).toBeInTheDocument();
+    expect(await screen.findByText("Analyze product data", { selector: ".team-person p" })).toBeInTheDocument();
     expect(fetchMock.mock.calls.filter(([path, options]) => String(path) === "/api/templates" && (options as RequestInit | undefined)?.method === "POST")).toHaveLength(1);
     expect(permissionAttempts).toBe(2);
     expect(fetchMock.mock.calls.some(([path, options]) => String(path) === "/api/companions/c1/replicas" && (options as RequestInit | undefined)?.method === "POST")).toBe(false);
@@ -181,6 +181,7 @@ describe("TeamPanel", () => {
       method: "PATCH",
       body: JSON.stringify({ name: "Lead researcher", instructions: "Verify primary sources", avatar: { shape: 1, color: 4, face: 0 }, expectedRevision: 2 }),
     }));
+    await waitFor(() => expect(fetchMock.mock.calls.filter(([path]) => String(path) === "/api/templates/t1/revisions")).toHaveLength(2));
     expect(name).toHaveAttribute("maxlength", "80");
     expect(role).toHaveAttribute("maxlength", "20000");
   });
@@ -230,5 +231,31 @@ describe("TeamPanel", () => {
     await user.click(screen.getByRole("button", { name: "Retry history" }));
     expect(await screen.findByText("Version 2 is the only saved version.")).toBeInTheDocument();
     expect(historyAttempts).toBe(2);
+  });
+
+  it("syncs the editor and reloads history after restoring a profile", async () => {
+    const earlier = { ...researcher, name: "Archive researcher", instructions: "Review the archive", avatar: { shape: 2, color: 5, face: 3 }, revision: 1 };
+    let current = researcher;
+    let historyLoads = 0;
+    const fetchMock = vi.fn((input: RequestInfo | URL, options?: RequestInit) => {
+      const path = String(input);
+      if (path === "/api/templates") return response({ templates: [current] });
+      if (path === "/api/companions/c1/templates") return response({ templates: [{ templateId: "t1", maxChildren: 2, name: current.name, revision: current.revision }] });
+      if (path === "/api/companions/c1/replicas") return response({ replicas: [] });
+      if (path === "/api/templates/t1/revisions") { historyLoads += 1; return response({ revisions: [{ ...current, createdAt: new Date().toISOString(), snapshotName: null }, { ...earlier, createdAt: new Date().toISOString(), snapshotName: null }] }); }
+      if (path === "/api/templates/t1/rollback" && options?.method === "POST") { current = { ...earlier, revision: 3 }; return response({ id: "t1", revision: 3 }); }
+      throw new Error(`Unexpected ${path}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+    render(<TeamPanel companion={companion} onOpenCompanion={vi.fn()} />);
+
+    await user.click(await screen.findByText("Profile settings"));
+    await user.click(await screen.findByRole("button", { name: "Restore" }));
+
+    expect(await screen.findByRole("textbox", { name: "Profile name" })).toHaveValue("Archive researcher");
+    expect(screen.getByRole("textbox", { name: "Profile role" })).toHaveValue("Review the archive");
+    expect(screen.getByRole("button", { name: "Shape 3" })).toHaveAttribute("aria-pressed", "true");
+    await waitFor(() => expect(historyLoads).toBe(2));
   });
 });

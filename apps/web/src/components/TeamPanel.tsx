@@ -193,7 +193,7 @@ function SpecialistRow({ companionId, member, busy, setBusy, onError, onReload }
   busy: string;
   setBusy: (value: string) => void;
   onError: (value: string) => void;
-  onReload: () => Promise<unknown>;
+  onReload: () => Promise<AgentTemplate[] | null>;
 }) {
   const [assigning, setAssigning] = useState(false);
   const [prompt, setPrompt] = useState("");
@@ -206,6 +206,9 @@ function SpecialistRow({ companionId, member, busy, setBusy, onError, onReload }
   const [editAvatar, setEditAvatar] = useState<CompanionAvatarValue>(member.profile.avatar);
   const [editError, setEditError] = useState("");
   const [editSaved, setEditSaved] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const savingRef = useRef(false);
+  const revisionRequest = useRef(0);
   const taskIntent = useRef<{ prompt: string; id: string } | null>(null);
 
   async function assign(event: FormEvent) {
@@ -221,30 +224,35 @@ function SpecialistRow({ companionId, member, busy, setBusy, onError, onReload }
     finally { setBusy(""); }
   }
 
-  async function loadRevisions() {
-    if (revisions || revisionLoading) return;
+  async function loadRevisions(currentRevision = member.profile.revision, force = false) {
+    if ((revisions && !force) || (revisionLoading && !force)) return;
+    const requestId = ++revisionRequest.current;
     setRevisionLoading(true); setRevisionError("");
+    if (force) setRevisions(null);
     try {
       const result = await workspaceApi.templateRevisions(member.profile.id);
+      if (requestId !== revisionRequest.current) return;
       setRevisions(result.revisions);
-      setRestoreRevision(String(result.revisions.find(item => item.revision !== member.profile.revision)?.revision ?? ""));
-    } catch (cause) { setRevisionError(errorText(cause)); }
-    finally { setRevisionLoading(false); }
+      setRestoreRevision(String(result.revisions.find(item => item.revision !== currentRevision)?.revision ?? ""));
+    } catch (cause) { if (requestId === revisionRequest.current) setRevisionError(errorText(cause)); }
+    finally { if (requestId === revisionRequest.current) setRevisionLoading(false); }
   }
 
   async function saveProfile(event: FormEvent) {
-    event.preventDefault(); setBusy(`edit:${member.profile.id}`); setEditError(""); setEditSaved(false);
+    event.preventDefault();
+    if (savingRef.current) return;
+    const saved = { name: editName.trim(), instructions: editInstructions.trim(), avatar: editAvatar };
+    savingRef.current = true; setSaving(true); setBusy(`edit:${member.profile.id}`); setEditError(""); setEditSaved(false);
     try {
-      await workspaceApi.updateTemplate(member.profile.id, {
-        name: editName.trim(),
-        instructions: editInstructions.trim(),
-        avatar: editAvatar,
-        revision: member.profile.revision,
-      });
+      const result = await workspaceApi.updateTemplate(member.profile.id, { ...saved, revision: member.profile.revision });
+      setEditName(saved.name); setEditInstructions(saved.instructions); setEditAvatar(saved.avatar);
       setEditSaved(true);
-      await onReload();
+      const profiles = await onReload();
+      const refreshed = profiles?.find(profile => profile.id === member.profile.id);
+      if (refreshed) { setEditName(refreshed.name); setEditInstructions(refreshed.instructions); setEditAvatar(refreshed.avatar); }
+      await loadRevisions(refreshed?.revision ?? result.revision, true);
     } catch (cause) { setEditError(errorText(cause)); }
-    finally { setBusy(""); }
+    finally { savingRef.current = false; setSaving(false); setBusy(""); }
   }
 
   async function changeLimit(value: number) {
@@ -257,7 +265,14 @@ function SpecialistRow({ companionId, member, busy, setBusy, onError, onReload }
   async function restore() {
     if (!restoreRevision) return;
     setBusy(`restore:${member.profile.id}`); onError("");
-    try { await workspaceApi.rollbackTemplate(member.profile.id, Number(restoreRevision), member.profile.revision); setRevisions(null); await onReload(); }
+    try {
+      const result = await workspaceApi.rollbackTemplate(member.profile.id, Number(restoreRevision), member.profile.revision);
+      const profiles = await onReload();
+      const refreshed = profiles?.find(profile => profile.id === member.profile.id);
+      if (refreshed) { setEditName(refreshed.name); setEditInstructions(refreshed.instructions); setEditAvatar(refreshed.avatar); }
+      setEditError(""); setEditSaved(false);
+      await loadRevisions(refreshed?.revision ?? result.revision, true);
+    }
     catch (cause) { onError(errorText(cause)); }
     finally { setBusy(""); }
   }
@@ -270,12 +285,12 @@ function SpecialistRow({ companionId, member, busy, setBusy, onError, onReload }
     <details className="team-advanced" onToggle={event => { if (event.currentTarget.open) void loadRevisions(); }}><summary>Profile settings</summary><div className="team-advanced-content">
       <form className="team-profile-edit" onSubmit={saveProfile}>
         <p>Changes update this shared profile and apply to future uses.</p>
-        <div className="field"><label htmlFor={`profile-name-${member.profile.id}`}>Profile name</label><input id={`profile-name-${member.profile.id}`} maxLength={80} value={editName} onChange={event => { setEditName(event.target.value); setEditSaved(false); }} /></div>
-        <div className="field"><label htmlFor={`profile-role-${member.profile.id}`}>Profile role</label><Textarea id={`profile-role-${member.profile.id}`} rows={3} maxLength={20_000} value={editInstructions} onChange={event => { setEditInstructions(event.target.value); setEditSaved(false); }} /></div>
-        <AvatarPicker value={editAvatar} onChange={value => { setEditAvatar(value); setEditSaved(false); }} />
+        <div className="field"><label htmlFor={`profile-name-${member.profile.id}`}>Profile name</label><input id={`profile-name-${member.profile.id}`} maxLength={80} disabled={saving} value={editName} onChange={event => { setEditName(event.target.value); setEditSaved(false); }} /></div>
+        <div className="field"><label htmlFor={`profile-role-${member.profile.id}`}>Profile role</label><Textarea id={`profile-role-${member.profile.id}`} rows={3} maxLength={20_000} disabled={saving} value={editInstructions} onChange={event => { setEditInstructions(event.target.value); setEditSaved(false); }} /></div>
+        <div className="team-edit-avatar" aria-disabled={saving} inert={saving}><AvatarPicker value={editAvatar} onChange={value => { setEditAvatar(value); setEditSaved(false); }} /></div>
         {editError && <p className="field-error" role="alert">{editError}</p>}
         {editSaved && <p className="team-save-status" role="status">Profile saved.</p>}
-        <Button type="submit" disabled={!editName.trim() || !!busy}>{busy === `edit:${member.profile.id}` ? <LoaderCircle className="spin" /> : <Check />}Save profile</Button>
+        <Button type="submit" disabled={!editName.trim() || saving || !!busy}>{saving ? <LoaderCircle className="spin" /> : <Check />}Save profile</Button>
       </form>
       <label>Simultaneous copies<select value={member.permission.maxChildren} disabled={!!busy} onChange={event => void changeLimit(Number(event.target.value))}>{limits.map(value => <option key={value} value={value}>{value}</option>)}</select></label>
       {revisionError ? <div className="team-revision-error"><span role="alert">{revisionError}</span><Button type="button" variant="outline" size="sm" disabled={revisionLoading} onClick={() => void loadRevisions()}>{revisionLoading ? <LoaderCircle className="spin" /> : <RotateCw />}Retry history</Button></div> : revisions === null ? <span className="team-muted">Loading version history…</span> : revisions.length > 1 ? <div className="team-restore"><label>Earlier version<select value={restoreRevision} onChange={event => setRestoreRevision(event.target.value)}>{revisions.filter(item => item.revision !== member.profile.revision).map(item => <option value={item.revision} key={item.revision}>Version {item.revision} · {item.name}</option>)}</select></label><Button type="button" variant="outline" size="sm" disabled={!restoreRevision || !!busy} onClick={() => void restore()}>{busy === `restore:${member.profile.id}` ? <LoaderCircle className="spin" /> : <RotateCw />}Restore</Button></div> : <span className="team-muted">Version {member.profile.revision} is the only saved version.</span>}

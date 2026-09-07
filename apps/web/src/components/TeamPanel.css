@@ -67,6 +67,7 @@
 .team-profile-edit > p:first-child { margin: 0; color: var(--muted-foreground); font-size: .8125rem; line-height: 1.5; }
 .team-profile-edit .field { margin: 0; }
 .team-profile-edit .avatar-picker { padding-top: 4px; }
+.team-edit-avatar[aria-disabled="true"] { opacity: .55; }
 .team-profile-edit > button { width: max-content; min-height: 40px; }
 .team-save-status { margin: 0; color: oklch(.42 .1 145); font-size: .8125rem; }
 .team-revision-error { display: flex; align-items: center; justify-content: space-between; gap: 12px; color: var(--destructive); font-size: .75rem; }

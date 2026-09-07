@@ -150,3 +150,18 @@ test('local archive distinguishes a successful absence from transport failures a
  await expect(archiveMachine(companion,async()=>{},async args=>args[0]==='ps'?args[3].slice('name=^/'.length,-1):JSON.stringify([{Config:{Labels:{'companions.build.workspace':'foreign'}},State:{Running:true}}]))).rejects.toThrow('ownership');
  let effects=0;await expect(archiveMachine(companion,async()=>{throw new ExecutionStopped();},async()=>{effects++;return '';})).rejects.toBeInstanceOf(ExecutionStopped);expect(effects).toBe(0);
 });
+
+test('DELETE winning during snapshot observation prevents final template activation',async()=>{
+ const id=await fixture();await prepared(id);const template=await saveTemplate(owner,{name:'Stable profile',instructions:'Original'}),candidate=crypto.randomUUID();
+ await db`INSERT INTO template_candidates(id,template_id,source_companion_id,expected_revision,snapshot_name,status,attempted_at) VALUES(${candidate},${template.id},${id},1,${'removal-race-'+candidate},'capturing',now())`;
+ await db`INSERT INTO portable_skill_exports(id,source_owner_id,source_companion_id,target_kind,source_template_id,target_revision,status) VALUES(${crypto.randomUUID()},${owner},${id},'template_revision',${template.id},2,'ready')`;
+ const f=fake(),l=await leader();let observations=0;
+ f.machine.snapshotStatus=async()=>{observations++;await retireCompanion(owner,id);return 'ready';};
+ try{
+  await progressLifecycle(l.sql,{},f.machine,{companionId:id,leaderPid:l.pid});
+  expect(observations).toBe(1);
+  expect((await db`SELECT revision,snapshot_name,source_companion_id FROM agent_templates WHERE id=${template.id}`)[0]).toMatchObject({revision:1,snapshot_name:null,source_companion_id:null});
+  expect((await db`SELECT status FROM template_candidates WHERE id=${candidate}`)[0].status).toBe('failed');
+  expect(await db`SELECT revision FROM template_revisions WHERE template_id=${template.id} AND revision=2`).toHaveLength(0);
+ }finally{await l.close();}
+});

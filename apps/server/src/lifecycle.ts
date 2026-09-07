@@ -233,7 +233,14 @@ export async function progressLifecycle(sql:any=db,hooks:LifecycleHooks={},machi
     await checkpoint(async(tx:any)=>{await tx`UPDATE template_candidates SET status='failed',error='Portable skills could not be captured; the existing template was preserved.' WHERE id=${candidate.id}`;});continue;
    }
    await checkpoint(async(tx:any)=>{
-    await tx`UPDATE template_candidates SET status='ready',ready_at=COALESCE(ready_at,now()) WHERE id=${candidate.id}`;
+    // Serialize with DELETE before touching the candidate or the saved profile.
+    const [source]=await tx`SELECT retired_at,archive_requested_at FROM companions WHERE id=${candidate.source_companion_id} AND owner_id=${candidate.owner_id} FOR UPDATE`;
+    if(!source||source.retired_at||source.archive_requested_at){
+     await tx`UPDATE template_candidates SET status='failed',error='Companion was removed; existing template was preserved.' WHERE id=${candidate.id} AND status IN ('capturing','ready')`;
+     return;
+    }
+    const [ready]=await tx`UPDATE template_candidates SET status='ready',ready_at=COALESCE(ready_at,now()) WHERE id=${candidate.id} AND status IN ('capturing','ready') RETURNING id`;
+    if(!ready)return;
     const [activated]=await tx`UPDATE agent_templates SET snapshot_name=${candidate.snapshot_name},source_companion_id=${candidate.source_companion_id},skill_bundle_id=${portable.bundleId},revision=revision+1,updated_at=now() WHERE id=${candidate.template_id} AND owner_id=${candidate.owner_id} AND revision=${candidate.expected_revision} RETURNING id`;
     if(activated)await recordTemplateRevision(tx,candidate.template_id);
     await tx`UPDATE template_candidates SET status=${activated?'activated':'failed'},error=${activated?null:'Template changed during capture; the existing template was preserved.'} WHERE id=${candidate.id}`;

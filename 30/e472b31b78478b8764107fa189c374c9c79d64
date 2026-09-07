@@ -1,0 +1,39 @@
+apps/server/src/activation.ts
+  s_f946242dcf6ba9::t_043b1d8425c05d 1,6
+apps/server/src/api.ts
+  s_f946242dcf6ba9::t_234fc6f33b17ac 1,127
+apps/server/src/auth.ts
+  s_f946242dcf6ba9::t_7c72173d83dc30 1-2,20,29-31,33-56,90-99
+apps/server/src/billing.ts
+  s_f946242dcf6ba9::t_c97b2899724746 1,121-124,140-141,159-161,171,189,296
+apps/server/src/lifecycle.ts
+  s_f946242dcf6ba9::t_f67983b56d4100 1,18
+apps/server/src/private-beta.ts
+  s_f946242dcf6ba9::t_8f18d5280b8978 1-16
+apps/server/test/private-beta.test.ts
+  s_f946242dcf6ba9::t_49d0615cc03efb 1-92
+apps/web/src/api.ts
+  s_f946242dcf6ba9::t_9474be64c28b0b 272
+apps/web/src/components/ProductPanels.test.tsx
+  s_f946242dcf6ba9::t_145f33e2bbe307 13-26
+apps/web/src/components/ProductPanels.tsx
+  s_f946242dcf6ba9::t_4f419fd1c57c60 80-81
+docs/billing-delivery.md
+  s_f946242dcf6ba9::t_0b2f56d565041c 76-93
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "30e472b31b78478b8764107fa189c374c9c79d64",
+  "prompts": {},
+  "sessions": {
+    "s_f946242dcf6ba9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a06de4-a8a5-7cd3-b713-2a8d451f7200",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "StanGirard <stan@quivr.app>"
+    }
+  }
+}

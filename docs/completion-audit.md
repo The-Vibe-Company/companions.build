@@ -53,7 +53,8 @@ hosted acceptance. See `validation-v0.md` for dated evidence.
   list/install/edit/remove operations from the capability table are absent.
 - Full OAuth provider tool/revocation matrix, managed trigger registration, hosted concurrent load,
   real email delivery and Stripe subscription/meter acceptance still lack complete live evidence.
-  Software build Box time is being added to the existing usage ledger; it was previously omitted.
+  Software build Box time now enters the existing ledger through fenced observed intervals;
+  retries and final partial minutes are covered by PostgreSQL tests.
   A PostgreSQL 17 dump/kill/restore proof now preserves the authenticated session, durable queued
   turn and retry identity through the real API. The five-service Railway deployment passes health, unauthenticated isolation and private MinIO
   put/get/delete checks; hosted agent activation still awaits billing configuration. Personal

@@ -67,3 +67,9 @@ meter, and `STRIPE_BOX_PRICE_ID` the distinct recurring metered Price attached t
 meter. `STRIPE_BASE_PRICE_ID` must name the fixed recurring subscription Price. Configure all three
 Prices with the same compatible billing currency and interval. The
 application cannot infer commercial rates or create Prices without that configuration.
+
+Tenant software-build Boxes use the same Box-second meter without a Companion ID. Their intervals
+open only after an executor observes `ready`, advance through subsequent fenced observations, and
+close after `archived` or `missing` is observed. Durable operation IDs prevent duplicate minutes
+after worker or executor restart. Revocation stops new paid work while cleanup and final metering
+continue. Operator distribution-build Boxes are outside these tenant intervals.

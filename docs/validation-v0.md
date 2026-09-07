@@ -140,3 +140,26 @@ was checked independently. See [sanitized provider evidence](measurements/plugin
 OAuth starts alone do not prove consent or tool access. Notion, Conductor, and Sentry still need
 personal consent for their real-tool checks; GitHub, Slack, and Gmail need deployment OAuth client
 configuration. Those paths are not marked accepted.
+
+
+## Integrated software delivery and deployment recovery
+
+Verification `a68af791c61e` passes on `b4d2741`, including the new PostgreSQL dump/kill/restore
+acceptance, executable software builder tests, deferred delivery grants, executor standby during
+rolling replacement, and tenant software-build Box-second accounting. A standby process never
+claims work before it acquires the existing PostgreSQL advisory lock. The hosted executor returned
+to `SUCCESS` and logged `Executor ready` after the rolling-deployment fix.
+
+A fresh V9 Box passed chat, archive/wake with a new post-wake file, and desktop takeover while a
+headless task continued. A V10 clean software build then installed the exact Ubuntu `hello` package,
+verified its manifest, captured it, and supplied an independent companion and client Box. Pi
+executed the installed binary; an independent provider read verified the output file and package
+version. The client clone excluded that source workspace. Desktop takeover also passed on this
+software-derived companion. Client identity/entitlement used local synthetic fixtures and Mailpit,
+so these observations do not claim real email or Stripe acceptance. The source and recipient Boxes
+are independent; the build Box was observed archived. See the dated measurement JSON files.
+
+The shared Box account has ten named snapshot slots, seven belonging to existing projects. None of
+those seven were changed. Immutable software results currently require a free snapshot slot; a
+confirmed quota rejection is terminal and visible, while a lost provider response stays subject to
+reconciliation. No automatic fallback to a different image is allowed.

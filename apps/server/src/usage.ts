@@ -59,7 +59,7 @@ async function recordBoxInterval(interval:any,prefix:string,companionId?:string)
 /** Stable response-root IDs ensure native steering is counted once. No model request is made here. */
 export async function recordCompletedUsage(){
  const runs=await db`SELECT r.id,r.companion_id,c.owner_id,r.usage,r.finished_at FROM runs r JOIN companions c ON c.id=r.companion_id
-  WHERE r.status IN ('succeeded','failed','interrupted','cancelled') AND r.usage IS NOT NULL
+  WHERE r.status IN ('succeeded','failed','interrupted','cancelled') AND r.usage IS NOT NULL AND r.usage_source='agent'
   AND (r.response_root_id IS NULL OR r.response_root_id=r.id)
   AND NOT EXISTS(SELECT 1 FROM usage_ledger u WHERE u.owner_id=c.owner_id AND u.operation_id='model:'||r.id::text) LIMIT 100`;
  for(const run of runs){

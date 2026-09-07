@@ -25,6 +25,16 @@ function authUrl() {
   if (process.env.NODE_ENV === "production") throw new Error("BETTER_AUTH_URL or APP_URL is required in production");
   return `http://127.0.0.1:${process.env.WEB_PORT ?? 4310}`;
 }
+function modelGatewayUrl(){
+ const configured=process.env.MODEL_GATEWAY_URL;
+ // Direct credentials are a developer-only path. Hosted clients always use the gateway.
+ const value=configured??(process.env.NODE_ENV==='production'?`${authUrl().replace(/\/$/,'')}/api/model-gateway`:undefined);
+ if(!value)return undefined;
+ const url=new URL(value);
+ const local=['localhost','127.0.0.1','host.docker.internal'].includes(url.hostname);
+ if((url.protocol!=='https:'&&!(process.env.NODE_ENV!=='production'&&local&&url.protocol==='http:'))||url.username||url.password||url.search||url.hash||url.pathname!=='/api/model-gateway')throw Error('MODEL_GATEWAY_URL_INVALID');
+ return url.toString().replace(/\/$/,'');
+}
 export const config = {
   databaseUrl: process.env.DATABASE_URL ?? "postgres://companions:companions@127.0.0.1:4312/companions",
   token: localSecret("operator-token", process.env.COMPANIONS_TOKEN),
@@ -47,6 +57,7 @@ export const config = {
   boxTemplate: process.env.BOX_TEMPLATE,
   modelProvider: process.env.MODEL_PROVIDER ?? "google",
   modelId: process.env.MODEL_ID ?? "gemini-2.5-flash",
+  modelGatewayUrl:modelGatewayUrl(),
   testMode: process.env.AGENT_TEST_MODE === "1",
   localAvailable: process.env.LOCAL_RUNTIME !== "0",
 };

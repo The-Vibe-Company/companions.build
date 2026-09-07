@@ -41,6 +41,11 @@ async function docker(args: string[]) {
 export function modelEnvironment(token: string): Record<string, string> {
   const values: Record<string, string> = { AGENT_TOKEN: token, PORT: "8787", AGENT_STATE_DIR: "/state", MODEL_PROVIDER: config.modelProvider, MODEL_ID: config.modelId };
   if (config.testMode) values.AGENT_TEST_MODE = "1";
+  if(!config.testMode&&config.modelGatewayUrl){
+    values.MODEL_GATEWAY_URL=config.modelGatewayUrl;
+    return values;
+  }
+  if(!config.testMode&&process.env.NODE_ENV==='production')throw new MachineError('model_gateway_required');
   const providerKeys: Record<string, string[]> = { google: ["GOOGLE_API_KEY", "GEMINI_API_KEY"], anthropic: ["ANTHROPIC_API_KEY"], openai: ["OPENAI_API_KEY"], openrouter: ["OPENROUTER_API_KEY"], zai: ["ZAI_API_KEY"] };
   if (!config.testMode && !providerKeys[config.modelProvider]) throw new MachineError("unsupported_model_provider");
   for (const name of config.testMode ? [] : providerKeys[config.modelProvider] ?? []) {

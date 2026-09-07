@@ -13,8 +13,14 @@ CREATE TABLE IF NOT EXISTS machine_account_limits (
 CREATE TABLE IF NOT EXISTS machine_provider_limits (
  singleton boolean PRIMARY KEY DEFAULT true CHECK(singleton),
  active_limit integer NOT NULL DEFAULT 1000 CHECK(active_limit BETWEEN 0 AND 100000),
+ starts_per_minute_limit integer NOT NULL DEFAULT 1000 CHECK(starts_per_minute_limit BETWEEN 0 AND 100000),
+ starts_per_hour_limit integer NOT NULL DEFAULT 10000 CHECK(starts_per_hour_limit BETWEEN 0 AND 1000000),
+ starts_per_day_limit integer NOT NULL DEFAULT 100000 CHECK(starts_per_day_limit BETWEEN 0 AND 10000000),
  updated_at timestamptz NOT NULL DEFAULT now()
 );
+ALTER TABLE machine_provider_limits ADD COLUMN IF NOT EXISTS starts_per_minute_limit integer NOT NULL DEFAULT 1000 CHECK(starts_per_minute_limit BETWEEN 0 AND 100000);
+ALTER TABLE machine_provider_limits ADD COLUMN IF NOT EXISTS starts_per_hour_limit integer NOT NULL DEFAULT 10000 CHECK(starts_per_hour_limit BETWEEN 0 AND 1000000);
+ALTER TABLE machine_provider_limits ADD COLUMN IF NOT EXISTS starts_per_day_limit integer NOT NULL DEFAULT 100000 CHECK(starts_per_day_limit BETWEEN 0 AND 10000000);
 INSERT INTO machine_provider_limits(singleton) VALUES(true) ON CONFLICT(singleton) DO NOTHING;
 
 CREATE TABLE IF NOT EXISTS machine_admission_requests (

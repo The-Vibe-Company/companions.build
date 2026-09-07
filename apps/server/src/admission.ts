@@ -38,28 +38,47 @@ export async function configureOfferMachineLimits(ownerId:string,input:{active:n
  return effectiveAccountLimits(ownerId,sql);
 }
 
-async function occupancy(tx:any,ownerId?:string){
+export async function configureProviderMachineLimits(input:{active:number;startsPerMinute:number;startsPerHour:number;startsPerDay:number},sql:any=db){
+ const values=[input.active,input.startsPerMinute,input.startsPerHour,input.startsPerDay];
+ if(values.some(value=>!Number.isInteger(value)||value<0))throw new AdmissionConflict('Invalid provider limits.');
+ const [row]=await sql`UPDATE machine_provider_limits SET active_limit=${input.active},starts_per_minute_limit=${input.startsPerMinute},
+  starts_per_hour_limit=${input.startsPerHour},starts_per_day_limit=${input.startsPerDay},updated_at=now() WHERE singleton=true RETURNING singleton`;
+ if(!row)throw new AdmissionConflict('Provider limits unavailable.');
+ return input;
+}
+
+async function occupancy(tx:any,ownerId?:string,specialistsOnly=false){
  const [row]=await tx`SELECT count(DISTINCT c.id)::int AS count FROM companions c
-  WHERE (${ownerId??null}::text IS NULL OR c.owner_id=${ownerId??null}) AND c.retired_at IS NULL AND c.archived_at IS NULL AND (
+  WHERE (${ownerId??null}::text IS NULL OR c.owner_id=${ownerId??null}) AND c.retired_at IS NULL
+  AND (NOT ${specialistsOnly} OR c.temporary OR c.specialist_draft_id IS NOT NULL) AND (
    EXISTS(SELECT 1 FROM machine_admission_requests a WHERE a.companion_id=c.id AND a.state IN ('admitted','cancelling') AND a.released_at IS NULL)
-   OR c.status IN ('preparing','ready') OR c.preparation_started_at IS NOT NULL OR c.endpoint_secret IS NOT NULL OR c.box_id IS NOT NULL
+   OR (c.archived_at IS NULL AND (c.endpoint_secret IS NOT NULL OR c.box_id IS NOT NULL OR c.create_started_at IS NOT NULL))
   )`;
  return Number(row.count);
 }
 
 async function decide(tx:any,row:any,limits:any){
- const [active]=await tx`SELECT status,box_id,endpoint_secret,preparation_started_at,archived_at FROM companions WHERE id=${row.companion_id} FOR UPDATE`;
+ const [active]=await tx`SELECT status,box_id,endpoint_secret,create_started_at,archived_at,temporary,specialist_draft_id FROM companions WHERE id=${row.companion_id} FOR UPDATE`;
  if(!active)return null;
- const alreadyActive=!active.archived_at&&(active.status==='preparing'||active.status==='ready'||active.box_id||active.endpoint_secret||active.preparation_started_at);
- const ownerActive=await occupancy(tx,row.owner_id);
- const [{active_limit:globalLimit}]=await tx`SELECT active_limit FROM machine_provider_limits WHERE singleton=true`;
+ const specialist=active.temporary||active.specialist_draft_id;
+ const alreadyActive=!active.archived_at&&!!(active.box_id||active.endpoint_secret||active.create_started_at);
+ const ownerActive=specialist?await occupancy(tx,row.owner_id,true):0;
+ const [providerLimits]=await tx`SELECT active_limit,starts_per_minute_limit,starts_per_hour_limit,starts_per_day_limit FROM machine_provider_limits WHERE singleton=true`;
  const globalActive=await occupancy(tx);
- const [starts]=await tx`SELECT count(*)::int AS count FROM machine_admission_requests
-  WHERE owner_id=${row.owner_id} AND start_counted AND admitted_at>=now()-interval '1 hour'`;
+ const [starts]=specialist?await tx`SELECT count(*)::int AS count FROM machine_admission_requests a JOIN companions c ON c.id=a.companion_id
+  WHERE a.owner_id=${row.owner_id} AND (c.temporary OR c.specialist_draft_id IS NOT NULL) AND a.start_counted AND a.admitted_at>=now()-interval '1 hour'`:[{count:0}];
+ const [providerStarts]=await tx`SELECT
+  count(*) FILTER(WHERE admitted_at>=now()-interval '1 minute')::int AS minute,
+  count(*) FILTER(WHERE admitted_at>=now()-interval '1 hour')::int AS hour,
+  count(*) FILTER(WHERE admitted_at>=now()-interval '1 day')::int AS day
+  FROM machine_admission_requests WHERE start_counted`;
  let reason:string|null=null;
- if(!alreadyActive&&ownerActive>=limits.active)reason='active_limit';
- else if(!alreadyActive&&globalActive>=Number(globalLimit))reason='provider_active_limit';
- else if(!alreadyActive&&Number(starts.count)>=limits.startsPerHour)reason='hourly_start_limit';
+ if(!alreadyActive&&specialist&&ownerActive>=limits.active)reason='active_limit';
+ else if(!alreadyActive&&globalActive>=Number(providerLimits.active_limit))reason='provider_active_limit';
+ else if(!alreadyActive&&Number(providerStarts.minute)>=Number(providerLimits.starts_per_minute_limit))reason='provider_start_minute_limit';
+ else if(!alreadyActive&&Number(providerStarts.hour)>=Number(providerLimits.starts_per_hour_limit))reason='provider_start_hour_limit';
+ else if(!alreadyActive&&Number(providerStarts.day)>=Number(providerLimits.starts_per_day_limit))reason='provider_start_day_limit';
+ else if(!alreadyActive&&specialist&&Number(starts.count)>=limits.startsPerHour)reason='hourly_start_limit';
  if(reason){
   const [waiting]=await tx`UPDATE machine_admission_requests SET waiting_reason=${reason} WHERE id=${row.id} AND state='queued' RETURNING *`;
   return waiting;
@@ -78,19 +97,27 @@ export async function requestMachineAdmissionInTransaction(tx:any,ownerId:string
  const digest=fingerprint(input);
  const [prior]=await tx`SELECT * FROM machine_admission_requests WHERE id=${input.requestId} AND owner_id=${ownerId}`;
  if(prior){if(prior.fingerprint!==digest)throw new AdmissionConflict('Admission request identifier changed.');return result(prior);}
- const [companion]=await tx`SELECT id FROM companions WHERE id=${input.companionId} AND owner_id=${ownerId} AND retired_at IS NULL FOR UPDATE`;
+ const [companion]=await tx`SELECT id,temporary,specialist_draft_id FROM companions WHERE id=${input.companionId} AND owner_id=${ownerId} AND retired_at IS NULL FOR UPDATE`;
  if(!companion)throw new AdmissionConflict('Machine unavailable.');
  const [open]=await tx`SELECT * FROM machine_admission_requests WHERE companion_id=${input.companionId} AND state IN ('queued','admitted','cancelling')`;
  if(open)throw new AdmissionConflict('This machine already has an active admission request.');
  const limits=await ensureLimits(tx,ownerId);
- const [queuedCount]=await tx`SELECT count(*)::int AS count FROM machine_admission_requests WHERE owner_id=${ownerId} AND state='queued'`;
- if(Number(queuedCount.count)>=limits.queue){
+ const specialist=companion.temporary||companion.specialist_draft_id;
+ const [queuedCount]=specialist?await tx`SELECT count(*)::int AS count FROM machine_admission_requests a JOIN companions c ON c.id=a.companion_id
+  WHERE a.owner_id=${ownerId} AND a.state='queued' AND (c.temporary OR c.specialist_draft_id IS NOT NULL)`:[{count:0}];
+ if(specialist&&Number(queuedCount.count)>=limits.queue){
   const [refused]=await tx`INSERT INTO machine_admission_requests(id,owner_id,companion_id,kind,fingerprint,state,waiting_reason)
    VALUES(${input.requestId},${ownerId},${input.companionId},${input.kind},${digest},'refused','queue_full') RETURNING *`;
   return result(refused);
  }
  const [queued]=await tx`INSERT INTO machine_admission_requests(id,owner_id,companion_id,kind,fingerprint,state)
   VALUES(${input.requestId},${ownerId},${input.companionId},${input.kind},${digest},'queued') RETURNING *`;
+ if(specialist){
+  const [older]=await tx`SELECT a.id FROM machine_admission_requests a JOIN companions c ON c.id=a.companion_id
+   WHERE a.owner_id=${ownerId} AND a.state='queued' AND (c.temporary OR c.specialist_draft_id IS NOT NULL) AND a.id<>${queued.id}
+   ORDER BY a.requested_at,a.id LIMIT 1`;
+  if(older){const [waiting]=await tx`UPDATE machine_admission_requests SET waiting_reason='fifo' WHERE id=${queued.id} RETURNING *`;return result(waiting);}
+ }
  return result(await decide(tx,queued,limits)??queued);
 }
 
@@ -177,6 +204,7 @@ export interface IdleMachineProvider {archive(companion:any,beforeEffect?:()=>Pr
 export async function progressIdleMachines(sql:any,provider:IdleMachineProvider,options:{now?:Date;idleMs?:number;companionId?:string|null;canArchive?(companion:any):Promise<boolean>;assertEffect?():Promise<void>}={}){
  const now=options.now??new Date(),cutoff=new Date(now.getTime()-(options.idleMs??MACHINE_IDLE_MS));
  const candidates=await sql`SELECT c.* FROM companions c WHERE (${options.companionId??null}::uuid IS NULL OR c.id=${options.companionId??null})
+  AND (c.temporary OR c.specialist_draft_id IS NOT NULL)
   AND c.retired_at IS NULL AND c.archived_at IS NULL AND (c.status='ready' OR c.archive_requested_at IS NOT NULL)
   AND c.prepare_requested=false AND NOT c.desktop_taken AND c.desktop_paused_at IS NULL
   AND NOT EXISTS(SELECT 1 FROM runs r WHERE r.companion_id=c.id AND r.dispatched AND r.status IN ('preparing','running'))

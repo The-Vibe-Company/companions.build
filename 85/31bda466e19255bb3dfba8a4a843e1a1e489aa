@@ -1,0 +1,21 @@
+apps/server/test/box.test.ts
+  s_f946242dcf6ba9::t_bb2df219b4780c 139-140
+packages/box/client.ts
+  s_f946242dcf6ba9::t_16e0a0ed90cd6b 87
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "8531bda466e19255bb3dfba8a4a843e1a1e489aa",
+  "prompts": {},
+  "sessions": {
+    "s_f946242dcf6ba9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a06de4-a8a5-7cd3-b713-2a8d451f7200",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "StanGirard <stan@quivr.app>"
+    }
+  }
+}

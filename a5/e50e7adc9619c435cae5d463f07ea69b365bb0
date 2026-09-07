@@ -1,0 +1,23 @@
+apps/server/src/triggers.ts
+  s_f946242dcf6ba9::t_68883c2d02e3bd 404,412,423,428-429,454
+apps/server/test/trigger-evaluation-recovery.test.ts
+  s_f946242dcf6ba9::t_06d8d6b57d2329 1-38
+docs/triggers.md
+  s_f946242dcf6ba9::t_4b5dfff3c34908 29
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "a5e50e7adc9619c435cae5d463f07ea69b365bb0",
+  "prompts": {},
+  "sessions": {
+    "s_f946242dcf6ba9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a06de4-a8a5-7cd3-b713-2a8d451f7200",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "StanGirard <stan@quivr.app>"
+    }
+  }
+}

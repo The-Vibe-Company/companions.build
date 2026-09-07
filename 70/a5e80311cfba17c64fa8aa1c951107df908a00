@@ -1,0 +1,33 @@
+apps/web/src/App.test.tsx
+  s_f946242dcf6ba9::t_816e89448043db 107,110-113,150,233-235,309-310,560-561,564
+apps/web/src/App.tsx
+  s_f946242dcf6ba9::t_d7a2ebac64d7a7 53-54,304,307,325-328,454-456,506,545,553,562
+apps/web/src/components/CompanionAvatar.tsx
+  s_f946242dcf6ba9::t_5c69eeb68c48ac 13,15,30-35,57
+apps/web/src/components/SettingsSheet.tsx
+  s_f946242dcf6ba9::t_8f43dd9ed2f7c0 1-52
+apps/web/src/main.tsx
+  s_f946242dcf6ba9::t_12a63170f8587b 5
+apps/web/src/maison.css
+  s_f946242dcf6ba9::t_099d72722a25cb 1-114
+docs/measurements/maison-ui-2026-09-07.md
+  s_f946242dcf6ba9::t_fb851bc29a51c4 1-27
+docs/specs/maison-interface-control-mcp.md
+  s_f946242dcf6ba9::t_938d1fd0528807 3-9,67,114,169,210,228,262
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "70a5e80311cfba17c64fa8aa1c951107df908a00",
+  "prompts": {},
+  "sessions": {
+    "s_f946242dcf6ba9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a06de4-a8a5-7cd3-b713-2a8d451f7200",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "StanGirard <stan@quivr.app>"
+    }
+  }
+}

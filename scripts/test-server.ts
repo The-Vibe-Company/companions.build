@@ -2,9 +2,16 @@ import { SQL } from "bun";
 import { config } from "../apps/server/src/config";
 import { resolve } from "node:path";
 const admin = new SQL(config.databaseUrl);
+const testFlag = process.argv.indexOf("--test");
+if (testFlag >= 0 && !process.argv[testFlag + 1]) throw new Error("--test requires a pattern");
+const testPattern = testFlag >= 0 ? process.argv[testFlag + 1]!.toLowerCase() : undefined;
+const files = [...new Bun.Glob('*.test.ts').scanSync('apps/server/test')]
+ .sort()
+ .filter(file => !testPattern || file.toLowerCase().includes(testPattern));
+if (!files.length) throw new Error(`No server test file matches ${JSON.stringify(testPattern)}`);
 // Every suite owns its database. Lifecycle progression must never see another fixture's intents.
 try {
- for(const file of [...new Bun.Glob('*.test.ts').scanSync('apps/server/test')].sort()){
+ for(const file of files){
   const name = `companions_test_${crypto.randomUUID().replaceAll("-", "")}`;
   await admin.unsafe(`CREATE DATABASE "${name}"`);
   try {

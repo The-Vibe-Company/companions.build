@@ -54,9 +54,14 @@ export function modelEnvironment(token: string): Record<string, string> {
   }
   return values;
 }
+function localUser():string {
+  if(!process.getuid || !process.getgid)throw new MachineError('local_posix_user_required');
+  return `${process.getuid()}:${process.getgid()}`;
+}
 export const environmentDigest = (secret: string, provider = "box") => createHash("sha256")
   .update(JSON.stringify(modelEnvironment(decrypt(secret))))
   .update(provider === "local" ? realpathSync(resolve("dist/agent")) : config.boxTemplate ?? "")
+  .update(provider === "local" ? JSON.stringify({user:localUser(),home:'/state'}) : '')
   .digest("hex");
 export async function prepareLocal(companion: any, refreshConfig = true, beforeEffect:EffectGuard=unguarded) {
   const runDocker=async(args:string[])=>{await beforeEffect();return docker(args);};
@@ -67,7 +72,8 @@ export async function prepareLocal(companion: any, refreshConfig = true, beforeE
   let existing: any;
   try { existing = JSON.parse(await runDocker(["inspect", name]))[0]; } catch {}
   await beforeEffect();
-  const env = modelEnvironment(decrypt(companion.agent_secret));
+  // With all capabilities dropped, UID 0 cannot override a host-owned 0700 bind mount.
+  const env = {...modelEnvironment(decrypt(companion.agent_secret)),HOME:'/state'};
   const digest = environmentDigest(companion.agent_secret, "local");
   if (existing && existing.Config?.Labels?.["companions.build.workspace"] !== workspace) throw new MachineError("local_machine_ownership_mismatch");
   if (existing && refreshConfig && existing.Config?.Labels?.["companions.build.config"] !== digest) {
@@ -80,7 +86,7 @@ export async function prepareLocal(companion: any, refreshConfig = true, beforeE
     const envPath = join(envDir, `${companion.id}.env`);
     if (Object.values(env).some(value => /[\r\n]/.test(value))) throw new MachineError("invalid_environment");
     writeFileSync(envPath, Object.entries(env).map(([key, value]) => `${key}=${value}`).join("\n"), { mode: 0o600 });
-    try { await runDocker(["run", "--detach", "--init", "--platform", "linux/amd64", "--name", name,
+    try { await runDocker(["run", "--detach", "--init", "--platform", "linux/amd64", "--name", name, "--user", localUser(),
       "--label", `companions.build.workspace=${workspace}`, "--label", `companions.build.config=${digest}`,
       "--label", `companions.build.verification=${process.env.COMPANIONS_VERIFY_RUN ?? "development"}`, "--read-only", "--cap-drop=ALL", "--security-opt=no-new-privileges",
       "--tmpfs", "/tmp", "--env-file", envPath, "--publish", "127.0.0.1::8787",

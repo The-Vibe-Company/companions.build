@@ -31,6 +31,7 @@ import { Button } from "@/components/ui/button";
 import { CompanionHeader, type CompanionSection } from "@/components/CompanionHeader";
 import { ApplicationAccess } from "@/components/ApplicationAccess";
 import { ConnectionActions } from "@/components/ConnectionActions";
+import { PluginAccountNameForm } from "@/components/PluginAccountNameForm";
 import { Textarea } from "@/components/ui/textarea";
 import {
   api,
@@ -61,6 +62,7 @@ import { ProviderMark } from "@/components/ProviderMark";
 import { SettingsSheet, type SettingsSheetHandle } from "@/components/SettingsSheet";
 import { SpecialistImprovements } from "@/components/SpecialistImprovements";
 import { LandingPage } from "@/components/LandingPage";
+import { LegalPage, type LegalPageKind } from "@/components/LegalPage";
 
 const LIST_INTERVAL = 8_000;
 const MAX_CHAT_FILES = 5;
@@ -68,6 +70,12 @@ const MAX_CHAT_FILE_BYTES = 10 * 1024 * 1024;
 
 function selectedIdFromPath() {
   return window.location.pathname.match(/^\/companions\/([^/]+)$/)?.[1] ?? null;
+}
+
+function legalPageFromPath(pathname = window.location.pathname): LegalPageKind | null {
+  if (/^\/privacy\/?$/.test(pathname)) return "privacy";
+  if (/^\/terms\/?$/.test(pathname)) return "terms";
+  return null;
 }
 
 function readableDate(value: string) {
@@ -447,7 +455,7 @@ function AccountPage({ user, onSignOut, onMenu }: { user: AccountUser; onSignOut
 }
 
 function ConnectionsPage({ onMenu }: { onMenu: () => void }) {
-  const [catalog, setCatalog] = useState<PluginServer[]>([]); const [accounts, setAccounts] = useState<PluginAccount[]>([]); const [error, setError] = useState(""); const [notice, setNotice] = useState(""); const [busy, setBusy] = useState(""); const [customOpen, setCustomOpen] = useState(false); const [label, setLabel] = useState(""); const [transport, setTransport] = useState<"http" | "stdio">("http"); const [url, setUrl] = useState(""); const [command, setCommand] = useState(""); const [args, setArgs] = useState(""); const [secrets, setSecrets] = useState<Array<{ key: string; value: string }>>([]); const oauthPopup = useRef<Window | null>(null); const oauthWatch=useRef<number|null>(null);
+  const [catalog, setCatalog] = useState<PluginServer[]>([]); const [accounts, setAccounts] = useState<PluginAccount[]>([]); const [error, setError] = useState(""); const [notice, setNotice] = useState(""); const [busy, setBusy] = useState(""); const [namingServer,setNamingServer]=useState<PluginServer|null>(null); const [customOpen, setCustomOpen] = useState(false); const [label, setLabel] = useState(""); const [transport, setTransport] = useState<"http" | "stdio">("http"); const [url, setUrl] = useState(""); const [command, setCommand] = useState(""); const [args, setArgs] = useState(""); const [secrets, setSecrets] = useState<Array<{ key: string; value: string }>>([]); const oauthPopup = useRef<Window | null>(null); const oauthWatch=useRef<number|null>(null);
   const load = useCallback(() => workspaceApi.plugins().then((result) => { setCatalog(result.catalog); setAccounts(result.accounts); }).catch((cause) => setError(cause instanceof Error ? cause.message : "Could not load connections")), []);
   useEffect(() => { void load(); }, [load]);
   useEffect(() => {
@@ -467,7 +475,9 @@ function ConnectionsPage({ onMenu }: { onMenu: () => void }) {
     };
     window.addEventListener("message",complete);return()=>{window.removeEventListener("message",complete);if(oauthWatch.current!==null)window.clearInterval(oauthWatch.current);};
   },[load]);
-  async function connect(server: PluginServer) { if(!server.available)return;setError("");setNotice("");setBusy(server.id);const popup=window.open("about:blank","companions-plugin-oauth","popup,width=620,height=760");oauthPopup.current=popup;if(popup)oauthWatch.current=window.setInterval(()=>{if(!popup.closed)return;if(oauthWatch.current!==null)window.clearInterval(oauthWatch.current);oauthWatch.current=null;oauthPopup.current=null;setBusy("");setNotice("Connection window closed.");},500);try { const result = await workspaceApi.connectPlugin(server.id, server.name); if (result.url) {if(popup&&!popup.closed)popup.location.href=result.url;else window.location.assign(result.url);} else {if(oauthWatch.current!==null)window.clearInterval(oauthWatch.current);oauthWatch.current=null;popup?.close();oauthPopup.current=null;setBusy("");await load();} } catch (cause) { if(oauthWatch.current!==null)window.clearInterval(oauthWatch.current);oauthWatch.current=null;popup?.close();oauthPopup.current=null;setBusy("");setError(cause instanceof Error ? cause.message : "Could not connect account"); } }
+  async function connect(server: PluginServer,accountName="") { if(!server.available)return false;setError("");setNotice("");setBusy(server.id);const popup=window.open("about:blank","companions-plugin-oauth","popup,width=620,height=760");oauthPopup.current=popup;if(popup)oauthWatch.current=window.setInterval(()=>{if(!popup.closed)return;if(oauthWatch.current!==null)window.clearInterval(oauthWatch.current);oauthWatch.current=null;oauthPopup.current=null;setBusy("");setNotice("Connection window closed.");},500);try { const result = await workspaceApi.connectPlugin(server.id, accountName); if (result.url) {if(popup&&!popup.closed)popup.location.href=result.url;else window.location.assign(result.url);} else {if(oauthWatch.current!==null)window.clearInterval(oauthWatch.current);oauthWatch.current=null;popup?.close();oauthPopup.current=null;setBusy("");await load();} return true;} catch (cause) { if(oauthWatch.current!==null)window.clearInterval(oauthWatch.current);oauthWatch.current=null;popup?.close();oauthPopup.current=null;setBusy("");setError(cause instanceof Error ? cause.message : "Could not connect account");return false; } }
+  function requestConnection(server:PluginServer){if(accounts.some(account=>account.serverId===server.id)){setNamingServer(server);setError("");setNotice("");return;}void connect(server);}
+  async function rename(account:PluginAccount,accountName:string){setError("");setNotice("");setBusy(account.id);try{const result=await workspaceApi.renamePlugin(account.id,accountName);setAccounts(current=>current.map(item=>item.id===account.id?result.account:item));setNotice(`${result.account.label} saved.`);return true;}catch(cause){setError(cause instanceof Error?cause.message:"Could not rename account");return false;}finally{setBusy("");}}
   async function disconnect(account:PluginAccount){setError("");setNotice("");setBusy(account.id);try{await workspaceApi.deletePlugin(account.id);await load();setNotice("Connection removed.");}catch(cause){setError(cause instanceof Error?cause.message:"Could not remove connection");}finally{setBusy("");}}
   async function check(account:PluginAccount){setError("");setNotice("");setBusy(account.id);try{const result=await workspaceApi.checkPlugin(account.id);setAccounts(current=>current.map(item=>item.id===account.id?{...item,...result.account}:item));setNotice(`${account.label}: ${healthText({...account,...result.account})}.`);}catch(cause){setError(cause instanceof Error?cause.message:"Could not check connection");}finally{setBusy("");}}
   function healthText(account:PluginAccount){
@@ -496,8 +506,8 @@ function ConnectionsPage({ onMenu }: { onMenu: () => void }) {
       <details className="advanced-panel custom-advanced"><summary>{transport === "http" ? "Request headers" : "Environment variables"}</summary><p>Values are encrypted and cannot be viewed again.</p><div className="custom-secrets">{secrets.map((item, index) => <div className="custom-secret-row" key={index}><input aria-label={`${transport === "http" ? "Header" : "Variable"} ${index + 1} name`} value={item.key} onChange={event => updateSecret(index, "key", event.target.value)} placeholder={transport === "http" ? "Authorization" : "API_TOKEN"} autoCapitalize="none" autoComplete="off" /><input aria-label={`${transport === "http" ? "Header" : "Variable"} ${index + 1} secret value`} type="password" value={item.value} onChange={event => updateSecret(index, "value", event.target.value)} placeholder="Secret value" autoComplete="new-password" /><button type="button" className="icon-action" onClick={() => setSecrets(current => current.filter((_, itemIndex) => itemIndex !== index))} aria-label={`Remove ${transport === "http" ? "header" : "variable"} ${index + 1}`}><Trash2 /></button></div>)}</div><Button type="button" variant="ghost" size="sm" onClick={() => setSecrets(current => [...current, { key: "", value: "" }])}><Plus />Add {transport === "http" ? "header" : "variable"}</Button></details>
       <div className="custom-submit"><Button type="submit" disabled={!label.trim() || (transport === "http" ? !url.trim() : !command.trim())}>Add server</Button></div>
     </form>}
-    {accounts.length > 0 && <section className="connection-section"><h2>Connected</h2>{accounts.map((account) => {const reconnect=account.healthCode==="authorization_required"?catalog.find(server=>server.id===account.serverId&&server.available):undefined;return <div className="connected-row" key={account.id}><ProviderMark provider={account.provider} name={account.label}/><div><strong>{account.label}</strong><small role="status" className={`connection-health connection-health--${account.healthStatus}`}>{healthText(account)}</small></div><div className="connection-row-actions">{reconnect&&<Button variant="ghost" size="sm" disabled={!!busy} onClick={()=>void connect(reconnect)}>Reconnect</Button>}<ConnectionActions label={account.label} busy={!!busy} onCheck={account.provider === "custom" ? undefined : () => void check(account)} onDisconnect={() => void disconnect(account)} /></div></div>;})}</section>}
-    <section className="connection-section"><h2>Add a connection</h2><div className="provider-list">{catalog.map((server) => <div className="provider-row" key={server.id}><ProviderMark provider={server.provider} name={server.name}/><div><strong>{server.name}</strong><small>{server.available?(server.description ?? "Tools and events"):"Unavailable in this deployment"}</small></div><Button variant="outline" size="sm" disabled={!server.available||!!busy} onClick={() => void connect(server)}>{busy===server.id?<LoaderCircle className="spin"/>:server.available?"Connect":"Unavailable"}{server.available&&<ExternalLink />}</Button></div>)}</div>{catalog.length === 0 && <div className="quiet-empty"><Waypoints /><strong>No providers available</strong><span>Add a custom MCP server or try again shortly.</span></div>}</section>
+    {accounts.length > 0 && <section className="connection-section"><h2>Connected</h2>{accounts.map((account) => {const server=catalog.find(item=>item.id===account.serverId);const providerName=server?.name??(account.provider==="custom"?"Custom MCP":account.provider??"Connection");const reconnect=account.healthCode==="authorization_required"&&server?.available?server:undefined;return <div className="connected-row" key={account.id}><ProviderMark provider={account.provider} name={providerName}/><div><strong>{providerName}</strong><span className="connection-account-label">{account.label}</span><small role="status" className={`connection-health connection-health--${account.healthStatus}`}>{healthText(account)}</small></div><div className="connection-row-actions">{reconnect&&<Button variant="ghost" size="sm" disabled={!!busy} onClick={()=>void connect(reconnect,account.label)}>Reconnect</Button>}<ConnectionActions label={account.label} providerName={providerName} busy={!!busy} onRename={value=>rename(account,value)} onCheck={account.provider === "custom" ? undefined : () => void check(account)} onDisconnect={() => void disconnect(account)} /></div></div>;})}</section>}
+    <section className="connection-section"><h2>Add a connection</h2><div className="provider-list">{catalog.map((server) => <div className="provider-row" key={server.id}><ProviderMark provider={server.provider} name={server.name}/><div><strong>{server.name}</strong><small>{server.available?(server.description ?? "Tools and events"):"Unavailable in this deployment"}</small></div><Button variant="outline" size="sm" disabled={!server.available||!!busy} onClick={() => requestConnection(server)}>{busy===server.id?<LoaderCircle className="spin"/>:server.available?"Connect":"Unavailable"}{server.available&&<ExternalLink />}</Button>{namingServer?.id===server.id&&<PluginAccountNameForm providerName={server.name} busy={busy===server.id} submitLabel="Connect account" onCancel={()=>setNamingServer(null)} onSubmit={async value=>{if(await connect(server,value))setNamingServer(null);}}/>}</div>)}</div>{catalog.length === 0 && <div className="quiet-empty"><Waypoints /><strong>No providers available</strong><span>Add a custom MCP server or try again shortly.</span></div>}</section>
   </div></main>;
 }
 
@@ -511,6 +521,9 @@ function LoadingApp() {
 }
 
 export function App() {
+  const publicLegalPage = legalPageFromPath();
+  const publicHomepage = /^\/about\/?$/.test(window.location.pathname);
+  const publicRoute = Boolean(publicLegalPage || publicHomepage);
   const [authRequired, setAuthRequired] = useState(false);
   const [user, setUser] = useState<AccountUser | null>(null);
   const [currentPath, setCurrentPath] = useState(window.location.pathname);
@@ -605,7 +618,7 @@ export function App() {
     }
   }, [handleApiError]);
 
-  useEffect(() => { void bootstrap(); }, [bootstrap]);
+  useEffect(() => { if (!publicRoute) void bootstrap(); }, [bootstrap, publicRoute]);
 
   useEffect(() => {
     const onPopState = (event: PopStateEvent) => {
@@ -677,10 +690,10 @@ export function App() {
   }, [loading, selectedId, authRequired, loadDetail, loadList]);
 
   useEffect(() => {
-    if (authRequired) return;
+    if (authRequired || publicRoute) return;
     const timer = window.setInterval(() => { void loadList(); }, LIST_INTERVAL);
     return () => window.clearInterval(timer);
-  }, [authRequired, loadList]);
+  }, [authRequired, loadList, publicRoute]);
 
   function selectCompanion(id: string) {
     const select = () => {
@@ -738,6 +751,8 @@ export function App() {
     setCurrentPath("/login");
   }
 
+  if (publicLegalPage) return <LegalPage kind={publicLegalPage} />;
+  if (publicHomepage) return <LandingPage onLogin={openLogin} />;
   if (authRequired) return currentPath === "/" ? <LandingPage onLogin={openLogin} /> : <AccessGate />;
   if (loading) return <LoadingApp />;
   if (!config || !user) {

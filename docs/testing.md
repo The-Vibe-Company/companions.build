@@ -13,7 +13,7 @@ python3 scripts/verify.py
 ```
 
 The verifier creates a unique artifact directory and uniquely labeled PostgreSQL and MinIO
-containers. It installs both lockfiles with frozen versions, typechecks, runs agent unit tests,
+containers. It prepares both lockfiles with frozen versions when their contents change, typechecks, runs agent unit tests,
 builds the Linux agent, exercises the server through `scripts/test-server.ts --linux`, then runs
 web behavior tests and the production web build. It then creates a real Better Auth session and a
 queued turn, takes a PostgreSQL 17 custom-format backup, kills that database container, restores
@@ -47,6 +47,12 @@ observations. Always match an artifact to the commit it tested; focused browser 
 checks do not replace the standard verifier after a runtime change.
 
 ## Focused loops
+
+The [worktree CLI and Herdr panel](dev-workflow.md) provide isolated focused commands:
+`./dev check web`, `./dev check server --test retirement`, `./dev check agent`, and
+`./dev check full`. Prefer these commands when the local database and storage environment has
+not already been prepared. `./dev browser-test chat-recovery` automates the local persisted chat
+path through the browser; raw authenticated browser traces are excluded from its evidence.
 
 Use the smallest suite that proves a change, then run the standard verifier before integration.
 

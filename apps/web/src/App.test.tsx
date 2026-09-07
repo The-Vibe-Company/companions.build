@@ -104,9 +104,13 @@ describe("first Companion flow", () => {
     await user.click(screen.getByText("Persistent cloud computer"));
     await user.click(screen.getByRole("button", { name: "Create Companion" }));
 
-    expect(await screen.findByRole("heading", { name: "What should Ada work on?" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "A little less on your mind." })).toBeInTheDocument();
     expect(screen.getByText(/Messages will wait safely/)).toBeInTheDocument();
     expect(window.location.pathname).toBe("/companions/ada");
+    await user.click(screen.getByRole("button", { name: "Plan my day" }));
+    expect(screen.getByRole("textbox", { name: "Message Ada" })).toHaveValue("Plan my day");
+    expect(screen.getByRole("textbox", { name: "Message Ada" })).toHaveFocus();
+    expect(fetchMock.mock.calls.some(([path, options]) => String(path).endsWith("/messages") && options?.method === "POST")).toBe(false);
 
     const createCall = fetchMock.mock.calls.find(([, options]) => options?.method === "POST");
     expect(JSON.parse(createCall?.[1]?.body as string)).toEqual({
@@ -143,7 +147,7 @@ describe("first Companion flow", () => {
     await user.click(screen.getByRole("button",{name:"Create Companion"}));
     expect(await screen.findByRole("alert")).toHaveTextContent("Response lost");
     await user.click(screen.getByRole("button",{name:"Create Companion"}));
-    expect(await screen.findByRole("heading",{name:"What should Ada work on?"})).toBeInTheDocument();
+    expect(await screen.findByRole("heading",{name:"A little less on your mind."})).toBeInTheDocument();
     expect(bodies).toHaveLength(2);expect(bodies[0].clientCreationId).toMatch(/^[0-9a-f-]{36}$/);expect(bodies[1].clientCreationId).toBe(bodies[0].clientCreationId);
   });
 
@@ -226,8 +230,9 @@ describe("first Companion flow", () => {
     expect(screen.getByRole("link", { name: "report.md" })).toHaveAttribute("href", "/api/companions/ada/files/report");
     await user.click(screen.getAllByRole("button", { name: "Close activity" }).at(-1)!);
     await user.click(screen.getByRole("button", { name: "Settings for Ada" }));
-    expect(screen.getByRole("dialog", { name: "Settings" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Identity" })).toHaveAttribute("aria-current", "page");
+    expect(screen.getByRole("dialog", { name: "Make Ada yours" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Personality/ })).toBeInTheDocument();
+    expect(screen.queryByLabelText("Name")).not.toBeInTheDocument();
     await user.click(screen.getAllByRole("button", { name: "Close settings" }).at(-1)!);
 
     await user.click(screen.getByRole("button", { name: /Browser Ready/ }));
@@ -301,7 +306,8 @@ describe("first Companion flow", () => {
 
     expect(await screen.findByRole("textbox", { name: "Message Ada" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Ada" }).parentElement).toHaveTextContent("Sleeping");
-    expect(screen.getByRole("button", { name: "Desktop" })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Settings for Ada" }));
+    expect(screen.getByRole("button", { name: /Open computer/ })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Settings for Ada" })).toBeInTheDocument();
   });
 
@@ -551,9 +557,11 @@ it("preserves the configured default model when editing only a Companion identit
  });
  vi.stubGlobal("fetch",fetchMock);const user=userEvent.setup();render(<App/>);
  await user.click(await screen.findByRole("button",{name:"Settings for Ada"}));
+ await user.click(screen.getByRole("button",{name:/Personality/}));
+ await user.click(screen.getByText("Model preferences"));
  expect(screen.getByLabelText("Model")).toHaveValue("");
  await user.clear(screen.getByLabelText("Name"));await user.type(screen.getByLabelText("Name"),"Ada renamed");
- await user.click(screen.getByRole("button",{name:"Save"}));
+ await user.click(screen.getByRole("button",{name:"Save changes"}));
  await waitFor(()=>expect(fetchMock.mock.calls.some(([,options])=>options?.method==="PATCH")).toBe(true));
  const update=fetchMock.mock.calls.find(([,options])=>options?.method==="PATCH");
  expect(JSON.parse(update![1]!.body as string)).toMatchObject({name:"Ada renamed",modelId:null});

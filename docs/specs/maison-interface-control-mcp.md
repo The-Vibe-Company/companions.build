@@ -1,5 +1,12 @@
 # Feature Spec: Maison — interface et MCP de contrôle
 
+> Mise à jour du périmètre, 7 septembre 2026 : l'utilisateur conserve le MCP
+> `companion-control` existant et demande de poursuivre uniquement la refonte UI/UX.
+> Thème **clair exclusivement**, sans mode sombre ni préférence système. Les propositions
+> de parité MCP et d'autosave ci-dessous restent des pistes, hors de cette passe.
+> L'identité garde une sauvegarde explicite ; aucune API ni garantie runtime ne change.
+
+
 ## Summary
 
 Refondre companions.build autour d'une interface personnelle, chaleureuse et très sobre :
@@ -57,7 +64,7 @@ Exemples : « Fais mon point chaque matin à 9 h », « Surveille les échecs de
 ### Navigation principale
 
 - Sidebar : marque discrète, création « + », liste des companions, menu compte en bas.
-- Le menu compte regroupe Connexions, Apparence, Abonnement et Déconnexion.
+- Le menu compte regroupe Connexions et Abonnement.
 - Les invitations/livraisons et accès de maintenance restent dans Compte, visibles quand pertinents.
 - Dans un chat : identité cliquable ouvrant les réglages, indicateur d'activité si travail actif
   ou question en attente, champ de saisie. Pas de barre de boutons pour toutes les fonctionnalités.
@@ -104,7 +111,7 @@ silencieusement une valeur plus récente.
 
 ### Identité visuelle et finitions
 
-- Blanc légèrement chaud, surfaces neutres, encre charbon ; thème sombre graphite équivalent.
+- Blanc légèrement chaud, surfaces neutres, encre charbon ; thème clair uniquement.
 - Couleurs franches réservées surtout aux personnages ; couleurs de statut distinctes de l'identité.
 - Typographie sans serif unique, corps 14–16 px, titres contenus, interlignage confortable.
 - Avatars de navigation 32–40 px ; grand avatar réservé à la personnalisation et à l'accueil vide.
@@ -159,7 +166,7 @@ Une issue inconnue conduit à consulter l'état, jamais à rejouer aveuglément 
   si nécessaire ; ne pas ajouter un second mécanisme global de polling.
 - Utiliser une révision attendue sur les configurations éditables simultanément. Retour de conflit
   visible, brouillon conservé, nouvelle valeur consultable. Migrations additives et compatibles.
-- Préférences d'apparence locales au navigateur dans cette passe ; respecter le thème système.
+- Thème clair fixe, y compris lorsque le système est en mode sombre.
 - Ne pas écrire de secrets dans les URLs, événements de configuration, reçus ou stockage navigateur.
 
 ## Permissions And Trust Boundaries
@@ -200,7 +207,7 @@ permission générale d'envoyer des messages externes, de facturer ou de partage
 - [ ] Rejeu d'une commande identique sans doublon ; entrée différente sous le même ID refusée.
 - [ ] Modification agent visible dans les réglages ouverts ; conflit web/agent protégé.
 - [ ] Aucun secret exposé ; accès étrangers, enfants et mandats révoqués couverts.
-- [ ] Thèmes clair/sombre, contraste, zoom, mouvement réduit et états vides/erreurs vérifiés.
+- [ ] Thème clair, contraste, zoom, mouvement réduit et états vides/erreurs vérifiés.
 - [ ] Navigation et ouverture des panneaux ne réveillent aucune Box ; bundle mesuré avant/après.
 
 ## Test Plan
@@ -218,7 +225,7 @@ permission générale d'envoyer des messages externes, de facturer ou de partage
 
 Séquence d'implémentation proposée, chaque étape avec résultat observable :
 
-1. **Fondations visuelles** : tokens clair/sombre, typographie, avatars, boutons, champs et états.
+1. **Fondations visuelles** : tokens clairs, typographie, avatars, boutons, champs et états.
    Livrable : un écran de chat de référence et sa variante mobile.
 2. **Navigation et chat** : sidebar courte, menu compte, accueil vide, compositeur et accès activité.
    Livrable : navigation complète en conservant URLs et brouillons.
@@ -252,8 +259,7 @@ compatibles pendant la transition et les migrations de révision additives. Pas 
 ## Open Questions
 
 Aucune question bloquante pour réaliser cette proposition. Hypothèses non bloquantes : « Maison »
-est la direction visuelle, le clair est la valeur initiale si le système n'indique pas de préférence,
-et l'apparence du navigateur reste une préférence humaine. La langue actuelle de l'app est conservée ;
+est la direction visuelle et le thème reste clair indépendamment du système. La langue actuelle de l'app est conservée ;
 une traduction complète n'est pas incluse dans cette passe.
 
 ## Handoff

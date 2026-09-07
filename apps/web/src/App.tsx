@@ -19,7 +19,6 @@ import {
   Server,
   Trash2,
   UserRound,
-  UsersRound,
   Waypoints,
   X,
 } from "lucide-react";
@@ -51,8 +50,8 @@ import {
 import { Question } from "@/components/Question";
 import { cn } from "@/lib/utils";
 import { AvatarPicker, CompanionAvatar, DEFAULT_AVATAR, type CompanionAvatarValue } from "@/components/CompanionAvatar";
-import { AccountProduct, DeliverySettings, DesktopSheet, SpecialistsSettings } from "@/components/ProductPanels";
-import { RoutineSettings, TriggerSettings } from "@/components/AutomationPanels";
+import { AccountProduct, DesktopSheet } from "@/components/ProductPanels";
+import { SettingsSheet } from "@/components/SettingsSheet";
 
 const LIST_INTERVAL = 8_000;
 const MAX_CHAT_FILES = 5;
@@ -284,7 +283,6 @@ function Sidebar({
   onSelect,
   onCreate,
   onNavigate,
-  currentPath,
   user,
   open,
   onClose,
@@ -294,7 +292,6 @@ function Sidebar({
   onSelect: (id: string) => void;
   onCreate: () => void;
   onNavigate: (path: string) => void;
-  currentPath: string;
   user: AccountUser;
   open: boolean;
   onClose: () => void;
@@ -304,11 +301,10 @@ function Sidebar({
       {open && <button className="sidebar-scrim" onClick={onClose} aria-label="Close navigation" />}
       <aside className={cn("sidebar", open && "sidebar--open")} aria-label="Companions">
         <div className="sidebar-header">
-          <button className="wordmark wordmark-button" onClick={() => onNavigate("/")}>companions.build</button>
+          <button className="wordmark wordmark-button" onClick={() => onNavigate("/")}>companions<span>.build</span></button>
           <Button variant="ghost" size="icon" className="sidebar-close" onClick={onClose} aria-label="Close navigation"><PanelLeftClose /></Button>
         </div>
-        <button className={cn("nav-link", currentPath === "/" && "nav-link--active")} onClick={() => onNavigate("/")}><UsersRound />Companions</button>
-        <div className="sidebar-label">Your team</div>
+        <div className="sidebar-label"><span>Your companions</span><Button variant="ghost" size="icon" onClick={onCreate} aria-label="New Companion"><Plus /></Button></div>
         <nav className="companion-list">
           {companions.map((companion) => (
             <button
@@ -326,11 +322,10 @@ function Sidebar({
             </button>
           ))}
         </nav>
-        <Button variant="outline" className="new-companion" onClick={onCreate}><Plus />New Companion</Button>
-        <nav className="sidebar-global" aria-label="Workspace">
-          <button className={cn("nav-link", currentPath === "/connections" && "nav-link--active")} onClick={() => onNavigate("/connections")}><Waypoints />Connections</button>
-          <button className={cn("nav-link", currentPath === "/account" && "nav-link--active")} onClick={() => onNavigate("/account")}><UserRound />Account<span className="account-initial">{user.email.slice(0, 1).toUpperCase()}</span></button>
-        </nav>
+        <details className="account-menu" onBlur={event=>{if(!event.currentTarget.contains(event.relatedTarget as Node))event.currentTarget.open=false;}} onKeyDown={event=>{if(event.key==='Escape'){event.currentTarget.open=false;event.currentTarget.querySelector('summary')?.focus();}}}>
+          <summary><span className="account-initial">{user.email.slice(0,1).toUpperCase()}</span><span>Your account</span><ChevronRight /></summary>
+          <div className="account-popover"><p>{user.email}</p><button onClick={event=>{event.currentTarget.closest('details')?.removeAttribute('open');onNavigate('/connections');}}><Waypoints/>Connections</button><button onClick={event=>{event.currentTarget.closest('details')?.removeAttribute('open');onNavigate('/account');}}><UserRound/>Account & subscription</button></div>
+        </details>
       </aside>
     </>
   );
@@ -456,8 +451,9 @@ function Chat({ detail, onRefresh, onUnauthorized, onOpenCompanion, readOnly = f
           {detail.messages.length === 0 ? (
             <ConversationEmptyState className="chat-empty">
               <CompanionAvatar name={detail.companion.name} avatar={detail.companion.avatar} size={72} />
-              <h2>What should {detail.companion.name} work on?</h2>
-              <p>Send a task or ask a question to begin.</p>
+              <h2>A little less on your mind.</h2>
+              <p>Make room for what matters. {detail.companion.name} can help.</p>
+              {!readOnly && <div className="chat-suggestions">{['Plan my day', 'Help with a project', 'Set up a routine'].map(prompt=><button type="button" key={prompt} onClick={()=>{setDraft(prompt);textareaRef.current?.focus();}}>{prompt}<ChevronRight/></button>)}</div>}
             </ConversationEmptyState>
           ) : detail.messages.map((message) => (
             <Message from={message.role} key={message.id}>
@@ -507,7 +503,7 @@ function Chat({ detail, onRefresh, onUnauthorized, onOpenCompanion, readOnly = f
           <div className="composer-actions">
             <span className="composer-hint">Enter to send · Shift + Enter for a new line</span>
             <div className="composer-buttons">
-              <label className="attach-button" aria-label="Attach files"><Paperclip /><input type="file" multiple accept="image/png,image/jpeg,image/webp,image/gif,application/pdf,text/plain,text/csv,text/markdown,application/json,.md,.markdown,.txt,.csv,.json" onChange={(event) => { addFiles(Array.from(event.target.files ?? [])); event.currentTarget.value = ""; }} /></label>
+              <label className="attach-button" aria-label="Attach files"><Plus /><input type="file" multiple accept="image/png,image/jpeg,image/webp,image/gif,application/pdf,text/plain,text/csv,text/markdown,application/json,.md,.markdown,.txt,.csv,.json" onChange={(event) => { addFiles(Array.from(event.target.files ?? [])); event.currentTarget.value = ""; }} /></label>
               {activeRun && (
                 <Button type="button" variant="outline" size="sm" onClick={cancel}><CircleStop />Cancel</Button>
               )}
@@ -530,41 +526,6 @@ function CompanionConnections({ companionId }: { companionId: string }) {
   return <div className="settings-stack"><div className="settings-intro"><Waypoints /><div><h3>Connections</h3><p>Choose which connected accounts this Companion can use.</p></div></div>{all.length === 0 ? <p className="settings-empty">Connect an account from Connections first.</p> : all.map((account) => <label className="connection-choice" key={account.id}><span className="provider-dot">{(account.provider ?? account.label).slice(0, 1).toUpperCase()}</span><span><strong>{account.label}</strong><small>{account.provider ?? account.serverId}</small></span><input type="checkbox" checked={selectedIds.has(account.id)} onChange={() => void (selectedIds.has(account.id) ? workspaceApi.unselectPlugin(companionId, account.id) : workspaceApi.selectPlugin(companionId, account.id)).then(load)} /></label>)}{error && <p className="field-error">{error}</p>}</div>;
 }
 
-function SettingsSheet({ detail, models, onClose, onSaved }: { detail: CompanionDetail; models: Array<{ id: string; name: string }>; onClose: () => void; onSaved: () => Promise<void> }) {
-  const tabs = ["identity", "routines", "connections", "triggers", "specialists", "delivery"] as const;
-  const [tab, setTab] = useState<(typeof tabs)[number]>("identity");
-  const [name, setName] = useState(detail.companion.name);
-  const [instructions, setInstructions] = useState(detail.companion.instructions);
-  const [avatar, setAvatar] = useState(detail.companion.avatar ?? DEFAULT_AVATAR);
-  const [modelId, setModelId] = useState(detail.companion.modelId ?? "");
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState("");
-  async function save(event: FormEvent) {
-    event.preventDefault();
-    setSaving(true); setError("");
-    try {
-      await api.updateCompanion(detail.companion.id, { name: name.trim(), instructions: instructions.trim(), avatar, modelId: modelId || null });
-      await onSaved(); onClose();
-    } catch (cause) { setError(cause instanceof Error ? cause.message : "Could not save identity"); }
-    finally { setSaving(false); }
-  }
-  return <div className="sheet-layer" role="presentation">
-    <button className="sheet-scrim" onClick={onClose} aria-label="Close settings" />
-    <aside className="settings-sheet" role="dialog" aria-modal="true" aria-labelledby="settings-title">
-      <header className="sheet-header"><div><span>{detail.companion.name}</span><h2 id="settings-title">Settings</h2></div><Button variant="ghost" size="icon" onClick={onClose} aria-label="Close settings"><X /></Button></header>
-      <nav className="settings-tabs" aria-label="Companion settings">{tabs.map((value) => <button key={value} aria-current={tab === value ? "page" : undefined} onClick={() => setTab(value)}>{value === "connections" ? "Tools" : value === "specialists" ? "Team" : value[0].toUpperCase() + value.slice(1)}</button>)}</nav>
-      {tab === "identity" ? <form className="sheet-content identity-form" onSubmit={save}>
-        <AvatarPicker value={avatar} onChange={setAvatar} />
-        <div className="field"><label htmlFor="identity-name">Name</label><input id="identity-name" value={name} onChange={(event) => setName(event.target.value)} maxLength={80} /></div>
-        <div className="field"><label htmlFor="identity-mission">Mission</label><Textarea id="identity-mission" value={instructions} onChange={(event) => setInstructions(event.target.value)} rows={5} maxLength={20_000} /></div>
-        {models.length > 0 && <div className="field"><label htmlFor="identity-model">Model</label><select id="identity-model" value={modelId} onChange={(event) => setModelId(event.target.value)}><option value="">Default model</option>{models.map((model) => <option value={model.id} key={model.id}>{model.name}</option>)}</select></div>}
-        {error && <p className="field-error" role="alert">{error}</p>}
-        <div className="sheet-actions"><Button type="button" variant="ghost" onClick={onClose}>Cancel</Button><Button type="submit" disabled={saving || !name.trim()}>{saving ? <LoaderCircle className="spin" /> : <Check />}Save</Button></div>
-      </form> : <div className="sheet-content">{tab === "routines" ? <RoutineSettings companionId={detail.companion.id} /> : tab === "connections" ? <CompanionConnections companionId={detail.companion.id} /> : tab === "triggers" ? <TriggerSettings companionId={detail.companion.id} /> : tab === "specialists" ? <SpecialistsSettings companionId={detail.companion.id} /> : <DeliverySettings companionId={detail.companion.id} />}</div>}
-    </aside>
-  </div>;
-}
-
 function CompanionView({ detail, models, onRefresh, onUnauthorized, onMenu, onOpenCompanion }: { detail: CompanionDetail; models: Array<{ id: string; name: string }>; onRefresh: () => Promise<void>; onUnauthorized: () => void; onMenu: () => void; onOpenCompanion: (id: string) => void }) {
   const [desktopOpen, setDesktopOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -581,13 +542,7 @@ function CompanionView({ detail, models, onRefresh, onUnauthorized, onMenu, onOp
           <div><h1>{detail.companion.name}</h1><span><StatusDot status={displayedStatus} />{finished ? "Finished" : statusLabel(displayedStatus)}</span></div>
         </div>
         <div className="header-actions">
-          {!finished && detail.companion.provider === "box" && (
-            <Button variant="outline" size="sm" onClick={() => setDesktopOpen(true)} aria-label="Desktop">
-              <Computer />
-              <span>Desktop</span>
-            </Button>
-          )}
-          <Button variant="ghost" size="sm" onClick={() => setActivityOpen(true)} aria-label="Activity"><CalendarClock /><span>Activity</span></Button>
+          {(finished || detail.runs.some(run => isActiveRun(run.status)) || !!detail.questions?.length) && <Button variant="ghost" size="sm" onClick={() => setActivityOpen(true)} aria-label="Activity"><CalendarClock /><span>{detail.questions?.length ? 'Needs you' : 'Activity'}</span></Button>}
           {!finished && <Button variant="ghost" size="icon" onClick={() => setSettingsOpen(true)} aria-label={`Settings for ${detail.companion.name}`}><Settings /></Button>}
         </div>
       </header>
@@ -595,7 +550,7 @@ function CompanionView({ detail, models, onRefresh, onUnauthorized, onMenu, onOp
         <Chat detail={detail} onRefresh={onRefresh} onUnauthorized={onUnauthorized} onOpenCompanion={onOpenCompanion} readOnly={finished} />
       </div>
       {activityOpen && <div className="activity-layer"><button className="sheet-scrim" onClick={() => setActivityOpen(false)} aria-label="Close activity" /><ActivityPanel detail={detail} onClose={() => setActivityOpen(false)} onOpenCompanion={(id) => { setActivityOpen(false); onOpenCompanion(id); }} /></div>}
-      {settingsOpen && <SettingsSheet detail={detail} models={models} onClose={() => setSettingsOpen(false)} onSaved={onRefresh} />}
+      {settingsOpen && <SettingsSheet detail={detail} models={models} onClose={() => setSettingsOpen(false)} onSaved={onRefresh} connections={<CompanionConnections companionId={detail.companion.id} />} onActivity={() => { setSettingsOpen(false); setActivityOpen(true); }} onDesktop={() => { setSettingsOpen(false); setDesktopOpen(true); }} />}
       {desktopOpen && <DesktopSheet companion={detail.companion} onClose={() => setDesktopOpen(false)} onRefresh={onRefresh} />}
     </main>
   );
@@ -604,7 +559,7 @@ function CompanionView({ detail, models, onRefresh, onUnauthorized, onMenu, onOp
 function Home({ companions, onSelect, onCreate, onMenu }: { companions: Companion[]; onSelect: (id: string) => void; onCreate: () => void; onMenu: () => void }) {
   return <main className="home-page" id="main-content">
     <header className="mobile-page-header"><Button variant="ghost" size="icon" onClick={onMenu} aria-label="Open navigation"><Menu /></Button><span className="wordmark">companions.build</span></header>
-    <div className="home-inner"><div className="home-heading"><div><h1>Your Companions</h1><p>A small team, each with their own computer.</p></div><Button onClick={onCreate}><Plus />New Companion</Button></div>
+    <div className="home-inner"><div className="home-heading"><div><h1>A little company.<br/>A lot of possibility.</h1><p>Your companions, ready when you are.</p></div><Button onClick={onCreate}><Plus />New Companion</Button></div>
       <div className="home-list">{companions.map((companion) => <button key={companion.id} className="home-companion" onClick={() => onSelect(companion.id)}>
         <CompanionAvatar name={companion.name} avatar={companion.avatar} size={62} />
         <span><strong>{companion.name}</strong><small>{companion.instructions}</small><em><StatusDot status={companion.status} />{statusLabel(companion.status)}</em></span><ChevronRight />
@@ -844,7 +799,6 @@ export function App() {
         onSelect={selectCompanion}
         onCreate={() => { setCreateOpen(true); setSidebarOpen(false); }}
         onNavigate={navigate}
-        currentPath={currentPath}
         user={user}
         open={sidebarOpen}
         onClose={() => setSidebarOpen(false)}

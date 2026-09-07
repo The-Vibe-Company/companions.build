@@ -10,9 +10,9 @@ export interface CompanionAvatarValue {
 export const DEFAULT_AVATAR: CompanionAvatarValue = { shape: 1, color: 2, face: 0 };
 
 export const AVATAR_COLORS = [
-  "oklch(0.24 0.015 70)", "oklch(0.48 0.09 52)", "oklch(0.61 0.20 25)",
+  "oklch(0.24 0.015 70)", "oklch(0.48 0.09 52)", "oklch(0.70 0.18 30)",
   "oklch(0.72 0.16 55)", "oklch(0.84 0.15 92)", "oklch(0.62 0.15 145)",
-  "oklch(0.65 0.12 190)", "oklch(0.59 0.17 252)", "oklch(0.58 0.18 303)",
+  "oklch(0.65 0.12 190)", "oklch(0.67 0.14 280)", "oklch(0.58 0.18 303)",
   "oklch(0.68 0.18 350)", "oklch(0.58 0.02 260)",
 ];
 
@@ -27,13 +27,12 @@ const SHAPES = [
   <path key="drop" d="M50 2S93 50 93 70C93 91 74 100 50 100S7 91 7 70C7 48 50 2 50 2Z" />,
 ];
 
-function Face({ face }: { face: number }) {
-  const stroke = { stroke: "white", strokeWidth: 7.5, strokeLinecap: "round" as const, fill: "none" };
-  if (face === 1) return <><path {...stroke} d="M36 35L40 27M55 35L59 27"/><path {...stroke} strokeWidth="5" d="M35 55Q49 69 64 55"/></>;
-  if (face === 2) return <><path {...stroke} d="M34 32H42M55 35L59 27"/><path {...stroke} strokeWidth="5" d="M39 60Q50 67 61 60"/></>;
-  if (face === 3) return <><circle cx="39" cy="32" r="5" fill="white"/><circle cx="59" cy="32" r="5" fill="white"/><circle cx="49" cy="59" r="5" fill="none" stroke="white" strokeWidth="4"/></>;
-  if (face === 4) return <><path {...stroke} d="M34 34Q39 39 44 34M54 34Q59 39 64 34"/><path {...stroke} strokeWidth="5" d="M43 59H57"/></>;
-  return <><path {...stroke} d="M38.5 37.5L42.5 28.5M55.5 37.5L59.5 28.5"/></>;
+function Face({ face, dark }: { face: number; dark: boolean }) {
+  const ink = "#242622";
+  const stroke = { stroke: dark ? "white" : ink, strokeWidth: 3.2, strokeLinecap: "round" as const, fill: "none" };
+  const eye = (x: number) => <g key={x}><ellipse cx={x} cy="44" rx="7.5" ry="9" fill="white"/><ellipse cx={x+1.4} cy="45" rx="4.2" ry="5.5" fill={ink}/></g>;
+  return <>{face===4 ? <><path {...stroke} d="M29 44Q36 50 43 44M57 44Q64 50 71 44"/></> : <>{eye(36)}{face===2?<path {...stroke} d="M58 44Q65 49 71 43"/>:eye(64)}</>}
+    {face===3?<ellipse cx="50" cy="64" rx="4" ry="5" fill={dark ? "white" : ink}/>:face===1?<path d="M42 60Q50 74 59 60Z" fill={dark ? "white" : ink}/>:<path {...stroke} d={face===4?"M44 64H56":"M44 62Q50 68 57 62"}/>}</>;
 }
 
 export function CompanionAvatar({
@@ -55,7 +54,7 @@ export function CompanionAvatar({
   return (
     <svg className={cn("character-mark", className)} width={size} height={size} style={{ width: size, height: size }} viewBox="0 0 100 100" role="img" aria-label={`${name}, Companion`}>
       <g fill={AVATAR_COLORS[safe.color]}>{SHAPES[safe.shape]}</g>
-      <Face face={safe.face} />
+      <Face face={safe.face} dark={safe.color === 0 || safe.color === 1} />
     </svg>
   );
 }

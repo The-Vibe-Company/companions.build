@@ -68,7 +68,10 @@ def publish(current=None):
     current = status() if current is None else current
     app = str(current.get('state', current.get('status', 'unknown')))
     tests = current.get('validation', {})
+    profile = tests.get('profile') if isinstance(tests, dict) else None
     tests = tests.get('state', tests.get('status', 'unknown')) if isinstance(tests, dict) else tests
+    if profile:
+        tests = str(profile) + ': ' + str(tests)
     herdr('workspace', 'report-metadata', workspace, '--source', 'companions-dev',
           '--token', 'companions_app=app: ' + app[:32],
           '--token', 'companions_tests=tests: ' + str(tests or 'unknown')[:32],
@@ -201,7 +204,7 @@ def panel_layout(current, width):
         line()
     validation = current.get('validation') or {}
     line('VALIDATION', 'title')
-    line(str(validation.get('status', 'unknown')) if isinstance(validation, dict) else str(validation))
+    line((str(validation.get('profile', 'no run')) + ': ' + str(validation.get('status', 'unknown'))) if isinstance(validation, dict) else str(validation))
     controls(ACTIONS[4:])
     return rows, buttons
 

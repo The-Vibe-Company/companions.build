@@ -20,6 +20,10 @@ class CheckTest(unittest.TestCase):
         with self.assertRaises(SystemExit):
             check.parse_args(["web", "--test", "chat"])
 
+    def test_full_verification_cannot_silently_skip_server_suites(self):
+        with self.assertRaises(SystemExit):
+            check.parse_args(["full", "--test", "chat"])
+
     @mock.patch.object(subprocess, "run")
     def test_exit_code_is_preserved(self, run):
         run.return_value.returncode = 7

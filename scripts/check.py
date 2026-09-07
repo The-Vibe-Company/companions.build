@@ -12,8 +12,8 @@ def parse_args(argv=None):
     parser.add_argument("profile", choices=("web", "server", "agent", "full"))
     parser.add_argument("--test", help="substring selecting server test files")
     args = parser.parse_args(argv)
-    if args.test and args.profile not in ("server", "full"):
-        parser.error("--test is only valid for server and full checks")
+    if args.test and args.profile != "server":
+        parser.error("--test is only valid for server checks; full always runs every suite")
     return args
 
 

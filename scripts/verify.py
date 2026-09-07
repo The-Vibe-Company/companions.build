@@ -368,8 +368,8 @@ def parse_args(argv=None):
     parser.add_argument("--postgres", choices=POSTGRES_IMAGES, default="17", help="PostgreSQL major used for isolated verification")
     parser.add_argument("--test", help="substring selecting server test files")
     args = parser.parse_args(argv)
-    if args.test and args.profile not in ("server", "full"):
-        parser.error("--test is only valid with the server and full profiles")
+    if args.test and args.profile != "server":
+        parser.error("--test is only valid with the server profile; full always runs every suite")
     return args
 
 

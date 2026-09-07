@@ -55,12 +55,19 @@ export function specialistBoxMachines(box:BoxClient|null):Pick<SpecialistMachine
 
 export function restoreSpecialistWorkspace(stateDir:string){
  if(!/^\/home\/user\/\.companions(?:\/agents\/[a-f0-9-]{36})?$/.test(stateDir))throw Error('invalid_agent_state');
- const script=`import pathlib,shutil
+ const script=`import os,pathlib,shutil,pwd
 state=pathlib.Path('${stateDir}')
+created=[]
 for source,target in [(pathlib.Path('/home/user/.specialist-workspace'),state/'workspace'),(pathlib.Path('/home/user/.specialist-skills'),state/'pi'/'skills')]:
     if source.exists() and not target.exists():
         target.parent.mkdir(parents=True,exist_ok=True)
         shutil.copytree(source,target,symlinks=True)
+        created.append(target)
+user=pwd.getpwnam('user')
+for target in created:
+    for root,dirs,files in os.walk(target,followlinks=False):
+        os.chown(root,user.pw_uid,user.pw_gid)
+        for name in dirs+files: os.chown(pathlib.Path(root)/name,user.pw_uid,user.pw_gid,follow_symlinks=False)
 `;
  return `sudo -n python3 -c ${quote(script)}`;
 }

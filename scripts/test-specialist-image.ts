@@ -66,6 +66,8 @@ for _ in range(2):
 assert (state/'workspace'/'src'/'main.ts').read_text() == 'export const answer = 42;\n'
 assert (state/'workspace'/'latest.ts').is_symlink()
 assert (state/'pi'/'skills'/'reviewer'/'SKILL.md').read_text() == '# Reviewer\n'
+assert (state/'workspace'/'src'/'main.ts').stat().st_uid == 1000
+assert (state/'pi'/'skills'/'reviewer'/'SKILL.md').stat().st_uid == 1000
 assert not (state/'sessions').exists()
 assert not (state/'runs.sqlite').exists()
 assert not (state/'identity.json').exists()
@@ -93,6 +95,8 @@ for _ in range(2):
 restored_child=state/'agents'/'${sourceId}'
 assert (restored_child/'workspace'/'src'/'main.ts').read_text() == 'selected child source\n'
 assert (restored_child/'pi'/'skills'/'reviewer'/'SKILL.md').read_text() == '# Child reviewer\n'
+assert (restored_child/'workspace'/'src'/'main.ts').stat().st_uid == 1000
+assert (restored_child/'pi'/'skills'/'reviewer'/'SKILL.md').stat().st_uid == 1000
 assert not (restored_child/'sessions').exists()
 print('specialist image sanitization and restore verified')
 `,{mode:0o444});

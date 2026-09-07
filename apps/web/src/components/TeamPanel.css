@@ -51,6 +51,9 @@
 .team-appearance .avatar-picker { padding: 10px 0 20px; }
 .team-partial { margin: 0; border-radius: 9px; padding: 14px 16px; background: oklch(.96 .025 75); color: oklch(.37 .05 65); font-size: .8375rem; line-height: 1.5; }
 .team-partial strong { display: block; margin-bottom: 2px; }
+.team-uncertain { display: grid; justify-items: start; gap: 8px; border-radius: 9px; padding: 16px; background: oklch(.96 .025 75); color: oklch(.37 .05 65); font-size: .8375rem; }
+.team-uncertain p { margin: 0; line-height: 1.5; }
+.team-uncertain > button { margin-top: 4px; }
 .team-task { margin: 0 0 16px 64px; border-radius: 10px; padding: 16px; background: var(--secondary); }
 .team-task .field { margin: 0; }
 .team-task textarea { background: var(--card); }

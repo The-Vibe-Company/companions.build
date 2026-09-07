@@ -18,6 +18,7 @@ export function TeamPanel({ companion, onOpenCompanion }: { companion: Companion
   const [permissions, setPermissions] = useState<CompanionTemplatePermission[]>([]);
   const [replicas, setReplicas] = useState<Companion[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadFailed, setLoadFailed] = useState(false);
   const [adding, setAdding] = useState<"" | "existing" | "new">("");
   const [selectedId, setSelectedId] = useState("");
   const [name, setName] = useState("");
@@ -25,6 +26,7 @@ export function TeamPanel({ companion, onOpenCompanion }: { companion: Companion
   const [avatar, setAvatar] = useState<CompanionAvatarValue>(DEFAULT_AVATAR);
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
+  const [createUncertain, setCreateUncertain] = useState(false);
   const pendingCreated = useRef<{ id: string; name: string } | null>(null);
 
   const load = useCallback(async () => {
@@ -37,9 +39,13 @@ export function TeamPanel({ companion, onOpenCompanion }: { companion: Companion
       setTemplates(profileResult.templates);
       setPermissions(permissionResult.templates);
       setReplicas(replicaResult.replicas);
+      setLoadFailed(false);
       setError("");
+      return profileResult.templates;
     } catch (cause) {
+      setLoadFailed(true);
       setError(errorText(cause));
+      return null;
     } finally {
       setLoading(false);
     }
@@ -104,9 +110,14 @@ export function TeamPanel({ companion, onOpenCompanion }: { companion: Companion
     try {
       let created = pendingCreated.current;
       if (!created) {
-        const result = await workspaceApi.createTemplate({ name: name.trim(), instructions: instructions.trim(), avatar });
-        created = { id: result.id, name: name.trim() };
-        pendingCreated.current = created;
+        try {
+          const result = await workspaceApi.createTemplate({ name: name.trim(), instructions: instructions.trim(), avatar });
+          created = { id: result.id, name: name.trim() };
+          pendingCreated.current = created;
+        } catch (cause) {
+          setCreateUncertain(true);
+          throw cause;
+        }
       }
       await authorize(created.id);
       pendingCreated.current = null;
@@ -118,13 +129,23 @@ export function TeamPanel({ companion, onOpenCompanion }: { companion: Companion
     }
   }
 
-  return <main className="team-panel" aria-labelledby="team-title">
+  async function refreshAfterUncertainCreate() {
+    setBusy("refresh-profiles"); setError(""); setLoading(true);
+    const result = await load();
+    if (result) {
+      setCreateUncertain(false);
+      setAdding("existing");
+    }
+    setBusy("");
+  }
+
+  return <section className="team-panel" aria-labelledby="team-title">
     <header className="team-heading">
       <div><h1 id="team-title">Who can help {companion.name}?</h1><p>Specialists are reusable profiles {companion.name} can call on for focused work.</p></div>
       <Button onClick={() => setAdding(available.length ? "existing" : "new")} disabled={!!busy || !!adding}><Plus />Add specialist</Button>
     </header>
 
-    {error && !adding && <div className="team-error" role="alert"><span>{error}</span>{loading ? <Button variant="outline" size="sm" onClick={() => { setLoading(true); void load(); }}><RotateCw />Retry</Button> : null}</div>}
+    {error && !adding && <div className="team-error" role="alert"><span>{error}</span><Button variant="outline" size="sm" onClick={() => { setLoading(true); void load(); }}><RotateCw />Retry</Button></div>}
 
     <section className="team-coordinator" aria-labelledby="coordinator-title">
       <div className="team-section-label" id="coordinator-title">Coordinator</div>
@@ -136,7 +157,7 @@ export function TeamPanel({ companion, onOpenCompanion }: { companion: Companion
 
     <section className="team-specialists" aria-labelledby="specialists-title">
       <div className="team-section-label" id="specialists-title">Specialists</div>
-      {loading ? <TeamSkeleton /> : team.length ? <div className="team-list">{team.map(member =>
+      {loading ? <TeamSkeleton /> : loadFailed ? null : team.length ? <div className="team-list">{team.map(member =>
         <SpecialistRow key={member.profile.id} companionId={companion.id} member={member} busy={busy} setBusy={setBusy} onError={setError} onReload={load} />
       )}</div> : <div className="team-empty"><p>{companion.name} does not have any specialists yet.</p><span>Add a reusable profile now; you can assign work later.</span></div>}
     </section>
@@ -146,20 +167,20 @@ export function TeamPanel({ companion, onOpenCompanion }: { companion: Companion
       {adding === "existing" ? <form onSubmit={addExisting}>
         <fieldset className="team-profile-choices"><legend>Existing profiles</legend>{available.map(profile => <label key={profile.id}><input type="radio" name="team-profile" value={profile.id} checked={selectedId === profile.id} onChange={() => setSelectedId(profile.id)} /><CompanionAvatar name={profile.name} avatar={profile.avatar} size={44} /><span><strong>{profile.name}</strong><small>{profile.instructions || "No role description yet."}</small></span></label>)}</fieldset>
         {error && <p className="field-error" role="alert">{error}</p>}
-        <div className="team-form-actions"><Button type="submit" disabled={!selectedId || !!busy}>{busy === "add-existing" ? <LoaderCircle className="spin" /> : <Check />}Add to team</Button><Button type="button" variant="ghost" disabled={!!busy} onClick={() => { setAdding("new"); setError(""); }}>Create a new profile</Button></div>
+        <div className="team-form-actions"><Button type="submit" disabled={!selectedId || !!busy}>{busy === "add-existing" ? <LoaderCircle className="spin" /> : <Check />}Add to team</Button><Button type="button" variant="ghost" disabled={!!busy} onClick={() => { setCreateUncertain(false); setAdding("new"); setError(""); }}>Create a new profile</Button></div>
       </form> : <form onSubmit={createAndAdd}>
-        {pendingCreated.current ? <p className="team-partial" role="status"><strong>{pendingCreated.current.name} was created.</strong> Adding it to {companion.name}&apos;s team still needs to finish.</p> : <>
+        {pendingCreated.current ? <p className="team-partial" role="status"><strong>{pendingCreated.current.name} was created.</strong> Adding it to {companion.name}&apos;s team still needs to finish.</p> : createUncertain ? <div className="team-uncertain" role="alert"><strong>We couldn&apos;t confirm whether the profile was created.</strong><p>Refresh the saved profiles and select it there before trying to create another.</p><Button type="button" variant="outline" onClick={() => void refreshAfterUncertainCreate()} disabled={!!busy}>{busy === "refresh-profiles" ? <LoaderCircle className="spin" /> : <RotateCw />}Refresh profiles</Button></div> : <>
           <div className="field"><label htmlFor="team-profile-name">Name</label><input autoFocus id="team-profile-name" value={name} onChange={event => setName(event.target.value)} placeholder="Researcher" /></div>
           <div className="field"><label htmlFor="team-profile-role">Role</label><Textarea id="team-profile-role" rows={3} value={instructions} onChange={event => setInstructions(event.target.value)} placeholder="Research sources and summarize findings" /></div>
           <details className="team-appearance"><summary><CompanionAvatar name="Profile preview" avatar={avatar} size={36} />Customize appearance<ChevronDown /></summary><AvatarPicker value={avatar} onChange={setAvatar} /></details>
         </>}
         {error && <p className="field-error" role="alert">{error}</p>}
-        <div className="team-form-actions"><Button type="submit" disabled={(!pendingCreated.current && !name.trim()) || !!busy}>{busy === "create" ? <LoaderCircle className="spin" /> : <Check />}{pendingCreated.current ? "Retry adding" : "Create and add"}</Button>{available.length > 0 && !pendingCreated.current && <Button type="button" variant="ghost" disabled={!!busy} onClick={() => { setAdding("existing"); setError(""); }}>Choose existing</Button>}</div>
+        {!createUncertain && <div className="team-form-actions"><Button type="submit" disabled={(!pendingCreated.current && !name.trim()) || !!busy}>{busy === "create" ? <LoaderCircle className="spin" /> : <Check />}{pendingCreated.current ? "Retry adding" : "Create and add"}</Button>{available.length > 0 && !pendingCreated.current && <Button type="button" variant="ghost" disabled={!!busy} onClick={() => { setAdding("existing"); setError(""); }}>Choose existing</Button>}</div>}
       </form>}
     </section>}
 
-    {!!replicas.length && <section className="team-work" aria-labelledby="team-work-title"><div><h2 id="team-work-title">Work in progress</h2><p>Specialist interventions currently available.</p></div><div className="team-work-list">{replicas.map(replica => <button type="button" key={replica.id} onClick={() => onOpenCompanion(replica.id)} aria-label={`Open ${replica.name}'s work`}><CompanionAvatar name={replica.name} avatar={replica.avatar} size={40} /><span><strong>{replica.name}</strong><small>{replica.status}</small></span><span>Open</span></button>)}</div></section>}
-  </main>;
+    {!!replicas.length && <section className="team-work" aria-labelledby="team-work-title"><div><h2 id="team-work-title">Specialist conversations</h2><p>Open a specialist&apos;s conversation and results.</p></div><div className="team-work-list">{replicas.map(replica => <button type="button" key={replica.id} onClick={() => onOpenCompanion(replica.id)} aria-label={`Open ${replica.name}'s work`}><CompanionAvatar name={replica.name} avatar={replica.avatar} size={40} /><span><strong>{replica.name}</strong><small>{replica.status}</small></span><span>Open</span></button>)}</div></section>}
+  </section>;
 }
 
 function TeamSkeleton() {
@@ -172,17 +193,22 @@ function SpecialistRow({ companionId, member, busy, setBusy, onError, onReload }
   busy: string;
   setBusy: (value: string) => void;
   onError: (value: string) => void;
-  onReload: () => Promise<void>;
+  onReload: () => Promise<unknown>;
 }) {
   const [assigning, setAssigning] = useState(false);
   const [prompt, setPrompt] = useState("");
   const [revisions, setRevisions] = useState<AgentTemplateRevision[] | null>(null);
   const [restoreRevision, setRestoreRevision] = useState("");
+  const taskIntent = useRef<{ prompt: string; id: string } | null>(null);
 
   async function assign(event: FormEvent) {
-    event.preventDefault(); setBusy(`spawn:${member.profile.id}`); onError("");
+    event.preventDefault(); const nextPrompt = prompt.trim();
+    const intent = taskIntent.current?.prompt === nextPrompt ? taskIntent.current : { prompt: nextPrompt, id: crypto.randomUUID() };
+    taskIntent.current = intent;
+    setBusy(`spawn:${member.profile.id}`); onError("");
     try {
-      await workspaceApi.spawnReplica(companionId, member.profile.id, prompt.trim());
+      await workspaceApi.spawnReplica(companionId, member.profile.id, nextPrompt, intent.id);
+      taskIntent.current = null;
       setPrompt(""); setAssigning(false); await onReload();
     } catch (cause) { onError(errorText(cause)); }
     finally { setBusy(""); }
@@ -212,10 +238,12 @@ function SpecialistRow({ companionId, member, busy, setBusy, onError, onReload }
     finally { setBusy(""); }
   }
 
+  const limits = [...new Set([member.permission.maxChildren, 1, 2, 3, 5, 10, 20])].sort((a, b) => a - b);
+
   return <article className="team-member">
     <div className="team-person"><CompanionAvatar name={member.profile.name} avatar={member.profile.avatar} size={48} /><div><strong>{member.profile.name}</strong><p>{member.profile.instructions || "Focused specialist profile."}</p></div><Button variant="outline" size="sm" onClick={() => setAssigning(value => !value)} aria-expanded={assigning} aria-controls={`assign-${member.profile.id}`}>Assign a task</Button></div>
     {assigning && <form className="team-task" id={`assign-${member.profile.id}`} onSubmit={assign}><div className="field"><label htmlFor={`task-${member.profile.id}`}>What should {member.profile.name} do?</label><Textarea autoFocus id={`task-${member.profile.id}`} rows={3} value={prompt} onChange={event => setPrompt(event.target.value)} /></div><div className="team-form-actions"><Button type="submit" disabled={!prompt.trim() || !!busy}>{busy === `spawn:${member.profile.id}` ? <LoaderCircle className="spin" /> : <CopyPlus />}Start task</Button><Button type="button" variant="ghost" disabled={!!busy} onClick={() => setAssigning(false)}>Cancel</Button></div></form>}
-    <details className="team-advanced" onToggle={event => { if (event.currentTarget.open) void loadRevisions(); }}><summary>Profile settings</summary><div className="team-advanced-content"><label>Simultaneous copies<select value={member.permission.maxChildren} disabled={!!busy} onChange={event => void changeLimit(Number(event.target.value))}>{[1, 2, 3, 5, 10, 20].map(value => <option key={value} value={value}>{value}</option>)}</select></label>{revisions === null ? <span className="team-muted">Loading version history…</span> : revisions.length > 1 ? <div className="team-restore"><label>Earlier version<select value={restoreRevision} onChange={event => setRestoreRevision(event.target.value)}>{revisions.filter(item => item.revision !== member.profile.revision).map(item => <option value={item.revision} key={item.revision}>Version {item.revision} · {item.name}</option>)}</select></label><Button type="button" variant="outline" size="sm" disabled={!restoreRevision || !!busy} onClick={() => void restore()}>{busy === `restore:${member.profile.id}` ? <LoaderCircle className="spin" /> : <RotateCw />}Restore</Button></div> : <span className="team-muted">Version {member.profile.revision} is the only saved version.</span>}<Button className="team-remove" type="button" variant="ghost" size="sm" disabled={!!busy} onClick={() => void changeLimit(0)}><UserRoundMinus />Remove from team</Button></div></details>
+    <details className="team-advanced" onToggle={event => { if (event.currentTarget.open) void loadRevisions(); }}><summary>Profile settings</summary><div className="team-advanced-content"><label>Simultaneous copies<select value={member.permission.maxChildren} disabled={!!busy} onChange={event => void changeLimit(Number(event.target.value))}>{limits.map(value => <option key={value} value={value}>{value}</option>)}</select></label>{revisions === null ? <span className="team-muted">Loading version history…</span> : revisions.length > 1 ? <div className="team-restore"><label>Earlier version<select value={restoreRevision} onChange={event => setRestoreRevision(event.target.value)}>{revisions.filter(item => item.revision !== member.profile.revision).map(item => <option value={item.revision} key={item.revision}>Version {item.revision} · {item.name}</option>)}</select></label><Button type="button" variant="outline" size="sm" disabled={!restoreRevision || !!busy} onClick={() => void restore()}>{busy === `restore:${member.profile.id}` ? <LoaderCircle className="spin" /> : <RotateCw />}Restore</Button></div> : <span className="team-muted">Version {member.profile.revision} is the only saved version.</span>}<Button className="team-remove" type="button" variant="ghost" size="sm" disabled={!!busy} onClick={() => void changeLimit(0)}><UserRoundMinus />Remove from team</Button></div></details>
   </article>;
 }
 

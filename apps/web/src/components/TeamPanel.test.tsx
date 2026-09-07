@@ -94,4 +94,58 @@ describe("TeamPanel", () => {
     expect(fetchMock).toHaveBeenCalledWith("/api/companions/c1/templates/t1", expect.objectContaining({ method: "PUT", body: JSON.stringify({ maxChildren: 0 }) }));
     expect(fetchMock.mock.calls.some(([path, options]) => String(path) === "/api/templates/t1" && (options as RequestInit | undefined)?.method === "DELETE")).toBe(false);
   });
+
+  it("reuses the task command id when a manual launch is retried", async () => {
+    const commandIds: string[] = [];
+    const fetchMock = vi.fn((input: RequestInfo | URL, options?: RequestInit) => {
+      const path = String(input);
+      if (path === "/api/templates") return response({ templates: [researcher] });
+      if (path === "/api/companions/c1/templates") return response({ templates: [{ templateId: "t1", maxChildren: 2, name: "Researcher", revision: 2 }] });
+      if (path === "/api/companions/c1/replicas" && options?.method === "POST") {
+        commandIds.push(JSON.parse(String(options.body)).clientCommandId);
+        return commandIds.length === 1 ? response({ error: "Launch response was lost." }, 503) : response({ companionId: "child", runId: "run" }, 202);
+      }
+      if (path === "/api/companions/c1/replicas") return response({ replicas: [] });
+      throw new Error(`Unexpected ${path}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+    render(<TeamPanel companion={companion} onOpenCompanion={vi.fn()} />);
+
+    await user.click(await screen.findByRole("button", { name: "Assign a task" }));
+    await user.type(screen.getByRole("textbox", { name: "What should Researcher do?" }), "Check the market");
+    await user.click(screen.getByRole("button", { name: "Start task" }));
+    expect(await screen.findByText("Launch response was lost.")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Start task" }));
+
+    await waitFor(() => expect(commandIds).toHaveLength(2));
+    expect(commandIds[1]).toBe(commandIds[0]);
+  });
+
+  it("refreshes persisted profiles after an ambiguous create response before offering another create", async () => {
+    let createAttempted = false;
+    const created = { ...writer, id: "created-profile", name: "Analyst", instructions: "Analyze product data" };
+    const fetchMock = vi.fn((input: RequestInfo | URL, options?: RequestInit) => {
+      const path = String(input);
+      if (path === "/api/templates" && options?.method === "POST") { createAttempted = true; return Promise.reject(new TypeError("network connection lost")); }
+      if (path === "/api/templates") return response({ templates: createAttempted ? [created] : [] });
+      if (path === "/api/companions/c1/templates") return response({ templates: [] });
+      if (path === "/api/companions/c1/replicas") return response({ replicas: [] });
+      throw new Error(`Unexpected ${path}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+    render(<TeamPanel companion={companion} onOpenCompanion={vi.fn()} />);
+
+    await screen.findByText(/does not have any specialists/);
+    await user.click(screen.getByRole("button", { name: "Add specialist" }));
+    await user.type(screen.getByRole("textbox", { name: "Name" }), "Analyst");
+    await user.click(screen.getByRole("button", { name: "Create and add" }));
+    expect(await screen.findByText(/couldn't confirm/)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Create and add" })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Refresh profiles" }));
+    expect(await screen.findByText("Analyze product data")).toBeInTheDocument();
+    expect(fetchMock.mock.calls.filter(([path, options]) => String(path) === "/api/templates" && (options as RequestInit | undefined)?.method === "POST")).toHaveLength(1);
+  });
 });

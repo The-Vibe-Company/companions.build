@@ -61,26 +61,35 @@ export function ApplicationAccess({ companionId, onConnect }: { companionId: str
   const [error, setError] = useState("");
   const [pendingId, setPendingId] = useState<string | null>(null);
   const mutationPending = useRef(false);
+  const operation = useRef(0);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (generation: number) => {
     const [plugins, granted] = await Promise.all([workspaceApi.plugins(), workspaceApi.companionPlugins(companionId)]);
+    if (operation.current !== generation) return;
     setAccounts(plugins.accounts); setCatalog(plugins.catalog); setSelected(granted.accounts);
   }, [companionId]);
 
   const reload = useCallback(async () => {
+    const generation = ++operation.current;
     setLoading(true); setError("");
-    try { await load(); }
-    catch (cause) { setError(cause instanceof Error ? cause.message : "Could not load applications."); }
-    finally { setLoading(false); }
+    try { await load(generation); }
+    catch (cause) { if (operation.current === generation) setError(cause instanceof Error ? cause.message : "Could not load applications."); }
+    finally { if (operation.current === generation) setLoading(false); }
   }, [load]);
 
-  useEffect(() => { void reload(); }, [reload]);
+  useEffect(() => {
+    mutationPending.current = false;
+    setPendingId(null);
+    void reload();
+    return () => { operation.current += 1; };
+  }, [reload]);
 
   const selectedIds = new Set(selected.map(account => account.id));
   const grantedCount=accounts.filter(account=>selectedIds.has(account.id)).length;
   async function toggle(accountId: string) {
     if (mutationPending.current) return;
     mutationPending.current = true;
+    const generation = ++operation.current;
     setPendingId(accountId); setError("");
     let mutationError = "";
     try {
@@ -88,8 +97,10 @@ export function ApplicationAccess({ companionId, onConnect }: { companionId: str
     } catch (cause) {
       mutationError = cause instanceof Error ? cause.message : "Could not update this account.";
     }
-    try { await load(); }
+    if (operation.current !== generation) return;
+    try { await load(generation); }
     catch (cause) { if (!mutationError) mutationError = cause instanceof Error ? cause.message : "Could not reload applications."; }
+    if (operation.current !== generation) return;
     setError(mutationError); setPendingId(null); mutationPending.current = false;
   }
 

@@ -1,4 +1,5 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { StrictMode } from "react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { workspaceApi, type PluginAccount } from "@/api";
@@ -15,6 +16,37 @@ const plugins={accounts:[linearWork,linearPersonal,github],catalog:[
 afterEach(()=>vi.restoreAllMocks());
 
 describe("ApplicationAccess",()=>{
+  it("does not let a late StrictMode load undo a completed grant",async()=>{
+    let resolveOld!:(value:{accounts:PluginAccount[]})=>void;
+    vi.spyOn(workspaceApi,"plugins").mockResolvedValue(plugins);
+    vi.spyOn(workspaceApi,"companionPlugins")
+      .mockImplementationOnce(()=>new Promise(resolve=>{resolveOld=resolve;}))
+      .mockResolvedValueOnce({accounts:[]})
+      .mockResolvedValue({accounts:[linearWork]});
+    const grant=vi.spyOn(workspaceApi,"selectPlugin").mockResolvedValue({ok:true});
+    render(<StrictMode><ApplicationAccess companionId="ada"/></StrictMode>);
+    const checkbox=await screen.findByRole("checkbox",{name:"Work workspace"});
+    fireEvent.click(checkbox);
+    await waitFor(()=>expect(checkbox).toBeChecked());
+    await act(async()=>{resolveOld({accounts:[]});});
+    expect(checkbox).toBeChecked();
+    expect(grant).toHaveBeenCalledExactlyOnceWith("ada","linear-work");
+  });
+
+  it("ignores a load from the previous companion after switching identity",async()=>{
+    let resolveOld!:(value:{accounts:PluginAccount[]})=>void;
+    vi.spyOn(workspaceApi,"plugins").mockResolvedValue(plugins);
+    vi.spyOn(workspaceApi,"companionPlugins")
+      .mockImplementationOnce(()=>new Promise(resolve=>{resolveOld=resolve;}))
+      .mockResolvedValue({accounts:[linearWork]});
+    const view=render(<ApplicationAccess companionId="ada"/>);
+    view.rerender(<ApplicationAccess companionId="grace"/>);
+    const checkbox=await screen.findByRole("checkbox",{name:"Work workspace"});
+    expect(checkbox).toBeChecked();
+    await act(async()=>{resolveOld({accounts:[]});});
+    expect(checkbox).toBeChecked();
+  });
+
   it("groups several accounts per provider and grants each account separately",async()=>{
     let selected=[linearWork];
     vi.spyOn(workspaceApi,"plugins").mockResolvedValue(plugins);

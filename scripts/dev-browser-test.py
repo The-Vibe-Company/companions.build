@@ -65,7 +65,6 @@ class Browser:
     def __init__(self, session: str, artifact_dir: Path):
         self.env = {**os.environ, "AGENT_BROWSER_SESSION": session,
                     "AGENT_BROWSER_SCREENSHOT_DIR": str(artifact_dir)}
-        self.trace_started = False
 
     def run(self, *arguments: str, quiet: bool = False) -> str:
         for attempt in range(4):
@@ -128,7 +127,6 @@ def main() -> None:
     result: dict[str, object] = {"test": args.test, "status": "failed", "startedAt": started.isoformat(),
                                 "artifactDir": str(artifact_dir.relative_to(ROOT))}
     browser = Browser(f"companions-{uuid.uuid4().hex}", artifact_dir)
-    trace = artifact_dir / "trace.zip"
     try:
         base, mail_url, email = load_settings()
         scenario = prepare_scenario()
@@ -141,8 +139,6 @@ def main() -> None:
         # The one-time token is never copied into output or artifacts.
         browser.run("open", link, quiet=True)
         browser.wait_text("companions.build", timeout=20)
-        browser.run("trace", "start")
-        browser.trace_started = True
         browser.run("open", str(scenario["url"]))
         browser.wait_text("The note was written and read back.", timeout=30)
         browser.run("fill", "textarea", "write-note")
@@ -165,12 +161,6 @@ def main() -> None:
         except Exception:
             pass
     finally:
-        if browser.trace_started:
-            try:
-                browser.run("trace", "stop", str(trace))
-                result["trace"] = "trace.zip"
-            except Exception as error:
-                result.setdefault("cleanupError", str(error))
         browser.close()
     result["finishedAt"] = datetime.now(timezone.utc).isoformat()
     (artifact_dir / "result.json").write_text(json.dumps(result, indent=2) + "\n")

@@ -602,7 +602,7 @@ describe("first Companion flow", () => {
     }));
     const user = userEvent.setup();
     render(<App />);
-    expect(await screen.findByRole("heading", { name: "A companion that keeps your product running." })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Your AI companions. Give them something to do." })).toBeInTheDocument();
     await user.click(screen.getAllByRole("button", { name: /Log in to private beta/ })[0]);
     expect(window.location.pathname).toBe("/login");
     expect(await screen.findByLabelText("Email")).toBeInTheDocument();

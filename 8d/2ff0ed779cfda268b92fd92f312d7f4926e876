@@ -1,0 +1,21 @@
+apps/web/src/components/ProductPanels.test.tsx
+  s_f946242dcf6ba9::t_992dd9ba935ffe 254-295
+apps/web/src/components/ProductPanels.tsx
+  s_f946242dcf6ba9::t_50fc22fb656e80 141,145-156,160,179,185-188
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "8d2ff0ed779cfda268b92fd92f312d7f4926e876",
+  "prompts": {},
+  "sessions": {
+    "s_f946242dcf6ba9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a06de4-a8a5-7cd3-b713-2a8d451f7200",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "StanGirard <stan@quivr.app>"
+    }
+  }
+}

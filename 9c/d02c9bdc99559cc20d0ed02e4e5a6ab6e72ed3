@@ -1,0 +1,35 @@
+scripts/dev_portless.py
+  s_9604d1144930ab::t_f591382e382e74 14,118-119,155-159
+  s_9604d1144930ab::t_9d34da4ec50bc2 160-161
+scripts/dev.py
+  s_9604d1144930ab::t_6c46ddcd27a3ea 14,221-226,247-249
+scripts/dev-cli.py
+  s_9604d1144930ab::t_f591382e382e74 230-231
+  s_9604d1144930ab::t_6c46ddcd27a3ea 210
+scripts/dev-child.py
+  s_9604d1144930ab::t_6c46ddcd27a3ea 1-11
+scripts/dev_support.py
+  s_9604d1144930ab::t_6c46ddcd27a3ea 9,14-41
+  s_9604d1144930ab::t_d529c4c1a45532 42
+scripts/dev-portless.test.py
+  s_9604d1144930ab::t_f591382e382e74 85-97
+scripts/dev-cli.test.py
+  s_9604d1144930ab::t_645a3538a86ebc 6-7,9-10,21-25,27-75,77
+  s_9604d1144930ab::t_912eeca2f8989a 8,26,76
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "9cd02c9bdc99559cc20d0ed02e4e5a6ab6e72ed3",
+  "prompts": {},
+  "sessions": {
+    "s_9604d1144930ab": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a07d28-c099-7e50-b6d2-edf218c193d5",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "StanGirard <stan@quivr.app>"
+    }
+  }
+}

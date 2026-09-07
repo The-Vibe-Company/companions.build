@@ -1,0 +1,23 @@
+apps/server/test/routine-process-recovery.test.ts
+  s_f946242dcf6ba9::t_bdadea12888bdb 1-95
+docs/completion-audit.md
+  s_f946242dcf6ba9::t_8faff6730ec949 52-54
+docs/measurements/routine-process-recovery-2026-09-07.json
+  s_f946242dcf6ba9::t_0bd8745dfd81a1 1-24
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "8a6c22e95789fa81a5f9f279b541c3a4cfaa3c3b",
+  "prompts": {},
+  "sessions": {
+    "s_f946242dcf6ba9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a06de4-a8a5-7cd3-b713-2a8d451f7200",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "StanGirard <stan@quivr.app>"
+    }
+  }
+}

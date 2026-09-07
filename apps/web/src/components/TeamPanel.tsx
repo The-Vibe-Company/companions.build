@@ -181,7 +181,7 @@ export function TeamPanel({ companion, onOpenCompanion, refreshVersion = 0 }: { 
 
   return <section className="team-panel" aria-labelledby="team-title">
     <header className="team-heading">
-      <div><h1 id="team-title">Who can help {companion.name}?</h1><p>Specialists are reusable profiles {companion.name} can call on for focused work.</p></div>
+      <div><h1 id="team-title">Who can help {companion.name}?</h1><p>Specialists bring their own prepared tools, skills and accounts to focused work.</p></div>
       <Button onClick={() => setAdding(available.length ? "existing" : "new")} disabled={!!busy || !!adding}><Plus />Add specialist</Button>
     </header>
 

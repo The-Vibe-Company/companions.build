@@ -327,7 +327,8 @@ export async function progressLifecycle(sql:any=db,hooks:LifecycleHooks={},machi
    const [child]=await tx`SELECT * FROM companions WHERE id=${delegation.target_id} FOR UPDATE`;
    if(child.temporary&&(await tx`SELECT id FROM template_candidates WHERE source_companion_id=${child.id} AND status IN ('queued','capturing','ready')`).length)return;
    await tx`UPDATE delegations SET finished_at=now() WHERE id=${delegation.id}`;
-   if(child.temporary)await tx`UPDATE companions SET machine_activity_at=now(),prepare_requested=false WHERE id=${child.id}`;
+   if(child.temporary)await tx`UPDATE companions SET machine_activity_at=now(),prepare_requested=false,
+    archive_requested_at=CASE WHEN archived_at IS NOT NULL THEN COALESCE(archive_requested_at,now()) ELSE archive_requested_at END WHERE id=${child.id}`;
   });
  }
  for(const companion of await sql`SELECT * FROM companions WHERE (${companionId}::uuid IS NULL OR id=${companionId}) AND temporary AND archive_requested_at IS NOT NULL AND retired_at IS NULL AND NOT desktop_taken AND desktop_paused_at IS NULL ORDER BY archive_requested_at LIMIT 50`){

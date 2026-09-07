@@ -73,7 +73,7 @@ describe("SpecialistLibrary", () => {
     const edit = await screen.findByRole("button", { name: "Edit" });
     edit.focus();
     await user.keyboard("{Enter}");
-    expect(screen.getByText("Apps are granted by the companion that calls this specialist.")).toBeInTheDocument();
+    expect(screen.getByText("Configure the specialist’s own accounts in its draft. A coordinator can override them for its team.")).toBeInTheDocument();
     expect(screen.queryByText(/works with/i)).not.toBeInTheDocument();
     await user.clear(screen.getByRole("textbox", { name: "Name" }));
     await user.type(screen.getByRole("textbox", { name: "Name" }), "Evidence researcher");

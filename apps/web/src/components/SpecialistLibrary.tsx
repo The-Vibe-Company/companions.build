@@ -52,7 +52,7 @@ export function SpecialistLibrary({ onMenu, refreshVersion = 0, onOpenDraft }: P
       <header className="specialist-library__heading">
         <div className="specialist-library__title">
           {onMenu && <Button className="specialist-library__menu" variant="ghost" size="icon" onClick={onMenu} aria-label="Open navigation"><Menu /></Button>}
-          <div><h1>Specialists</h1><p>Reusable profiles your companions can call on. Adding one here never starts a machine.</p></div>
+          <div><h1>Specialists</h1><p>Prepare tools, skills and accounts once. Your companions launch a fresh copy for each focused mission.</p></div>
         </div>
         <Button onClick={() => { setCreating(true); setEditingId(null); }} disabled={creating}><Plus />New specialist</Button>
       </header>

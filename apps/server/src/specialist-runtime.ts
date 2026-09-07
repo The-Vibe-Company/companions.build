@@ -155,6 +155,9 @@ export async function progressSpecialistDrafts(sql:any,machines:SpecialistMachin
    if(error instanceof BoxError&&['box_snapshot_limit','box_snapshot_saving'].includes(error.code)){
     await fail(error.code==='box_snapshot_limit'?'The provider snapshot limit was reached. Review retained snapshot capacity before retrying; the published version is unchanged.':'The provider is already saving this snapshot. Inspect its state before retrying; the published version is unchanged.');continue;
    }
+   if(error instanceof Error&&['image_creation_needs_reconciliation','image_preparation_failed'].includes(error.message)){
+    await fail(error.message==='image_creation_needs_reconciliation'?'The image creation could not be confirmed within the provider idempotency window. Reconcile the existing request before retrying.':'The image machine failed to prepare. The published specialist is unchanged.');continue;
+   }
    if(error instanceof Error&&error.message==='capture_policy_requires_review'){
     await fail('Snapshot exclusions need review. Remove active .boxignore or .oneignore rules that could omit prepared files, then request the test or publication again.');continue;
    }

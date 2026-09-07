@@ -20,6 +20,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument("--postgres", choices=POSTGRES_IMAGES, default="17", help="PostgreSQL major used for both the crash source and isolated recovery target")
 validation_order = ["typecheck", "agent-unit", "specialist-init-and-git", "specialist-image-linux", "distribution-content-linux", "agent-build", "system", "web-tests", "web-build", "postgres-restore-seed"]
 parser.add_argument("--from-step", choices=validation_order, help="Resume remaining validation after fixing a failed step; earlier checks are recorded as skipped")
+parser.add_argument("--server-from", help="Resume the isolated server suites from this test filename")
 args = parser.parse_args()
 
 os.chdir(ROOT)
@@ -103,7 +104,7 @@ try:
     run("specialist-image-linux", [bun, "scripts/test-specialist-image.ts"])
     run("distribution-content-linux", [bun, "scripts/test-distribution-verification.ts"])
     run("agent-build", [bun, "scripts/build-agent.ts"])
-    run("system", [bun, "scripts/test-server.ts", "--linux"])
+    run("system", [bun, "scripts/test-server.ts", "--linux", *([f"--from-file={args.server_from}"] if args.server_from else [])])
     run("web-tests", [bun, "run", "test"], ROOT / "apps/web")
     run("web-build", [bun, "run", "build"], ROOT / "apps/web")
     restore_state = artifacts / "postgres-restore-state.json"
@@ -148,6 +149,7 @@ finally:
         if cleanup.returncode: status = "failed"
     report = {"status": status, "run": run_id, "seconds": round(time.monotonic()-started, 3),
         "resumeFrom": args_from_step,
+        "serverFrom": args.server_from,
         "postgres": {"major": int(args.postgres), "image": postgres_image,
             **({"backupSha256": backup_sha256} if "backup_sha256" in locals() else {})}, "steps": steps}
     (artifacts / "summary.json").write_text(json.dumps(report, indent=2))

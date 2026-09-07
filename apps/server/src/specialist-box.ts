@@ -69,8 +69,10 @@ export function specialistBoxMachines(box:BoxClient|null):Pick<SpecialistMachine
   },
   async createSpecialistImage(companion,checkpoint,beforeEffect=async()=>{}){
    if(!box)throw Error('box_not_configured');
+   if(!companion.box_id&&companion.create_started_at&&Date.now()-new Date(companion.create_started_at).getTime()>23*3600_000)throw Error('image_creation_needs_reconciliation');
    if(!companion.box_id){await beforeEffect();const created=await box.create(companion.create_key,companion.snapshot_name);await checkpoint(created.id);companion.box_id=created.id;}
    const state=await box.get(companion.box_id);
+   if(state.setupStatus==='failed')throw Error('image_preparation_failed');
    return ['ready','idle','running'].includes(state.state)&&(!state.setupStatus||state.setupStatus==='done');
   },
   async sanitizeSpecialistImage(companion,sourceId,beforeEffect=async()=>{}){

@@ -1,0 +1,25 @@
+AGENTS.md
+  s_f946242dcf6ba9::t_7da4a46e21af32 15-17
+docs/completion-audit.md
+  s_f946242dcf6ba9::t_129ba0a07d20be 47-57
+docs/measurements/box-v12-rediscovery-experiment-2026-09-07.json
+  s_f946242dcf6ba9::t_fb57a1eedcee75 1-345
+docs/measurements/test-resource-shutdown-2026-09-07.json
+  s_f946242dcf6ba9::t_2c113ffe66106c 1-16
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "30adffc33cfe3708b39b02b51daf6a4f4506d26e",
+  "prompts": {},
+  "sessions": {
+    "s_f946242dcf6ba9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a06de4-a8a5-7cd3-b713-2a8d451f7200",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "StanGirard <stan@quivr.app>"
+    }
+  }
+}

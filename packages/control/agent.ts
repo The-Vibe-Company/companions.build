@@ -10,6 +10,7 @@ import type { ToolDefinition } from '@earendil-works/pi-coding-agent';
 import { z } from 'zod';
 import { pluginTools } from '../plugins/tools';
 import type { MachinePlugin } from '../plugins/catalog';
+import {GitCredentialBroker} from './git-credentials';
 import {AgentSkills,type SkillMutationCheckpoint} from './skills';
 
 const localSkillOperations=['skills','skill_install','skill_update','skill_remove'] as const;
@@ -20,9 +21,11 @@ export class AgentControl {
   private readonly db:Database;
   private plugins:MachinePlugin[]=[];
   private generation='';
+  readonly gitCredentials:GitCredentialBroker;
   constructor(stateDir:string,private readonly skills=new AgentSkills(stateDir),private readonly afterLocalSkillControl?:()=>void) {
     mkdirSync(stateDir,{recursive:true});
     this.db=new Database(join(stateDir,'control.sqlite'));
+    this.gitCredentials=new GitCredentialBroker(stateDir);
     this.db.exec(`PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL;
       CREATE TABLE IF NOT EXISTS requests(id TEXT PRIMARY KEY,run_id TEXT NOT NULL,operation TEXT NOT NULL,input TEXT NOT NULL,result TEXT,status TEXT NOT NULL DEFAULT 'pending',created_at INTEGER NOT NULL);
       CREATE TABLE IF NOT EXISTS local_requests(id TEXT PRIMARY KEY,run_id TEXT NOT NULL,operation TEXT NOT NULL,input TEXT NOT NULL,result TEXT,status TEXT NOT NULL DEFAULT 'pending',created_at INTEGER NOT NULL);
@@ -33,7 +36,7 @@ export class AgentControl {
     if(url.pathname==='/configuration'&&request.method==='PUT') {
       const body=await request.json() as any;
       if(!Array.isArray(body.plugins)||body.plugins.length>30||typeof body.generation!=='string') return Response.json({error:'INVALID_CONFIGURATION'},{status:400});
-      this.plugins=body.plugins;this.generation=body.generation;return Response.json({generation:this.generation});
+      this.plugins=body.plugins;this.gitCredentials.update(this.plugins);this.generation=body.generation;return Response.json({generation:this.generation});
     }
     if(url.pathname==='/control'&&request.method==='GET') return Response.json({generation:this.generation,requests:this.db.query(`SELECT id,run_id AS runId,operation,input FROM requests WHERE status='pending' ORDER BY created_at LIMIT 20`).all().map((r:any)=>({...r,input:JSON.parse(r.input)}))});
     const match=url.pathname.match(/^\/control\/([a-f0-9-]+)\/result$/);
@@ -100,7 +103,7 @@ export class AgentControl {
     }};
     return {tools:[tool,...plugins.tools],async close(){await plugins.close();await client.close();await server.close();}};
   }
-  close(){this.db.close();}
+  close(){this.gitCredentials.close();this.db.close();}
 }
 
 function localRequestInput(raw:unknown,fingerprint:string):{checkpoint:SkillMutationCheckpoint|null}|null{

@@ -1,6 +1,7 @@
 # Portable software for client deliveries
 
-Status: accepted security boundary; implementation pending.
+Status: accepted security boundary; manifest, trusted resolvers, installer, and clean-builder helper
+implemented; runtime snapshot and delivery integration pending.
 
 ## Context
 
@@ -134,5 +135,29 @@ Acceptance must prove:
 - pending and failed builds never send or display a prepared-software success; and
 - cleanup cannot delete a snapshot or manifest still referenced by a delivery or template revision.
 
-Until this builder exists, profile, model, and portable-skill delivery remains useful but is not
-evidence that arbitrary software from a prepared source Box was transferred.
+Until the builder is wired into runtime snapshot creation and client delivery, profile, model, and
+portable-skill delivery remains useful but is not evidence that arbitrary software from a prepared
+source Box was transferred.
+
+## Clean-builder staging contract
+
+The root-only Linux helper accepts a stable build UUID, exact apt and npm roots, and a caller-provided
+request digest. The digest must equal `portableSoftwareBuildRequestDigest(...)`, which binds the
+roots to the immutable base descriptor and hashes of the operator-owned signed APT and public npm
+configuration. Runtime integration should call this exported digest function rather than reproduce
+its canonical JSON. API idempotency fingerprints remain a separate concern.
+
+The helper writes one private journal under the operator-owned state directory. Its fixed phases are
+`pending`, `resolving`, `resolved`, `installing`, `verifying`, `verified`, and `failed`. Journal
+replacement and phase checkpoints are fsynced. A retry with the same UUID and digest observes or
+resumes the journal; a changed digest is rejected. Resolution can be repeated after interruption.
+An interrupted installation is first verified against the locked manifest: a fully installed result
+advances without replay, while a partial result fails closed and requires a new clean build. A
+terminal failure records only a stable error code.
+
+The process must start with an allowlisted, credential-free environment and UID 0 on Linux. Repository
+URLs and key material come only from trusted operator configuration; the request has no URL, command,
+environment, source Box, snapshot, or credential field. Child processes receive a minimal environment
+and fixed apt, dpkg, and npm argv. The helper does not run Pi or capture a provider snapshot. The later
+runtime stage may snapshot only after the helper reports `verified`, then persist that provider effect
+under its own durable observation and fencing contract.

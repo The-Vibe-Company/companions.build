@@ -131,6 +131,21 @@ export async function compileSoftwareBundle(input: {
 
 type CommandRunner = (argv: string[]) => { exitCode: number; stdout?: Uint8Array; stderr: Uint8Array };
 
+export async function verifyInstalledSoftwareBundle(bundle: CompiledSoftwareBundle, options: { npmPrefix: string; run?: CommandRunner }) {
+  if (!options.npmPrefix.startsWith("/") || options.npmPrefix.includes("..")) throw new Error("software_prefix_invalid");
+  const run = options.run ?? ((argv: string[]) => Bun.spawnSync(argv, { stdout: "pipe", stderr: "pipe" }));
+  for (const entry of bundle.manifest.apt.packages) {
+    const result = run(["dpkg-query", "-W", "-f=${Version} ${Architecture}", entry.name]);
+    if (result.exitCode !== 0 || new TextDecoder().decode(result.stdout ?? new Uint8Array()).trim() !== `${entry.version} ${entry.architecture}`) throw new Error("software_apt_install_verification_failed");
+  }
+  for (const entry of bundle.manifest.npm.packages) {
+    let metadata: any;
+    try { metadata = JSON.parse(await readFile(join(options.npmPrefix, "lib", "node_modules", entry.name, "package.json"), "utf8")); }
+    catch { throw new Error("software_npm_install_verification_failed"); }
+    if (metadata.name !== entry.name || metadata.version !== entry.version) throw new Error("software_npm_install_verification_failed");
+  }
+}
+
 export async function installSoftwareBundle(bundle: CompiledSoftwareBundle, options: { npmPrefix: string; getuid?: () => number; run?: CommandRunner } ) {
   if ((options.getuid ?? process.getuid)?.() !== 0) throw new Error("software_installer_requires_root");
   if (!options.npmPrefix.startsWith("/") || options.npmPrefix.includes("..")) throw new Error("software_prefix_invalid");
@@ -143,20 +158,13 @@ export async function installSoftwareBundle(bundle: CompiledSoftwareBundle, opti
     const files = bundle.manifest.apt.packages.map((_, index) => join(bundle.directory, "apt", `${index}.deb`));
     execute(["dpkg", "--unpack", ...files]);
     execute(["dpkg", "--configure", ...bundle.manifest.apt.packages.map(entry => entry.name)]);
-    for (const entry of bundle.manifest.apt.packages) {
-      const result = run(["dpkg-query", "-W", "-f=${Version} ${Architecture}", entry.name]);
-      if (result.exitCode !== 0 || new TextDecoder().decode(result.stdout ?? new Uint8Array()).trim() !== `${entry.version} ${entry.architecture}`) throw new Error("software_apt_install_verification_failed");
-    }
   }
   if (bundle.manifest.npm.packages.length) {
     await mkdir(options.npmPrefix, { recursive: true });
     const files = bundle.manifest.npm.packages.map((_, index) => join(bundle.directory, "npm", `${index}.tgz`));
     execute(["npm", "install", "--global", "--offline", "--ignore-scripts", "--no-audit", "--no-fund", "--prefix", options.npmPrefix, ...files]);
-    for (const entry of bundle.manifest.npm.packages) {
-      const metadata = JSON.parse(await readFile(join(options.npmPrefix, "lib", "node_modules", entry.name, "package.json"), "utf8"));
-      if (metadata.name !== entry.name || metadata.version !== entry.version) throw new Error("software_npm_install_verification_failed");
-    }
   }
+  await verifyInstalledSoftwareBundle(bundle, { npmPrefix: options.npmPrefix, run });
 }
 
 export async function removeSoftwareBundle(bundle: CompiledSoftwareBundle) { await rm(bundle.directory, { recursive: true, force: true }); }

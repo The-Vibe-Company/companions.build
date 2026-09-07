@@ -29,6 +29,8 @@
   }],
   "baseDependencies": [{ "id": "libc6:amd64=2.39-0ubuntu8.8" }],
   "observations": {
+    "cleanBuilderJournalVerified": true,
+    "manifestDigest": "c7f60e4c9b6e1d90ad91c510652018fd2a47b3ad73cc6148cf4e0253b530a710",
     "aptSignatureVerification": true,
     "inReleasePinMatched": true,
     "packagesIndexShaMatchedDeb": true,

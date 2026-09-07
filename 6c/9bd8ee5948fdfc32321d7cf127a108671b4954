@@ -1,0 +1,23 @@
+apps/server/src/machines.ts
+  s_f946242dcf6ba9::t_62d8c28ec29440 98
+apps/server/src/preparation-trace.ts
+  s_f946242dcf6ba9::t_d00e72bdb0933e 2
+docs/lifecycle.md
+  s_f946242dcf6ba9::t_ff949d005072a7 172
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "6c9bd8ee5948fdfc32321d7cf127a108671b4954",
+  "prompts": {},
+  "sessions": {
+    "s_f946242dcf6ba9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a06de4-a8a5-7cd3-b713-2a8d451f7200",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "StanGirard <stan@quivr.app>"
+    }
+  }
+}

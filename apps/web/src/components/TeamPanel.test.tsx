@@ -12,6 +12,134 @@ const writer = { id: "t2", name: "Writer", instructions: "Turn findings into cle
 beforeEach(() => vi.unstubAllGlobals());
 
 describe("TeamPanel", () => {
+  it("refreshes external permission and replica changes while mounted", async () => {
+    let authorized = [{ templateId: "t1", maxChildren: 2, name: "Researcher", revision: 2 }];
+    let replicas: Companion[] = [];
+    const child = { ...companion, id: "child", name: "Market researcher", parentId: companion.id };
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      const path = String(input);
+      if (path === "/api/templates") return response({ templates: [researcher, writer] });
+      if (path === "/api/companions/c1/templates") return response({ templates: authorized });
+      if (path === "/api/companions/c1/replicas") return response({ replicas });
+      throw new Error(`Unexpected ${path}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const view = render(<TeamPanel companion={companion} onOpenCompanion={vi.fn()} refreshVersion={0} />);
+
+    expect(await screen.findByText("Investigate sources", { selector: ".team-person p" })).toBeInTheDocument();
+    authorized = [...authorized, { templateId: "t2", maxChildren: 2, name: "Writer", revision: 1 }];
+    replicas = [child];
+    view.rerender(<TeamPanel companion={companion} onOpenCompanion={vi.fn()} refreshVersion={1} />);
+
+    expect(await screen.findByText("Turn findings into clear prose", { selector: ".team-person p" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Open Market researcher's work" })).toBeInTheDocument();
+  });
+
+  it("keeps a mutation error and retry state through a passive refresh", async () => {
+    let templateLoads = 0;
+    const fetchMock = vi.fn((input: RequestInfo | URL, options?: RequestInit) => {
+      const path = String(input);
+      if (path === "/api/templates") { templateLoads += 1; return response({ templates: [writer] }); }
+      if (path === "/api/companions/c1/templates" && !options?.method) return response({ templates: [] });
+      if (path === "/api/companions/c1/replicas") return response({ replicas: [] });
+      if (path === "/api/companions/c1/templates/t2" && options?.method === "PUT") return response({ error: "Permission could not be saved." }, 503);
+      throw new Error(`Unexpected ${path}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const onOpenCompanion = vi.fn();
+    const view = render(<TeamPanel companion={companion} onOpenCompanion={onOpenCompanion} refreshVersion={0} />);
+    const user = userEvent.setup();
+
+    await screen.findByText(/does not have any specialists/);
+    await user.click(screen.getByRole("button", { name: "Add specialist" }));
+    await user.click(screen.getByRole("button", { name: "Add to team" }));
+    expect(await screen.findByText("Permission could not be saved.")).toBeInTheDocument();
+
+    view.rerender(<TeamPanel companion={companion} onOpenCompanion={onOpenCompanion} refreshVersion={1} />);
+    await waitFor(() => expect(templateLoads).toBe(2));
+    expect(screen.getByText("Permission could not be saved.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Add to team" })).toBeEnabled();
+    expect(screen.getByRole("radio", { name: /Writer/ })).toBeChecked();
+  });
+
+  it("coalesces burst invalidations and preserves a new-profile draft", async () => {
+    let templateLoads = 0;
+    let templates: Array<typeof researcher> = [];
+    let authorized: Array<{ templateId: string; maxChildren: number; name: string; revision: number }> = [];
+    let replicas: Companion[] = [];
+    let releaseRefresh!: (value: Response) => void;
+    const heldRefresh = new Promise<Response>(resolve => { releaseRefresh = resolve; });
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      const path = String(input);
+      if (path === "/api/templates") {
+        templateLoads += 1;
+        if (templateLoads === 2) return heldRefresh;
+        return response({ templates });
+      }
+      if (path === "/api/companions/c1/templates") return response({ templates: authorized });
+      if (path === "/api/companions/c1/replicas") return response({ replicas });
+      throw new Error(`Unexpected ${path}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const view = render(<TeamPanel companion={companion} onOpenCompanion={vi.fn()} refreshVersion={0} />);
+    const user = userEvent.setup();
+
+    await screen.findByText(/does not have any specialists/);
+    await user.click(screen.getByRole("button", { name: "Add specialist" }));
+    await user.type(screen.getByRole("textbox", { name: "Name" }), "Analyst draft");
+    await user.type(screen.getByRole("textbox", { name: "Role" }), "Keep this role while refreshing");
+    view.rerender(<TeamPanel companion={companion} onOpenCompanion={vi.fn()} refreshVersion={1} />);
+    await waitFor(() => expect(templateLoads).toBe(2));
+
+    templates = [researcher];
+    authorized = [{ templateId: "t1", maxChildren: 2, name: "Researcher", revision: 2 }];
+    replicas = [{ ...companion, id: "child", name: "Research child", parentId: companion.id }];
+    view.rerender(<TeamPanel companion={companion} onOpenCompanion={vi.fn()} refreshVersion={2} />);
+    view.rerender(<TeamPanel companion={companion} onOpenCompanion={vi.fn()} refreshVersion={3} />);
+    releaseRefresh(new Response(JSON.stringify({ templates: [] }), { status: 200, headers: { "content-type": "application/json" } }));
+
+    expect(await screen.findByText("Investigate sources", { selector: ".team-person p" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Open Research child's work" })).toBeInTheDocument();
+    expect(screen.getByRole("textbox", { name: "Name" })).toHaveValue("Analyst draft");
+    expect(screen.getByRole("textbox", { name: "Role" })).toHaveValue("Keep this role while refreshing");
+    expect(templateLoads).toBe(3);
+  });
+
+  it("ignores an older passive snapshot that finishes after a mutation reload", async () => {
+    let authorized: Array<{ templateId: string; maxChildren: number; name: string; revision: number }> = [];
+    let templateLoads = 0;
+    let releaseRefresh!: (value: Response) => void;
+    const heldRefresh = new Promise<Response>(resolve => { releaseRefresh = resolve; });
+    const fetchMock = vi.fn((input: RequestInfo | URL, options?: RequestInit) => {
+      const path = String(input);
+      if (path === "/api/templates") {
+        templateLoads += 1;
+        return templateLoads === 2 ? heldRefresh : response({ templates: [writer] });
+      }
+      if (path === "/api/companions/c1/templates" && !options?.method) return response({ templates: authorized });
+      if (path === "/api/companions/c1/replicas") return response({ replicas: [] });
+      if (path === "/api/companions/c1/templates/t2" && options?.method === "PUT") {
+        authorized = [{ templateId: "t2", maxChildren: 2, name: "Writer", revision: 1 }];
+        return response(authorized[0]);
+      }
+      throw new Error(`Unexpected ${path}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const view = render(<TeamPanel companion={companion} onOpenCompanion={vi.fn()} refreshVersion={0} />);
+    const user = userEvent.setup();
+
+    await screen.findByText(/does not have any specialists/);
+    view.rerender(<TeamPanel companion={companion} onOpenCompanion={vi.fn()} refreshVersion={1} />);
+    await waitFor(() => expect(templateLoads).toBe(2));
+    await user.click(screen.getByRole("button", { name: "Add specialist" }));
+    await user.click(screen.getByRole("button", { name: "Add to team" }));
+    expect(await screen.findByText("Turn findings into clear prose", { selector: ".team-person p" })).toBeInTheDocument();
+
+    releaseRefresh(new Response(JSON.stringify({ templates: [writer] }), { status: 200, headers: { "content-type": "application/json" } }));
+    await waitFor(() => expect(templateLoads).toBe(3));
+    expect(screen.getByText("Turn findings into clear prose", { selector: ".team-person p" })).toBeInTheDocument();
+  });
+
   it("adds an existing profile to the team without launching work", async () => {
     let authorized = [{ templateId: "t1", maxChildren: 2, name: "Researcher", revision: 2 }];
     const fetchMock = vi.fn((input: RequestInfo | URL, options?: RequestInit) => {

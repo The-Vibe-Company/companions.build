@@ -13,7 +13,7 @@ type TeamMember = {
   permission: CompanionTemplatePermission;
 };
 
-export function TeamPanel({ companion, onOpenCompanion }: { companion: Companion; onOpenCompanion: (id: string) => void }) {
+export function TeamPanel({ companion, onOpenCompanion, refreshVersion = 0 }: { companion: Companion; onOpenCompanion: (id: string) => void; refreshVersion?: number }) {
   const [templates, setTemplates] = useState<AgentTemplate[]>([]);
   const [permissions, setPermissions] = useState<CompanionTemplatePermission[]>([]);
   const [replicas, setReplicas] = useState<Companion[]>([]);
@@ -28,30 +28,70 @@ export function TeamPanel({ companion, onOpenCompanion }: { companion: Companion
   const [error, setError] = useState("");
   const [createUncertain, setCreateUncertain] = useState(false);
   const pendingCreated = useRef<{ id: string; name: string } | null>(null);
+  const mounted = useRef(false);
+  const activeLoads = useRef(0);
+  const latestLoad = useRef(0);
+  const passiveQueued = useRef(false);
+  const passiveDraining = useRef(false);
+  const drainPassive = useRef<() => void>(() => undefined);
+  const lastRefreshVersion = useRef(refreshVersion);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (preserveError = false) => {
+    const requestId = ++latestLoad.current;
+    activeLoads.current += 1;
     try {
       const [profileResult, permissionResult, replicaResult] = await Promise.all([
         workspaceApi.templates(),
         workspaceApi.companionTemplates(companion.id),
         workspaceApi.replicas(companion.id),
       ]);
-      setTemplates(profileResult.templates);
-      setPermissions(permissionResult.templates);
-      setReplicas(replicaResult.replicas);
-      setLoadFailed(false);
-      setError("");
+      if (mounted.current && requestId === latestLoad.current) {
+        setTemplates(profileResult.templates);
+        setPermissions(permissionResult.templates);
+        setReplicas(replicaResult.replicas);
+        setLoadFailed(false);
+        if (!preserveError) setError("");
+      }
       return profileResult.templates;
     } catch (cause) {
-      setLoadFailed(true);
-      setError(errorText(cause));
+      if (mounted.current && requestId === latestLoad.current) {
+        if (!preserveError) setLoadFailed(true);
+        setError(current => preserveError && current ? current : errorText(cause));
+      }
       return null;
     } finally {
-      setLoading(false);
+      activeLoads.current -= 1;
+      if (mounted.current && requestId === latestLoad.current) setLoading(false);
+      if (activeLoads.current === 0 && passiveQueued.current) drainPassive.current();
     }
   }, [companion.id]);
 
-  useEffect(() => { void load(); }, [load]);
+  const runPassiveRefresh = useCallback(async () => {
+    if (passiveDraining.current || activeLoads.current > 0 || !passiveQueued.current) return;
+    passiveDraining.current = true;
+    try {
+      while (passiveQueued.current && mounted.current) {
+        passiveQueued.current = false;
+        await load(true);
+      }
+    } finally {
+      passiveDraining.current = false;
+    }
+  }, [load]);
+  drainPassive.current = () => { void runPassiveRefresh(); };
+
+  useEffect(() => {
+    mounted.current = true;
+    void load();
+    return () => { mounted.current = false; latestLoad.current += 1; };
+  }, [load]);
+
+  useEffect(() => {
+    if (refreshVersion === lastRefreshVersion.current) return;
+    lastRefreshVersion.current = refreshVersion;
+    passiveQueued.current = true;
+    void runPassiveRefresh();
+  }, [refreshVersion, runPassiveRefresh]);
 
   const team = useMemo<TeamMember[]>(() => permissions
     .filter(permission => permission.maxChildren > 0)

@@ -1,6 +1,5 @@
 #!/usr/bin/python3
-"""Retire the exact old user unit before migrating persistent state to the headless UID."""
-import hashlib
+"""Retire the exact old user unit before opening persistent headless state."""
 import os
 from pathlib import Path
 import pwd
@@ -8,12 +7,10 @@ import re
 import stat
 import subprocess
 import sys
-import uuid
 
-if os.getuid()!=0 or len(sys.argv)>2:
+if os.getuid()!=0 or len(sys.argv)!=1:
     raise SystemExit('LEGACY_RETIREMENT_REQUIRED')
 user=pwd.getpwnam('user')
-agent=pwd.getpwnam('companions-agent')
 unit_dir=Path('/home/user/.config/systemd/user')
 for parent in [Path('/home/user/.config'),Path('/home/user/.config/systemd'),unit_dir]:
     if parent.is_symlink():raise SystemExit('UNSAFE_LEGACY_UNIT_DIRECTORY')
@@ -31,9 +28,9 @@ already_masked=unit.is_symlink() and os.readlink(unit)=='/dev/null'
 needs_retirement=not retired.exists() or retired.read_text()!='masked and stopped\n' or not already_masked or wanted.is_symlink() or wanted.exists()
 if needs_retirement:
     retired.unlink(missing_ok=True)
-    # A reintroduced legacy invocation may have written nested files since the
-    # previous migration. Invalidate every state checkpoint, including when the
-    # installer retires the unit without a state argument; migrate after stop.
+    # Invalidate obsolete HOME ownership shortcuts for a possible explicit
+    # rollback. Physical activation records remain authoritative: never recopy
+    # the legacy backup over current state after a user-unit reintroduction.
     for previous in checkpoints.iterdir():
         if re.fullmatch(r'[a-f0-9]{64}-ownership-v1',previous.name):
             previous.unlink()
@@ -61,27 +58,3 @@ if needs_retirement:
     if status.stdout.strip() not in ['inactive','failed','unknown']:
         raise SystemExit('LEGACY_SERVICE_STOP_UNCONFIRMED')
     retired.write_text('masked and stopped\n')
-
-if len(sys.argv)==2:
-    state=sys.argv[1]
-    if not re.fullmatch(r'/home/user/\.companions(?:/agents/[a-f0-9-]{36})?',state):
-        raise SystemExit('INVALID_STATE_DIRECTORY')
-    directory=Path(state);directory.mkdir(parents=True,exist_ok=True)
-    if directory.resolve()!=directory:raise SystemExit('UNSAFE_STATE_DIRECTORY')
-    identity_file=Path('/etc/companions-desktop.env')
-    identity_match=re.fullmatch(r'DESKTOP_STATE_DIR=/var/lib/companions-desktop/([a-f0-9-]{36})\n?',
-                               identity_file.read_text() if identity_file.exists() else '')
-    if not identity_match:raise SystemExit('DESKTOP_IDENTITY_REQUIRED')
-    identity=str(uuid.UUID(identity_match.group(1)))
-    checkpoint=checkpoints/(hashlib.sha256(state.encode()).hexdigest()+'-ownership-v1')
-    expected=identity+'\n'+str(agent.pw_uid)+'\n'+state+'\n'
-    # A snapshot can copy both state and its migration checkpoint. Bind trust to
-    # the configured Companion identity, and detect provider ownership resets on
-    # resume without recursively scanning every history on an ordinary wake.
-    entries=[directory,*directory.iterdir()]
-    drift=any(path.lstat().st_uid!=agent.pw_uid for path in entries)
-    if not checkpoint.exists() or checkpoint.read_text()!=expected or drift:
-        subprocess.run(['chown','-R','--no-dereference','companions-agent:companions-agent',state],check=True)
-        if any(path.lstat().st_uid!=agent.pw_uid for path in [directory,*directory.iterdir()]):
-            raise SystemExit('HEADLESS_STATE_OWNERSHIP_CHANGED')
-        checkpoint.write_text(expected)

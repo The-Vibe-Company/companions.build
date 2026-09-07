@@ -30,7 +30,7 @@ try {
  if(detail.companion.provider!=='box'||detail.companion.retiredAt)fail('OWNED_LIVE_COMPANION_REQUIRED');
  if(detail.companion.desktopTaken&&!state.takeoverRequested)fail('HUMAN_ALREADY_CONTROLS_DESKTOP');
  const [row]=await db`SELECT box_id,endpoint_secret,agent_secret,template_id FROM companions WHERE id=${companionId} AND retired_at IS NULL`;
- if(!row?.box_id||!row.endpoint_secret)fail('READY_BOX_REQUIRED');
+ if(!row?.box_id||row.box_id!==detail.companion.boxId||!row.endpoint_secret)fail('READY_BOX_REQUIRED');
  const endpoint=decrypt(row.endpoint_secret),token=decrypt(row.agent_secret);
  if((await agentRequest(endpoint,token,'/health')).desktopBoundaryVersion!==1)fail('DESKTOP_UPGRADE_REQUIRED');
  if(state.passedAt){console.log('DESKTOP_CANARY_ALREADY_PASSED');}
@@ -38,9 +38,9 @@ try {
   if(state.takeoverRequested){await api('/desktop/release',{});state.takeoverRequested=false;await save();fail('OBSERVATION_INTERRUPTED');}
   if(detail.runs.some((r:any)=>!['succeeded','failed','interrupted','cancelled'].includes(r.status)&&r.id!==state.runId))fail('COMPANION_BUSY');
   const box=new BoxClient(config.boxKey!),stem='desktop-boundary-'+state.nonce;
-  const workspace=row.template_id?`/home/user/.companions/agents/${companionId}/workspace`:'/home/user/.companions/workspace';
+  const workspace=`/var/lib/companions-agent/${companionId}/workspace`;
   // Paths contain validated UUIDs only; never pass model-generated commands to provider control.
-  const read=async(suffix:'started'|'done')=>(await box.command(row.box_id,`test ! -f ${workspace}/${stem}-${suffix} || cat ${workspace}/${stem}-${suffix}`,30)).trim();
+  const read=async(suffix:'started'|'done')=>(await box.command(row.box_id,`sudo -n sh -c 'test ! -f ${workspace}/${stem}-${suffix} || cat ${workspace}/${stem}-${suffix}'`,30)).trim();
   async function until(label:string,check:()=>Promise<boolean>,timeout=180_000){const deadline=Date.now()+timeout;while(!await check()){if(Date.now()>deadline)fail(label+'_TIMEOUT');await Bun.sleep(500);}}
   const script=`import pathlib,time,urllib.request,hashlib; pathlib.Path('${stem}-started').write_text('started'); time.sleep(20); r=urllib.request.urlopen('https://example.com',timeout=15); assert r.status==200; pathlib.Path('${stem}-done').write_text(hashlib.sha256(b'${state.nonce}').hexdigest())`;
   const content=`Use bash to execute this Python code in the workspace, in the foreground, exactly once: ${script}. Do not background it. Reply HEADLESS_CONTINUED after success.`;

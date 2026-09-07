@@ -33,7 +33,7 @@ state=Path('/home/user/.companions');(state/'pi'/'sessions').mkdir(parents=True)
 (state/'pi'/'sessions'/'history.jsonl').write_text('retained history')
 for path in [state,*state.rglob('*')]:os.chown(path,1000,1000)
 os.chown(state,agent.pw_uid,agent.pw_gid) # The exact mixed ownership seen on V6.
-def retire():return S.run(['python3','/retire-legacy.py',str(state)],capture_output=True,text=True,timeout=10)
+def retire():return S.run(['python3','/opt/companions/retire-legacy.py'],capture_output=True,text=True,timeout=10)
 Path('/tmp/deny-stop').touch()
 result=retire();assert result.returncode!=0 and 'LEGACY_SERVICE_STOP_FAILED' in result.stderr
 assert not list(Path('/var/lib/companions-runtime-migrations').glob('*ownership*'))
@@ -42,44 +42,14 @@ Path('/tmp/deny-stop').unlink()
 result=retire();assert result.returncode==0,result.stderr
 assert unit.is_symlink() and os.readlink(unit)=='/dev/null'
 assert not (wants/unit.name).is_symlink()
-assert all(path.lstat().st_uid==agent.pw_uid for path in [state,*state.rglob('*')])
+assert (state/'control.sqlite').stat().st_uid==1000 # Retirement never mutates the backup.
 assert (state/'control.sqlite').read_bytes()==b'unchanged SQLite fixture'
 assert (state/'pi'/'sessions'/'history.jsonl').read_text()=='retained history'
-# Later starts must not invoke recursive chown again.
-Path('/usr/local/bin/chown').write_text('#!/bin/sh\nexit 88\n');os.chmod('/usr/local/bin/chown',0o755)
-result=retire();assert result.returncode==0,result.stderr
-Path('/usr/local/bin/chown').unlink()
-os.chown(state/'control.sqlite',1000,1000)
-result=retire();assert result.returncode==0,result.stderr
-assert (state/'control.sqlite').stat().st_uid==agent.pw_uid
-# A later unmask invalidates both shortcuts and must migrate once again.
-unit.unlink();unit.write_text('old daemon reintroduced');Path('/tmp/deny-stop').touch()
+# Reintroduced user units must be stopped again, including when a mask existed.
+unit.unlink();unit.write_text('legacy daemon reintroduced');Path('/tmp/deny-stop').touch()
 result=retire();assert result.returncode!=0 and 'LEGACY_SERVICE_STOP_FAILED' in result.stderr
 Path('/tmp/deny-stop').unlink();bus.close();bus_path.unlink()
 result=retire();assert result.returncode==0,result.stderr
 assert os.readlink(unit)=='/dev/null'
-# Installation retires without a state argument. It must invalidate ownership
-# checkpoints before a later launch, even when only a deeply nested file changed.
-unit.unlink();unit.write_text('legacy daemon reintroduced again')
-nested=state/'pi'/'sessions'/'new-history.jsonl'
-nested.write_text('retained legacy append');os.chown(nested,1000,1000)
-result=S.run(['python3','/retire-legacy.py'],capture_output=True,text=True,timeout=10)
-assert result.returncode==0,result.stderr
-assert not list(Path('/var/lib/companions-runtime-migrations').glob('*-ownership-v1'))
-assert nested.stat().st_uid==1000
-result=retire();assert result.returncode==0,result.stderr
-assert nested.stat().st_uid==agent.pw_uid and nested.read_text()=='retained legacy append'
-# A fresh clone has a different identity even when it copied a valid checkpoint
-# and all entry-point UIDs look correct. Its nested state must still be migrated.
-os.chown(nested,1000,1000)
-Path('/etc/companions-desktop.env').write_text('DESKTOP_STATE_DIR=/var/lib/companions-desktop/00000000-0000-4000-8000-000000000002\n')
-assert all(path.lstat().st_uid==agent.pw_uid for path in [state,*state.iterdir()])
-result=retire();assert result.returncode==0,result.stderr
-assert nested.stat().st_uid==agent.pw_uid and nested.read_text()=='retained legacy append'
-# Provider-style reset on a later resume: same identity/checkpoint, changed UIDs.
-for path in [state,*state.rglob('*')]:os.chown(path,1000,1000)
-result=retire();assert result.returncode==0,result.stderr
-assert all(path.lstat().st_uid==agent.pw_uid for path in [state,*state.rglob('*')])
-Path('/usr/local/bin/chown').write_text('#!/bin/sh\nexit 88\n');os.chmod('/usr/local/bin/chown',0o755)
-result=retire();assert result.returncode==0,result.stderr
-print('PASS legacy retirement, preserved histories, no repeated chown, reintroduction migration, cloned checkpoint identity, provider ownership reset on resume')
+assert (state/'pi'/'sessions'/'history.jsonl').read_text()=='retained history'
+print('PASS checked legacy retirement, offline mask, reintroduced service refusal, original histories untouched')

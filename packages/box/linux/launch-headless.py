@@ -15,16 +15,6 @@ if os.getuid() != 0:
 state = os.environ.get('AGENT_STATE_DIR', '')
 if not re.fullmatch(r'/home/user/\.companions(?:/agents/[a-f0-9-]{36})?', state):
     raise SystemExit('INVALID_STATE_DIRECTORY')
-directory = Path(state)
-directory.mkdir(parents=True, exist_ok=True)
-if directory.resolve() != directory:
-    raise SystemExit('UNSAFE_STATE_DIRECTORY')
-# Stop/mask the previous desktop-user service before the once-only recursive
-# ownership migration. State paths and Pi history identities remain unchanged.
-retirement = subprocess.run(['python3', '/opt/companions/retire-legacy.py', state], stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True, timeout=75)
-if retirement.returncode:
-    code = retirement.stderr.strip()
-    raise SystemExit(code if re.fullmatch(r'[A-Z_]{1,80}', code) else 'LEGACY_RETIREMENT_FAILED')
 namespace = Path('/run/netns/companions-agent')
 # A service restart owns these fixed product interfaces. Refuse to disturb a surviving
 # invocation, then rebuild only its empty namespace so a partial previous setup recovers.
@@ -33,6 +23,16 @@ if namespace.exists():
     if occupants:
         raise SystemExit('HEADLESS_PREVIOUS_INVOCATION_ALIVE')
     run('ip', 'netns', 'delete', 'companions-agent')
+# Migrate only while no previous invocation can write. The physical directory is
+# POSIX storage; the original logical path remains Pi's persistent identity.
+migration = subprocess.run(['python3', '/opt/companions/state-directory.py', state], capture_output=True, text=True)
+if migration.returncode:
+    code = migration.stderr.strip()
+    raise SystemExit(code if re.fullmatch(r'[A-Z_]{1,80}', code) else 'HEADLESS_STATE_MIGRATION_FAILED')
+physical = migration.stdout.strip()
+if not re.fullmatch(r'/var/lib/companions-agent/[a-f0-9-]{36}', physical):
+    raise SystemExit('INVALID_PHYSICAL_STATE_DIRECTORY')
+os.environ['AGENT_PHYSICAL_STATE_DIR'] = physical
 for interface in ['cmp-agent', 'cmp-peer']:
     # netns deletion tears down its veth asynchronously. The device can disappear
     # between show and delete; only the confirmed postcondition decides success.

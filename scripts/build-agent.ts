@@ -16,7 +16,7 @@ cpSync("node_modules/@earendil-works/pi-coding-agent/package.json", `${output}/p
 
 const digest = createHash("sha256").update(readFileSync(`${output}/companion-agent`))
   .update(readFileSync(`${output}/photon_rs_bg.wasm`)).update(readFileSync(`${output}/package.json`));
-for (const name of ["launch-headless.py","retire-legacy.py","headless-mounts.sh","desktop-capture.py","desktop-quiesce.py","desktop-state.py","configure-desktop.py","install-desktop.sh"]) digest.update(readFileSync(`${output}/${name}`));
+for (const name of ["launch-headless.py","retire-legacy.py","state-directory.py","state-preflight.py","start-headless.sh","headless-mounts.sh","desktop-capture.py","desktop-quiesce.py","desktop-state.py","configure-desktop.py","install-desktop.sh"]) digest.update(readFileSync(`${output}/${name}`));
 const releaseDigest=digest.digest("hex");
 mkdirSync("dist/releases", { recursive: true });
 const release = `dist/releases/${releaseDigest}`;

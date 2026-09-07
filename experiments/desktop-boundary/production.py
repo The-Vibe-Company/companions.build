@@ -76,6 +76,8 @@ def desktop(generation,taken):
     assert body['confirmed'] and body['generation']==generation and body['taken']==taken;return body
 desktop(0,False)
 token=str(uuid.uuid4());state='/home/user/.companions'
+other=Path('/var/lib/companions-agent/00000000-0000-4000-8000-000000000099');other.mkdir(parents=True)
+(other/'parent-private-history').write_text('hidden source parent')
 # Recover a crash between netns creation and moving its veth peer.
 S.run(['ip','netns','add','companions-agent'],check=True)
 S.run(['ip','link','add','cmp-agent','type','veth','peer','name','cmp-peer'],check=True)
@@ -97,13 +99,16 @@ def finished(identity):
     value=agent('/runs/'+identity)
     if value['status'] in ['failed','interrupted','cancelled']:raise AssertionError('Pi run failed: '+value['status'])
     return value if value['status']=='succeeded' else None
-network=start('desktop-network-fixture','background');workspace=Path(state)/'workspace'
+network=start('desktop-network-fixture','background');workspace=Path('/var/lib/companions-agent/00000000-0000-4000-8000-000000000001/workspace')
 until(lambda:(workspace/'direct-bypass-denied').exists())
 typing=start('desktop-type-fixture');until(lambda:counts['agent']>=3)
 desktop(1,True);until(lambda:finished(typing));time.sleep(.1)
 before=counts.copy();network_before=int((workspace/'network-counter').read_text())
 note=start('write-note');until(lambda:finished(note))
 assert (workspace/'note.txt').read_text()=='written by real Pi tools\n'
+import pwd
+assert (workspace/'note.txt').stat().st_uid==pwd.getpwnam('companions-agent').pw_uid
+assert not (Path(state)/'workspace'/'note.txt').exists()
 for _ in range(10):
     xt.XTestFakeKeyEvent(d,human_key,1,0);xt.XTestFakeKeyEvent(d,human_key,0,0);x.XSync(d,0);time.sleep(.1)
 assert counts['agent']==before['agent'];assert counts['human']==before['human']+10

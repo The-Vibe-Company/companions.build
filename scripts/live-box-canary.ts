@@ -1,4 +1,5 @@
 /** Optional live canary: owns one named Companion, persists its IDs, never deletes its disk. */
+import { z } from "zod";
 import { config } from "../apps/server/src/config";
 import { BoxClient } from "../packages/box/client";
 if (!config.boxKey || !config.boxTemplate || config.testMode) throw new Error("Configure Box template/key and a real model before running this canary.");
@@ -28,6 +29,7 @@ if (!state.companionId) {
   const { companion } = await api("/companions", { name: "Box coding companion", provider: "box", instructions: "You are a careful coding teammate. Use tools to verify your work." });
   state.companionId = companion.id; await save();
 }
+state.companionId = z.string().uuid().parse(state.companionId);
 const path = `/companions/${state.companionId}`;
 async function waitFor(label: string, condition: () => Promise<boolean>, timeout = 180_000) {
   const deadline = Date.now() + timeout;
@@ -57,8 +59,11 @@ async function task(clientMessageId: string, content: string, key: string) {
 }
 if (!state.first) await task(state.firstMessageId,
   "Create box-canary.sh containing exactly: printf BOX_CANARY_OK. Run it with bash, verify the output, then reply exactly BOX_CANARY_OK and nothing else.", "first");
-const contents = await box.request(`/boxes/${encodeURIComponent(state.boxId)}/files?path=${encodeURIComponent('/home/user/.companions/workspace/box-canary.sh')}&encoding=utf8`);
-if (contents.content?.trim() !== "printf BOX_CANARY_OK") throw new Error("CANARY_FILE_MISMATCH");
+const owned = await api(path);
+if (owned.companion.provider !== "box" || owned.companion.retiredAt || owned.companion.boxId !== state.boxId) throw Error("CANARY_OWNED_BOX_REQUIRED");
+// Independent provider read uses physical POSIX storage, while Pi retains its logical cwd.
+const contents = await box.command(state.boxId, `sudo -n cat /var/lib/companions-agent/${state.companionId}/workspace/box-canary.sh`, 30);
+if (contents.trim() !== "printf BOX_CANARY_OK") throw new Error("CANARY_FILE_MISMATCH");
 if (!state.wake) {
   const started = performance.now();
   await box.stop(state.boxId);

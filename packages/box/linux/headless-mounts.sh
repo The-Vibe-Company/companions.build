@@ -14,7 +14,7 @@ fi
 [ "$1" = --inside ]
 mount -t tmpfs tmpfs /tmp
 mkdir -p /tmp/agent-state /tmp/desktop-agent
-mount --bind "$AGENT_STATE_DIR" /tmp/agent-state
+mount --bind "$AGENT_PHYSICAL_STATE_DIR" /tmp/agent-state
 mount --bind /run/companions-desktop /tmp/desktop-agent
 cp /run/companions-headless-resolv.conf /tmp/resolv.conf
 RESOLV_TARGET="$(readlink -f /etc/resolv.conf)"
@@ -36,4 +36,4 @@ mknod -m 666 /dev/random c 1 8
 mknod -m 666 /dev/urandom c 1 9
 exec setpriv --reuid=companions-agent --regid=companions-agent --init-groups \
   --inh-caps=-all --ambient-caps=-all --bounding-set=-all --no-new-privs \
-  env HOME="$AGENT_STATE_DIR" /opt/companions/companion-agent
+  env HOME="$AGENT_STATE_DIR" /bin/sh /opt/companions/start-headless.sh

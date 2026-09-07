@@ -56,8 +56,7 @@ exec is replaced) and also injects a deletion failure that leaves an interface p
 docker run --rm --platform linux/amd64 --sysctl net.ipv4.ip_forward=1 \
   --cap-add SYS_ADMIN --cap-add NET_ADMIN --security-opt seccomp=unconfined \
   --security-opt apparmor=unconfined \
-  --mount type=bind,src="$PWD/packages/box/linux/launch-headless.py",dst=/launcher.py,readonly \
-  --mount type=bind,src="$PWD/packages/box/linux/retire-legacy.py",dst=/opt/companions/retire-legacy.py,readonly \
+  --mount type=bind,src="$PWD/packages/box/linux",dst=/opt/companions,readonly \
   --mount type=bind,src="$PWD/experiments/desktop-boundary/network-restart.py",dst=/test.py,readonly \
   companions-desktop-boundary:production python3 /test.py
 ```
@@ -67,17 +66,38 @@ The mount acceptance also checks relative paths (`/etc/../home`, `/etc/../tmp`) 
 a distinct bind mount entered with chroot before private masks are installed. Binding
 over `/` alone leaves relative symlinks able to traverse the covered root. The test
 uses the production desktop-state bridge for both GET and PUT reconciliation.
-Legacy retirement and mixed ownership have their own optional Linux proof:
+Legacy retirement and physical state migration have independent optional Linux proofs:
 
 ```sh
 docker run --rm --platform linux/amd64 \
-  --mount type=bind,src="$PWD/packages/box/linux/retire-legacy.py",dst=/retire-legacy.py,readonly \
+  --mount type=bind,src="$PWD/packages/box/linux",dst=/opt/companions,readonly \
   --mount type=bind,src="$PWD/experiments/desktop-boundary/legacy-retirement.py",dst=/test.py,readonly \
   companions-desktop-boundary:production python3 /test.py
 ```
 
-It uses real users, ownership changes, sockets and files, with fixture systemd responses. It tests
-refusal while the old service is active, offline masking, a root-directory-only partial migration,
-retained history bytes, no second recursive chown, cloned checkpoint identity, and ownership reset
-recovery on a later resume. A new identity migrates even when only nested ownership has changed.
-Actual user-manager stop and provider preview routing require the fresh-Box live canary.
+It uses real users, sockets and files, with fixture systemd responses. It checks refusal while
+an old service is active, durable offline masking, reintroduced-unit retirement, and untouched
+legacy history bytes. Actual user-manager stop still requires the fresh-Box canary.
+
+For migration, use the same Docker command with `state-migration.py` instead of
+`legacy-retirement.py`. It verifies history/SQLite/symlink bytes, crashes immediately before and
+after directory activation, fresh-child isolation, no full history scan on ordinary wake, and
+real UID file/SQLite WAL preflight. Production acceptance independently reads the physical output
+and verifies the new file belongs to the headless UID.
+
+Physical state lives at `/var/lib/companions-agent/<configured UUID>`. This change follows a live
+Box observation: new files created by the headless UID under `/home/user` were owned by the desktop
+UID, while creation and rewriting under `/var/lib` preserved the headless UID. We do not infer a
+filesystem implementation from this observation. The namespace binds physical state to the original
+`AGENT_STATE_DIR`, retaining Pi's absolute workspace/session identity. The original home directory
+remains a backup and is never copied over an activated physical directory. A new child with no
+legacy subtree starts empty; other physical identities are hidden by the private `/var` mask.
+
+Migration retires the old service first, copies and verifies all regular-file bytes and symlink
+entries, synchronizes the copy, and activates it with an atomic rename and root-owned checkpoint.
+Special filesystem entries fail explicitly. Before the daemon starts, the actual unprivileged
+process creates, rewrites and renames a file and commits twice to SQLite WAL through the logical
+bind. A failed preflight prevents a misleading healthy endpoint. Migration is once per identity;
+ordinary wakes only perform the small storage preflight. A failed/ambiguous chat is never replayed
+by migration. The optional live canaries verify physical paths via authorized provider commands;
+the host's old home path intentionally continues to show the retained backup.

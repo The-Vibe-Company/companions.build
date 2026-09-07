@@ -13,7 +13,7 @@ Path('/etc/companions-desktop.env').write_text('DESKTOP_STATE_DIR=/var/lib/compa
 os.environ['AGENT_STATE_DIR']='/home/user/.companions'
 os.execvp=lambda *_:None
 for iteration in range(100):
-    runpy.run_path('/launcher.py',run_name='__main__')
+    runpy.run_path('/opt/companions/launch-headless.py',run_name='__main__')
 # A real failed deletion leaving an orphan veth must remain a hard failure.
 S.run(['ip','netns','delete','companions-agent'],check=True)
 S.run(['ip','link','delete','cmp-agent'],capture_output=True)
@@ -25,7 +25,7 @@ def denied_delete(args,*rest,**kwargs):
     return original(args,*rest,**kwargs)
 S.run=denied_delete
 try:
-    runpy.run_path('/launcher.py',run_name='__main__')
+    runpy.run_path('/opt/companions/launch-headless.py',run_name='__main__')
     raise AssertionError('existing interface silently accepted')
 except SystemExit as error:
     assert str(error)=='HEADLESS_INTERFACE_DELETE_FAILED'

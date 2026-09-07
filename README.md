@@ -168,6 +168,22 @@ IDs. An unresolved create response is never resubmitted; an unresolved test resp
 disabled definition until a rerun resolves it. The journal records timings and proofs without
 credentials or provider payloads; existing workspace probe files are retained.
 
+To exercise the server's actual routine clock, use a separate journal:
+
+```sh
+CANARY_STATE_FILE=.local/box-canary.json \
+ROUTINE_CLOCK_CANARY_STATE_FILE=.local/routine-clock-canary.json \
+python3 scripts/bun.py scripts/live-routine-clock-canary.ts
+```
+
+This API-only paid model canary creates an enabled UTC schedule at least 90 seconds ahead.
+Minute, hour, day and month are fixed, limiting an abandoned definition to at most annual
+recurrence. It never calls `/test` or changes the scheduler clock. The journal pins the target and
+creation intent; lost responses reconcile by exact fixture identity without another create.
+Once API history shows the single expected occurrence, the script disables the unchanged
+fixture immediately, verifies its result, and deletes it. Rerun the same journal after interruption
+to reconcile or clean up; use one process per journal. User-edited definitions are left untouched.
+
 Read [the testing guide](docs/testing.md) before interpreting a passing suite. Deterministic tests
 prove product behavior at controlled boundaries; they do not prove model quality, live OAuth,
 Stripe pricing, provider reliability, or hosted latency.

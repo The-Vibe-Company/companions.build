@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useId, useRef, useState } from "react";
-import { Check, LoaderCircle, Plus } from "lucide-react";
+import { Check, ExternalLink, LoaderCircle, Plus } from "lucide-react";
 import { workspaceApi, type PluginAccount, type PluginServer } from "@/api";
 import { ProviderMark } from "@/components/ProviderMark";
 import { Button } from "@/components/ui/button";
@@ -53,7 +53,7 @@ export function AccountTiles({ accounts, catalog = [], selectedIds, disabled = f
   })}</div>;
 }
 
-export function ApplicationAccess({ companionId, onConnect }: { companionId: string; onConnect?: () => void }) {
+export function ApplicationAccess({ companionId, onConnect, inlineConnections = false }: { companionId: string; onConnect?: () => void; inlineConnections?: boolean }) {
   const [accounts, setAccounts] = useState<PluginAccount[]>([]);
   const [catalog, setCatalog] = useState<PluginServer[]>([]);
   const [selected, setSelected] = useState<PluginAccount[]>([]);
@@ -62,6 +62,8 @@ export function ApplicationAccess({ companionId, onConnect }: { companionId: str
   const [pendingId, setPendingId] = useState<string | null>(null);
   const mutationPending = useRef(false);
   const operation = useRef(0);
+  const oauthPopup = useRef<Window | null>(null);
+  const oauthWatch = useRef<number | null>(null);
 
   const load = useCallback(async (generation: number) => {
     const [plugins, granted] = await Promise.all([workspaceApi.plugins(), workspaceApi.companionPlugins(companionId)]);
@@ -84,6 +86,22 @@ export function ApplicationAccess({ companionId, onConnect }: { companionId: str
     return () => { operation.current += 1; };
   }, [reload]);
 
+  useEffect(() => {
+    if (!inlineConnections) return;
+    const complete = (event: MessageEvent) => {
+      if (event.origin !== window.location.origin || event.source !== oauthPopup.current || event.data?.type !== "companions:plugin-oauth") return;
+      if (oauthWatch.current !== null) window.clearInterval(oauthWatch.current);
+      oauthWatch.current = null; oauthPopup.current = null; mutationPending.current = false; setPendingId(null);
+      if (event.data.status === "connected") void reload();
+      else setError(event.data.status === "cancelled" ? "Connection cancelled." : "Connection could not be completed. Try again.");
+    };
+    window.addEventListener("message", complete);
+    return () => {
+      window.removeEventListener("message", complete);
+      if (oauthWatch.current !== null) window.clearInterval(oauthWatch.current);
+    };
+  }, [inlineConnections, reload]);
+
   const selectedIds = new Set(selected.map(account => account.id));
   const grantedCount=accounts.filter(account=>selectedIds.has(account.id)).length;
   async function toggle(accountId: string) {
@@ -104,13 +122,44 @@ export function ApplicationAccess({ companionId, onConnect }: { companionId: str
     setError(mutationError); setPendingId(null); mutationPending.current = false;
   }
 
+  async function connect(server: PluginServer) {
+    if (!server.available || mutationPending.current) return;
+    mutationPending.current = true; setPendingId(server.id); setError("");
+    const popup = window.open("about:blank", "companions-plugin-oauth", "popup,width=620,height=760");
+    oauthPopup.current = popup;
+    if (popup) oauthWatch.current = window.setInterval(() => {
+      if (!popup.closed) return;
+      if (oauthWatch.current !== null) window.clearInterval(oauthWatch.current);
+      oauthWatch.current = null; oauthPopup.current = null; mutationPending.current = false; setPendingId(null);
+    }, 500);
+    try {
+      const result = await workspaceApi.connectPlugin(server.id, server.name);
+      if (result.url) {
+        if (popup && !popup.closed) popup.location.href = result.url;
+        else window.location.assign(result.url);
+      } else {
+        if (oauthWatch.current !== null) window.clearInterval(oauthWatch.current);
+        oauthWatch.current = null; popup?.close(); oauthPopup.current = null; mutationPending.current = false; setPendingId(null);
+        await reload();
+      }
+    } catch (cause) {
+      if (oauthWatch.current !== null) window.clearInterval(oauthWatch.current);
+      oauthWatch.current = null; popup?.close(); oauthPopup.current = null; mutationPending.current = false; setPendingId(null);
+      setError(cause instanceof Error ? cause.message : "Could not connect account.");
+    }
+  }
+
   if (loading) return <div className="application-access-loading" role="status" aria-label="Loading applications"><span/><span/><span/></div>;
   if (!accounts.length && error) return <div className="application-access-state" role="alert"><p>{error}</p><Button variant="outline" onClick={() => void reload()}>Try again</Button></div>;
-  if (!accounts.length) return <div className="application-access-state"><p>Connect an account to choose what this companion can use.</p>{onConnect && <Button variant="outline" onClick={onConnect}><Plus/>Connect an account</Button>}</div>;
+  if (!accounts.length && !inlineConnections) return <div className="application-access-state"><p>Connect an account to choose what this companion can use.</p>{onConnect && <Button variant="outline" onClick={onConnect}><Plus/>Connect an account</Button>}</div>;
 
   return <div className="application-access">
     <div className="application-access-meta"><span>{grantedCount} of {accounts.length} accounts granted</span>{onConnect && <button type="button" onClick={onConnect}>Manage connections</button>}</div>
-    <AccountTiles accounts={accounts} catalog={catalog} selectedIds={selectedIds} disabled={pendingId !== null} pendingId={pendingId} onToggle={accountId => void toggle(accountId)}/>
+    {accounts.length > 0 && <AccountTiles accounts={accounts} catalog={catalog} selectedIds={selectedIds} disabled={pendingId !== null} pendingId={pendingId} onToggle={accountId => void toggle(accountId)}/>}
+    {inlineConnections && <div className="application-connectors" aria-label="Add a connection">{catalog.map(server => <article key={server.id}>
+      <ProviderMark provider={server.provider} name={server.name}/><span><strong>{server.name}</strong><small>{server.available ? server.description ?? "Connect another account" : "Unavailable in this deployment"}</small></span>
+      <Button type="button" size="sm" variant="outline" disabled={!server.available || pendingId !== null} onClick={() => void connect(server)}>{pendingId === server.id ? <LoaderCircle className="spin"/> : "Connect"}{server.available && <ExternalLink/>}</Button>
+    </article>)}</div>}
     {error && <div className="application-access-error" role="alert"><span>{error}</span><Button size="sm" variant="outline" onClick={() => void reload()}>Reload</Button></div>}
   </div>;
 }

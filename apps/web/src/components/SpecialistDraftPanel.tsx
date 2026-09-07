@@ -20,7 +20,7 @@ export function SpecialistDraftPanel({ templateId, companionId, onClose, onConne
   templateId: string;
   companionId: string;
   onClose: () => void;
-  onConnections: () => void;
+  onConnections?: () => void;
   onOpenCompanion?: (id: string) => void;
 }) {
   const [draft, setDraft] = useState<SpecialistDraft | null>(null);

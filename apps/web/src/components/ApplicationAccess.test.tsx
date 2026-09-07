@@ -107,4 +107,20 @@ describe("ApplicationAccess",()=>{
     await user.click(await screen.findByRole("button",{name:"Connect an account"}));
     expect(onConnect).toHaveBeenCalledOnce();
   });
+
+  it("connects a provider inside a draft and then grants the persisted account",async()=>{
+    let connected=false;let selected:PluginAccount[]=[];
+    vi.spyOn(workspaceApi,"plugins").mockImplementation(async()=>({catalog:plugins.catalog,accounts:connected?[linearWork]:[]}));
+    vi.spyOn(workspaceApi,"companionPlugins").mockImplementation(async()=>({accounts:selected}));
+    vi.spyOn(workspaceApi,"connectPlugin").mockResolvedValue({url:"https://oauth.example/linear"});
+    const grant=vi.spyOn(workspaceApi,"selectPlugin").mockImplementation(async()=>{selected=[linearWork];return {ok:true};});
+    const popup={closed:false,location:{href:""},close:vi.fn()};vi.spyOn(window,"open").mockReturnValue(popup as unknown as Window);
+    const user=userEvent.setup();render(<ApplicationAccess companionId="draft" inlineConnections/>);
+    await waitFor(()=>expect(screen.getAllByRole("button",{name:/Connect/})).toHaveLength(2));
+    await user.click(screen.getAllByRole("button",{name:/Connect/})[0]);
+    await waitFor(()=>expect(popup.location.href).toBe("https://oauth.example/linear"));
+    connected=true;window.dispatchEvent(new MessageEvent("message",{origin:window.location.origin,source:popup as unknown as Window,data:{type:"companions:plugin-oauth",status:"connected"}}));
+    await user.click(await screen.findByRole("checkbox",{name:"Work workspace"}));
+    await waitFor(()=>expect(grant).toHaveBeenCalledWith("draft","linear-work"));
+  });
 });

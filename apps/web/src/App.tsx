@@ -216,7 +216,7 @@ function Sidebar({
   );
 }
 
-function Chat({ detail, onRefresh, onUnauthorized, onOpenCompanion, readOnly = false }: { detail: CompanionDetail; onRefresh: () => Promise<void>; onUnauthorized: () => void; onOpenCompanion: (id: string) => void; readOnly?: boolean }) {
+function Chat({ detail, onRefresh, onUnauthorized, onOpenCompanion, specialistTemplateId, readOnly = false }: { detail: CompanionDetail; onRefresh: () => Promise<void>; onUnauthorized: () => void; onOpenCompanion: (id: string) => void; specialistTemplateId?: string | null; readOnly?: boolean }) {
   const [draft, setDraft] = useState("");
   const [files, setFiles] = useState<File[]>([]);
   const [sending, setSending] = useState(false);
@@ -298,6 +298,10 @@ function Chat({ detail, onRefresh, onUnauthorized, onOpenCompanion, readOnly = f
       )}
       <Conversation className="conversation">
         <ConversationContent className="conversation-content">
+          {specialistTemplateId && !readOnly && <section className="draft-chat-connections" aria-labelledby="draft-chat-connections-title">
+            <div><Waypoints/><span><strong id="draft-chat-connections-title">Connect this draft</strong><small>Choose existing accounts or connect GitHub, Linear, and other apps here.</small></span></div>
+            <ApplicationAccess companionId={detail.companion.id} inlineConnections/>
+          </section>}
           {detail.messages.length === 0 ? (
             <ConversationEmptyState className="chat-empty">
               <CompanionAvatar name={detail.companion.name} avatar={detail.companion.avatar} size={72} />
@@ -413,8 +417,8 @@ function CompanionView({ detail, models, onRefresh, onUnauthorized, onMenu, onOp
     <main className="workspace" id="main-content">
       <CompanionHeader detail={detail} section={view} refreshVersion={refreshVersion} onSection={changeView} onMenu={onMenu} />
       <div className="workspace-body" hidden={view !== 'chat'}>
-        <Chat detail={detail} onRefresh={onRefresh} onUnauthorized={onUnauthorized} onOpenCompanion={onOpenCompanion} readOnly={finished} />
-        {specialistTemplateId && !finished && <Suspense fallback={<aside className="specialist-draft specialist-draft--loading" role="status" aria-label="Loading specialist configuration"/>}><SpecialistDraftPanel templateId={specialistTemplateId} companionId={detail.companion.id} onClose={() => onNavigate("/specialists")} onConnections={() => onNavigate("/connections")} onOpenCompanion={onOpenCompanion} /></Suspense>}
+        <Chat detail={detail} onRefresh={onRefresh} onUnauthorized={onUnauthorized} onOpenCompanion={onOpenCompanion} specialistTemplateId={specialistTemplateId} readOnly={finished} />
+        {specialistTemplateId && !finished && <Suspense fallback={<aside className="specialist-draft specialist-draft--loading" role="status" aria-label="Loading specialist configuration"/>}><SpecialistDraftPanel templateId={specialistTemplateId} companionId={detail.companion.id} onClose={() => onNavigate("/specialists")} onOpenCompanion={onOpenCompanion} /></Suspense>}
       </div>
       {!finished && view === 'automations' && <section className="companion-page" aria-label="Automations"><div className="companion-page-inner"><header className="section-intro"><h2>A little help, on repeat.</h2><p>Set the timing. Your companion takes it from there.</p></header><div className="automation-group"><RoutineSettings companionId={detail.companion.id}/></div><div className="automation-group" id="events"><TriggerSettings companionId={detail.companion.id}/></div></div></section>}
       {!finished && view === 'team' && <section className="companion-page" aria-label="Team"><Suspense fallback={<div className="companion-page-inner" role="status">Opening your team…</div>}><TeamPanel companion={detail.companion} refreshVersion={refreshVersion} onOpenCompanion={onOpenCompanion}/></Suspense></section>}

@@ -183,7 +183,7 @@ describe("account delivery", () => {
 });
 
 describe("desktop control", () => {
-  it("waits for persisted pause confirmation before claiming control", async () => {
+  it("waits for persisted desktop confirmation before claiming control", async () => {
     const fetchMock = vi.fn(() => response({ requested: true }));
     vi.stubGlobal("fetch", fetchMock);
     const user = userEvent.setup();
@@ -191,7 +191,7 @@ describe("desktop control", () => {
     const refresh = vi.fn().mockResolvedValue(undefined);
     const view = render(<DesktopSheet companion={companion} onClose={vi.fn()} onRefresh={refresh} />);
     await user.click(screen.getByRole("button", { name: "Take control" }));
-    expect(screen.getByRole("button", { name: "Pausing…" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Taking control…" })).toBeDisabled();
     expect(screen.queryByText("You have control")).not.toBeInTheDocument();
     view.rerender(<DesktopSheet companion={{ ...companion, desktopTaken: true, desktopPausedAt: new Date().toISOString() }} onClose={vi.fn()} onRefresh={refresh} />);
     expect(screen.getByText("You have control")).toBeInTheDocument();

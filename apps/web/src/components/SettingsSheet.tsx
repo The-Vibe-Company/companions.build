@@ -1,5 +1,5 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState, type FormEvent, type ReactNode } from 'react';
-import { ArrowLeft, ChevronRight, Computer, CalendarClock, LoaderCircle, Mail, Pencil, UserRound, Waypoints, Send, Trash2, X } from 'lucide-react';
+import { ArrowLeft, ChevronRight, Computer, CalendarClock, LoaderCircle, Pencil, UserRound, Waypoints, Send, Trash2, X } from 'lucide-react';
 import { api, type CompanionDetail, type AppConfig } from '@/api';
 import { Button } from './ui/button';
 import { Textarea } from './ui/textarea';
@@ -26,13 +26,12 @@ type Props = {
   onSaved: () => Promise<void>;
   onActivity: () => void;
   onDesktop: () => void;
-  onMail?: () => void;
   connections: ReactNode;
 };
 
 export type SettingsSheetHandle = { requestLeave: (action: () => void) => boolean };
 
-export const SettingsSheet = forwardRef<SettingsSheetHandle, Props>(function SettingsSheet({ embedded = false, active = true, activity, computer, detail, models, initialPage = 'home', onPageChange, onClose, onDeleted, onSaved, onActivity, onDesktop, onMail, connections }, ref) {
+export const SettingsSheet = forwardRef<SettingsSheetHandle, Props>(function SettingsSheet({ embedded = false, active = true, activity, computer, detail, models, initialPage = 'home', onPageChange, onClose, onDeleted, onSaved, onActivity, onDesktop, connections }, ref) {
   const [appearanceOpen, setAppearanceOpen] = useState(false);
   const [page, setPage] = useState<Page>(embedded && initialPage === 'home' ? 'identity' : initialPage);
   const [name, setName] = useState(detail.companion.name);
@@ -162,7 +161,6 @@ export const SettingsSheet = forwardRef<SettingsSheetHandle, Props>(function Set
               {row('delivery', Send, 'Prepare a companion for a client')}
             </div>
             <div className="settings-utilities">
-              {onMail && <button onClick={() => leave(onMail)}><Mail />Email, inbox &amp; senders<ChevronRight /></button>}
               <button onClick={() => leave(onActivity)}><CalendarClock />Activity & history<ChevronRight /></button>
               {detail.companion.provider === 'box' && <button onClick={() => leave(onDesktop)}><Computer />Open computer<ChevronRight /></button>}
             </div>

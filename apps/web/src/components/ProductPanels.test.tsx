@@ -2,11 +2,11 @@ import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AccountProduct, DeliverySettings, DesktopSheet, SpecialistsSettings } from "./ProductPanels";
-import { mailApi, type Companion } from "@/api";
+import type { Companion } from "@/api";
 
 const response = (body: unknown, status = 200) => Promise.resolve(new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } }));
 
-beforeEach(() => { vi.unstubAllGlobals(); window.history.replaceState({}, "", "/"); vi.spyOn(mailApi, "account").mockResolvedValue({ configured: false, alias: null, domain: "mail.companions.build", quota: { used: 0, limit: 50, resetsAt: "2026-09-08T00:00:00Z" } }); });
+beforeEach(() => { vi.unstubAllGlobals(); window.history.replaceState({}, "", "/"); });
 afterEach(() => vi.useRealTimers());
 
 describe("account delivery", () => {

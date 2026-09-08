@@ -743,11 +743,3 @@ effectif et ses limites sont suivis dans `docs/v0.md` et les tickets Linear.
   [parcours exploratoire](research/companions-build-product-walkthrough.md) : matériaux historiques
   de la discussion. Le présent document fait référence pour le cadrage produit à partir du
   5 septembre 2026.
-
-## Companion email (September 7)
-
-Approved: permanent account alias and per-Companion address on `mail.companions.build`,
-authorized senders, thread-scoped replies, React Email previews and attachments, and a shared
-50-recipient daily account quota. Quota exhaustion never automatically retries a send. Owners
-can explicitly schedule a mail or a general one-shot reminder. See
-[the mail contract](specs/companion-mail.md) for the approved behavior and hosting requirements.

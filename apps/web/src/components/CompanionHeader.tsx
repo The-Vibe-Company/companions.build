@@ -1,11 +1,11 @@
 import { useEffect, useRef, useState } from "react";
-import { Clock3, Mail, Menu } from "lucide-react";
+import { Clock3, Menu } from "lucide-react";
 import { isActiveRun, workspaceApi, type AgentTemplate, type CompanionDetail } from "@/api";
 import { CompanionAvatar } from "./CompanionAvatar";
 import { Button } from "./ui/button";
 import "./CompanionHeader.css";
 
-export type CompanionSection = "chat" | "team" | "automations" | "mail" | "activity" | "applications" | "computer" | "settings";
+export type CompanionSection = "chat" | "team" | "automations" | "activity" | "applications" | "computer" | "settings";
 type Summary = { team: { count:number; avatars:AgentTemplate[] } | null; automations: { count:number; next:string|null } | null };
 
 export function CompanionHeader({ detail, section, refreshVersion, onSection, onMenu }: {
@@ -58,7 +58,6 @@ export function CompanionHeader({ detail, section, refreshVersion, onSection, on
           <Clock3/><strong>Automations</strong>{summary.automations&&<span className="header-pill-detail" title={`${summary.automations.count} enabled automations`}>{summary.automations.count}{next&&` · next ${next}`}</span>}
         </button>
       </>}
-      {!finished&&<button className="companion-info-pill companion-info-pill--mail" aria-label="Email" aria-current={section==="mail"?"page":undefined} onClick={()=>onSection("mail")}><Mail/><strong>Email</strong></button>}
       <button className="companion-info-pill" aria-label="Activity" aria-current={section==="activity"?"page":undefined} onClick={()=>onSection("activity")}>
         <span aria-hidden="true" className={`header-activity-dot${activity==="Needs you"?" header-activity-dot--attention":run?.status==="running"?" header-activity-dot--working":""}`}/><strong>Activity</strong><span className="header-pill-detail">{activity}</span>
       </button>

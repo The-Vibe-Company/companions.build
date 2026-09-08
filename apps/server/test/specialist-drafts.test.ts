@@ -1,26 +1,50 @@
 import {beforeAll,expect,test} from 'bun:test';
-import {db,migrate} from '../src/store';
-import {saveTemplate,listTemplates} from '../src/templates';
+import {db,migrate,createCompanion} from '../src/store';
+import {saveTemplate,listTemplates,allowTemplate} from '../src/templates';
+import {spawnChild} from '../src/delegation';
 import {openSpecialistDraft,readSpecialistDraft,updateSpecialistDraft,requestSpecialistPublication,requestSpecialistTest} from '../src/specialist-drafts';
 import {progressSpecialistDrafts} from '../src/specialist-runtime';
 const owner='00000000-0000-4000-8000-000000000001';
 beforeAll(()=>migrate());
-test('configuring a specialist preserves the published profile and rejects a stale edit',async()=>{
+test('configuring a specialist preserves published instructions, applies identity and rejects a stale edit',async()=>{
  const profile=await saveTemplate(owner,{name:'Developer',instructions:'Published instructions'});
  const opened=await openSpecialistDraft(owner,profile.id,{commandId:crypto.randomUUID()});
- const changed=await updateSpecialistDraft(owner,profile.id,{expectedGeneration:opened.draft.generation,instructions:'Draft instructions',initScript:'git fetch origin',avatar:{shape:2,color:5,face:1}});
+ const changed=await updateSpecialistDraft(owner,profile.id,{expectedGeneration:opened.draft.generation,expectedIdentityRevision:opened.draft.identityRevision,instructions:'Draft instructions',initScript:'git fetch origin',avatar:{shape:2,color:5,face:1}});
  expect(changed.draft.instructions).toBe('Draft instructions');
  expect(changed.draft.avatar).toEqual({shape:2,color:5,face:1});
- expect((await listTemplates(owner)).find((p:any)=>p.id===profile.id).avatar).toEqual({shape:0,color:0,face:0});
+ expect((await listTemplates(owner)).find((p:any)=>p.id===profile.id).avatar).toEqual({shape:2,color:5,face:1});
  expect((await listTemplates(owner)).find((p:any)=>p.id===profile.id).instructions).toBe('Published instructions');
- await expect(updateSpecialistDraft(owner,profile.id,{expectedGeneration:opened.draft.generation,instructions:'Lost update'})).rejects.toThrow();
+ await expect(updateSpecialistDraft(owner,profile.id,{expectedGeneration:opened.draft.generation,expectedIdentityRevision:opened.draft.identityRevision,instructions:'Lost update'})).rejects.toThrow();
  expect(await readSpecialistDraft('another-owner',profile.id)).toBeNull();
+});
+
+test('identity applies immediately to the library and missions without publishing or invalidating configuration',async()=>{
+ const profile=await saveTemplate(owner,{name:'Old name',instructions:'Published instructions'});
+ const parent=await createCompanion(owner,{name:'Identity parent',provider:'local'});
+ await allowTemplate(owner,parent.id,{templateId:profile.id,maxChildren:2});
+ const existing=await spawnChild(owner,parent.id,null,crypto.randomUUID(),{templateId:profile.id,prompt:'Existing mission'});
+ const {draft}=await openSpecialistDraft(owner,profile.id,{commandId:crypto.randomUUID()});
+ const renamed=await updateSpecialistDraft(owner,profile.id,{expectedGeneration:draft.generation,expectedIdentityRevision:draft.identityRevision,name:'Robin',avatar:{shape:2,color:5,face:1}});
+ expect(renamed.draft.generation).toBe(draft.generation);
+ expect(renamed.draft.identityRevision).toBe(draft.identityRevision+1);
+ await expect(updateSpecialistDraft(owner,profile.id,{expectedGeneration:draft.generation,expectedIdentityRevision:draft.identityRevision,name:'Old name',avatar:{shape:1,color:2,face:0}})).rejects.toThrow('Identity changed');
+ await expect(updateSpecialistDraft(owner,profile.id,{expectedGeneration:draft.generation,name:'Missing token'})).rejects.toThrow('Identity changed');
+ expect(renamed.draft.publication).toBeNull();
+ const library=(await listTemplates(owner)).find((p:any)=>p.id===profile.id);
+ expect(library).toMatchObject({name:'Robin',avatar:{shape:2,color:5,face:1},revision:1,instructions:'Published instructions',hasPublished:true});
+ const next=await spawnChild(owner,parent.id,null,crypto.randomUUID(),{templateId:profile.id,prompt:'Next mission'});
+ const identities=await db`SELECT name,avatar FROM companions WHERE id IN (${draft.companionId},${existing.companionId},${next.companionId})`;
+ expect(identities).toHaveLength(3);
+ for(const identity of identities)expect(identity).toMatchObject({name:'Robin',avatar:{shape:2,color:5,face:1}});
+ const [unchanged]=await db`SELECT instructions,template_revision FROM companions WHERE id=${existing.companionId}`;
+ expect(unchanged).toMatchObject({instructions:'Published instructions',template_revision:1});
+ await expect(updateSpecialistDraft('another-owner',profile.id,{expectedGeneration:draft.generation,expectedIdentityRevision:draft.identityRevision,name:'Forbidden'})).rejects.toThrow();
 });
 test('a confirmed prepared image publishes atomically without replacing the configuration conversation',async()=>{
  const profile=await saveTemplate(owner,{name:'Prepared writer',instructions:'Old'});
  const {draft}=await openSpecialistDraft(owner,profile.id,{commandId:crypto.randomUUID()});
  await db`UPDATE companions SET provider='box',box_id='source-box',status='ready' WHERE id=${draft.companionId}`;
- const updated=await updateSpecialistDraft(owner,profile.id,{expectedGeneration:draft.generation,instructions:'New',avatar:{shape:3,color:6,face:2}});
+ const updated=await updateSpecialistDraft(owner,profile.id,{expectedGeneration:draft.generation,expectedIdentityRevision:draft.identityRevision,instructions:'New',avatar:{shape:3,color:6,face:2}});
  const {publication}=await requestSpecialistPublication(owner,profile.id,{commandId:crypto.randomUUID(),expectedGeneration:updated.draft.generation,contentReviewed:true});
  const snapshots=new Set<string>();let sanitized=0;
  const machines:any={freezeSpecialist:async()=>{},snapshotStatus:async(name:string)=>snapshots.has(name)?'ready':'missing',snapshot:async(_:any,name:string)=>{snapshots.add(name);},createSpecialistImage:async(_:any,checkpoint:any)=>{await checkpoint('image-box');return true;},sanitizeSpecialistImage:async()=>{sanitized++;}};
@@ -48,7 +72,7 @@ test('publication is durable and idempotent and needs explicit content review',a
  const second=await requestSpecialistPublication(owner,profile.id,input);
  expect(second.publication.id).toBe(first.publication.id);
  expect(first.publication.status).toBe('queued');
- await expect(updateSpecialistDraft(owner,profile.id,{expectedGeneration:draft.generation,name:'During capture'})).rejects.toThrow();
+ await expect(updateSpecialistDraft(owner,profile.id,{expectedGeneration:draft.generation,expectedIdentityRevision:draft.identityRevision,name:'During capture'})).rejects.toThrow();
 });
 test('publication reuses the exact tested image and waits for test file retention and archive acknowledgement',async()=>{
  const profile=await saveTemplate(owner,{name:'Tested developer',instructions:'Build the repository'});
@@ -71,9 +95,12 @@ test('publication reuses the exact tested image and waits for test file retentio
  expect((await readSpecialistDraft(owner,profile.id)).draft.status).toBe('testing');
  await db`UPDATE companions SET archived_at=now(),archive_requested_at=null WHERE id=${operation.test_companion_id}`;
  await progress();expect((await readSpecialistDraft(owner,profile.id)).draft.lastTest.status).toBe('succeeded');
+ const renamed=await updateSpecialistDraft(owner,profile.id,{expectedGeneration:draft.generation,expectedIdentityRevision:draft.identityRevision,name:'Renamed tested developer'});
+ expect(renamed.draft.generation).toBe(draft.generation);
  const publication=await requestSpecialistPublication(owner,profile.id,{commandId:crypto.randomUUID(),expectedGeneration:draft.generation,contentReviewed:true});
  await progress();
- const [published]=await db`SELECT snapshot_name FROM agent_templates WHERE id=${profile.id}`;
+ const [published]=await db`SELECT name,snapshot_name FROM agent_templates WHERE id=${profile.id}`;
+ expect(published.name).toBe('Renamed tested developer');
  expect(published.snapshot_name).toBe(operation.snapshot_name);expect(captures).toBe(2);
  expect((await readSpecialistDraft(owner,profile.id)).draft.publication).toMatchObject({id:publication.publication.id,status:'succeeded'});
 });

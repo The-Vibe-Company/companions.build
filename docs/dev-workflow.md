@@ -152,12 +152,25 @@ copy is made; the sanitized image is archived and retired before publication.
 Published images must never be resumed, mutated or deleted while referenced by
 versions or shared copies. Existing named snapshot versions still work.
 
-Box documents automatic snapshot retention for the lifetime of the Box, including
-archived Boxes, and a limit of 10 named snapshots:
-https://docs.ascii.dev/box/snapshots. Account zero-data-retention must remain disabled
-for prepared environments; deleting an archived image destroys the restore source.
-This avoids named snapshot capacity for specialist versions, but is not an
-independent backup outside Box.
+Retention policy checked on 2026-09-08 against [Snapshots & Copies](https://docs.ascii.dev/box/snapshots#retention),
+[Data retention](https://docs.ascii.dev/box/data-retention), and the [FAQ](https://docs.ascii.dev/box/faq):
+there is no documented seven-day expiry for the latest snapshot. It remains usable
+for the lifetime of the archived Box, including months later. Seven days refers to
+the free trial. Stopped Boxes and their latest snapshot are included without running
+compute charges; this is the documented service policy, not an independent backup.
+
+Keep the sealed-Box strategy; do not schedule periodic wakeups or rotation to extend
+retention. Account zero-data-retention must remain disabled: read it with
+`GET /account/data-retention` before adopting this storage strategy. Enabling it
+queues existing archived Boxes for deletion and discards future archives; disabling
+it does not cancel accepted deletions. Explicit Box deletion also removes the restore
+source. Closing the Box account starts a 30-day recovery window before data purge.
+Named snapshots have no expiry but remain limited to 10. An independent off-provider
+backup would require its own export and tested restore path.
+
+Specialist names and avatars are live metadata: saving them updates the library,
+configuration chat and existing active mission identities immediately. It does not
+publish instructions, increment the technical revision, or invalidate a tested image.
 
 A development distribution can use the same mechanism:
 `python3 scripts/bun.py scripts/prepare-box-template.ts <unique-release> --archived`.

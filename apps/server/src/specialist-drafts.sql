@@ -13,6 +13,7 @@ CREATE TABLE IF NOT EXISTS specialist_drafts (
  status text NOT NULL DEFAULT 'editing' CHECK(status IN ('editing','capturing','testing','publishing','error')),
  error text, created_at timestamptz NOT NULL DEFAULT now(), updated_at timestamptz NOT NULL DEFAULT now()
 );
+ALTER TABLE specialist_drafts ADD COLUMN IF NOT EXISTS identity_revision integer NOT NULL DEFAULT 1;
 CREATE TABLE IF NOT EXISTS specialist_operations (
  id uuid PRIMARY KEY, template_id uuid NOT NULL REFERENCES agent_templates(id),
  owner_id text NOT NULL REFERENCES "user"(id), generation integer NOT NULL,

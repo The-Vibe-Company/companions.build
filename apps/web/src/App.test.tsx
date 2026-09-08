@@ -158,6 +158,7 @@ describe("first Companion flow", () => {
     }));
     const user=userEvent.setup();render(<App/>);
     await screen.findByRole("textbox",{name:"Message Ada"});
+    await waitFor(()=>expect(FakeEventSource.instances).toHaveLength(1));
     hold=true;
     act(()=>FakeEventSource.instances[0].emit("invalidate"));
     await waitFor(()=>expect(release).toBeDefined());

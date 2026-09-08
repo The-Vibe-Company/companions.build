@@ -302,6 +302,7 @@ export interface SpecialistPublication {
   error?: string | null;
 }
 export interface SpecialistDraft {
+  identityRevision?: number;
   guidance?: NonNullable<SpecialistDraft['nextStep']>[];
   nextStep?: { id: string; kind: "profile" | "connections" | "test" | "publish"; message: string; providers: string[]; createdAt: string; respondedAt?: string | null } | null;
   avatar?: CompanionAvatarValue;
@@ -376,7 +377,7 @@ export const workspaceApi = {
   createTemplateDraft: (input: Pick<AgentTemplate, "name" | "instructions" | "avatar">, commandId = crypto.randomUUID()) => request<{ draft: SpecialistDraft }>("/api/templates", { method: "POST", body: JSON.stringify({ ...input, draft: true, commandId }) }),
   openTemplateDraft: (id: string, commandId = crypto.randomUUID()) => request<{ draft: SpecialistDraft }>(`/api/templates/${id}/draft`, { method: "POST", body: JSON.stringify({ commandId }) }),
   templateDraft: (id: string) => request<{ draft: SpecialistDraft }>(`/api/templates/${id}/draft`),
-  updateTemplateDraft: (id: string, input: { expectedGeneration: number; name?: string; instructions?: string; initScript?: string; avatar?: CompanionAvatarValue }) => request<{ draft: SpecialistDraft }>(`/api/templates/${id}/draft`, { method: "PATCH", body: JSON.stringify(input) }),
+  updateTemplateDraft: (id: string, input: { expectedGeneration: number; expectedIdentityRevision?: number; name?: string; instructions?: string; initScript?: string; avatar?: CompanionAvatarValue }) => request<{ draft: SpecialistDraft }>(`/api/templates/${id}/draft`, { method: "PATCH", body: JSON.stringify(input) }),
   testTemplateDraft: (id: string, input: { expectedGeneration: number; prompt: string }, commandId = crypto.randomUUID()) => request<{ draft: SpecialistDraft }>(`/api/templates/${id}/draft/test`, { method: "POST", body: JSON.stringify({ ...input, commandId }) }),
   assessTemplateTest: (id: string, testId: string, assessment: "satisfactory" | "needs_changes", commandId = crypto.randomUUID()) => request<{ draft: SpecialistDraft }>(`/api/templates/${id}/draft/test/${testId}/assessment`, { method: "POST", body: JSON.stringify({ commandId, assessment }) }),
   publishTemplateDraft: (id: string, expectedGeneration: number, commandId = crypto.randomUUID()) => request<{ draft?: SpecialistDraft; publication?: SpecialistPublication; publicationId?: string; status?: SpecialistPublication["status"] }>(`/api/templates/${id}/draft/publish`, { method: "POST", body: JSON.stringify({ commandId, expectedGeneration, contentReviewed: true }) }),

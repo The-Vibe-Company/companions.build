@@ -16,12 +16,12 @@ Use specialist_next_step to show ONE interactive card in the conversation: kind 
 After showing a card, stop and wait for the human to complete it and continue. Inspect current state again before proposing the next card. Keep updating the profile as you learn; use specialist_configure to choose a short meaningful name instead of leaving New specialist.
 Ask about the precise work, selected repositories, required skills and tools. Use plugin_connect and plugin_select for GitHub, Linear and other MCP connections; never ask users to paste credentials into chat.
 Prepare selected repositories and user-space tools using your isolated shell. Do not claim an installation succeeded until verified. System installation requires a supported installation operation; never bypass your shell boundary through a desktop terminal.
-Use specialist_configure {} to read the current draft generation, then specialist_configure to save mission instructions and optional init script. Use specialist_install for required apt packages. The init script runs once on a NEW intervention, never automatically on resume.
+Use specialist_configure {} to read the current draft generation and identityRevision, then specialist_configure to save mission instructions and optional init script. Include expectedGeneration on edits and expectedIdentityRevision when changing name or avatar. Name and appearance apply immediately without publication; only executable configuration needs publishing. Use specialist_install for required apt packages. The init script runs once on a NEW intervention, never automatically on resume.
 Offer a representative test. Before publication help the user review files retained in the copied disk. Browser sessions and files will be copied; MCP credentials and conversation history will not. The human publishes explicitly.
 Do not publish, erase user files without approval, or report simulated progress.`;
 
 export async function readSpecialistDraft(ownerId:string,templateId:string,sql:any=db):Promise<any>{
- const [draft]=await sql`SELECT d.template_id AS "templateId",d.companion_id AS "companionId",d.generation,d.base_revision AS "baseRevision",d.name,d.instructions,d.init_script AS "initScript",d.status,d.error,
+ const [draft]=await sql`SELECT d.template_id AS "templateId",d.companion_id AS "companionId",d.generation,d.identity_revision AS "identityRevision",d.base_revision AS "baseRevision",d.name,d.instructions,d.init_script AS "initScript",d.status,d.error,
   c.avatar,c.status AS "machineStatus",c.archived_at AS "archivedAt",t.has_published AS "hasPublished"
   FROM specialist_drafts d JOIN agent_templates t ON t.id=d.template_id JOIN companions c ON c.id=d.companion_id
   WHERE d.template_id=${templateId} AND t.owner_id=${ownerId} AND t.deleted_at IS NULL`;
@@ -74,13 +74,20 @@ export async function openSpecialistDraft(ownerId:string,templateId:string,raw:u
  return db.begin((tx:any)=>openDraftInTransaction(ownerId,templateId,value.commandId,tx));
 }
 export async function updateSpecialistDraft(ownerId:string,templateId:string,raw:unknown){
- const value=editable.extend({expectedGeneration:z.number().int().positive()}).parse(raw);
+ const value=editable.extend({expectedGeneration:z.number().int().positive(),expectedIdentityRevision:z.number().int().positive().optional()}).parse(raw);
  return db.begin(async(tx:any)=>{
   await tx`SELECT pg_advisory_xact_lock(721440140)`;
   const [row]=await tx`SELECT d.* FROM specialist_drafts d JOIN agent_templates t ON t.id=d.template_id WHERE d.template_id=${templateId} AND t.owner_id=${ownerId} AND t.deleted_at IS NULL FOR UPDATE OF d`;
   if(!row||row.generation!==value.expectedGeneration||!['editing','error'].includes(row.status))throw new LifecycleConflict('Draft changed or is busy. Reload before editing.');
-  await tx`UPDATE specialist_drafts SET name=${value.name??row.name},instructions=${value.instructions??row.instructions},init_script=${value.initScript??row.init_script},generation=generation+1,status='editing',error=null,updated_at=now() WHERE template_id=${templateId}`;
-  await tx`UPDATE companions SET name=${value.name??row.name},avatar=COALESCE(${value.avatar??null}::jsonb,avatar) WHERE id=${row.companion_id}`;
+  const identityProvided=value.name!==undefined||value.avatar!==undefined;
+  if(identityProvided&&row.identity_revision!==value.expectedIdentityRevision)throw new LifecycleConflict('Identity changed. Read the draft again and include its identityRevision as expectedIdentityRevision.');
+  const configurationChanged=(value.instructions!==undefined&&value.instructions!==row.instructions)||(value.initScript!==undefined&&value.initScript!==row.init_script);
+  // Identity is live metadata. Only executable configuration invalidates a tested/published generation.
+  await tx`UPDATE specialist_drafts SET name=${value.name??row.name},instructions=${value.instructions??row.instructions},init_script=${value.initScript??row.init_script},generation=generation+${configurationChanged?1:0},identity_revision=identity_revision+${identityProvided?1:0},status=CASE WHEN ${configurationChanged} THEN 'editing' ELSE status END,error=CASE WHEN ${configurationChanged} THEN null ELSE error END,updated_at=now() WHERE template_id=${templateId}`;
+  if(identityProvided){
+   await tx`UPDATE agent_templates SET name=COALESCE(${value.name??null},name),avatar=COALESCE(${value.avatar??null}::jsonb,avatar),updated_at=now() WHERE id=${templateId}`;
+   await tx`UPDATE companions SET name=COALESCE(${value.name??null},name),avatar=COALESCE(${value.avatar??null}::jsonb,avatar) WHERE owner_id=${ownerId} AND (id=${row.companion_id} OR (template_id=${templateId} AND retired_at IS NULL))`;
+  }
   return readSpecialistDraft(ownerId,templateId,tx);
  });
 }

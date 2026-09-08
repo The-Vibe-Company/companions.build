@@ -97,7 +97,7 @@ export function SpecialistDraftPanel({ templateId, companionId, onClose, onConne
     setBusy("save"); setError(""); setNotice("");
     try {
       const result = await workspaceApi.updateTemplateDraft(templateId, {
-        expectedGeneration: draft.generation,
+        expectedGeneration: draft.generation, expectedIdentityRevision: draft.identityRevision ?? 1,
         name: name.trim(), instructions: instructions.trim(), initScript, avatar: appearance,
       });
       apply(result.draft); setNotice("Configuration saved.");
@@ -155,7 +155,7 @@ export function SpecialistDraftPanel({ templateId, companionId, onClose, onConne
     setBusy('continue'); setError('');
     try {
       if (dirty && draft) {
-        const saved = await workspaceApi.updateTemplateDraft(templateId, { expectedGeneration: draft.generation, name: name.trim(), instructions: instructions.trim(), initScript, avatar: appearance });
+        const saved = await workspaceApi.updateTemplateDraft(templateId, { expectedGeneration: draft.generation, expectedIdentityRevision: draft.identityRevision ?? 1, name: name.trim(), instructions: instructions.trim(), initScript, avatar: appearance });
         apply(saved.draft);
       }
       await api.sendMessage(companionId, `I've finished this step: ${step.message}\nCheck the saved state and guide me to the next step.`);
@@ -213,7 +213,7 @@ export function SpecialistDraftPanel({ templateId, companionId, onClose, onConne
     { label: draft.lastTest?.assessment === 'satisfactory' ? 'Mission approved' : 'Try a mission', done: draft.lastTest?.assessment === 'satisfactory' && draft.lastTest.generation === draft.generation },
   ];
   return <section className="specialist-studio" aria-label="Specialist configuration">
-    {identityOpen && <SpecialistIdentity draft={draft} onClose={() => setIdentityOpen(false)} onSaved={value => { setDraft(value); setName(value.name); setAppearance(value.avatar ?? fallbackAvatar.current); setReviewed(false); }}/>}
+    {identityOpen && <SpecialistIdentity draft={draft} onClose={() => setIdentityOpen(false)} onSaved={value => { setDraft(value); setName(value.name); setAppearance(value.avatar ?? fallbackAvatar.current); }}/>}
     <header className="specialist-studio-header"><div><button className="specialist-identity-trigger" aria-label="Edit specialist name and appearance" disabled={controlsDisabled} onClick={() => { editRevision.current += 1; setIdentityOpen(true); }}><CompanionAvatar name={draft.name} avatar={draft.avatar ?? avatar} size={28}/><strong>{draft.name}</strong></button><span className="specialist-studio-status">{draft.status === 'publishing' ? 'Publishing' : draft.status === 'testing' ? 'Testing' : published ? 'Published' : 'Draft'}</span></div><div><Button className="specialist-summary-toggle" variant="ghost" aria-expanded={summaryOpen} onClick={() => setSummaryOpen(value => !value)}>Summary</Button>{onComputer && <Button variant="ghost" onClick={onComputer}>Computer</Button>}<Button disabled={controlsDisabled || dirty} onClick={() => { setPublishingOpen(true); window.setTimeout(() => { publicationRef.current?.scrollIntoView({ behavior: 'instant', block: 'center' }); publicationRef.current?.querySelector('input')?.focus(); }, 0); }}>Publish</Button><Button variant="ghost" size="icon" aria-label="Close specialist" onClick={onClose}><X/></Button></div></header>
     <div className="specialist-studio-body">{renderChat(cards, history)}<aside className={`specialist-studio-summary${summaryOpen ? ' is-open' : ''}`} aria-label="Specialist summary"><button className="specialist-identity-trigger specialist-identity-trigger--summary" aria-label="Change specialist appearance" disabled={controlsDisabled} onClick={() => { editRevision.current += 1; setIdentityOpen(true); }}><CompanionAvatar name={draft.name} avatar={draft.avatar ?? avatar} size={88}/><strong>{draft.name}</strong><small>Edit name &amp; appearance</small></button><p>{draft.instructions || 'A focused role, shaped together.'}</p><ul>{checklist.map(item => <li key={item.label}><span className={`specialist-check${item.done ? ' is-done' : ''}`}>{item.done && <Check/>}</span>{item.label}</li>)}</ul><p className="specialist-studio-summary__note">{published ? 'This version is available to your teams.' : 'Only a published version is available to your teams.'}</p></aside></div>
   </section>;

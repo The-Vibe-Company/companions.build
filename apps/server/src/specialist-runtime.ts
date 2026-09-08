@@ -124,7 +124,7 @@ export async function progressSpecialistDrafts(sql:any,machines:SpecialistMachin
     await authority.checkpoint(async tx=>{
      const [current]=await tx`SELECT generation FROM specialist_drafts WHERE template_id=${op.template_id} FOR UPDATE`;
      if(current?.generation!==op.generation)throw Error('draft_changed');
-     const [published]=await tx`UPDATE agent_templates SET name=${op.name},avatar=${op.avatar},instructions=${op.instructions},init_script=${op.init_script},snapshot_name=${op.snapshot_name},prepared_disk_snapshot=${op.snapshot_name},software_build_id=null,software_result_id=null,skill_bundle_id=null,source_companion_id=${op.source_id},has_published=true,revision=revision+1,updated_at=now()
+     const [published]=await tx`UPDATE agent_templates SET instructions=${op.instructions},init_script=${op.init_script},snapshot_name=${op.snapshot_name},prepared_disk_snapshot=${op.snapshot_name},software_build_id=null,software_result_id=null,skill_bundle_id=null,source_companion_id=${op.source_id},has_published=true,revision=revision+1,updated_at=now()
       WHERE id=${op.template_id} AND revision=${op.base_revision} RETURNING revision`;
      if(!published)throw Error('template_changed');
      await recordTemplateRevision(tx,op.template_id);

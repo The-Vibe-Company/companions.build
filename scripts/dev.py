@@ -7,18 +7,16 @@ import secrets
 import signal
 import subprocess
 import sys
-import socket
 import time
 import urllib.request
 from bun import ROOT, module
-from dev_support import lock, prepare, read_json, write_json, source_digest, terminate_process, launch_owned
+from dev_support import lock, prepare, read_json, write_json, source_digest, terminate_process, launch_owned, check_service_ports
 
 os.chdir(ROOT)
 stack_lock = lock("dev-stack.lock")
 state_path = ROOT / ".local/dev-state.json"
 process_identity = subprocess.check_output(["ps", "-p", str(os.getpid()), "-o", "lstart="], text=True).strip()
 state = {"status": "starting", "pid": os.getpid(), "identity": process_identity, "services": {}}
-write_json(state_path, state)
 env = os.environ.copy()
 launcher_keys = {
     "WEB_PORT", "API_PORT", "DATABASE_URL", "COMPANIONS_DATA_DIR", "AGENT_TEST_MODE",
@@ -44,6 +42,14 @@ if not data_dir.is_absolute():
     data_dir = ROOT / data_dir
 data_dir.mkdir(parents=True, exist_ok=True)
 data_dir.chmod(0o700)
+# Keep the previous ownership journal intact if an old/foreign service holds a port.
+requested_components = env.get("COMPANIONS_DEV_COMPONENTS")
+try:
+    check_service_ports({name: env[key] for name, key in (("api", "API_PORT"), ("web", "WEB_PORT"))
+                         if not requested_components or name in requested_components.split(",")})
+except RuntimeError as error:
+    raise SystemExit(str(error)) from None
+write_json(state_path, state)
 bun = module.toolchain()
 logs = data_dir / "logs"
 logs.mkdir(exist_ok=True, mode=0o700)
@@ -236,8 +242,10 @@ try:
                 for name in selected:
                     state["services"][name]["status"] = "ready"
                 return
-            if any(processes[name].poll() is not None for name in selected):
-                raise RuntimeError("A service exited during startup; see .local/logs")
+            exited = [(name, processes[name].poll()) for name in selected if processes[name].poll() is not None]
+            if exited:
+                name, code = exited[0]
+                raise RuntimeError(f"{name} exited during startup (code {code}); see {logs / (name + '.log')}")
             time.sleep(.25)
         raise RuntimeError("Executor/worker readiness timed out")
 

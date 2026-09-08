@@ -5,6 +5,7 @@ from pathlib import Path
 import subprocess
 import json
 import signal
+import socket
 import shlex
 import sys
 import time
@@ -18,6 +19,40 @@ cli = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(cli)
 
 class IsolationTests(unittest.TestCase):
+    def test_relative_bun_launcher_requires_matching_worktree_directory(self):
+        for directory, expected in [(str(cli.ROOT), True), ('/another/worktree', False)]:
+            with self.subTest(directory=directory):
+                def observe(args, **kwargs):
+                    output = ('same start\n' if args[-1] == 'lstart=' else
+                              f'p999999\nfcwd\nn{directory}\n' if args[0] == 'lsof' else
+                              'python3 scripts/dev.py\n')
+                    return subprocess.CompletedProcess(args, 0, output)
+                with patch.object(cli.subprocess, 'run', side_effect=observe):
+                    self.assertEqual(cli.alive({'pid': 999999, 'identity': 'same start'}), expected)
+
+
+    def test_legacy_endpoints_keep_existing_service_port_block(self):
+        with patch.object(cli, 'read_json', return_value={'webPort': 17140, 'apiPort': 17141}):
+            self.assertEqual(cli.choose_base(), 17140)
+
+    def test_explicit_base_wins_over_portless_web_port(self):
+        with patch.object(cli, 'read_json', return_value={'basePort': 17140, 'webPort': 32000, 'apiPort': 32001}):
+            self.assertEqual(cli.choose_base(), 17140)
+
+
+    def test_occupied_service_port_is_reported_without_disrupting_its_owner(self):
+        from dev_support import check_service_ports
+        with socket.socket() as owner:
+            owner.bind(('127.0.0.1', 0))
+            owner.listen()
+            port = owner.getsockname()[1]
+            with self.assertRaisesRegex(RuntimeError, f"api cannot start: local port {port}"):
+                check_service_ports({'api': port})
+            with socket.create_connection(('127.0.0.1', port), timeout=1):
+                pass
+        check_service_ports({'api': port})
+
+
     def test_hard_parent_crash_cannot_launch_an_unrecorded_service(self):
         for phase in ('before_record', 'before_release', 'after_release'):
             with self.subTest(phase=phase), tempfile.TemporaryDirectory() as tmp:

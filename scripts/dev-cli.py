@@ -24,8 +24,22 @@ def alive(state):
         return False
     identity = subprocess.run(['ps', '-p', str(pid), '-o', 'lstart='], capture_output=True, text=True)
     command = subprocess.run(['ps', '-p', str(pid), '-o', 'command='], capture_output=True, text=True)
-    return (identity.returncode == 0 and identity.stdout.strip() == state.get('identity')
-            and str(ROOT / 'scripts/dev.py') in command.stdout)
+    if identity.returncode != 0 or identity.stdout.strip() != state.get('identity') or command.returncode != 0:
+        return False
+    if str(ROOT / 'scripts/dev.py') in command.stdout:
+        return True
+    # `bun run dev` invokes a relative script; confirm its cwd before claiming it.
+    try:
+        argv = shlex.split(command.stdout)
+        if len(argv) < 2 or not Path(argv[0]).name.lower().startswith('python') or argv[1] not in ('scripts/dev.py', './scripts/dev.py'):
+            return False
+        proc_cwd = Path('/proc') / str(pid) / 'cwd'
+        if proc_cwd.exists():
+            return proc_cwd.resolve() == ROOT
+        observed = subprocess.run(['lsof', '-a', '-p', str(pid), '-d', 'cwd', '-Fn'], capture_output=True, text=True)
+        return observed.returncode == 0 and f'n{ROOT}' in observed.stdout.splitlines()
+    except (OSError, ValueError):
+        return False
 
 def status():
     state = read_json(STATE)
@@ -115,7 +129,12 @@ def local_env():
     return result
 
 def choose_base():
-    previous = read_json(LOCAL / 'dev-endpoints.json').get('basePort')
+    endpoints = read_json(LOCAL / 'dev-endpoints.json')
+    previous = endpoints.get('basePort')
+    # Older launchers persisted only adjacent web/API ports. Retain that block:
+    # existing Docker services keep their original port bindings across restarts.
+    if not previous and isinstance(endpoints.get('webPort'), int) and endpoints.get('apiPort') == endpoints['webPort'] + 1:
+        previous = endpoints['webPort']
     if previous:
         return int(previous)
     initial = 10000 + int(hashlib.sha256(str(ROOT).encode()).hexdigest()[:4], 16) % 3000 * 10

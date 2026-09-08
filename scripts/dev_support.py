@@ -6,10 +6,26 @@ import os
 from pathlib import Path
 import subprocess
 import signal
+import socket
 import sys
 
 ROOT = Path(__file__).resolve().parents[1]
 LOCAL = ROOT / '.local'
+
+def check_service_ports(ports):
+    """Fail before startup effects; never stop the process owning an occupied port."""
+    for service, port in ports.items():
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
+            probe.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            try:
+                probe.bind(('127.0.0.1', int(port)))
+            except OSError as error:
+                raise RuntimeError(
+                    f"{service} cannot start: local port {port} is unavailable. "
+                    f"Inspect its owner with lsof -nP -iTCP:{port} -sTCP:LISTEN; "
+                    "stop it only if it belongs to this worktree, or choose another port."
+                ) from error
+
 
 def launch_owned(command, persist, **kwargs):
     """Release a child into its service only after its ownership record is saved.

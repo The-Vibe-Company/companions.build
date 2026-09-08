@@ -10,6 +10,7 @@ import sys
 import time
 import urllib.request
 from bun import ROOT, module
+from dev_environment import runtime_environment
 from dev_support import lock, prepare, read_json, write_json, source_digest, terminate_process, launch_owned, check_service_ports
 
 os.chdir(ROOT)
@@ -35,7 +36,10 @@ env.setdefault("WEB_PORT", env.get("PORT", str(base)) if env.get("PORTLESS_URL")
 env.setdefault("API_PORT", str(base + 1))
 env.setdefault("APP_URL", env.get("PORTLESS_URL", f"http://127.0.0.1:{env['WEB_PORT']}"))
 env.setdefault("BETTER_AUTH_URL", env["APP_URL"])
-env.setdefault("AGENT_TEST_MODE", "1")
+env.setdefault("AGENT_TEST_MODE", "0" if read_json(ROOT / ".local/dev-options.json").get("liveModel", False) else "1")
+if env["AGENT_TEST_MODE"] != "1":
+    for key, value in runtime_environment(ROOT).items():
+        env.setdefault(key, value)
 env.setdefault("COMPANIONS_DATA_DIR", str(ROOT / ".local"))
 data_dir = Path(env["COMPANIONS_DATA_DIR"])
 if not data_dir.is_absolute():

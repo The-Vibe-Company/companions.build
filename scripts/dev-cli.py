@@ -14,6 +14,7 @@ import time
 import uuid
 import urllib.request
 
+from dev_environment import runtime_environment, MODEL_KEYS
 from dev_support import ROOT, LOCAL, lock, prepare, proxy_command, read_json, write_json, terminate_process
 
 STATE = LOCAL / 'dev-state.json'
@@ -118,15 +119,25 @@ def _service_action(action, name):
         time.sleep(.25)
     raise RuntimeError('Command outcome unknown after timeout. Inspect status before retrying.')
 
-def local_env():
-    # A development stack never inherits hosted credentials or a hosted DATABASE_URL.
+def local_env(live=None):
+    # Keep infrastructure local; model credentials require an explicit live choice.
+    if live is None:
+        live = read_json(LOCAL / "dev-options.json").get("liveModel", False)
     result = {key: value for key, value in os.environ.items() if key in
               {'PATH', 'HOME', 'USER', 'LOGNAME', 'SHELL', 'TMPDIR', 'LANG', 'TERM'}
               or key.startswith(('LC_', 'DOCKER_', 'HERDR_'))}
     result.update(COMPANIONS_DEV_LOCAL='1', AGENT_TEST_MODE='1', BILLING_TEST_MODE='1',
                   LOCAL_RUNTIME='1', EMAIL_PROVIDER='smtp', NODE_ENV='development',
                   COMPANIONS_DATA_DIR=str(LOCAL), COMPANIONS_DEV_WATCH=os.environ.get('COMPANIONS_DEV_WATCH', '1'))
+    if live:
+        result.update(runtime_environment(ROOT))
+        result.update(AGENT_TEST_MODE='0')
+        result.setdefault('MODEL_PROVIDER', 'google')
     return result
+
+def validate_model_env(env):
+    if env.get('AGENT_TEST_MODE') == '0' and not any(env.get(key) for key in [key for keys in MODEL_KEYS.values() for key in keys]):
+        raise RuntimeError('Live mode needs a model API key in the main checkout .env, worktree .env or shell. No credentials are saved in dev options.')
 
 def choose_base():
     endpoints = read_json(LOCAL / 'dev-endpoints.json')
@@ -171,6 +182,7 @@ def up(direct=False, only=None):
             raise RuntimeError('Stack is already starting/restarting or unhealthy. Inspect ./dev logs.')
         LOCAL.mkdir(exist_ok=True, mode=0o700)
         env = local_env()
+        validate_model_env(env)
         if only:
             env['COMPANIONS_DEV_COMPONENTS'] = only
         env['CONDUCTOR_PORT'] = str(choose_base())
@@ -269,8 +281,12 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     subs = parser.add_subparsers(dest='command', required=True)
     p = subs.add_parser('setup'); p.add_argument('--portless', action='store_true'); p.add_argument('--https', action='store_true')
-    p = subs.add_parser('up'); p.add_argument('--direct', action='store_true')
-    subs.add_parser('down'); subs.add_parser('restart')
+    for name in ['up', 'restart']:
+        p = subs.add_parser(name); p.add_argument('--direct', action='store_true')
+        mode = p.add_mutually_exclusive_group()
+        mode.add_argument('--live', action='store_true', help='Use a real model with the API key from your shell')
+        mode.add_argument('--scripted', action='store_true', help='Use deterministic test responses')
+    subs.add_parser('down')
     p = subs.add_parser('status'); p.add_argument('--json', action='store_true')
     p = subs.add_parser('logs'); p.add_argument('service', nargs='?', choices=SERVICES)
     p = subs.add_parser('open'); p.add_argument('service', nargs='?', choices=SERVICES, default='web')
@@ -280,9 +296,17 @@ def main():
     for command in ['check', 'scenario', 'browser-test']:
         p = subs.add_parser(command); p.add_argument('arguments', nargs=argparse.REMAINDER)
     args = parser.parse_args()
+    if args.command in ('up', 'restart') and (args.live or args.scripted):
+        validate_model_env(local_env(live=args.live))
+        if args.command == 'up' and alive(status()) and read_json(LOCAL / 'dev-options.json').get('liveModel', False) != args.live:
+            raise RuntimeError('The stack is running. Use ./dev restart --live or --scripted to change its model mode.')
+        options = read_json(LOCAL / 'dev-options.json'); options['liveModel'] = args.live
+        write_json(LOCAL / 'dev-options.json', options)
     if args.command == 'up': up(args.direct)
     elif args.command == 'down': down()
-    elif args.command == 'restart': down(); up()
+    elif args.command == 'restart':
+        validate_model_env(local_env())
+        down(); up(args.direct)
     elif args.command == 'setup': setup(args.portless, args.https)
     elif args.command == 'service': service_action(args.action, args.service)
     elif args.command == 'status':

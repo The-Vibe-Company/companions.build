@@ -108,3 +108,58 @@ changes. A focused passing result names its profile; it does not replace full va
 GitHub's Verify workflow runs the full PostgreSQL 18 path and uploads only summary JSON,
 excluding local authentication state, database backups and raw logs. Configure Verify as a
 required repository check if merges must be blocked on it.
+
+### Real model or scripted responses
+
+`./dev restart --live` uses the selected runtime settings described below.
+Database and storage remain local; agent computers use Box when its key and template are configured.
+The worktree remembers this choice without writing credentials to its options file.
+`./dev restart --scripted` restores deterministic test responses. The default for a new
+worktree is scripted mode; `Scripted response.` indicates that mode, not an AI answer.
+Existing messages are retained when switching modes. Send a new message to use the real model.
+
+### Shared runtime settings from the main checkout
+
+In live mode, the launcher reads runtime settings from the main checkout’s `.env`
+(found through Git’s common directory), then this worktree’s `.env`, then the shell.
+It reads them again on each startup; secrets are not copied into worktree options.
+Only `MODEL_PROVIDER`, `MODEL_ID`, the selected provider’s API key, `BOX_API_KEY`
+and `BOX_TEMPLATE` are inherited. Database, storage, authentication, email and ports
+remain local. Scripted mode does not inherit these external credentials.
+
+Use `./dev restart --live --direct` to apply changes. With both Box settings present,
+new specialists use Box; existing Docker specialists retain their provider.
+For ZAI Coding Plan, use `MODEL_PROVIDER=zai` and `MODEL_ID=glm-5.3-flash` in the
+main `.env`. Pi’s `zai` provider uses `https://api.z.ai/api/coding/paas/v4`.
+
+### Herdr worktree `.env` copy
+
+The repository’s shared Git `post-checkout` hook is installed locally from
+`scripts/herdr-copy-env.py`. When `HERDR_ENV=1`, it copies the primary checkout’s
+`.env` into a newly created worktree if none exists. The copy has mode `0600` and
+must be ignored by Git. Existing worktree settings are never overwritten.
+The hook is shared by this repository’s worktrees and requires no Herdr restart.
+Use `./dev up --live` in a new worktree to activate the external runtime settings
+while keeping development infrastructure isolated. Local `.env` copies take
+precedence over later changes to the main file.
+
+### Specialist images and Box snapshot capacity
+
+New specialist versions retain a sealed, archived Box and store a `box:<id>` image
+reference. Missions fork that Box with an idempotency key, `noEnv: true`, and an
+empty environment. The configuration source is archived before its sanitation
+copy is made; the sanitized image is archived and retired before publication.
+Published images must never be resumed, mutated or deleted while referenced by
+versions or shared copies. Existing named snapshot versions still work.
+
+Box documents automatic snapshot retention for the lifetime of the Box, including
+archived Boxes, and a limit of 10 named snapshots:
+https://docs.ascii.dev/box/snapshots. Account zero-data-retention must remain disabled
+for prepared environments; deleting an archived image destroys the restore source.
+This avoids named snapshot capacity for specialist versions, but is not an
+independent backup outside Box.
+
+A development distribution can use the same mechanism:
+`python3 scripts/bun.py scripts/prepare-box-template.ts <unique-release> --archived`.
+The command builds first, verifies every file on an independent fork, archives both
+owned Boxes, and prints the `BOX_TEMPLATE=box:<id>` setting for the worktree `.env`.

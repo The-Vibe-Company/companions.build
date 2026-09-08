@@ -11,7 +11,7 @@ import { handleBilling, handleStripeWebhook, requireProductActivation, billingCo
 import { handleDelivery } from "./delivery";
 import { handleLifecycle } from "./lifecycle";
 import { retireCompanion } from "./retirement";
-import {listTemplateRevisions,rollbackTemplate} from "./templates";
+import {deleteTemplate,listTemplateRevisions,rollbackTemplate} from "./templates";
 import { LifecycleConflict } from "./templates";
 import { z } from "zod";
 import { config } from "./config";
@@ -89,13 +89,14 @@ async function lifecycleRoute(request:Request,ownerId:string):Promise<Response|n
   }
  }
  const template=path.match(/^\/api\/templates\/([^/]+)$/);
+ if(template&&request.method==='DELETE'){const result=await deleteTemplate(ownerId,idSchema.parse(template[1]));return result?json(result,202):json({error:'Specialist not found.'},404);}
  if(template&&request.method==='PATCH')return json(await handleLifecycle({operation:'template_save',input:{...await request.json() as object,id:idSchema.parse(template[1])}},ownerId));
  const permission=path.match(/^\/api\/companions\/([^/]+)\/templates(?:\/([^/]+))?$/);
  if(permission){
   const id=idSchema.parse(permission[1]);
   const [owned]=await db`SELECT id FROM companions WHERE id=${id} AND owner_id=${ownerId} AND retired_at IS NULL`;
   if(!owned)return json({error:'Companion not found.'},404);
-  if(request.method==='GET'&&!permission[2])return json({templates:await db`SELECT p.template_id AS "templateId",p.max_children AS "maxChildren",t.name,t.revision FROM template_permissions p JOIN agent_templates t ON t.id=p.template_id WHERE p.parent_id=${id} AND t.owner_id=${ownerId}`});
+  if(request.method==='GET'&&!permission[2])return json({templates:await db`SELECT p.template_id AS "templateId",p.max_children AS "maxChildren",t.name,t.revision FROM template_permissions p JOIN agent_templates t ON t.id=p.template_id WHERE p.parent_id=${id} AND t.owner_id=${ownerId} AND t.deleted_at IS NULL`});
   if(request.method==='PUT'&&permission[2])return json(await handleLifecycle({operation:'template_permission',companionId:id,input:{...await request.json() as object,templateId:idSchema.parse(permission[2])}},ownerId));
  }
  const replicas=path.match(/^\/api\/companions\/([^/]+)\/replicas$/);
@@ -177,7 +178,7 @@ export async function handler(request: Request): Promise<Response> {
       if (!match[2] && request.method === "GET") { const result = await detail(ownerId, id);
         if(!result)return json({error:"Companion not found."},404);
         const files=await filesForThread(ownerId,id);
-        const questions=await db`SELECT q.id,q.run_id AS "runId",q.question,q.options,q.answer FROM task_questions q JOIN runs r ON r.id=q.run_id WHERE q.companion_id=${id} AND r.status IN ('running','needs_input','preparing') AND q.answer IS NULL ORDER BY q.created_at`;
+        const questions=await db`SELECT q.id,q.run_id AS "runId",q.question,q.options,q.answer,q.created_at AS "createdAt",q.context_text AS "contextText",r.status AS "runStatus" FROM task_questions q JOIN runs r ON r.id=q.run_id WHERE q.companion_id=${id} ORDER BY q.created_at,q.id`;
         return json({...result,questions,files,messages:result.messages.map((m:any)=>({...m,files:files.filter(f=>f.runId===m.runId&&f.kind===(m.role==='user'?'user_upload':'agent_output'))}))}); }
       if (match[2] === "events" && request.method === "GET") return handleCompanionEvents(request, ownerId, id);
       if (match[2] === "messages" && request.method === "POST") {

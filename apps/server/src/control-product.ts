@@ -1,5 +1,5 @@
 import {listTemplateRevisions,rollbackTemplate} from './templates';
-import {updateSpecialistDraft,readSpecialistDraft} from './specialist-drafts';
+import {updateSpecialistDraft,readSpecialistDraft,proposeSpecialistNextStep} from './specialist-drafts';
 import {proposeSpecialistImprovement} from './specialist-improvements';
 import {BoxClient} from '../../../packages/box/client';
 import {renewMachineLease} from './admission';
@@ -19,6 +19,7 @@ async function maintenanceRequest(ownerId:string,companionId:string,suffix:strin
  return (await handleMaintenance(new Request(`http://control/api/maintenance/companions/${companionId}${suffix}`,{method,...(body===undefined?{}:{body:JSON.stringify(body)})}),ownerId))!.json();
 }
 registerControl({
+ specialist_next_step:async(context,raw)=>proposeSpecialistNextStep(context.ownerId,context.companionId,context.runId,context.commandId,raw),
  specialist_keep_alive:async(context,raw)=>{
   const {companionId}=z.object({companionId:z.string().uuid()}).parse(raw);
   const [child]=await db`SELECT id FROM companions WHERE id=${companionId} AND parent_id=${context.companionId} AND owner_id=${context.ownerId} AND temporary AND retired_at IS NULL`;

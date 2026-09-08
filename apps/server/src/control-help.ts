@@ -1,5 +1,6 @@
 /** Compact examples for the same owner-scoped services used by the web app. */
 export const controlHelp={
+ specialist_next_step:{kind:"connections",message:"Connect GitHub and Linear so I can prepare your repositories and read your issues.",providers:["github","linear"]},
  specialist_configure:{expectedGeneration:'Read with specialist_configure {} first',instructions:'Mission for future copies',initScript:'Optional script run once per intervention'},
  specialist_install:{packages:['jq']},specialist_propose_improvement:{summary:'What changed and why',recipe:'Verified installation steps or selected file changes to reconstruct in the current draft'},specialist_keep_alive:{companionId:'Own specialist intervention ID'},
 

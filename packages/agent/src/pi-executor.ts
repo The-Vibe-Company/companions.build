@@ -213,6 +213,8 @@ export class PiExecutor implements RunExecutor {
     session.subscribe(event=>{
       if(event.type==='message_update' && event.message.role==='assistant'){
         execution.progress.previewText=event.message.content.filter(part=>part.type==='text').map(part=>part.text).join('').slice(0,50_000);
+        const thinking=event.message.content.filter(part=>part.type==='thinking').map(part=>part.thinking).join('').slice(0,20_000);
+        if(thinking)execution.progress.thinkingText=thinking;
         if(Date.now()-lastPreviewAt>=150){lastPreviewAt=Date.now();execution.onProgress?.(execution.progress);}
       }
       if(event.type==='message_end' && event.message.role==='assistant'){
@@ -222,6 +224,8 @@ export class PiExecutor implements RunExecutor {
         }
         if(Number.isFinite(usage.cost.total)&&usage.cost.total>=0)execution.progress.usage.costUsd+=usage.cost.total;
         execution.progress.previewText=event.message.content.filter(part=>part.type==='text').map(part=>part.text).join('').slice(0,50_000);
+        const thinking=event.message.content.filter(part=>part.type==='thinking').map(part=>part.thinking).join('').slice(0,20_000);
+        if(thinking)execution.progress.thinkingText=thinking;
         execution.onProgress?.(execution.progress);
       }
     });

@@ -153,3 +153,19 @@ test("invalid desktop provider replies fail visibly without leaking payloads or 
     await expect(client.desktop("owned-box")).rejects.toThrow("desktop_invalid");
   }
 });
+
+test('archived image references fork with an idempotency key and no inherited environment',async()=>{
+ let observed:any;
+ const client=new BoxClient('test',(async(url:any,init:any)=>{observed={url,body:JSON.parse(init.body),headers:init.headers};return Response.json({id:'bx_copy',status:'cloning'});}) as any);
+ expect(await client.create('stable-request','box:bx_source')).toEqual({id:'bx_copy',state:'cloning'});
+ expect(observed.url).toEndWith('/boxes/bx_source/fork');
+ expect(observed.body).toEqual({noEnv:true,env:{},type:'small',ttlSeconds:21600});
+ expect(observed.headers['Idempotency-Key']).toBe('stable-request');
+});
+
+test('archived images become usable only after provider archive confirmation',async()=>{
+ let state='archiving';
+ const client=new BoxClient('test',(async()=>Response.json({box:{id:'bx_image',state}})) as any);
+ expect(await client.getSnapshot('box:bx_image')).toEqual({status:'pending'});
+ state='archived';expect(await client.getSnapshot('box:bx_image')).toEqual({status:'ready'});
+});

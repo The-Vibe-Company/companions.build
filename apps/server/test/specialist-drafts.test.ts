@@ -8,8 +8,10 @@ beforeAll(()=>migrate());
 test('configuring a specialist preserves the published profile and rejects a stale edit',async()=>{
  const profile=await saveTemplate(owner,{name:'Developer',instructions:'Published instructions'});
  const opened=await openSpecialistDraft(owner,profile.id,{commandId:crypto.randomUUID()});
- const changed=await updateSpecialistDraft(owner,profile.id,{expectedGeneration:opened.draft.generation,instructions:'Draft instructions',initScript:'git fetch origin'});
+ const changed=await updateSpecialistDraft(owner,profile.id,{expectedGeneration:opened.draft.generation,instructions:'Draft instructions',initScript:'git fetch origin',avatar:{shape:2,color:5,face:1}});
  expect(changed.draft.instructions).toBe('Draft instructions');
+ expect(changed.draft.avatar).toEqual({shape:2,color:5,face:1});
+ expect((await listTemplates(owner)).find((p:any)=>p.id===profile.id).avatar).toEqual({shape:0,color:0,face:0});
  expect((await listTemplates(owner)).find((p:any)=>p.id===profile.id).instructions).toBe('Published instructions');
  await expect(updateSpecialistDraft(owner,profile.id,{expectedGeneration:opened.draft.generation,instructions:'Lost update'})).rejects.toThrow();
  expect(await readSpecialistDraft('another-owner',profile.id)).toBeNull();
@@ -18,7 +20,7 @@ test('a confirmed prepared image publishes atomically without replacing the conf
  const profile=await saveTemplate(owner,{name:'Prepared writer',instructions:'Old'});
  const {draft}=await openSpecialistDraft(owner,profile.id,{commandId:crypto.randomUUID()});
  await db`UPDATE companions SET provider='box',box_id='source-box',status='ready' WHERE id=${draft.companionId}`;
- const updated=await updateSpecialistDraft(owner,profile.id,{expectedGeneration:draft.generation,instructions:'New'});
+ const updated=await updateSpecialistDraft(owner,profile.id,{expectedGeneration:draft.generation,instructions:'New',avatar:{shape:3,color:6,face:2}});
  const {publication}=await requestSpecialistPublication(owner,profile.id,{commandId:crypto.randomUUID(),expectedGeneration:updated.draft.generation,contentReviewed:true});
  const snapshots=new Set<string>();let sanitized=0;
  const machines:any={freezeSpecialist:async()=>{},snapshotStatus:async(name:string)=>snapshots.has(name)?'ready':'missing',snapshot:async(_:any,name:string)=>{snapshots.add(name);},createSpecialistImage:async(_:any,checkpoint:any)=>{await checkpoint('image-box');return true;},sanitizeSpecialistImage:async()=>{sanitized++;}};
@@ -32,6 +34,7 @@ test('a confirmed prepared image publishes atomically without replacing the conf
  expect(result.draft.publication.status).toBe('succeeded');
  expect(result.draft.companionId).toBe(draft.companionId);
  expect((await listTemplates(owner)).find((p:any)=>p.id===profile.id).instructions).toBe('New');
+ expect((await listTemplates(owner)).find((p:any)=>p.id===profile.id).avatar).toEqual({shape:3,color:6,face:2});
  expect(sanitized).toBe(1);
  expect(result.draft.publication.id).toBe(publication.id);
 });
@@ -120,4 +123,45 @@ test('a create acknowledged after cancellation records the Box identity for clea
  }
  const [image]=await db`SELECT c.box_id,c.archive_requested_at FROM companions c JOIN specialist_operations o ON o.image_companion_id=c.id WHERE o.id=${publication.id}`;
  expect(image.box_id).toBe('late-image-box');expect(image.archive_requested_at).not.toBeNull();expect(sanitized).toBe(0);
+});
+
+test('only an active configuration specialist can persist its next chat card',async()=>{
+ const {proposeSpecialistNextStep}=await import('../src/specialist-drafts');
+ const profile=await saveTemplate(owner,{name:'Guided developer'});
+ const {draft}=await openSpecialistDraft(owner,profile.id,{commandId:crypto.randomUUID()});
+ expect((await readSpecialistDraft(owner,profile.id)).draft.nextStep).toBeNull();
+ const runId=crypto.randomUUID(),commandId=crypto.randomUUID();
+ await db`INSERT INTO runs(id,companion_id,client_message_id,content,status) VALUES(${runId},${draft.companionId},${crypto.randomUUID()},'Prepare my repositories','running')`;
+ const card={kind:'connections',message:'Connect GitHub and Linear so I can prepare your repositories.',providers:['github','linear']};
+ await expect(proposeSpecialistNextStep('another-owner',draft.companionId,runId,commandId,card)).rejects.toThrow();
+ await proposeSpecialistNextStep(owner,draft.companionId,runId,commandId,card);
+ await proposeSpecialistNextStep(owner,draft.companionId,runId,commandId,card);
+ expect((await readSpecialistDraft(owner,profile.id)).draft.nextStep).toMatchObject({...card,id:commandId});
+ const [count]=await db`SELECT count(*)::int AS n FROM specialist_guidance WHERE id=${commandId}`;
+ expect(count.n).toBe(1);
+ await db`UPDATE runs SET cancel_requested=true WHERE id=${runId}`;
+ await expect(proposeSpecialistNextStep(owner,draft.companionId,runId,crypto.randomUUID(),card)).rejects.toThrow();
+});
+
+test('publishes a sealed archived image without consuming named snapshot capacity',async()=>{
+ const profile=await saveTemplate(owner,{name:'Archived specialist',instructions:'Review code'});
+ const {draft}=await openSpecialistDraft(owner,profile.id,{commandId:crypto.randomUUID()});
+ await db`UPDATE companions SET provider='box',box_id='bx_source',status='ready' WHERE id=${draft.companionId}`;
+ await requestSpecialistPublication(owner,profile.id,{commandId:crypto.randomUUID(),expectedGeneration:draft.generation,contentReviewed:true});
+ let namedCaptures=0;
+ const machines:any={archivedSpecialistImages:true,freezeSpecialist:async()=>{},snapshot:async()=>{namedCaptures++;throw Error('Named quota exhausted');},snapshotStatus:async(name:string)=>{
+  const [image]=await db`SELECT archived_at FROM companions WHERE box_id=${name.slice(4)}`;
+  return image?.archived_at?'ready':'pending';
+ },createSpecialistImage:async(image:any,checkpoint:any)=>{expect(image.snapshot_name).toBe('box:bx_source');await checkpoint('bx_sealed');return true;},sanitizeSpecialistImage:async()=>{}};
+ const authority={assertLeader:async()=>{},checkpoint:<T>(fn:(tx:any)=>Promise<T>)=>db.begin(fn)};
+ for(let i=0;i<12;i++){
+  await progressSpecialistDrafts(db,machines,authority,undefined,draft.companionId);
+  await db`UPDATE companions SET archived_at=now(),archive_requested_at=null WHERE archive_requested_at IS NOT NULL AND box_id IN ('bx_source','bx_sealed')`;
+ }
+ const result=await readSpecialistDraft(owner,profile.id);
+ expect(result.draft.publication.status).toBe('succeeded');expect(namedCaptures).toBe(0);
+ const [version]=await db`SELECT prepared_disk_snapshot FROM agent_templates WHERE id=${profile.id}`;
+ expect(version.prepared_disk_snapshot).toBe('box:bx_sealed');
+ const [image]=await db`SELECT retired_at,archived_at FROM companions WHERE box_id='bx_sealed'`;
+ expect(image.retired_at).not.toBeNull();expect(image.archived_at).not.toBeNull();
 });

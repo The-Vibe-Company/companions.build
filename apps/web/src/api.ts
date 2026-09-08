@@ -50,6 +50,7 @@ export interface Run {
   source?: string;
   resultText?: string|null;
   previewText?: string|null;
+  thinkingText?: string|null;
   id: string;
   status: RunStatus;
   error: string | null;
@@ -78,7 +79,7 @@ export interface TaskDetail extends TaskSummary {
 
 export interface CompanionDetail {
   files?: ThreadFile[];
-  questions?: Array<{id:string;runId:string;question:string;options:string[];answer:string|null}>;
+  questions?: Array<{id:string;runId:string;question:string;options:string[];answer:string|null;createdAt?:string;contextText?:string|null;runStatus?:string}>;
   specialists?: Array<{
     delegationId: string;
     parentRunId: string;
@@ -293,6 +294,7 @@ export interface SpecialistTest {
   companionId?: string | null;
 }
 export interface SpecialistPublication {
+  generation?: number;
   id: string;
   status: "queued" | "capturing" | "preparing" | "running" | "succeeded" | "failed";
   createdAt?: string | null;
@@ -300,6 +302,9 @@ export interface SpecialistPublication {
   error?: string | null;
 }
 export interface SpecialistDraft {
+  guidance?: NonNullable<SpecialistDraft['nextStep']>[];
+  nextStep?: { id: string; kind: "profile" | "connections" | "test" | "publish"; message: string; providers: string[]; createdAt: string; respondedAt?: string | null } | null;
+  avatar?: CompanionAvatarValue;
   templateId: string;
   companionId: string;
   generation: number;
@@ -367,10 +372,11 @@ export const workspaceApi = {
   templates: () => request<{ templates: AgentTemplate[] }>("/api/templates"),
   companionTemplates: (companionId: string) => request<{ templates: CompanionTemplatePermission[] }>(`/api/companions/${companionId}/templates`),
   createTemplate: (input: Pick<AgentTemplate, "name" | "instructions" | "avatar">) => request<{ id: string; revision: number }>("/api/templates", { method: "POST", body: JSON.stringify(input) }),
+  deleteTemplate: (id: string) => request<{ deleted: true }>(`/api/templates/${id}`, { method: "DELETE" }),
   createTemplateDraft: (input: Pick<AgentTemplate, "name" | "instructions" | "avatar">, commandId = crypto.randomUUID()) => request<{ draft: SpecialistDraft }>("/api/templates", { method: "POST", body: JSON.stringify({ ...input, draft: true, commandId }) }),
   openTemplateDraft: (id: string, commandId = crypto.randomUUID()) => request<{ draft: SpecialistDraft }>(`/api/templates/${id}/draft`, { method: "POST", body: JSON.stringify({ commandId }) }),
   templateDraft: (id: string) => request<{ draft: SpecialistDraft }>(`/api/templates/${id}/draft`),
-  updateTemplateDraft: (id: string, input: { expectedGeneration: number; name?: string; instructions?: string; initScript?: string }) => request<{ draft: SpecialistDraft }>(`/api/templates/${id}/draft`, { method: "PATCH", body: JSON.stringify(input) }),
+  updateTemplateDraft: (id: string, input: { expectedGeneration: number; name?: string; instructions?: string; initScript?: string; avatar?: CompanionAvatarValue }) => request<{ draft: SpecialistDraft }>(`/api/templates/${id}/draft`, { method: "PATCH", body: JSON.stringify(input) }),
   testTemplateDraft: (id: string, input: { expectedGeneration: number; prompt: string }, commandId = crypto.randomUUID()) => request<{ draft: SpecialistDraft }>(`/api/templates/${id}/draft/test`, { method: "POST", body: JSON.stringify({ ...input, commandId }) }),
   assessTemplateTest: (id: string, testId: string, assessment: "satisfactory" | "needs_changes", commandId = crypto.randomUUID()) => request<{ draft: SpecialistDraft }>(`/api/templates/${id}/draft/test/${testId}/assessment`, { method: "POST", body: JSON.stringify({ commandId, assessment }) }),
   publishTemplateDraft: (id: string, expectedGeneration: number, commandId = crypto.randomUUID()) => request<{ draft?: SpecialistDraft; publication?: SpecialistPublication; publicationId?: string; status?: SpecialistPublication["status"] }>(`/api/templates/${id}/draft/publish`, { method: "POST", body: JSON.stringify({ commandId, expectedGeneration, contentReviewed: true }) }),

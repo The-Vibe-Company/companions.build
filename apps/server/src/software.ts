@@ -99,7 +99,7 @@ export async function enqueueTemplateSoftware(ownerId: string, commandId: string
   const parsed = prepareSchema.parse(input);
   const roots = canonicalSoftwareRoots({ apt: parsed.apt, npm: parsed.npm });
   return sql.begin(async (tx: any) => {
-    const [owned] = await tx`SELECT id FROM agent_templates WHERE id=${parsed.templateId} AND owner_id=${ownerId}`;
+    const [owned] = await tx`SELECT id FROM agent_templates WHERE deleted_at IS NULL AND id=${parsed.templateId} AND owner_id=${ownerId}`;
     if (!owned) throw new SoftwareConflict("Template unavailable.");
 
     const [prior] = await tx`SELECT b.*,s.distribution_digest,s.resolver_config_digest FROM portable_software_builds b
@@ -112,7 +112,7 @@ export async function enqueueTemplateSoftware(ownerId: string, commandId: string
 
     const [base] = await tx`SELECT b.* FROM portable_software_base_selection selected JOIN portable_software_bases b ON b.id=selected.base_id WHERE selected.singleton=true`;
     if (!base) throw new SoftwareUnavailable("Portable software preparation is unavailable.");
-    const [template] = await tx`SELECT id,revision FROM agent_templates WHERE id=${parsed.templateId} AND owner_id=${ownerId} AND revision=${parsed.expectedRevision} FOR UPDATE`;
+    const [template] = await tx`SELECT id,revision FROM agent_templates WHERE deleted_at IS NULL AND id=${parsed.templateId} AND owner_id=${ownerId} AND revision=${parsed.expectedRevision} FOR UPDATE`;
     if (!template) {
       // A simultaneous retry can observe no command row before waiting on the
       // template lock. Re-read after the lock holder commits so it converges on
@@ -152,7 +152,7 @@ export async function getSoftwareBuild(ownerId: string, buildId: string, sql: an
 
 export async function templateSoftwareStatus(ownerId: string, templateId: string, buildId?: string, sql: any = db) {
   const id = z.string().uuid().parse(templateId);
-  const [template] = await sql`SELECT revision,software_build_id,software_result_id FROM agent_templates WHERE id=${id} AND owner_id=${ownerId}`;
+  const [template] = await sql`SELECT revision,software_build_id,software_result_id FROM agent_templates WHERE deleted_at IS NULL AND id=${id} AND owner_id=${ownerId}`;
   if (!template) throw new SoftwareConflict("Template unavailable.");
   if (template.software_build_id && template.software_result_id) throw new SoftwareConflict("Software provenance is ambiguous.");
   const selected = buildId ? z.string().uuid().parse(buildId) : template.software_build_id;

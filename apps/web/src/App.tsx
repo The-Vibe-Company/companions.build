@@ -19,7 +19,7 @@ import {
   Waypoints,
   X,
 } from "lucide-react";
-import { DragEvent, FormEvent, lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { DragEvent, FormEvent, type ReactNode, lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Conversation,
   ConversationContent,
@@ -60,6 +60,7 @@ const TeamPanel = lazy(() => import("@/components/TeamPanel").then(module => ({ 
 const CreateTeamWizard = lazy(() => import("@/components/CreateTeamWizard").then(module => ({ default: module.CreateTeamWizard })));
 import { ProviderMark } from "@/components/ProviderMark";
 import { SettingsSheet, type SettingsSheetHandle } from "@/components/SettingsSheet";
+import { SpecialistPreparation } from "@/components/SpecialistPreparation";
 import { SpecialistImprovements } from "@/components/SpecialistImprovements";
 import { LandingPage } from "@/components/LandingPage";
 import { LegalPage, type LegalPageKind } from "@/components/LegalPage";
@@ -224,7 +225,7 @@ function Sidebar({
   );
 }
 
-function Chat({ detail, onRefresh, onUnauthorized, onOpenCompanion, specialistTemplateId, readOnly = false }: { detail: CompanionDetail; onRefresh: () => Promise<void>; onUnauthorized: () => void; onOpenCompanion: (id: string) => void; specialistTemplateId?: string | null; readOnly?: boolean }) {
+function Chat({ detail, onRefresh, onUnauthorized, onOpenCompanion, specialistTemplateId, specialistCards, specialistHistory = [], readOnly = false }: { detail: CompanionDetail; onRefresh: () => Promise<void>; onUnauthorized: () => void; onOpenCompanion: (id: string) => void; specialistTemplateId?: string | null; specialistCards?: ReactNode; specialistHistory?: Array<{id:string;createdAt:string;content:ReactNode}>; readOnly?: boolean }) {
   const [draft, setDraft] = useState("");
   const [files, setFiles] = useState<File[]>([]);
   const [sending, setSending] = useState(false);
@@ -237,9 +238,28 @@ function Chat({ detail, onRefresh, onUnauthorized, onOpenCompanion, specialistTe
   const activePreview = activeRun
     && (activeRun.status === "running" || activeRun.status === "needs_input")
     && activeRun.previewText
+    && !(detail.questions ?? []).some(question => question.contextText === activeRun.previewText)
     && !detail.messages.some((message) => message.role === "assistant" && message.runId === activeRun.id)
       ? activeRun.previewText
       : null;
+
+  const timeline = [
+    ...detail.messages.map(message => ({ id: message.id, createdAt: message.createdAt, message, content: null as ReactNode })),
+    ...specialistHistory.map(item => ({ ...item, message: null })),
+    ...detail.runs.filter(run => run.thinkingText && run.lane !== 'background').map(run => ({ id: 'thinking-' + run.id, createdAt: run.createdAt, message: null, content: <details className="thinking-panel" open={isActiveRun(run.status)}><summary>{isActiveRun(run.status) ? 'Thinking' : 'Thought process'}</summary><div><MessageResponse>{run.thinkingText!}</MessageResponse></div></details> })),
+    ...(activePreview && activeRun ? [{ id: 'preview-' + activeRun.id, message: null, createdAt: (() => {
+      const question = (detail.questions ?? []).find(item => item.runId === activeRun.id && item.answer == null);
+      return question?.createdAt ? new Date(new Date(question.createdAt).getTime() - 1).toISOString() : new Date(new Date(detail.messages.at(-1)?.createdAt ?? activeRun.createdAt).getTime() + 1).toISOString();
+    })(), content: <Message from="assistant" className="thread-message message-preview">
+              <div className="thread-avatar" aria-hidden="true"><CompanionAvatar name={detail.companion.name} avatar={detail.companion.avatar} size={32} /></div>
+              <div className="thread-message-body"><div className="message-meta"><span className="message-author">{detail.companion.name}</span></div>
+              <MessageContent className="thread-content"><MessageResponse>{activePreview}</MessageResponse></MessageContent></div>
+            </Message> }] : []),
+    ...(detail.questions ?? []).map(question => ({ id: question.id, createdAt: question.createdAt ?? detail.runs.find(run => run.id === question.runId)?.createdAt ?? '', message: null, content: <>
+      {question.contextText && !detail.messages.some(message => message.content === question.contextText) && <div className="question-context"><MessageResponse>{question.contextText}</MessageResponse></div>}
+      <Question companionId={detail.companion.id} question={question} onAnswered={onRefresh}/>
+    </> })),
+  ].sort((a,b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id));
 
   async function send(event: FormEvent) {
     event.preventDefault();
@@ -306,18 +326,14 @@ function Chat({ detail, onRefresh, onUnauthorized, onOpenCompanion, specialistTe
       )}
       <Conversation className="conversation">
         <ConversationContent className="conversation-content">
-          {specialistTemplateId && !readOnly && <section className="draft-chat-connections" aria-labelledby="draft-chat-connections-title">
-            <div><Waypoints/><span><strong id="draft-chat-connections-title">Connect this draft</strong><small>Choose existing accounts or connect GitHub, Linear, and other apps here.</small></span></div>
-            <ApplicationAccess companionId={detail.companion.id} inlineConnections/>
-          </section>}
-          {detail.messages.length === 0 ? (
+          {timeline.length === 0 ? (
             <ConversationEmptyState className="chat-empty">
               <CompanionAvatar name={detail.companion.name} avatar={detail.companion.avatar} size={72} />
-              <h2>A little less on your mind.</h2>
-              <p>Make room for what matters. {detail.companion.name} can help.</p>
-              {!readOnly && <div className="chat-suggestions">{['Plan my day', 'Help with a project', 'Set up a routine'].map(prompt=><button type="button" key={prompt} onClick={()=>{setDraft(prompt);textareaRef.current?.focus();}}>{prompt}<ChevronRight/></button>)}</div>}
+              <h2>{specialistTemplateId ? "What should this specialist do?" : "A little less on your mind."}</h2>
+              <p>{specialistTemplateId ? "Describe its role, then prepare its tools together." : `Make room for what matters. ${detail.companion.name} can help.`}</p>
+              {!readOnly && !specialistTemplateId && <div className="chat-suggestions">{(specialistTemplateId ? ['Set up GitHub & Linear', 'Prepare my repositories', 'Help me test this specialist'] : ['Plan my day', 'Help with a project', 'Set up a routine']).map(prompt=><button type="button" key={prompt} onClick={()=>{setDraft(prompt);textareaRef.current?.focus();}}>{prompt}<ChevronRight/></button>)}</div>}
             </ConversationEmptyState>
-          ) : detail.messages.map((message) => (
+          ) : timeline.map(({id, message, content}) => message ? (
             <Message from={message.role} key={message.id} className="thread-message">
               <div className="thread-avatar" aria-hidden="true">{message.role === "assistant" ? <CompanionAvatar name={detail.companion.name} avatar={detail.companion.avatar} size={32} /> : <span className="user-avatar"><UserRound /></span>}</div>
               <div className="thread-message-body"><div className="message-meta"><span className="message-author">{message.role === "assistant" ? detail.companion.name : "You"}</span><time className="message-time" dateTime={message.createdAt}>{readableDate(message.createdAt)}</time></div>
@@ -326,25 +342,18 @@ function Chat({ detail, onRefresh, onUnauthorized, onOpenCompanion, specialistTe
               {message.role === "user" && <SpecialistsForRun detail={detail} runId={message.runId} onOpen={onOpenCompanion} />}
               </div>
             </Message>
-          ))}
-          {activePreview && (
-            <Message from="assistant" className="thread-message message-preview">
-              <div className="thread-avatar" aria-hidden="true"><CompanionAvatar name={detail.companion.name} avatar={detail.companion.avatar} size={32} /></div>
-              <div className="thread-message-body"><div className="message-meta"><span className="message-author">{detail.companion.name}</span></div>
-              <MessageContent className="thread-content"><MessageResponse>{activePreview}</MessageResponse></MessageContent></div>
-            </Message>
-          )}
+          ) : <div className="conversation-action" key={id}>{content}</div>)}
           {activeRun && (
             <div className="working-row" role="status">
               <span className="working-dots"><i /><i /><i /></span>
-              {activeRun.status === "queued" ? "Queued" : activeRun.status === "preparing" ? "Preparing" : `${detail.companion.name} is working`}
+              {activeRun.status === "queued" ? "Queued" : activeRun.status === "preparing" ? "Preparing" : activeRun.status === "needs_input" ? "Waiting for your answer" : activeRun.thinkingText && !activePreview ? "Thinking…" : `${detail.companion.name} is working`}
             </div>
           )}
+          {specialistCards}
           {!readOnly && <SpecialistImprovements companionId={detail.companion.id} onOpenCompanion={onOpenCompanion}/>}
         </ConversationContent>
         <ConversationScrollButton aria-label="Scroll to latest message" />
       </Conversation>
-      {(detail.questions??[]).map(question=><Question key={question.id} companionId={detail.companion.id} question={question} onAnswered={onRefresh}/>)}
       {!readOnly && <form className={cn("composer-wrap", dragActive && "composer-wrap--drop")} onSubmit={send} onDragEnter={dragEnter} onDragOver={dragOver} onDragLeave={dragLeave} onDrop={drop}>
         <span className="sr-only" aria-live="polite">{fileNotice}</span>
         {actionError && <p className="composer-error" role="alert">{actionError}</p>}
@@ -395,7 +404,6 @@ function CompanionView({ detail, models, onRefresh, onUnauthorized, onMenu, onOp
     return value === 'team' || value === 'automations' || value === 'activity' || value === 'computer' || value === 'applications' || value === 'settings' ? value : 'chat';
   };
   const [view, setView] = useState(readView);
-  const [configurationOpen, setConfigurationOpen] = useState(true);
   const [settingsVisited, setSettingsVisited] = useState(() => readView() === 'settings');
   const settingsRef = useRef<SettingsSheetHandle>(null);
   useEffect(() => { const restore = () => { const restoredView = readView(); setView(restoredView); if (restoredView === 'settings') setSettingsVisited(true); }; window.addEventListener('popstate', restore); return () => window.removeEventListener('popstate', restore); }, []);
@@ -422,13 +430,13 @@ function CompanionView({ detail, models, onRefresh, onUnauthorized, onMenu, onOp
     return () => onRegisterNavigationGuard(null);
   }, [onRegisterNavigationGuard]);
 
+  if (specialistTemplateId && !finished && ['new', 'preparing'].includes(detail.companion.status)) return <main className="workspace" id="main-content"><SpecialistPreparation companionId={detail.companion.id} onReady={() => void onRefresh()} onBack={() => onNavigate('/specialists')}/></main>;
+
   return (
     <main className="workspace" id="main-content">
-      <CompanionHeader detail={detail} section={view} refreshVersion={refreshVersion} onSection={changeView} onMenu={onMenu} />
-      {specialistTemplateId && !finished && view === "chat" && <Button className="self-start m-2" variant="outline" aria-expanded={configurationOpen} aria-controls="specialist-configuration" onClick={() => setConfigurationOpen(open => !open)}>{configurationOpen ? "Show draft chat" : "Show configuration"}</Button>}
+      {(!specialistTemplateId || finished || view !== "chat") && <CompanionHeader detail={detail} section={view} refreshVersion={refreshVersion} onSection={changeView} onMenu={onMenu} />}
       <div className="workspace-body" hidden={view !== 'chat'}>
-        <Chat detail={detail} onRefresh={onRefresh} onUnauthorized={onUnauthorized} onOpenCompanion={onOpenCompanion} specialistTemplateId={specialistTemplateId} readOnly={finished} />
-        {specialistTemplateId && !finished && <div id="specialist-configuration" className="specialist-draft-container" hidden={!configurationOpen}><Suspense fallback={<aside className="specialist-draft specialist-draft--loading" role="status" aria-label="Loading specialist configuration"/>}><SpecialistDraftPanel templateId={specialistTemplateId} companionId={detail.companion.id} onClose={() => setConfigurationOpen(false)} onOpenCompanion={onOpenCompanion} /></Suspense></div>}
+        {specialistTemplateId && !finished ? <Suspense fallback={<div role="status">Opening specialist…</div>}><SpecialistDraftPanel templateId={specialistTemplateId} companionId={detail.companion.id} avatar={detail.companion.avatar ?? undefined} onClose={() => onNavigate('/specialists')} onComputer={detail.companion.provider === 'box' ? () => changeView('computer') : undefined} onOpenCompanion={onOpenCompanion} onContinued={onRefresh} renderChat={(cards, history) => <Chat detail={detail} onRefresh={onRefresh} onUnauthorized={onUnauthorized} onOpenCompanion={onOpenCompanion} specialistTemplateId={specialistTemplateId} specialistCards={cards} specialistHistory={history}/>} /></Suspense> : <Chat detail={detail} onRefresh={onRefresh} onUnauthorized={onUnauthorized} onOpenCompanion={onOpenCompanion} readOnly={finished}/>}
       </div>
       {!finished && view === 'automations' && <section className="companion-page" aria-label="Automations"><div className="companion-page-inner"><header className="section-intro"><h2>A little help, on repeat.</h2><p>Set the timing. Your companion takes it from there.</p></header><div className="automation-group"><RoutineSettings companionId={detail.companion.id}/></div><div className="automation-group" id="events"><TriggerSettings companionId={detail.companion.id}/></div></div></section>}
       {!finished && view === 'team' && <section className="companion-page" aria-label="Team"><Suspense fallback={<div className="companion-page-inner" role="status">Opening your team…</div>}><TeamPanel companion={detail.companion} refreshVersion={refreshVersion} onOpenCompanion={onOpenCompanion}/></Suspense></section>}

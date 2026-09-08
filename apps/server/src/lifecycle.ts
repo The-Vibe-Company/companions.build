@@ -37,6 +37,7 @@ export interface LifecycleHooks {
  canArchiveMachine?(companion:any):Promise<boolean>;
 }
 export interface LifecycleMachines {
+ archivedSpecialistImages?:boolean;
  prepare(companion:any,checkpoint:(id:string)=>Promise<void>,configured:()=>Promise<void>,beforeEffect?:EffectGuard):Promise<string|null>;
  health(endpoint:string,token:string):Promise<any>;
  pause(companion:any,paused:boolean,beforeEffect?:EffectGuard):Promise<DesktopMachineState|void>;
@@ -46,6 +47,7 @@ export interface LifecycleMachines {
  snapshotStatus(name:string):Promise<'missing'|'pending'|'ready'|'failed'>;
 }
 const machines:LifecycleMachines={
+ archivedSpecialistImages:true,
  ...specialistBoxMachines(provider),
  prepare:(companion,checkpoint,configured,beforeEffect)=>companion.provider==='local'?prepareLocal(companion,true,beforeEffect):prepareBox(companion,checkpoint,configured,beforeEffect),
  health:(endpoint,token)=>agentRequest(endpoint,token,'/health'),pause:pauseMachine,archive:archiveMachine,
@@ -288,7 +290,7 @@ export async function progressLifecycle(sql:any=db,hooks:LifecycleHooks={},machi
     }
     const [ready]=await tx`UPDATE template_candidates SET status='ready',ready_at=COALESCE(ready_at,now()) WHERE id=${candidate.id} AND status IN ('capturing','ready') RETURNING id`;
     if(!ready)return;
-    const [activated]=await tx`UPDATE agent_templates SET snapshot_name=${candidate.snapshot_name},source_companion_id=${candidate.source_companion_id},skill_bundle_id=${portable.bundleId},revision=revision+1,updated_at=now() WHERE id=${candidate.template_id} AND owner_id=${candidate.owner_id} AND revision=${candidate.expected_revision} RETURNING id`;
+    const [activated]=await tx`UPDATE agent_templates SET snapshot_name=${candidate.snapshot_name},source_companion_id=${candidate.source_companion_id},skill_bundle_id=${portable.bundleId},revision=revision+1,updated_at=now() WHERE id=${candidate.template_id} AND deleted_at IS NULL AND owner_id=${candidate.owner_id} AND revision=${candidate.expected_revision} RETURNING id`;
     if(activated)await recordTemplateRevision(tx,candidate.template_id);
     await tx`UPDATE template_candidates SET status=${activated?'activated':'failed'},error=${activated?null:'Template changed during capture; the existing template was preserved.'} WHERE id=${candidate.id}`;
    });

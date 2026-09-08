@@ -40,7 +40,7 @@ describe("first Companion flow", () => {
 
   afterEach(() => vi.unstubAllGlobals());
 
-  it("opens a specialist with no ordinary companions and switches between chat and configuration", async () => {
+  it("opens a specialist with no ordinary companions and keeps configuration inside its chat", async () => {
     window.history.replaceState({}, "", "/companions/ada?specialist=template-1");
     vi.stubGlobal("EventSource", FakeEventSource);
     vi.stubGlobal("fetch", vi.fn((input: RequestInfo | URL) => {
@@ -49,7 +49,7 @@ describe("first Companion flow", () => {
       if (path === "/api/config") return response(config);
       if (path === "/api/companions") return response({ companions: [] });
       if (path === "/api/companions/ada") return response({ companion: { ...companion, status: "ready" }, messages: [], runs: [], activity: [] });
-      if (path === "/api/templates/template-1/draft") return response({ draft: { templateId: "template-1", companionId: "ada", generation: 1, name: "Ada", instructions: "Research", initScript: "", status: "editing" } });
+      if (path === "/api/templates/template-1/draft") return response({ draft: { templateId: "template-1", companionId: "ada", generation: 1, name: "Ada", instructions: "Research", initScript: "", status: "editing", nextStep: { id: "step", kind: "profile", message: "Here is the role I propose.", providers: [] } } });
       if (path === "/api/plugins") return response({ catalog: [], accounts: [] });
       if (path.endsWith("/plugins")) return response({ accounts: [] });
       if (path.endsWith("/specialist-improvements")) return response({ improvements: [] });
@@ -60,11 +60,10 @@ describe("first Companion flow", () => {
     const name = await screen.findByRole("textbox", { name: "Name" });
     await user.clear(name);
     await user.type(name, "Draft edit");
-    await user.click(screen.getByRole("button", { name: "Close configuration" }));
-    expect(screen.queryByRole("complementary", { name: "Specialist configuration" })).not.toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "Specialist configuration" })).toBeInTheDocument();
     expect(screen.getByRole("textbox", { name: "Message Ada" })).toBeVisible();
     expect(window.location.search).toBe("?specialist=template-1");
-    await user.click(screen.getByRole("button", { name: "Show configuration" }));
+    await user.click(screen.getByRole("button", { name: "Summary" }));
     expect(screen.getByRole("textbox", { name: "Name" })).toHaveValue("Draft edit");
   });
 

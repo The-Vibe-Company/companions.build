@@ -34,6 +34,7 @@ export class RunJournal {
       );
     `);
     const columns = new Set((this.db.query("PRAGMA table_info(runs)").all() as Array<{ name: string }>).map(row => row.name));
+    if (!columns.has("thinking_text")) this.db.exec("ALTER TABLE runs ADD COLUMN thinking_text TEXT");
     if (!columns.has("preview_text")) this.db.exec("ALTER TABLE runs ADD COLUMN preview_text TEXT");
     if (!columns.has("usage_json")) this.db.exec("ALTER TABLE runs ADD COLUMN usage_json TEXT");
     if (!columns.has("lane")) this.db.exec("ALTER TABLE runs ADD COLUMN lane TEXT NOT NULL DEFAULT 'main'");
@@ -88,8 +89,8 @@ export class RunJournal {
   }
 
   progress(rootId:string,value:RunProgress):void {
-    this.db.query("UPDATE runs SET preview_text=?,usage_json=?,updated_at=? WHERE id=? AND status='running'")
-      .run(value.previewText,JSON.stringify(value.usage),new Date().toISOString(),rootId);
+    this.db.query("UPDATE runs SET preview_text=?,thinking_text=COALESCE(?,thinking_text),usage_json=?,updated_at=? WHERE id=? AND status='running'")
+      .run(value.previewText,value.thinkingText??null,JSON.stringify(value.usage),new Date().toISOString(),rootId);
   }
 
   initializationWarning(id: string, warning: string): void {
@@ -108,7 +109,7 @@ export class RunJournal {
 
   private getStored(id: string): StoredRun | null {
     return this.db.query(`SELECT id, request_hash, CASE WHEN status='running' AND parked=1 THEN 'needs_input' ELSE status END AS status, text, error, lane,
-      response_root_id AS responseRootId, publish_to_chat AS publishToChat,preview_text AS previewText,usage_json,init_warning AS initWarning FROM runs WHERE id = ?`).get(id) as StoredRun | null;
+      response_root_id AS responseRootId, publish_to_chat AS publishToChat,preview_text AS previewText,thinking_text AS thinkingText,usage_json,init_warning AS initWarning FROM runs WHERE id = ?`).get(id) as StoredRun | null;
   }
 }
 
@@ -123,6 +124,7 @@ function requestHash(input: RunInput): string {
 function publicRun(run: StoredRun): RunRecord {
   return { id: run.id, status: run.status, text: run.text, error: run.error,
     lane: run.lane, responseRootId: run.responseRootId, publishToChat: !!run.publishToChat,
+    ...(run.thinkingText!=null?{thinkingText:run.thinkingText}:{}),
     ...(run.previewText!=null?{previewText:run.previewText}:{}),...(run.usage_json?{usage:JSON.parse(run.usage_json)}:{}),
     ...(run.initWarning?{initWarning:run.initWarning}:{}) };
 }

@@ -82,7 +82,7 @@ export async function createCompanion(ownerId: string, input: { name: string; in
     let template:any;
     if(input.templateId){
       [template]=await sql`SELECT r.* FROM template_revisions r JOIN agent_templates t ON t.id=r.template_id AND t.owner_id=r.owner_id
-        WHERE t.id=${input.templateId} AND t.owner_id=${ownerId} AND r.revision=COALESCE(${input.templateRevision??null},t.revision)`;
+        WHERE t.id=${input.templateId} AND t.owner_id=${ownerId} AND t.deleted_at IS NULL AND r.revision=COALESCE(${input.templateRevision??null},t.revision)`;
       if(!template)throw new Conflict("Template or revision unavailable.");
       try { template.resolved_snapshot_name=await requireSoftwareReady(ownerId,template.software_build_id,template.software_result_id,template.snapshot_name,sql); }
       catch(error){if(error instanceof SoftwareReadinessError)throw new Conflict(error.message);throw error;}
@@ -105,7 +105,7 @@ export async function detail(ownerId: string, id: string) {
   if (!companion) return null;
   const [messages, runs, specialists] = await Promise.all([
     db`SELECT id,role,content,created_at AS "createdAt",run_id AS "runId" FROM messages WHERE companion_id=${id} ORDER BY created_at,id`,
-    db`SELECT id,status,error,lane,source,result_text AS "resultText",preview_text AS "previewText",publish_to_chat AS "publishToChat",response_root_id AS "responseRootId",created_at AS "createdAt",prepared_at AS "preparedAt",finished_at AS "finishedAt" FROM runs WHERE companion_id=${id} ORDER BY created_at,id`,
+    db`SELECT id,status,error,lane,source,result_text AS "resultText",preview_text AS "previewText",thinking_text AS "thinkingText",publish_to_chat AS "publishToChat",response_root_id AS "responseRootId",created_at AS "createdAt",prepared_at AS "preparedAt",finished_at AS "finishedAt" FROM runs WHERE companion_id=${id} ORDER BY created_at,id`,
     db`SELECT d.id AS "delegationId",d.parent_run_id AS "parentRunId",d.run_id AS "childRunId",
       jsonb_build_object('id',child.id,'name',child.name,'avatar',child.avatar,'status',child.status,'retiredAt',child.retired_at) AS companion
       FROM delegations d
@@ -131,7 +131,10 @@ export async function acceptMessage(ownerId: string, companionId: string, client
     }
     const [draft]=await sql`SELECT status FROM specialist_drafts WHERE companion_id=${companionId} FOR UPDATE`;
     if(draft&&!['editing','error'].includes(draft.status))throw new Conflict('Configuration is paused while its draft is captured or tested.');
-    if(draft)await sql`UPDATE specialist_drafts SET generation=generation+1,updated_at=now() WHERE companion_id=${companionId}`;
+    if(draft){
+      await sql`UPDATE specialist_drafts SET generation=generation+1,updated_at=now() WHERE companion_id=${companionId}`;
+      await sql`UPDATE specialist_guidance SET responded_at=now() WHERE template_id=(SELECT template_id FROM specialist_drafts WHERE companion_id=${companionId}) AND responded_at IS NULL`;
+    }
     if(draft){
       const [open]=await sql`SELECT id,state FROM machine_admission_requests WHERE companion_id=${companionId} AND state IN ('queued','admitted','cancelling')`;
       if(open?.state==='cancelling')throw new Conflict('The configuration machine is stopping. Retry after it is archived.');

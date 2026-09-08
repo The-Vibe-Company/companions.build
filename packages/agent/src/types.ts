@@ -5,7 +5,7 @@ export type RunLane = "main" | "background";
 export type TerminalRunStatus = Exclude<RunStatus, "running" | "needs_input">;
 
 export interface RunUsage {input:number;output:number;cacheRead:number;cacheWrite:number;totalTokens:number;costUsd:number}
-export interface RunProgress {previewText:string;usage:RunUsage}
+export interface RunProgress {thinkingText?:string;previewText:string;usage:RunUsage}
 
 export interface RunRecord {
   id: string;
@@ -16,6 +16,7 @@ export interface RunRecord {
   responseRootId: string;
   publishToChat: boolean;
   previewText?:string;
+  thinkingText?:string;
   usage?:RunUsage;
   initWarning?: string;
 }

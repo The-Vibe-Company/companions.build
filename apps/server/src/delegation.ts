@@ -18,7 +18,7 @@ export async function spawnChild(ownerId:string,parentId:string,parentRunId:stri
    const journaled=(await tx`SELECT id FROM machine_admission_requests WHERE id=${commandId} AND owner_id=${ownerId}`).length>0;
    return {companionId:prior.target_id,runId:prior.run_id,...(journaled?{admission:await requestMachineAdmissionInTransaction(tx,ownerId,{requestId:commandId,companionId:prior.target_id,kind:'intervention'})}:{})};}
   if(parentRunId&&!(await tx`SELECT id FROM runs WHERE id=${parentRunId} AND companion_id=${parentId}`).length)throw new LifecycleConflict('Parent task unavailable.');
-  const [template]=await tx`SELECT t.*,p.max_children FROM agent_templates t JOIN template_permissions p ON p.template_id=t.id WHERE t.id=${value.templateId} AND t.owner_id=${ownerId} AND p.parent_id=${parentId}`;
+  const [template]=await tx`SELECT t.*,p.max_children FROM agent_templates t JOIN template_permissions p ON p.template_id=t.id WHERE t.id=${value.templateId} AND t.owner_id=${ownerId} AND t.deleted_at IS NULL AND p.parent_id=${parentId}`;
   if(!template||!template.has_published||template.max_children===0)throw new LifecycleConflict('Template is not authorized or has not been published.');
   let resolvedSnapshot:string|null;
   try{resolvedSnapshot=await requireSoftwareReady(ownerId,template.software_build_id,template.software_result_id,template.snapshot_name,tx);}
@@ -83,7 +83,7 @@ export async function answerDelegationQuestion(ownerId:string,parentId:string,ru
   if(!row)throw new LifecycleConflict('Delegated question unavailable.');
   if(row.answer){if(row.answer!==answer)throw new LifecycleConflict('This question already has an answer.');return {ok:true};}
   if(!['running','needs_input'].includes(row.status))throw new LifecycleConflict('This delegated task is no longer waiting.');
-  await tx`UPDATE task_questions SET answer=${answer},answered_at=now() WHERE id=${questionId}`;
+  await tx`UPDATE task_questions SET answer=${answer},answered_at=now(),context_text=(SELECT preview_text FROM runs WHERE id=task_questions.run_id) WHERE id=${questionId}`;
   await requestRunResume(row.target_id,runId,tx);return {ok:true};
  });
 }

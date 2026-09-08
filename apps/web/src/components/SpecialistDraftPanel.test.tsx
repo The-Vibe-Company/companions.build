@@ -43,7 +43,7 @@ describe("SpecialistDraftPanel", () => {
     render(<SpecialistDraftPanel templateId="template-1" companionId="draft-1" onClose={vi.fn()} onConnections={vi.fn()} />);
 
     expect(await screen.findByRole("textbox", { name: "Instructions" })).toHaveValue("Work on the selected repositories");
-    await screen.findByText("GitHub");
+    await screen.findByRole("checkbox", { name: "acme" });
     await user.click(screen.getByRole("checkbox", { name: "acme" }));
     await waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/api/companions/draft-1/plugins/gh-1", expect.objectContaining({ method: "PUT" })));
 
@@ -121,4 +121,74 @@ it("keeps edits and their generation when an older idle refresh resolves", async
     await waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/api/templates/template-1/draft", expect.objectContaining({ method: "PATCH", body: expect.stringContaining('"expectedGeneration":3') })));
     expect(instructions).toHaveValue("Keep my unsaved instructions");
   } finally { interval.mockRestore(); }
+});
+
+it('keeps appearance edits when the parent refreshes and saves them with the draft generation', async () => {
+  const avatar = { shape: 1, color: 2, face: 0 };
+  const persisted = { ...baseDraft, avatar };
+  const fetchMock = vi.fn((input: RequestInfo | URL, options?: RequestInit) => {
+    if (String(input).endsWith('/draft')) {
+      const patch = options?.body ? JSON.parse(String(options.body)) : {};
+      return response({ draft: { ...persisted, ...patch } });
+    }
+    return response({ accounts: [], catalog: [] });
+  });
+  vi.stubGlobal('fetch', fetchMock);
+  const view = render(<SpecialistDraftPanel templateId="template-1" companionId="draft-1" avatar={avatar} onClose={vi.fn()}/>);
+  fireEvent.click(await screen.findByRole('button', { name: 'Change appearance' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Color 6' }));
+  view.rerender(<SpecialistDraftPanel templateId="template-1" companionId="draft-1" avatar={{ ...avatar }} onClose={vi.fn()}/>);
+  expect(screen.getByRole('button', { name: 'Color 6' })).toHaveAttribute('aria-pressed', 'true');
+  fireEvent.click(screen.getByRole('button', { name: 'Save configuration' }));
+  await waitFor(() => expect(fetchMock).toHaveBeenCalledWith('/api/templates/template-1/draft', expect.objectContaining({ method: 'PATCH', body: expect.stringContaining('"avatar":{"shape":1,"color":5,"face":0}') })));
+});
+
+it('shows only the next card proposed by the specialist, not a prebuilt onboarding checklist', async () => {
+  let draft: any = { ...baseDraft, nextStep: null };
+  vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL) => String(input).endsWith('/draft') ? response({ draft }) : response({ accounts: [], catalog: [{ id: 'github', provider: 'github', name: 'GitHub', available: true }, { id: 'linear', provider: 'linear', name: 'Linear', available: true }, { id: 'notion', provider: 'notion', name: 'Notion', available: true }] })));
+  const interval = vi.spyOn(window, 'setInterval');
+  try {
+    render(<SpecialistDraftPanel templateId="template-1" companionId="draft-1" onClose={vi.fn()} renderChat={cards => <div aria-label="Chat">{cards}</div>}/>);
+    await screen.findByRole('region', { name: 'Specialist configuration' });
+    expect(screen.queryByRole('textbox', { name: 'Name' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Apps & accounts' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('textbox', { name: 'Test brief' })).not.toBeInTheDocument();
+    draft = { ...draft, nextStep: { id: 'card-1', kind: 'connections', message: 'I need GitHub to prepare your repository.', providers: ['github'] } };
+    const refresh = interval.mock.calls.find(([, delay]) => delay === 8_000)?.[0];
+    await act(async () => { (refresh as () => void)(); });
+    expect(await screen.findByText('I need GitHub to prepare your repository.')).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: 'Connect GitHub' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Connect Linear' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('textbox', { name: 'Test brief' })).not.toBeInTheDocument();
+  } finally { interval.mockRestore(); }
+});
+
+it('saves profile edits before asking the specialist to continue', async () => {
+  const calls: string[] = [];
+  const draft = { ...baseDraft, nextStep: { id: 'profile-step', kind: 'profile', message: 'Here is the role I suggest.', providers: [] } };
+  vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL, options?: RequestInit) => {
+    const path = String(input);
+    if (options?.method === 'PATCH') {
+      calls.push('save');
+      return response({ draft: { ...draft, ...JSON.parse(String(options.body)), generation: 4 } });
+    }
+    if (options?.method === 'POST') { calls.push('continue'); return response({ runId: 'run-1' }); }
+    return response({ draft });
+  }));
+  render(<SpecialistDraftPanel templateId="template-1" companionId="draft-1" onClose={vi.fn()} renderChat={cards => <div>{cards}</div>}/>);
+  fireEvent.change(await screen.findByRole('textbox', { name: 'Name' }), { target: { value: 'Repo developer' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Looks good, continue' }));
+  await waitFor(() => expect(calls).toEqual(['save', 'continue']));
+  expect(await screen.findByRole('button', { name: 'Sent' })).toBeDisabled();
+});
+
+it('restores previous specialist cards from the server after a reload', async () => {
+  const previous = { id: 'old', kind: 'profile', message: 'I will review pull requests.', providers: [], createdAt: '2026-09-08T10:00:00Z', respondedAt: '2026-09-08T10:01:00Z' };
+  const next = { id: 'new', kind: 'test', message: 'Try a small review.', providers: [], createdAt: '2026-09-08T10:02:00Z' };
+  vi.stubGlobal('fetch', vi.fn(() => response({ draft: { ...baseDraft, guidance: [previous,next], nextStep: next } })));
+  render(<SpecialistDraftPanel templateId="template-1" companionId="draft-1" onClose={vi.fn()} renderChat={(cards,history) => <div>{history?.map(item => <div key={item.id}>{item.content}</div>)}{cards}</div>}/>);
+  expect(await screen.findByText('I will review pull requests.')).toBeInTheDocument();
+  expect(screen.getByText('Continued in chat')).toBeInTheDocument();
+  expect(screen.getByText('Try a small review.')).toBeInTheDocument();
+  expect(screen.queryByRole('textbox', {name:'Name'})).not.toBeInTheDocument();
 });

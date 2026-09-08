@@ -12,7 +12,8 @@ import {requirePinnedBun} from "./lib/pinned-bun";
 requirePinnedBun();
 
 if (!config.boxKey) throw new Error("Configure BOX_API_KEY in .env before preparing the template.");
-const args = process.argv.slice(2);
+const archived=process.argv.includes('--archived');
+const args = process.argv.slice(2).filter(arg=>arg!=='--archived');
 const name = args[0] ?? "companions-agent-v0";
 if (!/^[a-z0-9-]{1,60}$/.test(name)) throw new Error("Template name must contain lowercase letters, digits and hyphens.");
 let softwareConfig: string | undefined;
@@ -23,7 +24,8 @@ if (args.length > 1) {
 const box = new BoxClient(config.boxKey);
 mkdirSync(".local/distributions", { recursive: true, mode: 0o700 });
 const journalPath=`.local/template-${name}.json`,journal=Bun.file(journalPath);
-let state:any=await journal.exists()?await journal.json():{version:1,name,key:crypto.randomUUID(),startedAt:new Date().toISOString()};
+let state:any=await journal.exists()?await journal.json():{version:1,name,key:crypto.randomUUID(),startedAt:new Date().toISOString(),...(archived?{storage:'archived_box'}:{})};
+if((state.storage==='archived_box')!==archived)throw Error('DISTRIBUTION_STORAGE_MODE_CHANGED');
 if(state.version!==1)throw Error("DISTRIBUTION_LEGACY_JOURNAL_UNVERIFIED: use a new immutable name and fresh build Box; existing captures are not rebuilt.");
 if(state.name!==name)throw Error("DISTRIBUTION_JOURNAL_NAME_MISMATCH");
 await saveDistributionJournal(journalPath,state);
@@ -68,4 +70,4 @@ await publishDistribution(state,{
   await box.command(id,`rm -rf -- ${directory}`);
  },
 });
-console.log(`Template content verified on independent Box ${state.verification!.boxId}. Set BOX_TEMPLATE=${name}. Build and verification Boxes archived.`);
+console.log(`Template content verified on independent Box ${state.verification!.boxId}. Set BOX_TEMPLATE=${archived?'box:'+state.boxId:name}. Build and verification Boxes archived.`);

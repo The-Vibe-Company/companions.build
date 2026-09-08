@@ -283,12 +283,12 @@ describe("agent daemon protocol", () => {
 test('streamed preview and usage survive daemon restart without re-executing the prompt',async()=>{
  const state=mkdtempSync(join(tmpdir(),'companion-progress-'));
  let calls=0;
- const executor:RunExecutor={async execute(_id,_input,progress){calls++;progress?.({previewText:'Partial answer',usage:{input:10,output:2,cacheRead:0,cacheWrite:0,totalTokens:12,costUsd:0.001}});return new Promise(()=>{});},async cancel(){}};
+ const executor:RunExecutor={async execute(_id,_input,progress){calls++;progress?.({previewText:'Partial answer',thinkingText:'Checking the requested constraints',usage:{input:10,output:2,cacheRead:0,cacheWrite:0,totalTokens:12,costUsd:0.001}});return new Promise(()=>{});},async cancel(){}};
  const first=new AgentDaemon(state,token,executor);
  await first.fetch(request(`/runs/${id}`,{method:'PUT',body:JSON.stringify({content:'hello',instructions:''})}));
- expect(await (await first.fetch(request(`/runs/${id}`))).json()).toMatchObject({status:'running',previewText:'Partial answer',usage:{totalTokens:12}});
+ expect(await (await first.fetch(request(`/runs/${id}`))).json()).toMatchObject({status:'running',previewText:'Partial answer',thinkingText:'Checking the requested constraints',usage:{totalTokens:12}});
  first.close();const restarted=new AgentDaemon(state,token,executor);open.push(restarted);
- expect(await (await restarted.fetch(request(`/runs/${id}`))).json()).toMatchObject({status:'interrupted',previewText:'Partial answer',usage:{totalTokens:12}});
+ expect(await (await restarted.fetch(request(`/runs/${id}`))).json()).toMatchObject({status:'interrupted',previewText:'Partial answer',thinkingText:'Checking the requested constraints',usage:{totalTokens:12}});
  await restarted.fetch(request(`/runs/${id}`,{method:'PUT',body:JSON.stringify({content:'hello',instructions:''})}));
  expect(calls).toBe(1);
 });

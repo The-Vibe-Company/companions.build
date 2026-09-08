@@ -33,6 +33,15 @@ export class BoxClient {
       archiveAfter:timestamp(value.box.archiveAfter),updatedAt:timestamp(value.box.updatedAt) };
   }
   async create(key: string, template?: string) {
+    if(template?.startsWith('box:')){
+      const id=template.slice(4);if(!/^bx_[a-zA-Z0-9_-]+$/.test(id))throw new BoxError('box_reference_invalid');
+      try{
+        const result=await this.request(`/boxes/${encodeURIComponent(id)}/fork`,'POST',{noEnv:true,env:{},type:'small',ttlSeconds:21600},{'Idempotency-Key':key});
+        if(result.box)return this.parseBox(result);
+        if(typeof result.id!=='string'||typeof result.status!=='string')throw new BoxError('box_invalid_response');
+        return {id:result.id,state:result.status};
+      }catch(error){if(error instanceof BoxError&&error.status===429)throw new BoxError('box_start_rate_limited',429);throw error;}
+    }
     try { return this.parseBox(await this.request("/boxes", "POST", { noEnv: true, type: "small", ttlSeconds: 21600, ...(template ? { from: template } : {}) }, { "Idempotency-Key": key })); }
     catch(error) { if(error instanceof BoxError&&error.status===429)throw new BoxError('box_start_rate_limited',429);throw error; }
   }
@@ -92,6 +101,13 @@ export class BoxClient {
     return url.href;
   }
   async snapshot(id: string, name: string) { return this.request("/named-snapshots", "POST", { boxId: id, name }); }
-  async getSnapshot(name: string) { return this.request(`/named-snapshots/${encodeURIComponent(name)}`); }
+  async getSnapshot(name: string) {
+    if(name.startsWith('box:')){
+      const id=name.slice(4);if(!/^bx_[a-zA-Z0-9_-]+$/.test(id))throw new BoxError('box_reference_invalid');
+      const image=await this.get(id);
+      return {status:image.state==='archived'?'ready':image.state==='error'?'failed':'pending'};
+    }
+    return this.request(`/named-snapshots/${encodeURIComponent(name)}`);
+  }
   async stop(id: string) { await this.request(`/boxes/${encodeURIComponent(id)}/stop`, "POST", { force: false }); }
 }

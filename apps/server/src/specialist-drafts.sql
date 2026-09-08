@@ -73,3 +73,16 @@ ALTER TABLE companions ADD COLUMN IF NOT EXISTS provider_ttl_target_until timest
 -- Test and publication may deliberately reference the exact same immutable image.
 ALTER TABLE specialist_operations DROP CONSTRAINT IF EXISTS specialist_operations_snapshot_name_key;
 ALTER TABLE specialist_operations DROP CONSTRAINT IF EXISTS specialist_operations_source_snapshot_name_key;
+
+CREATE TABLE IF NOT EXISTS specialist_guidance (
+ id uuid PRIMARY KEY,
+ template_id uuid NOT NULL REFERENCES specialist_drafts(template_id),
+ run_id uuid NOT NULL REFERENCES runs(id),
+ kind text NOT NULL CHECK(kind IN ('profile','connections','test','publish')),
+ message text NOT NULL,
+ providers jsonb NOT NULL DEFAULT '[]',
+ created_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS specialist_guidance_latest ON specialist_guidance(template_id,created_at DESC);
+
+ALTER TABLE specialist_guidance ADD COLUMN IF NOT EXISTS responded_at timestamptz;

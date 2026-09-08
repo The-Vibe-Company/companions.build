@@ -15,8 +15,8 @@ type Authority={assertLeader():Promise<void>;checkpoint<T>(fn:(sql:any)=>Promise
 /** Each provider intent is checkpointed before submission; ambiguous captures are only observed. */
 export async function progressSpecialistDrafts(sql:any,machines:SpecialistMachines,executor:Authority,admit:(companion:any,kind:string)=>Promise<boolean>=async()=>true,sourceId:string|null=null,filesDurable:(run:any)=>Promise<boolean>=async()=>true){
  const operations=await sql`SELECT o.*,d.companion_id AS source_id,d.base_revision,d.name,d.instructions,d.init_script,
-  t.avatar,t.model_id FROM specialist_operations o JOIN specialist_drafts d ON d.template_id=o.template_id
-  JOIN agent_templates t ON t.id=o.template_id WHERE (${sourceId}::uuid IS NULL OR d.companion_id=${sourceId}) AND o.status IN ('queued','freezing','capturing','preparing','running') ORDER BY o.created_at LIMIT 20`;
+  c.avatar,t.model_id FROM specialist_operations o JOIN specialist_drafts d ON d.template_id=o.template_id
+  JOIN agent_templates t ON t.id=o.template_id JOIN companions c ON c.id=d.companion_id WHERE (${sourceId}::uuid IS NULL OR d.companion_id=${sourceId}) AND o.status IN ('queued','freezing','capturing','preparing','running') ORDER BY o.created_at LIMIT 20`;
  for(const op of operations){
   const authority:Authority={
    async assertLeader(){
@@ -51,6 +51,14 @@ export async function progressSpecialistDrafts(sql:any,machines:SpecialistMachin
    }
    if(op.status==='freezing'){
     await authority.assertLeader();await machines.freezeSpecialist(source,()=>authority.assertLeader());
+    if(machines.archivedSpecialistImages){
+     // Archive intent is durable before the lifecycle executor stops the source.
+     // The draft is locked throughout capture, so this point cannot change before fork.
+     await authority.checkpoint(async tx=>{
+      await tx`UPDATE companions SET endpoint_secret=null,config_digest=null,prepare_requested=false,archive_requested_at=COALESCE(archive_requested_at,now()) WHERE id=${source.id}`;
+      await tx`UPDATE specialist_operations SET status='capturing',source_snapshot_name=${'box:'+source.box_id},capture_attempted_at=now() WHERE id=${op.id}`;
+     });continue;
+    }
     await authority.checkpoint(async tx=>{
      await tx`UPDATE companions SET endpoint_secret=null,config_digest=null,prepare_requested=false WHERE id=${source.id}`;
      await tx`UPDATE specialist_operations SET status='capturing',capture_attempted_at=now() WHERE id=${op.id}`;
@@ -93,6 +101,13 @@ export async function progressSpecialistDrafts(sql:any,machines:SpecialistMachin
      });image.box_id=id;
     },()=>authority.assertLeader()))continue;
     await authority.assertLeader();await machines.sanitizeSpecialistImage(image,source.id,()=>authority.assertLeader());
+    if(op.source_snapshot_name.startsWith('box:')){
+     // A sealed, archived image is never resumed; missions fork independent copies.
+     await authority.checkpoint(async tx=>{
+      await tx`UPDATE specialist_operations SET snapshot_name=${'box:'+image.box_id},sanitized_at=now(),image_capture_attempted_at=now() WHERE id=${op.id}`;
+      await tx`UPDATE companions SET retired_at=COALESCE(retired_at,now()),prepare_requested=false,archive_requested_at=COALESCE(archive_requested_at,now()) WHERE id=${image.id}`;
+     });continue;
+    }
     await authority.checkpoint(async tx=>{await tx`UPDATE specialist_operations SET sanitized_at=now(),image_capture_attempted_at=now() WHERE id=${op.id}`;});
     await authority.assertLeader();
     if(await machines.snapshotStatus(op.snapshot_name)==='missing'){await authority.assertLeader();await machines.snapshot(image,op.snapshot_name);}
@@ -109,7 +124,7 @@ export async function progressSpecialistDrafts(sql:any,machines:SpecialistMachin
     await authority.checkpoint(async tx=>{
      const [current]=await tx`SELECT generation FROM specialist_drafts WHERE template_id=${op.template_id} FOR UPDATE`;
      if(current?.generation!==op.generation)throw Error('draft_changed');
-     const [published]=await tx`UPDATE agent_templates SET name=${op.name},instructions=${op.instructions},init_script=${op.init_script},snapshot_name=${op.snapshot_name},prepared_disk_snapshot=${op.snapshot_name},software_build_id=null,software_result_id=null,skill_bundle_id=null,source_companion_id=${op.source_id},has_published=true,revision=revision+1,updated_at=now()
+     const [published]=await tx`UPDATE agent_templates SET name=${op.name},avatar=${op.avatar},instructions=${op.instructions},init_script=${op.init_script},snapshot_name=${op.snapshot_name},prepared_disk_snapshot=${op.snapshot_name},software_build_id=null,software_result_id=null,skill_bundle_id=null,source_companion_id=${op.source_id},has_published=true,revision=revision+1,updated_at=now()
       WHERE id=${op.template_id} AND revision=${op.base_revision} RETURNING revision`;
      if(!published)throw Error('template_changed');
      await recordTemplateRevision(tx,op.template_id);

@@ -11,6 +11,7 @@ import sys
 import time
 import tempfile
 import unittest
+import dev_environment
 from contextlib import nullcontext
 from unittest.mock import patch
 
@@ -110,10 +111,46 @@ time.sleep(60)
                             pass
                     parent.communicate(timeout=5)
 
+    def test_live_mode_inherits_only_the_selected_model_credentials(self):
+        with patch.dict(cli.os.environ, {'MODEL_PROVIDER': 'google', 'GOOGLE_API_KEY': 'test-model-key', 'ANTHROPIC_API_KEY': 'other-key', 'DATABASE_URL': 'hosted', 'BOX_API_KEY': 'hosted'}, clear=True):
+            env = cli.local_env(live=True)
+            cli.validate_model_env(env)
+        self.assertEqual(env['AGENT_TEST_MODE'], '0')
+        self.assertEqual(env['GOOGLE_API_KEY'], 'test-model-key')
+        self.assertEqual(env['BOX_API_KEY'], 'hosted')
+        for key in ['ANTHROPIC_API_KEY', 'DATABASE_URL']:
+            self.assertNotIn(key, env)
+        with self.assertRaisesRegex(RuntimeError, 'Live mode needs'):
+            cli.validate_model_env({'AGENT_TEST_MODE': '0'})
+
+    def test_runtime_inheritance_is_filtered_and_overridable(self):
+        with tempfile.TemporaryDirectory() as directory:
+            main = Path(directory) / 'main'; main.mkdir()
+            worktree = Path(directory) / 'worktree'; worktree.mkdir()
+            (main / '.env').write_text('MODEL_PROVIDER=zai\nMODEL_ID=glm-5.3-flash\nZAI_API_KEY="main-key"\nBOX_API_KEY=box-key\nBOX_TEMPLATE=template\nDATABASE_URL=production\nWEB_PORT=80\n')
+            (worktree / '.env').write_text('export ZAI_API_KEY=worktree-key\n')
+            with patch.object(dev_environment, 'primary_checkout', return_value=main):
+                env = dev_environment.runtime_environment(worktree, {})
+                self.assertEqual(env['ZAI_API_KEY'], 'worktree-key')
+                self.assertEqual(env['MODEL_ID'], 'glm-5.3-flash')
+                self.assertEqual(env['BOX_TEMPLATE'], 'template')
+                self.assertNotIn('DATABASE_URL', env)
+                self.assertNotIn('WEB_PORT', env)
+                (main / '.env').write_text('MODEL_PROVIDER=zai\nZAI_API_KEY=rotated-key\n')
+                (worktree / '.env').write_text('')
+                self.assertEqual(dev_environment.runtime_environment(worktree, {})['ZAI_API_KEY'], 'rotated-key')
+                env = dev_environment.runtime_environment(worktree, {'MODEL_PROVIDER': 'google', 'GOOGLE_API_KEY': 'shell-key'})
+                self.assertNotIn('ZAI_API_KEY', env)
+                self.assertEqual(env['GOOGLE_API_KEY'], 'shell-key')
+
+    def test_primary_checkout_uses_git_common_directory(self):
+        with patch.object(dev_environment.subprocess, 'run', return_value=subprocess.CompletedProcess([], 0, '/repo/main/.git\n')):
+            self.assertEqual(dev_environment.primary_checkout(Path('/repo/worktree')), Path('/repo/main'))
+
     def test_local_environment_does_not_inherit_hosted_configuration(self):
         with patch.dict(os.environ, {'DATABASE_URL': 'postgres://remote', 'BOX_API_KEY': 'secret',
                                     'AGENT_TEST_MODE': '0', 'PORTLESS_FUNNEL': '1', 'PATH': '/bin'}, clear=True):
-            env = cli.local_env()
+            env = cli.local_env(live=False)
         self.assertNotIn('DATABASE_URL', env)
         self.assertNotIn('BOX_API_KEY', env)
         self.assertNotIn('PORTLESS_FUNNEL', env)

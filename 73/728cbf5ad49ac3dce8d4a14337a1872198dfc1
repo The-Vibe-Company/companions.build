@@ -1,0 +1,62 @@
+apps/server/src/api.ts
+  s_e4ccf603d9ab8f::t_78d421dd087fbf 182-185
+packages/agent/src/conversation-instructions.ts
+  s_e4ccf603d9ab8f::t_fa968618b18c2e 1-10
+apps/web/src/App.test.tsx
+  s_e4ccf603d9ab8f::t_bdb55985955b6e 1098
+  s_e4ccf603d9ab8f::t_c55784f66befa5 1057-1097,1099-1102
+apps/web/src/App.tsx
+  s_e4ccf603d9ab8f::t_1087428791113a 266
+  s_e4ccf603d9ab8f::t_bdb55985955b6e 343
+  s_e4ccf603d9ab8f::t_78d421dd087fbf 238,256,263
+  s_e4ccf603d9ab8f::t_3192a45e9be9c2 253
+  s_e4ccf603d9ab8f::t_f4b69b848a7de5 350
+apps/server/src/conversation.sql
+  s_e4ccf603d9ab8f::t_fa968618b18c2e 1-7
+docs/v0.md
+  s_e4ccf603d9ab8f::t_1087428791113a 71-83
+apps/server/src/store.ts
+  s_e4ccf603d9ab8f::t_1087428791113a 109
+  s_e4ccf603d9ab8f::t_78d421dd087fbf 7,110
+apps/web/src/api.ts
+  s_e4ccf603d9ab8f::t_78d421dd087fbf 38-39,55
+apps/server/test/runtime-lifecycle.test.ts
+  s_e4ccf603d9ab8f::t_1087428791113a 2,85-133
+apps/server/src/executor.ts
+  s_e4ccf603d9ab8f::t_78d421dd087fbf 59,62-63,66-69,82-94,96-99
+  s_e4ccf603d9ab8f::t_20f45ee79d3e29 95,100
+apps/web/src/components/CompanionHeader.tsx
+  s_e4ccf603d9ab8f::t_1087428791113a 44
+docs/dev-workflow.md
+  s_e4ccf603d9ab8f::t_3ff0269d94b92f 112-125
+apps/server/test/local-acceptance.test.ts
+  s_e4ccf603d9ab8f::t_87327c10c29df2 51-55
+packages/agent/src/journal.ts
+  s_e4ccf603d9ab8f::t_6b5efce890afbd 10,41-42,95-104,123-124,141-142
+packages/agent/src/pi-executor.ts
+  s_e4ccf603d9ab8f::t_35126ca2f1084b 9-10,91,118,183,215-230,232-237,239-241,244,252-256,259-260,266-280
+packages/agent/src/scripted-model.ts
+  s_e4ccf603d9ab8f::t_a86ed2df0ff807 62-65,67-69,82-85
+packages/agent/src/types.ts
+  s_e4ccf603d9ab8f::t_a000821da2408c 8-9,22-23
+packages/agent/test/daemon.test.ts
+  s_e4ccf603d9ab8f::t_9dcf684249a8bb 283,286-291,294-295,297,301-317
+packages/agent/test/linux-acceptance.test.ts
+  s_e4ccf603d9ab8f::t_e3429c90e553e5 32-34,40,111-113,127-130,133-139
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "73728cbf5ad49ac3dce8d4a14337a1872198dfc1",
+  "prompts": {},
+  "sessions": {
+    "s_e4ccf603d9ab8f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0816a-ca13-7f70-a16c-dd4c3c330fe1",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "StanGirard <stan@quivr.app>"
+    }
+  }
+}

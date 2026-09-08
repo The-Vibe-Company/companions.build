@@ -192,3 +192,21 @@ test('publishes a sealed archived image without consuming named snapshot capacit
  const [image]=await db`SELECT retired_at,archived_at FROM companions WHERE box_id='bx_sealed'`;
  expect(image.retired_at).not.toBeNull();expect(image.archived_at).not.toBeNull();
 });
+
+
+test('opening a legacy specialist requests its environment once before entering configuration chat',async()=>{
+ const profile=await saveTemplate(owner,{name:'Legacy specialist',instructions:'Prepare development tools'});
+ const commandId=crypto.randomUUID();
+ const first=await openSpecialistDraft(owner,profile.id,{commandId});
+ const retry=await openSpecialistDraft(owner,profile.id,{commandId});
+ const reopen=await openSpecialistDraft(owner,profile.id,{commandId:crypto.randomUUID()});
+ expect(retry.draft.companionId).toBe(first.draft.companionId);
+ expect(reopen.draft.companionId).toBe(first.draft.companionId);
+ const admissions=await db`SELECT kind,state FROM machine_admission_requests WHERE companion_id=${first.draft.companionId}`;
+ expect(admissions).toHaveLength(1);
+ expect(admissions[0].kind).toBe('configuration');
+ expect(['admitted','queued']).toContain(admissions[0].state);
+ const [machine]=await db`SELECT prepare_requested FROM companions WHERE id=${first.draft.companionId}`;
+ if(admissions[0].state==='admitted')expect(machine.prepare_requested).toBe(true);
+ expect(await db`SELECT id FROM runs WHERE companion_id=${first.draft.companionId}`).toHaveLength(0);
+});

@@ -104,3 +104,6 @@
 @media (prefers-reduced-motion: reduce) {
   .team-appearance > summary svg:last-child { transition: none; }
 }
+
+.team-member-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+@media (max-width: 640px) { .team-person > .team-member-actions { grid-column: 1 / -1; } .team-member-actions > button { flex: 1; } }

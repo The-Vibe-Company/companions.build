@@ -71,7 +71,18 @@ async function openDraftInTransaction(ownerId:string,templateId:string,commandId
 }
 export async function openSpecialistDraft(ownerId:string,templateId:string,raw:unknown){
  const value=z.object({commandId:uuid}).parse(raw);
- return db.begin((tx:any)=>openDraftInTransaction(ownerId,templateId,value.commandId,tx));
+ return db.begin(async(tx:any)=>{
+  await tx`SELECT pg_advisory_xact_lock(721440140)`;
+  const result=await openDraftInTransaction(ownerId,templateId,value.commandId,tx);
+  if(result.draft.machineStatus==='new'){
+   const [active]=await tx`SELECT id FROM machine_admission_requests WHERE companion_id=${result.draft.companionId} AND state IN ('queued','admitted','cancelling')`;
+   if(!active){
+    const admission=await requestMachineAdmissionInTransaction(tx,ownerId,{requestId:value.commandId,companionId:result.draft.companionId,kind:'configuration'});
+    if(admission.state==='refused')throw new LifecycleConflict('The specialist queue is full.');
+   }
+  }
+  return result;
+ });
 }
 export async function updateSpecialistDraft(ownerId:string,templateId:string,raw:unknown){
  const value=editable.extend({expectedGeneration:z.number().int().positive(),expectedIdentityRevision:z.number().int().positive().optional()}).parse(raw);

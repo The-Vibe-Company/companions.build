@@ -31,8 +31,8 @@ describe("TeamPanel", () => {
     });
     vi.stubGlobal("fetch", fetchMock);
     const user = userEvent.setup();
-    render(<TeamPanel companion={companion} onOpenCompanion={vi.fn()} />);
-    await user.click(await screen.findByText("Profile settings"));
+    render(<TeamPanel onOpenDraft={vi.fn()} companion={companion} onOpenCompanion={vi.fn()} />);
+    await user.click(await screen.findByText("Team settings"));
     const account = await screen.findByRole("combobox", { name: "github account" });
     expect(account).toHaveValue("__default__");
     await user.selectOptions(account, "gh-work");
@@ -52,12 +52,12 @@ describe("TeamPanel", () => {
       throw new Error(`Unexpected ${path}`);
     });
     vi.stubGlobal("fetch", fetchMock);
-    const view = render(<TeamPanel companion={companion} onOpenCompanion={vi.fn()} refreshVersion={0} />);
+    const view = render(<TeamPanel onOpenDraft={vi.fn()} companion={companion} onOpenCompanion={vi.fn()} refreshVersion={0} />);
 
     expect(await screen.findByText("Investigate sources", { selector: ".team-person p" })).toBeInTheDocument();
     authorized = [...authorized, { templateId: "t2", maxChildren: 2, name: "Writer", revision: 1 }];
     replicas = [child];
-    view.rerender(<TeamPanel companion={companion} onOpenCompanion={vi.fn()} refreshVersion={1} />);
+    view.rerender(<TeamPanel onOpenDraft={vi.fn()} companion={companion} onOpenCompanion={vi.fn()} refreshVersion={1} />);
 
     expect(await screen.findByText("Turn findings into clear prose", { selector: ".team-person p" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Open Market researcher's work" })).toBeInTheDocument();
@@ -75,7 +75,7 @@ describe("TeamPanel", () => {
     });
     vi.stubGlobal("fetch", fetchMock);
     const onOpenCompanion = vi.fn();
-    const view = render(<TeamPanel companion={companion} onOpenCompanion={onOpenCompanion} refreshVersion={0} />);
+    const view = render(<TeamPanel onOpenDraft={vi.fn()} companion={companion} onOpenCompanion={onOpenCompanion} refreshVersion={0} />);
     const user = userEvent.setup();
 
     await screen.findByText(/does not have any specialists/);
@@ -83,7 +83,7 @@ describe("TeamPanel", () => {
     await user.click(screen.getByRole("button", { name: "Add to team" }));
     expect(await screen.findByText("Permission could not be saved.")).toBeInTheDocument();
 
-    view.rerender(<TeamPanel companion={companion} onOpenCompanion={onOpenCompanion} refreshVersion={1} />);
+    view.rerender(<TeamPanel onOpenDraft={vi.fn()} companion={companion} onOpenCompanion={onOpenCompanion} refreshVersion={1} />);
     await waitFor(() => expect(templateLoads).toBe(2));
     expect(screen.getByText("Permission could not be saved.")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Add to team" })).toBeEnabled();
@@ -109,28 +109,27 @@ describe("TeamPanel", () => {
       throw new Error(`Unexpected ${path}`);
     });
     vi.stubGlobal("fetch", fetchMock);
-    const view = render(<TeamPanel companion={companion} onOpenCompanion={vi.fn()} refreshVersion={0} />);
+    const view = render(<TeamPanel onOpenDraft={vi.fn()} companion={companion} onOpenCompanion={vi.fn()} refreshVersion={0} />);
     const user = userEvent.setup();
 
     await screen.findByText(/does not have any specialists/);
     await user.click(screen.getByRole("button", { name: "Add specialist" }));
-    await user.type(screen.getByRole("textbox", { name: "Name" }), "Analyst draft");
-    await user.type(screen.getByRole("textbox", { name: "Role" }), "Keep this role while refreshing");
-    view.rerender(<TeamPanel companion={companion} onOpenCompanion={vi.fn()} refreshVersion={1} />);
+    await user.type(screen.getByRole("textbox", { name: "Specialist brief" }), "Keep this role while refreshing");
+    view.rerender(<TeamPanel onOpenDraft={vi.fn()} companion={companion} onOpenCompanion={vi.fn()} refreshVersion={1} />);
     await waitFor(() => expect(templateLoads).toBe(2));
 
     templates = [researcher];
     authorized = [{ templateId: "t1", maxChildren: 2, name: "Researcher", revision: 2 }];
     replicas = [{ ...companion, id: "child", name: "Research child", parentId: companion.id }];
-    view.rerender(<TeamPanel companion={companion} onOpenCompanion={vi.fn()} refreshVersion={2} />);
-    view.rerender(<TeamPanel companion={companion} onOpenCompanion={vi.fn()} refreshVersion={3} />);
+    view.rerender(<TeamPanel onOpenDraft={vi.fn()} companion={companion} onOpenCompanion={vi.fn()} refreshVersion={2} />);
+    view.rerender(<TeamPanel onOpenDraft={vi.fn()} companion={companion} onOpenCompanion={vi.fn()} refreshVersion={3} />);
     releaseRefresh(new Response(JSON.stringify({ templates: [] }), { status: 200, headers: { "content-type": "application/json" } }));
 
+    await waitFor(() => expect(templateLoads).toBe(3));
+    expect(screen.getByRole("textbox", { name: "Specialist brief" })).toHaveValue("Keep this role while refreshing");
+    await user.click(screen.getByRole("button", { name: "Close new specialist" }));
     expect(await screen.findByText("Investigate sources", { selector: ".team-person p" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Open Research child's work" })).toBeInTheDocument();
-    expect(screen.getByRole("textbox", { name: "Name" })).toHaveValue("Analyst draft");
-    expect(screen.getByRole("textbox", { name: "Role" })).toHaveValue("Keep this role while refreshing");
-    expect(templateLoads).toBe(3);
   });
 
   it("ignores an older passive snapshot that finishes after a mutation reload", async () => {
@@ -153,11 +152,11 @@ describe("TeamPanel", () => {
       throw new Error(`Unexpected ${path}`);
     });
     vi.stubGlobal("fetch", fetchMock);
-    const view = render(<TeamPanel companion={companion} onOpenCompanion={vi.fn()} refreshVersion={0} />);
+    const view = render(<TeamPanel onOpenDraft={vi.fn()} companion={companion} onOpenCompanion={vi.fn()} refreshVersion={0} />);
     const user = userEvent.setup();
 
     await screen.findByText(/does not have any specialists/);
-    view.rerender(<TeamPanel companion={companion} onOpenCompanion={vi.fn()} refreshVersion={1} />);
+    view.rerender(<TeamPanel onOpenDraft={vi.fn()} companion={companion} onOpenCompanion={vi.fn()} refreshVersion={1} />);
     await waitFor(() => expect(templateLoads).toBe(2));
     await user.click(screen.getByRole("button", { name: "Add specialist" }));
     await user.click(screen.getByRole("button", { name: "Add to team" }));
@@ -180,7 +179,7 @@ describe("TeamPanel", () => {
     });
     vi.stubGlobal("fetch", fetchMock);
     const user = userEvent.setup();
-    render(<TeamPanel companion={companion} onOpenCompanion={vi.fn()} />);
+    render(<TeamPanel onOpenDraft={vi.fn()} companion={companion} onOpenCompanion={vi.fn()} />);
 
     expect(await screen.findByText("Investigate sources", { selector: ".team-person p" })).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Add specialist" }));
@@ -188,44 +187,6 @@ describe("TeamPanel", () => {
 
     expect(await screen.findByText("Turn findings into clear prose", { selector: ".team-person p" })).toBeInTheDocument();
     expect(fetchMock).toHaveBeenCalledWith("/api/companions/c1/templates/t2", expect.objectContaining({ method: "PUT", body: JSON.stringify({ maxChildren: 2 }) }));
-    expect(fetchMock.mock.calls.some(([path, options]) => String(path) === "/api/companions/c1/replicas" && (options as RequestInit | undefined)?.method === "POST")).toBe(false);
-  });
-
-  it("retries only the permission when a newly created profile could not be added", async () => {
-    let permissionAttempts = 0;
-    let authorized: Array<{ templateId: string; maxChildren: number; name: string; revision: number }> = [];
-    const created = { ...writer, id: "created-profile", name: "Analyst", instructions: "Analyze product data" };
-    const fetchMock = vi.fn((input: RequestInfo | URL, options?: RequestInit) => {
-      const path = String(input);
-      if (path === "/api/templates" && options?.method === "POST") return response({ id: created.id, revision: 1 }, 201);
-      if (path === "/api/templates") return response({ templates: authorized.length ? [created] : [] });
-      if (path === "/api/companions/c1/templates" && !options?.method) return response({ templates: authorized });
-      if (path === "/api/companions/c1/replicas") return response({ replicas: [] });
-      if (path === `/api/companions/c1/templates/${created.id}` && options?.method === "PUT") {
-        permissionAttempts += 1;
-        if (permissionAttempts === 1) return response({ error: "Permission could not be saved." }, 503);
-        authorized = [{ templateId: created.id, maxChildren: 2, name: created.name, revision: 1 }];
-        return response(authorized[0]);
-      }
-      throw new Error(`Unexpected ${path}`);
-    });
-    vi.stubGlobal("fetch", fetchMock);
-    const user = userEvent.setup();
-    render(<TeamPanel companion={companion} onOpenCompanion={vi.fn()} />);
-
-    await screen.findByText(/does not have any specialists/);
-    await user.click(screen.getByRole("button", { name: "Add specialist" }));
-    await user.type(screen.getByRole("textbox", { name: "Name" }), "Analyst");
-    await user.type(screen.getByRole("textbox", { name: "Role" }), "Analyze product data");
-    await user.click(screen.getByRole("button", { name: "Create and add" }));
-
-    expect(await screen.findByText("Permission could not be saved.")).toBeInTheDocument();
-    expect(screen.getByText(/was created/)).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Retry adding" }));
-
-    expect(await screen.findByText("Analyze product data", { selector: ".team-person p" })).toBeInTheDocument();
-    expect(fetchMock.mock.calls.filter(([path, options]) => String(path) === "/api/templates" && (options as RequestInit | undefined)?.method === "POST")).toHaveLength(1);
-    expect(permissionAttempts).toBe(2);
     expect(fetchMock.mock.calls.some(([path, options]) => String(path) === "/api/companions/c1/replicas" && (options as RequestInit | undefined)?.method === "POST")).toBe(false);
   });
 
@@ -242,9 +203,9 @@ describe("TeamPanel", () => {
     });
     vi.stubGlobal("fetch", fetchMock);
     const user = userEvent.setup();
-    render(<TeamPanel companion={companion} onOpenCompanion={vi.fn()} />);
+    render(<TeamPanel onOpenDraft={vi.fn()} companion={companion} onOpenCompanion={vi.fn()} />);
 
-    await user.click(await screen.findByText("Profile settings"));
+    await user.click(await screen.findByText("Team settings"));
     await user.click(screen.getByRole("button", { name: "Remove from team" }));
     await waitFor(() => expect(screen.queryByText("Investigate sources")).not.toBeInTheDocument());
     expect(fetchMock).toHaveBeenCalledWith("/api/companions/c1/templates/t1", expect.objectContaining({ method: "PUT", body: JSON.stringify({ maxChildren: 0 }) }));
@@ -266,7 +227,7 @@ describe("TeamPanel", () => {
     });
     vi.stubGlobal("fetch", fetchMock);
     const user = userEvent.setup();
-    render(<TeamPanel companion={companion} onOpenCompanion={vi.fn()} />);
+    render(<TeamPanel onOpenDraft={vi.fn()} companion={companion} onOpenCompanion={vi.fn()} />);
 
     await user.click(await screen.findByRole("button", { name: "Assign a task" }));
     await user.type(screen.getByRole("textbox", { name: "What should Researcher do?" }), "Check the market");
@@ -278,140 +239,55 @@ describe("TeamPanel", () => {
     expect(commandIds[1]).toBe(commandIds[0]);
   });
 
-  it("refreshes persisted profiles after an ambiguous create response before offering another create", async () => {
-    let createAttempted = false;
-    const created = { ...writer, id: "created-profile", name: "Analyst", instructions: "Analyze product data" };
-    const fetchMock = vi.fn((input: RequestInfo | URL, options?: RequestInit) => {
-      const path = String(input);
-      if (path === "/api/templates" && options?.method === "POST") { createAttempted = true; return Promise.reject(new TypeError("network connection lost")); }
-      if (path === "/api/templates") return response({ templates: createAttempted ? [created] : [] });
-      if (path === "/api/companions/c1/templates") return response({ templates: [] });
-      if (path === "/api/companions/c1/replicas") return response({ replicas: [] });
-      throw new Error(`Unexpected ${path}`);
-    });
-    vi.stubGlobal("fetch", fetchMock);
-    const user = userEvent.setup();
-    render(<TeamPanel companion={companion} onOpenCompanion={vi.fn()} />);
+});
 
-    await screen.findByText(/does not have any specialists/);
-    await user.click(screen.getByRole("button", { name: "Add specialist" }));
-    await user.type(screen.getByRole("textbox", { name: "Name" }), "Analyst");
-    await user.click(screen.getByRole("button", { name: "Create and add" }));
-    expect(await screen.findByText(/couldn't confirm/)).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Create and add" })).not.toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: "Refresh profiles" }));
-    expect(await screen.findByText("Analyze product data")).toBeInTheDocument();
-    expect(fetchMock.mock.calls.filter(([path, options]) => String(path) === "/api/templates" && (options as RequestInit | undefined)?.method === "POST")).toHaveLength(1);
+it("opens the specialist configuration chat instead of editing a published profile inline", async () => {
+  const onOpenDraft = vi.fn();
+  let attempts = 0;
+  const fetchMock = vi.fn((input: RequestInfo | URL, options?: RequestInit) => {
+    const path = String(input);
+    if (path === "/api/templates") return response({ templates: [researcher] });
+    if (path === "/api/companions/c1/templates") return response({ templates: [{ templateId: "t1", maxChildren: 2, name: "Researcher", revision: 2 }] });
+    if (path === "/api/companions/c1/replicas") return response({ replicas: [] });
+    if (path === "/api/templates/t1/draft" && options?.method === "POST") {
+      if (++attempts === 1) return response({ error: "Environment temporarily unavailable" }, 503);
+      return response({ draft: { companionId: "draft-1", templateId: "t1" } });
+    }
+    throw new Error(`Unexpected ${path}`);
   });
+  vi.stubGlobal("fetch", fetchMock);
+  render(<TeamPanel companion={companion} onOpenCompanion={vi.fn()} onOpenDraft={onOpenDraft}/>);
+  const user = userEvent.setup();
+  await user.click(await screen.findByRole("button", { name: "Configure" }));
+  expect(await screen.findByRole("alert")).toHaveTextContent("Environment temporarily unavailable");
+  expect(onOpenDraft).not.toHaveBeenCalled();
+  await user.click(screen.getByRole("button", { name: "Configure" }));
+  await waitFor(() => expect(onOpenDraft).toHaveBeenCalledWith("draft-1", "t1"));
+  expect(screen.queryByText("Profile settings")).not.toBeInTheDocument();
+  expect(screen.queryByRole("textbox", { name: "Profile name" })).not.toBeInTheDocument();
+  expect(fetchMock.mock.calls.some(([, options]) => options?.method === "PATCH")).toBe(false);
+});
 
-  it("saves shared profile edits against the revision that was displayed", async () => {
-    let current = researcher;
-    const fetchMock = vi.fn((input: RequestInfo | URL, options?: RequestInit) => {
-      const path = String(input);
-      if (path === "/api/templates/t1" && options?.method === "PATCH") {
-        const body = JSON.parse(String(options.body));
-        current = { ...current, ...body, revision: 3 };
-        return response({ id: "t1", revision: 3 });
-      }
-      if (path === "/api/templates") return response({ templates: [current] });
-      if (path === "/api/companions/c1/templates") return response({ templates: [{ templateId: "t1", maxChildren: 2, name: current.name, revision: current.revision }] });
-      if (path === "/api/companions/c1/replicas") return response({ replicas: [] });
-      if (path === "/api/templates/t1/revisions") return response({ revisions: [{ ...researcher, createdAt: new Date().toISOString(), snapshotName: null }] });
-      throw new Error(`Unexpected ${path}`);
-    });
-    vi.stubGlobal("fetch", fetchMock);
-    const user = userEvent.setup();
-    render(<TeamPanel companion={companion} onOpenCompanion={vi.fn()} />);
-
-    await user.click(await screen.findByText("Profile settings"));
-    const name = screen.getByRole("textbox", { name: "Profile name" });
-    const role = screen.getByRole("textbox", { name: "Profile role" });
-    await user.clear(name); await user.type(name, "Lead researcher");
-    await user.clear(role); await user.type(role, "Verify primary sources");
-    await user.click(screen.getByRole("button", { name: "Shape 2" }));
-    await user.click(screen.getByRole("button", { name: "Save profile" }));
-
-    expect(await screen.findByText("Profile saved.")).toBeInTheDocument();
-    expect(fetchMock).toHaveBeenCalledWith("/api/templates/t1", expect.objectContaining({
-      method: "PATCH",
-      body: JSON.stringify({ name: "Lead researcher", instructions: "Verify primary sources", avatar: { shape: 1, color: 4, face: 0 }, expectedRevision: 2 }),
-    }));
-    await waitFor(() => expect(fetchMock.mock.calls.filter(([path]) => String(path) === "/api/templates/t1/revisions")).toHaveLength(2));
-    expect(name).toHaveAttribute("maxlength", "80");
-    expect(role).toHaveAttribute("maxlength", "20000");
+it("creates a private draft and waits for its computer before opening chat without granting unpublished work", async () => {
+  const onOpenDraft = vi.fn();
+  const fetchMock = vi.fn((input: RequestInfo | URL, options?: RequestInit) => {
+    const path = String(input);
+    if (path === "/api/templates" && options?.method === "POST") return response({ draft: { companionId: "draft-1", templateId: "t1" } });
+    if (path === "/api/templates") return response({ templates: [] });
+    if (path === "/api/companions/c1/templates") return response({ templates: [] });
+    if (path === "/api/companions/c1/replicas") return response({ replicas: [] });
+    if (path === "/api/companions/draft-1") return response({ companion: { ...companion, id: "draft-1", status: "ready" } });
+    throw new Error(`Unexpected ${path}`);
   });
-
-  it("keeps the edited profile draft when saving conflicts", async () => {
-    const fetchMock = vi.fn((input: RequestInfo | URL, options?: RequestInit) => {
-      const path = String(input);
-      if (path === "/api/templates") return response({ templates: [researcher] });
-      if (path === "/api/companions/c1/templates") return response({ templates: [{ templateId: "t1", maxChildren: 2, name: researcher.name, revision: researcher.revision }] });
-      if (path === "/api/companions/c1/replicas") return response({ replicas: [] });
-      if (path === "/api/templates/t1/revisions") return response({ revisions: [] });
-      if (path === "/api/templates/t1" && options?.method === "PATCH") return response({ error: "Template missing or changed." }, 409);
-      throw new Error(`Unexpected ${path}`);
-    });
-    vi.stubGlobal("fetch", fetchMock);
-    const user = userEvent.setup();
-    render(<TeamPanel companion={companion} onOpenCompanion={vi.fn()} />);
-
-    await user.click(await screen.findByText("Profile settings"));
-    const name = screen.getByRole("textbox", { name: "Profile name" });
-    const role = screen.getByRole("textbox", { name: "Profile role" });
-    await user.clear(name); await user.type(name, "Research lead");
-    await user.clear(role); await user.type(role, "Keep this detailed draft");
-    await user.click(screen.getByRole("button", { name: "Save profile" }));
-
-    expect(await screen.findByText("Template missing or changed.")).toBeInTheDocument();
-    expect(name).toHaveValue("Research lead");
-    expect(role).toHaveValue("Keep this detailed draft");
-  });
-
-  it("offers a retry when version history fails to load", async () => {
-    let historyAttempts = 0;
-    const fetchMock = vi.fn((input: RequestInfo | URL) => {
-      const path = String(input);
-      if (path === "/api/templates") return response({ templates: [researcher] });
-      if (path === "/api/companions/c1/templates") return response({ templates: [{ templateId: "t1", maxChildren: 2, name: researcher.name, revision: researcher.revision }] });
-      if (path === "/api/companions/c1/replicas") return response({ replicas: [] });
-      if (path === "/api/templates/t1/revisions") { historyAttempts += 1; return historyAttempts === 1 ? response({ error: "History unavailable." }, 503) : response({ revisions: [{ ...researcher, createdAt: new Date().toISOString(), snapshotName: null }] }); }
-      throw new Error(`Unexpected ${path}`);
-    });
-    vi.stubGlobal("fetch", fetchMock);
-    const user = userEvent.setup();
-    render(<TeamPanel companion={companion} onOpenCompanion={vi.fn()} />);
-
-    await user.click(await screen.findByText("Profile settings"));
-    expect(await screen.findByText("History unavailable.")).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Retry history" }));
-    expect(await screen.findByText("Version 2 is the only saved version.")).toBeInTheDocument();
-    expect(historyAttempts).toBe(2);
-  });
-
-  it("syncs the editor and reloads history after restoring a profile", async () => {
-    const earlier = { ...researcher, name: "Archive researcher", instructions: "Review the archive", avatar: { shape: 2, color: 5, face: 3 }, revision: 1 };
-    let current = researcher;
-    let historyLoads = 0;
-    const fetchMock = vi.fn((input: RequestInfo | URL, options?: RequestInit) => {
-      const path = String(input);
-      if (path === "/api/templates") return response({ templates: [current] });
-      if (path === "/api/companions/c1/templates") return response({ templates: [{ templateId: "t1", maxChildren: 2, name: current.name, revision: current.revision }] });
-      if (path === "/api/companions/c1/replicas") return response({ replicas: [] });
-      if (path === "/api/templates/t1/revisions") { historyLoads += 1; return response({ revisions: [{ ...current, createdAt: new Date().toISOString(), snapshotName: null }, { ...earlier, createdAt: new Date().toISOString(), snapshotName: null }] }); }
-      if (path === "/api/templates/t1/rollback" && options?.method === "POST") { current = { ...earlier, revision: 3 }; return response({ id: "t1", revision: 3 }); }
-      throw new Error(`Unexpected ${path}`);
-    });
-    vi.stubGlobal("fetch", fetchMock);
-    const user = userEvent.setup();
-    render(<TeamPanel companion={companion} onOpenCompanion={vi.fn()} />);
-
-    await user.click(await screen.findByText("Profile settings"));
-    await user.click(await screen.findByRole("button", { name: "Restore" }));
-
-    expect(await screen.findByRole("textbox", { name: "Profile name" })).toHaveValue("Archive researcher");
-    expect(screen.getByRole("textbox", { name: "Profile role" })).toHaveValue("Review the archive");
-    expect(screen.getByRole("button", { name: "Shape 3" })).toHaveAttribute("aria-pressed", "true");
-    await waitFor(() => expect(historyLoads).toBe(2));
-  });
+  vi.stubGlobal("fetch", fetchMock);
+  render(<TeamPanel companion={companion} onOpenCompanion={vi.fn()} onOpenDraft={onOpenDraft}/>);
+  const user = userEvent.setup();
+  await screen.findByText(/does not have any specialists/);
+  await user.click(screen.getByRole("button", { name: "Add specialist" }));
+  await user.type(screen.getByRole("textbox", { name: "Specialist brief" }), "Prepare GitHub and Linear");
+  await user.click(screen.getByRole("button", { name: "Create specialist" }));
+  await waitFor(() => expect(onOpenDraft).toHaveBeenCalledWith("draft-1", "t1"));
+  expect(fetchMock).toHaveBeenCalledWith("/api/templates", expect.objectContaining({ method: "POST", body: expect.stringContaining('"draft":true') }));
+  expect(fetchMock.mock.calls.some(([, options]) => options?.method === "PUT")).toBe(false);
 });

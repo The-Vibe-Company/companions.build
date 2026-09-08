@@ -116,6 +116,9 @@ en complément des MCP fournisseurs qui donnent accès aux outils externes.
 
 ## 4. Créer et utiliser un Companion
 
+Le [contrat de comportement](companion-behavior.md) précise le rythme de conversation,
+l’autonomie et les limites des changements de configuration validés le 8 septembre 2026.
+
 L'utilisateur crée un Companion vierge ou part d'un template. Il lui donne un nom, une mission,
 des instructions et les outils nécessaires. Il peut installer des skills directement, sans
 devoir passer par une bibliothèque, un système de publication ou un catalogue Skills Hub.

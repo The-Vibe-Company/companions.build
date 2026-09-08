@@ -358,3 +358,16 @@ test('an execution admitted during preparation is checked again before the next 
   expect(effects).toBe(0);expect((await db`SELECT config_digest FROM companions WHERE id=${id}`)[0].config_digest).toBeNull();
  }finally{await lock.close();}
 });
+
+
+test('a local coordinator can spawn a specialist from a published Box snapshot',async()=>{
+ const id=await parent(owner,'local');
+ const template=await saveTemplate(owner,{name:'Prepared specialist'});
+ await db`UPDATE agent_templates SET snapshot_name='specialist-prepared',revision=2 WHERE id=${template.id}`;
+ await allowTemplate(owner,id,{templateId:template.id,maxChildren:2});
+ const command=crypto.randomUUID();
+ const child=await spawnChild(owner,id,null,command,{templateId:template.id,prompt:'Dis bonjour.'});
+ const [saved]=await db`SELECT provider,snapshot_name,template_revision,parent_id,box_id FROM companions WHERE id=${child.companionId}`;
+ expect(saved).toMatchObject({provider:'box',snapshot_name:'specialist-prepared',template_revision:2,parent_id:id,box_id:null});
+ expect(await spawnChild(owner,id,null,command,{templateId:template.id,prompt:'Dis bonjour.'})).toEqual(child);
+});

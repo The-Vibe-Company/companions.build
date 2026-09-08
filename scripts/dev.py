@@ -20,7 +20,7 @@ process_identity = subprocess.check_output(["ps", "-p", str(os.getpid()), "-o", 
 state = {"status": "starting", "pid": os.getpid(), "identity": process_identity, "services": {}}
 env = os.environ.copy()
 launcher_keys = {
-    "WEB_PORT", "API_PORT", "DATABASE_URL", "COMPANIONS_DATA_DIR", "AGENT_TEST_MODE",
+    "WEB_PORT", "API_PORT", "DATABASE_URL", "COMPANIONS_DATA_DIR", "AGENT_TEST_MODE", "LOCAL_RUNTIME",
     "S3_ENDPOINT", "S3_ACCESS_KEY_ID", "S3_SECRET_ACCESS_KEY", "S3_BUCKET_FILES", "S3_REGION",
     "SMTP_HOST", "SMTP_PORT", "SMTP_FROM", "SMTP_SECURE", "SMTP_USER", "SMTP_PASSWORD",
 }
@@ -37,9 +37,10 @@ env.setdefault("API_PORT", str(base + 1))
 env.setdefault("APP_URL", env.get("PORTLESS_URL", f"http://127.0.0.1:{env['WEB_PORT']}"))
 env.setdefault("BETTER_AUTH_URL", env["APP_URL"])
 env.setdefault("AGENT_TEST_MODE", "0" if read_json(ROOT / ".local/dev-options.json").get("liveModel", False) else "1")
-if env["AGENT_TEST_MODE"] != "1":
-    for key, value in runtime_environment(ROOT).items():
+for key, value in runtime_environment(ROOT).items():
+    if env["AGENT_TEST_MODE"] != "1" or key in {"BOX_API_KEY", "BOX_TEMPLATE", "LOCAL_RUNTIME"}:
         env.setdefault(key, value)
+env.setdefault("LOCAL_RUNTIME", "0")
 env.setdefault("COMPANIONS_DATA_DIR", str(ROOT / ".local"))
 data_dir = Path(env["COMPANIONS_DATA_DIR"])
 if not data_dir.is_absolute():

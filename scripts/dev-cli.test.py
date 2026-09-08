@@ -143,13 +143,32 @@ time.sleep(60)
                 self.assertNotIn('ZAI_API_KEY', env)
                 self.assertEqual(env['GOOGLE_API_KEY'], 'shell-key')
 
+    def test_local_runtime_is_explicitly_opted_in(self):
+        with patch.object(cli, 'runtime_environment', return_value={}):
+            self.assertEqual(cli.local_env(live=False)['LOCAL_RUNTIME'], '0')
+        with patch.object(cli, 'runtime_environment', return_value={'LOCAL_RUNTIME': '1'}):
+            self.assertEqual(cli.local_env(live=False)['LOCAL_RUNTIME'], '1')
+
+    def test_scripted_model_keeps_box_runtime_without_model_credentials(self):
+        with patch.object(cli, 'runtime_environment', return_value={
+            'BOX_API_KEY': 'test-box-key', 'BOX_TEMPLATE': 'box:test-base',
+            'ZAI_API_KEY': 'test-model-key', 'MODEL_PROVIDER': 'zai',
+        }):
+            env = cli.local_env(live=False)
+        self.assertEqual(env['BOX_API_KEY'], 'test-box-key')
+        self.assertEqual(env['BOX_TEMPLATE'], 'box:test-base')
+        self.assertEqual(env['LOCAL_RUNTIME'], '0')
+        self.assertEqual(env['AGENT_TEST_MODE'], '1')
+        self.assertNotIn('ZAI_API_KEY', env)
+        self.assertNotIn('MODEL_PROVIDER', env)
+
     def test_primary_checkout_uses_git_common_directory(self):
         with patch.object(dev_environment.subprocess, 'run', return_value=subprocess.CompletedProcess([], 0, '/repo/main/.git\n')):
             self.assertEqual(dev_environment.primary_checkout(Path('/repo/worktree')), Path('/repo/main'))
 
     def test_local_environment_does_not_inherit_hosted_configuration(self):
         with patch.dict(os.environ, {'DATABASE_URL': 'postgres://remote', 'BOX_API_KEY': 'secret',
-                                    'AGENT_TEST_MODE': '0', 'PORTLESS_FUNNEL': '1', 'PATH': '/bin'}, clear=True):
+                                    'AGENT_TEST_MODE': '0', 'PORTLESS_FUNNEL': '1', 'PATH': '/bin'}, clear=True), patch.object(cli, 'runtime_environment', return_value={}):
             env = cli.local_env(live=False)
         self.assertNotIn('DATABASE_URL', env)
         self.assertNotIn('BOX_API_KEY', env)

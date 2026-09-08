@@ -94,6 +94,7 @@ export interface CompanionDetail {
 
 export interface AppConfig {
   localAvailable: boolean;
+  defaultProvider?: "local" | "box";
   boxAvailable: boolean;
   model: string;
   models?: Array<{ id: string; name: string }>;

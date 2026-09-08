@@ -64,7 +64,7 @@ registerControl({
  companion_create:async(context,raw)=>{
   if(context.isChild)return {error:'Ask your parent to create Companions.'};
   const input=z.object({name:z.string().trim().min(1).max(80),instructions:z.string().max(20_000).optional(),templateId:uuid.optional(),templateRevision:z.number().int().positive().optional()}).parse(raw);
-  return createCompanion(context.ownerId,{...input,clientCreationId:context.commandId,prepare:true,provider:config.boxKey&&config.boxTemplate?'box':'local'});
+  return createCompanion(context.ownerId,{...input,clientCreationId:context.commandId,prepare:true,provider:config.defaultProvider});
  },
  plugin_catalog:async()=>({plugins:listPluginCatalog()}),
  plugin_connect:async(context,raw)=>{const input=z.object({serverId:z.string(),label:z.string().max(80).default('')}).parse(raw);return startPluginConnection(context.ownerId,input.serverId,input.label);},

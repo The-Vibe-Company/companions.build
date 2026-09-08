@@ -234,8 +234,7 @@ describe("first Companion flow", () => {
     expect(await screen.findByRole("heading", { name: "Create your first Companion" })).toBeInTheDocument();
     await user.type(screen.getByLabelText("Name"), "Ada");
     await user.type(screen.getByLabelText("Role"), "Research customer questions.");
-    await user.click(screen.getByText(/^Advanced:/));
-    await user.click(screen.getByText("Persistent cloud computer"));
+    expect(screen.queryByRole("radio", { name: /Local/ })).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Create companion" }));
 
     expect(await screen.findByRole("heading", { name: "A little less on your mind." })).toBeInTheDocument();
@@ -830,12 +829,11 @@ describe("first Companion flow", () => {
     });
     vi.stubGlobal("fetch", fetchMock);
     const user = userEvent.setup(); render(<App />);
-    await user.click(await screen.findByText(/^Advanced:/));
+    await user.click(await screen.findByText("Starting profile"));
     await user.selectOptions(await screen.findByLabelText("Start from"), "template-1");
     expect(screen.getByLabelText("Name")).toHaveValue("Research lead");
     expect(screen.getByLabelText("Role")).toHaveValue("Investigate the market");
-    expect(screen.getByRole("radio", { name: /Local/ })).toBeDisabled();
-    expect(screen.getByRole("radio", { name: /Persistent cloud computer/ })).toBeChecked();
+    expect(screen.queryByRole("radio", { name: /Local/ })).not.toBeInTheDocument();
     await user.clear(screen.getByLabelText("Name")); await user.type(screen.getByLabelText("Name"), "Client researcher");
     await user.click(screen.getByRole("button", { name: "Create companion" }));
     await waitFor(() => expect(body).not.toBeNull());
@@ -1007,4 +1005,27 @@ it("keeps creation on screen until selected accounts finish saving", async () =>
   expect(await screen.findByRole("textbox",{name:"Message Ada"})).toBeInTheDocument();
   expect(window.location.pathname).toBe("/companions/ada");
   vi.unstubAllGlobals();
+});
+
+
+it('keeps a resumed streaming response below the prior conversation even with an older pending question',async()=>{
+ window.history.replaceState({},'', '/companions/ada');
+ const ready={...companion,status:'ready'};
+ vi.stubGlobal('fetch',vi.fn((input:RequestInfo|URL)=>{
+  const path=String(input);
+  if(path==='/api/me')return response(me);
+  if(path==='/api/config')return response(config);
+  if(path==='/api/companions')return response({companions:[ready]});
+  if(path==='/api/companions/ada')return response({companion:ready,
+   messages:[{id:'old-answer',role:'assistant',content:'Earlier answer',createdAt:'2026-09-08T10:01:00.000Z',runId:'earlier'}, {id:'new-message',role:'user',content:'Continue please',createdAt:'2026-09-08T10:02:00.000Z',runId:'resumed'}],
+   runs:[{id:'resumed',status:'needs_input',createdAt:'2026-09-08T10:00:00.000Z',previewText:'New streaming response',thinkingText:'Current reasoning'}],
+   questions:[{id:'pending',runId:'resumed',question:'Which repository?',options:[],answer:null,createdAt:'2026-09-08T10:00:30.000Z'}],activity:[]});
+  return response({proposals:[],tasks:[],files:[],templates:[],routines:[],triggers:[]});
+ }));
+ render(<App/>);
+ const preview=await screen.findByText('New streaming response');
+ const earlier=screen.getByText('Earlier answer');
+ expect(earlier.compareDocumentPosition(preview)&Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+ expect(screen.getByText('Continue please').compareDocumentPosition(preview)&Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+ expect(earlier.compareDocumentPosition(screen.getByText('Current reasoning'))&Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
 });

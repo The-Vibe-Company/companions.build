@@ -62,7 +62,7 @@ async function openDraftInTransaction(ownerId:string,templateId:string,commandId
  const previous=await readSpecialistDraft(ownerId,templateId,tx);if(previous)return previous;
  const companionId=crypto.randomUUID();
  await tx`INSERT INTO companions(id,owner_id,name,instructions,provider,create_key,agent_secret,avatar,model_id,snapshot_name,specialist_draft_id,prepare_requested,client_creation_id)
-  VALUES(${companionId},${ownerId},${template.name},${specialistConfigurationInstructions},${config.boxKey&&config.boxTemplate?'box':'local'},${crypto.randomUUID()},${encrypt(randomBytes(32).toString('hex'))},${template.avatar},${template.model_id},${template.snapshot_name},${templateId},false,${commandId})`;
+  VALUES(${companionId},${ownerId},${template.name},${specialistConfigurationInstructions},${template.snapshot_name?'box':config.defaultProvider},${crypto.randomUUID()},${encrypt(randomBytes(32).toString('hex'))},${template.avatar},${template.model_id},${template.snapshot_name},${templateId},false,${commandId})`;
  await tx`INSERT INTO companion_plugins(companion_id,account_id)
   SELECT ${companionId},a.id FROM specialist_connections s JOIN plugin_accounts a ON a.id=s.account_id AND a.owner_id=${ownerId}
   WHERE s.template_id=${templateId} ON CONFLICT DO NOTHING`;

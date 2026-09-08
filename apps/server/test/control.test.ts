@@ -86,3 +86,22 @@ test('agent control configures and tests a routine without enabling it, then rej
  expect(await invoke('routine_test',{id:routine.id})).toEqual({error:'Routine not found.'});
  expect(await db`SELECT id FROM runs WHERE companion_id=${companion.id} AND source='routine'`).toHaveLength(1);
 });
+
+
+test('control returns actionable lifecycle errors and correlation IDs without leaking unexpected payloads',async()=>{
+ const c=await createCompanion(owner,{name:'Error control',provider:'local'});
+ const runId=await acceptMessage(owner,c.id,crypto.randomUUID(),'Spawn a specialist');
+ await db`UPDATE runs SET status='running',dispatched=true,started_at=now() WHERE id=${runId}`;
+ const command={id:crypto.randomUUID(),runId,operation:'spawn',input:{templateId:crypto.randomUUID(),prompt:'Hello'}};
+ const rejected=await applyControl(c.id,command);
+ expect(rejected).toEqual({error:'Template is not authorized or has not been published.',code:'template_not_authorized',commandId:command.id});
+ expect(await applyControl(c.id,command)).toEqual(rejected);
+ const original=controlHandlers.identity;
+ try{
+  registerControl({identity:async()=>{throw Error('synthetic-sensitive-provider-payload');}});
+  const id=crypto.randomUUID();
+  const result=await applyControl(c.id,{id,runId,operation:'identity',input:{}});
+  expect(result).toMatchObject({code:'operation_failed',commandId:id});
+  expect(JSON.stringify(result)).not.toContain('synthetic-sensitive-provider-payload');
+ }finally{controlHandlers.identity=original;}
+});

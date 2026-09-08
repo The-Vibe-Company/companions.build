@@ -176,3 +176,18 @@ A development distribution can use the same mechanism:
 `python3 scripts/bun.py scripts/prepare-box-template.ts <unique-release> --archived`.
 The command builds first, verifies every file on an independent fork, archives both
 owned Boxes, and prints the `BOX_TEMPLATE=box:<id>` setting for the worktree `.env`.
+
+
+### Box by default; opt-in local testing
+
+The product does not expose a local/cloud computer picker. New companions and
+specialist configuration environments use Box by default. Existing local companions
+remain readable and runnable; a prepared specialist always launches a Box child,
+even when its coordinator is local.
+
+For fast Docker-backed local testing, set `LOCAL_RUNTIME=1` in the worktree `.env`
+or shell and restart with `./dev restart`. Remove it or set `LOCAL_RUNTIME=0` to
+return to Box. This setting is independent of model selection: `--scripted` controls
+the test model, while `--live` uses configured model credentials. Live Box development
+still requires `BOX_API_KEY` and `BOX_TEMPLATE`. Deterministic verification explicitly
+enables the local runtime in its isolated test environment.

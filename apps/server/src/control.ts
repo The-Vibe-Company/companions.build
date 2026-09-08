@@ -1,5 +1,6 @@
 import type {RunExecution} from './executor';
 import {ExecutionStopped} from './machines';
+import {LifecycleConflict} from './lifecycle-errors';
 import {requireHostedActivation} from './activation';
 import {controlHelp} from './control-help';
 import {availableModels,validateModel} from './models';
@@ -33,7 +34,12 @@ export async function applyControl(companionId:string,raw:unknown,execution?:Run
     if(!handle) result={error:'This operation is not available.'};
     else if(actor.parent_id&&['spawn','adopt_template','template_save','template_rollback','software_prepare','software_status'].includes(command.operation)) result={error:'Ask your parent to manage templates and additional agents.'};
     else result=await handle({ownerId:actor.owner_id,companionId,runId:command.runId,commandId:command.id,isChild:!!actor.parent_id},command.input);
-  }catch(error){ if(error instanceof ExecutionStopped)throw error;result={error:error instanceof z.ZodError?'The operation input is invalid.':'The operation could not be completed. Inspect its state before retrying.'}; }
+  }catch(error){
+    if(error instanceof ExecutionStopped)throw error;
+    result=error instanceof LifecycleConflict
+      ?{error:error.message,code:error.code,commandId:command.id}
+      :{error:error instanceof z.ZodError?'The operation input is invalid.':'The operation could not be completed. Inspect its state before retrying.',code:error instanceof z.ZodError?'invalid_input':'operation_failed',commandId:command.id};
+  }
   if(JSON.stringify(result).length>90_000) result={error:'Result too large. Request a narrower result.'};
   const persistResult=(sql:any)=>sql`UPDATE control_commands SET status='done',result=null,result_secret=${encrypt(JSON.stringify(result))},finished_at=now() WHERE id=${command.id}`;
   if(execution)await execution.checkpoint(persistResult,false);else await persistResult(db);

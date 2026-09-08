@@ -67,7 +67,7 @@ class Verifier:
         self.storage_name = f"companions-verify-minio-{self.run_id}"
         self.verification_label = f"companions.build.verification={self.run_id}"
         self.env = {key: value for key, value in os.environ.items() if not private_environment(key)}
-        self.env.update({"AGENT_TEST_MODE": "1", "COMPANIONS_VERIFY_RUN": self.run_id})
+        self.env.update({"AGENT_TEST_MODE": "1", "LOCAL_RUNTIME": "1", "COMPANIONS_VERIFY_RUN": self.run_id})
         self.steps = []
         self.started = time.monotonic()
         self.status = "failed"

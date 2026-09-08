@@ -110,6 +110,7 @@ it("keeps edits and their generation when an older idle refresh resolves", async
   try {
     render(<SpecialistDraftPanel templateId="template-1" companionId="draft-1" onClose={vi.fn()}/>);
     const instructions = await screen.findByRole("textbox", { name: "Instructions" });
+    await waitFor(() => expect(interval.mock.calls.some(([, delay]) => delay === 8_000)).toBe(true));
     const refresh = interval.mock.calls.find(([, delay]) => delay === 8_000)?.[0];
     expect(typeof refresh).toBe("function");
     await act(async () => { (refresh as () => void)(); });
@@ -154,6 +155,7 @@ it('shows only the next card proposed by the specialist, not a prebuilt onboardi
     expect(screen.queryByRole('heading', { name: 'Apps & accounts' })).not.toBeInTheDocument();
     expect(screen.queryByRole('textbox', { name: 'Test brief' })).not.toBeInTheDocument();
     draft = { ...draft, nextStep: { id: 'card-1', kind: 'connections', message: 'I need GitHub to prepare your repository.', providers: ['github'] } };
+    await waitFor(() => expect(interval.mock.calls.some(([, delay]) => delay === 8_000)).toBe(true));
     const refresh = interval.mock.calls.find(([, delay]) => delay === 8_000)?.[0];
     await act(async () => { (refresh as () => void)(); });
     expect(await screen.findByText('I need GitHub to prepare your repository.')).toBeInTheDocument();

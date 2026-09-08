@@ -243,14 +243,16 @@ function Chat({ detail, onRefresh, onUnauthorized, onOpenCompanion, specialistTe
       ? activeRun.previewText
       : null;
 
+  const timestamp = (value: string | undefined) => value && Number.isFinite(Date.parse(value)) ? Date.parse(value) : 0;
+  const latestConversationAt = Math.max(0,...detail.messages.map(message=>timestamp(message.createdAt)),...specialistHistory.map(item=>timestamp(item.createdAt)),...(detail.questions??[]).filter(question=>question.answer!=null).map(question=>timestamp(question.createdAt)));
+  const pendingQuestion = activeRun ? (detail.questions??[]).find(question=>question.runId===activeRun.id && question.answer==null) : undefined;
+  // A resumed turn may retain an older question/run timestamp; new output stays after prior chat.
+  const streamingAt = Math.max(latestConversationAt+2,timestamp(activeRun?.createdAt)+2,timestamp(pendingQuestion?.createdAt)-1);
   const timeline = [
     ...detail.messages.map(message => ({ id: message.id, createdAt: message.createdAt, message, content: null as ReactNode })),
     ...specialistHistory.map(item => ({ ...item, message: null })),
-    ...detail.runs.filter(run => run.thinkingText && run.lane !== 'background').map(run => ({ id: 'thinking-' + run.id, createdAt: run.createdAt, message: null, content: <details className="thinking-panel" open={isActiveRun(run.status)}><summary>{isActiveRun(run.status) ? 'Thinking' : 'Thought process'}</summary><div><MessageResponse>{run.thinkingText!}</MessageResponse></div></details> })),
-    ...(activePreview && activeRun ? [{ id: 'preview-' + activeRun.id, message: null, createdAt: (() => {
-      const question = (detail.questions ?? []).find(item => item.runId === activeRun.id && item.answer == null);
-      return question?.createdAt ? new Date(new Date(question.createdAt).getTime() - 1).toISOString() : new Date(new Date(detail.messages.at(-1)?.createdAt ?? activeRun.createdAt).getTime() + 1).toISOString();
-    })(), content: <Message from="assistant" className="thread-message message-preview">
+    ...detail.runs.filter(run => run.thinkingText && run.lane !== 'background').map(run => ({ id: 'thinking-' + run.id, createdAt: isActiveRun(run.status) ? new Date(streamingAt-1).toISOString() : run.createdAt, message: null, content: <details className="thinking-panel" open={isActiveRun(run.status)}><summary>{isActiveRun(run.status) ? 'Thinking' : 'Thought process'}</summary><div><MessageResponse>{run.thinkingText!}</MessageResponse></div></details> })),
+    ...(activePreview && activeRun ? [{ id: 'preview-' + activeRun.id, message: null, createdAt: new Date(streamingAt).toISOString(), content: <Message from="assistant" className="thread-message message-preview">
               <div className="thread-avatar" aria-hidden="true"><CompanionAvatar name={detail.companion.name} avatar={detail.companion.avatar} size={32} /></div>
               <div className="thread-message-body"><div className="message-meta"><span className="message-author">{detail.companion.name}</span></div>
               <MessageContent className="thread-content"><MessageResponse>{activePreview}</MessageResponse></MessageContent></div>
@@ -259,7 +261,7 @@ function Chat({ detail, onRefresh, onUnauthorized, onOpenCompanion, specialistTe
       {question.contextText && !detail.messages.some(message => message.content === question.contextText) && <div className="question-context"><MessageResponse>{question.contextText}</MessageResponse></div>}
       <Question companionId={detail.companion.id} question={question} onAnswered={onRefresh}/>
     </> })),
-  ].sort((a,b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id));
+  ].sort((a,b) => timestamp(a.createdAt)-timestamp(b.createdAt) || a.id.localeCompare(b.id));
 
   async function send(event: FormEvent) {
     event.preventDefault();

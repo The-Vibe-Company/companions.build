@@ -4,7 +4,8 @@ import { db } from './store';
 import { avatarSchema } from './control';
 import { queueTemplateSkillExport } from './delivery-skills';
 import {requireSoftwareReady,SoftwareReadinessError} from './software-readiness';
-export class LifecycleConflict extends Error {}
+import {LifecycleConflict} from './lifecycle-errors';
+export {LifecycleConflict} from './lifecycle-errors';
 export const templateInput=z.object({name:z.string().trim().min(1).max(80),instructions:z.string().max(20_000).default(''),avatar:avatarSchema.default({shape:0,color:0,face:0}),modelId:z.string().min(1).max(200).nullable().optional()});
 export async function listTemplates(ownerId:string,sql:any=db) {
  return sql`SELECT id,name,instructions,avatar,model_id AS "modelId",revision,source_companion_id AS "sourceCompanionId",software_build_id AS "softwareBuildId",software_result_id AS "softwareResultId",snapshot_name IS NOT NULL AS "hasSnapshot",has_published AS "hasPublished",(SELECT companion_id FROM specialist_drafts WHERE template_id=agent_templates.id) AS "draftCompanionId" FROM agent_templates WHERE owner_id=${ownerId} AND deleted_at IS NULL ORDER BY created_at,id`;

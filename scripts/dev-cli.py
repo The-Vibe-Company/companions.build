@@ -126,11 +126,13 @@ def local_env(live=None):
     result = {key: value for key, value in os.environ.items() if key in
               {'PATH', 'HOME', 'USER', 'LOGNAME', 'SHELL', 'TMPDIR', 'LANG', 'TERM'}
               or key.startswith(('LC_', 'DOCKER_', 'HERDR_'))}
+    runtime = runtime_environment(ROOT)
+    result.update({key: value for key, value in runtime.items() if key in {"BOX_API_KEY", "BOX_TEMPLATE"}})
     result.update(COMPANIONS_DEV_LOCAL='1', AGENT_TEST_MODE='1', BILLING_TEST_MODE='1',
-                  LOCAL_RUNTIME='1', EMAIL_PROVIDER='smtp', NODE_ENV='development',
+                  LOCAL_RUNTIME=runtime.get('LOCAL_RUNTIME', '0'), EMAIL_PROVIDER='smtp', NODE_ENV='development',
                   COMPANIONS_DATA_DIR=str(LOCAL), COMPANIONS_DEV_WATCH=os.environ.get('COMPANIONS_DEV_WATCH', '1'))
     if live:
-        result.update(runtime_environment(ROOT))
+        result.update(runtime)
         result.update(AGENT_TEST_MODE='0')
         result.setdefault('MODEL_PROVIDER', 'google')
     return result

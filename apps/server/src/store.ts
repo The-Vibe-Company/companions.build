@@ -69,7 +69,8 @@ export async function migrateForService(sql = db) {
 }
 export const companionColumns = `id,name,instructions,avatar,model_id AS "modelId",provider,status,error,desktop_taken AS "desktopTaken",desktop_paused_at AS "desktopPausedAt",prepare_requested AS "prepareRequested",ready_at AS "readyAt",parent_id AS "parentId",template_id AS "templateId",template_revision AS "templateRevision",software_build_id AS "softwareBuildId",software_result_id AS "softwareResultId",retired_at AS "retiredAt",temporary,box_id AS "boxId",created_at AS "createdAt"`;
 export async function listCompanions(ownerId: string) { return db.unsafe(`SELECT ${companionColumns} FROM companions WHERE owner_id=$1 AND retired_at IS NULL AND NOT temporary AND specialist_draft_id IS NULL ORDER BY created_at,id`, [ownerId]); }
-export async function createCompanion(ownerId: string, input: { name: string; instructions?: string; provider: "local" | "box"; prepare?:boolean; avatar?: {shape:number;color:number;face:number}; templateId?:string; templateRevision?:number; clientCreationId?:string }) {
+export async function createCompanion(ownerId: string, input: { name: string; instructions?: string; provider?: "local" | "box"; prepare?:boolean; avatar?: {shape:number;color:number;face:number}; templateId?:string; templateRevision?:number; clientCreationId?:string }) {
+  input={...input,provider:input.provider??config.defaultProvider};
   const fingerprint=input.clientCreationId?createHash("sha256").update(JSON.stringify({name:input.name,instructions:input.instructions??null,provider:input.provider,prepare:input.prepare??false,avatar:input.avatar??null,templateId:input.templateId??null,templateRevision:input.templateRevision??null})).digest("hex"):null;
   return db.begin(async sql => {
     if(input.clientCreationId){
@@ -79,6 +80,7 @@ export async function createCompanion(ownerId: string, input: { name: string; in
         return (await sql.unsafe(`SELECT ${companionColumns} FROM companions WHERE owner_id=$1 AND client_creation_id=$2`,[ownerId,input.clientCreationId]))[0];
       }
     }
+    if(input.provider==="local"&&!config.localAvailable)throw new Conflict("Local runtime is disabled. Set LOCAL_RUNTIME=1 for local testing.");
     let template:any;
     if(input.templateId){
       [template]=await sql`SELECT r.* FROM template_revisions r JOIN agent_templates t ON t.id=r.template_id AND t.owner_id=r.owner_id

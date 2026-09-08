@@ -217,7 +217,6 @@ describe("first Companion flow", () => {
       const path = String(input);
       if (path === "/api/plugins") return response({catalog:[],accounts:[]});
       if (path === "/api/templates") return response({templates:[]});
-      if (path === "/api/mail/account") return response({configured:false,alias:null,domain:"mail.companions.build",quota:{used:0,limit:50,resetsAt:"2026-09-08T00:00:00Z"}});
       if (path === "/api/me") return response(me);
       if (path === "/api/config") return response(config);
       if (path === "/api/companions" && options?.method === "POST") {
@@ -267,7 +266,6 @@ describe("first Companion flow", () => {
     const fetchMock=vi.fn((input:RequestInfo|URL,options?:RequestInit)=>{
       const path=String(input);
       if (path === "/api/plugins") return response({catalog:[],accounts:[]});
-      if (path === "/api/mail/account") return response({configured:false,alias:null,domain:"mail.companions.build",quota:{used:0,limit:50,resetsAt:"2026-09-08T00:00:00Z"}});
       if(path==="/api/me")return response(me);
       if(path==="/api/config")return response(config);
       if(path==="/api/templates")return response({templates:[]});
@@ -294,7 +292,6 @@ describe("first Companion flow", () => {
     const fetchMock = vi.fn((input: RequestInfo | URL) => {
       const path = String(input);
       if (path === "/api/plugins") return response({catalog:[],accounts:[]});
-      if (path === "/api/mail/account") return response({configured:false,alias:null,domain:"mail.companions.build",quota:{used:0,limit:50,resetsAt:"2026-09-08T00:00:00Z"}});
       if (path === "/api/templates") return response({templates:[]});
       if (path === "/api/me") return response(me);
       if (path === "/api/config" && unavailable) return Promise.reject(new Error("Service unavailable"));
@@ -823,7 +820,6 @@ describe("first Companion flow", () => {
     const fetchMock = vi.fn((input: RequestInfo | URL, options?: RequestInit) => {
       const path = String(input);
       if (path === "/api/plugins") return response({catalog:[],accounts:[]});
-      if (path === "/api/mail/account") return response({configured:false,alias:null,domain:"mail.companions.build",quota:{used:0,limit:50,resetsAt:"2026-09-08T00:00:00Z"}});
       if (path === "/api/me") return response(me);
       if (path === "/api/config") return response(config);
       if (path === "/api/templates") return response({ templates: [template] });
@@ -990,7 +986,6 @@ it("keeps creation on screen until selected accounts finish saving", async () =>
     if(path==="/api/config")return response(config);
     if(path==="/api/templates")return response({templates:[]});
     if(path==="/api/plugins")return response({catalog:[],accounts:[account]});
-    if(path==="/api/mail/account")return response({configured:false,alias:null,domain:"mail.companions.build",quota:{used:0,limit:50,resetsAt:"2026-09-08T00:00:00Z"}});
     if(path==="/api/companions"&&options?.method==="POST"){created=true;return response({companion});}
     if(path==="/api/companions")return response({companions:created?[companion]:[]});
     if(path==="/api/companions/ada")return response({companion,messages:[],runs:[],activity:[]});

@@ -1,7 +1,7 @@
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { api, ApiError, mailApi, workspaceApi, type AgentTemplate, type Companion, type PluginAccount } from "@/api";
+import { api, ApiError, workspaceApi, type AgentTemplate, type Companion, type PluginAccount } from "@/api";
 import { CreateCompanion } from "./CreateCompanion";
 
 const companion: Companion = {
@@ -20,7 +20,6 @@ const templates: AgentTemplate[] = [
 const config = { localAvailable: true, boxAvailable: true, model: "test" };
 
 function mockSetup() {
-  vi.spyOn(mailApi, "account").mockResolvedValue({ configured: false, alias: null, domain: "mail.companions.build", quota: { used: 0, limit: 50, resetsAt: "2026-09-08T00:00:00Z" } });
   vi.spyOn(workspaceApi, "templates").mockResolvedValue({ templates });
   vi.spyOn(workspaceApi, "plugins").mockResolvedValue({
     accounts,
@@ -41,22 +40,6 @@ beforeEach(() => { window.sessionStorage.clear(); mockSetup(); });
 afterEach(() => vi.restoreAllMocks());
 
 describe("CreateCompanion", () => {
-  it("claims the immutable account alias and Companion mailbox before finishing creation", async () => {
-    vi.mocked(mailApi.account).mockResolvedValue({ configured: true, alias: null, domain: "mail.companions.build", quota: { used: 0, limit: 50, resetsAt: "2026-09-08T00:00:00Z" } });
-    const alias = vi.spyOn(mailApi, "setAlias").mockResolvedValue({ configured: true, alias: "stan", domain: "mail.companions.build", quota: { used: 0, limit: 50, resetsAt: "2026-09-08T00:00:00Z" } });
-    const create = vi.spyOn(api, "createCompanion").mockResolvedValue({ companion });
-    const inbox = vi.spyOn(mailApi, "createMailbox").mockResolvedValue({ configured: true, mailbox: { address: "stan.ada@mail.companions.build", localName: "ada" }, senders: [], messages: [], quota: { used: 0, limit: 50, resetsAt: "2026-09-08T00:00:00Z" } });
-    const user = userEvent.setup();
-    render(<CreateCompanion config={config} onCreated={vi.fn()} />);
-    await enterBasics(user);
-    await user.type(screen.getByLabelText("Your account alias"), "stan");
-    expect(screen.getByLabelText("Companion email name")).toHaveValue("ada");
-    await user.click(screen.getByRole("button", { name: "Create companion" }));
-    await waitFor(() => expect(inbox).toHaveBeenCalledWith("companion-1", "ada"));
-    expect(alias.mock.invocationCallOrder[0]).toBeLessThan(create.mock.invocationCallOrder[0]);
-    expect(create.mock.invocationCallOrder[0]).toBeLessThan(inbox.mock.invocationCallOrder[0]);
-  });
-
   it("shows live identity controls and groups real account and specialist choices", async () => {
     vi.spyOn(api, "createCompanion");
     const user = userEvent.setup();
@@ -227,7 +210,6 @@ describe("CreateCompanion", () => {
     vi.restoreAllMocks();
     vi.spyOn(workspaceApi, "templates").mockRejectedValueOnce(new Error("Profiles are unavailable.")).mockResolvedValue({ templates });
     vi.spyOn(workspaceApi, "plugins").mockResolvedValue({ accounts: [], catalog: [] });
-    vi.spyOn(mailApi, "account").mockResolvedValue({ configured: false, alias: null, domain: "mail.companions.build", quota: { used: 0, limit: 50, resetsAt: "2026-09-08T00:00:00Z" } });
     const user = userEvent.setup();
     render(<CreateCompanion config={config} onCreated={vi.fn()}/>);
 

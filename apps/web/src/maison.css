@@ -141,7 +141,6 @@ button,a,input,textarea,select{transition:background-color 160ms ease,color 160m
 .nav-live-dot { width:6px; height:6px; border-radius:50%; background:oklch(.62 .15 145); }
 .workspace-body[hidden] { display:none; }
 .companion-page { flex:1; min-height:0; overflow:auto; overscroll-behavior:contain; }
-.companion-mail-page { display:flex; overflow:hidden; background:var(--card); }
 .companion-page-inner { max-width:760px; margin:0 auto; padding:48px 36px 72px; }
 .section-intro { margin-bottom:32px; }
 .section-intro h2 { font-size:1.75rem; line-height:1.2; letter-spacing:-.035em; font-weight:570; }

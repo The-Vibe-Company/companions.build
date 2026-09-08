@@ -4,7 +4,6 @@ import { api, workspaceApi, type AccountSpecialistLimits, type AccountUser, type
 import { AvatarPicker, CompanionAvatar, DEFAULT_AVATAR, type CompanionAvatarValue } from "@/components/CompanionAvatar";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { MailAccountSettings } from "@/components/MailPanel";
 
 const errorText = (error: unknown) => error instanceof Error ? error.message : "Something went wrong.";
 const deliveryReady = (item: DeliverySent | DeliveryReceived) => item.skillsStatus === "ready" && item.softwareStatus === "ready";
@@ -82,7 +81,6 @@ export function AccountProduct({ user, onSignOut }: { user: AccountUser; onSignO
       {billing ? <div className="plan-line"><div><strong>{billing.mode === "beta" ? "Private beta" : billing.mode === "test" ? "Development access" : billing.plan === "subscription" ? "companions.build" : "No subscription"}</strong><small>{billing.mode === "beta" ? (billing.active ? "No subscription required for access." : "This account is not on the private beta list.") : billing.status ? `${billing.status.replaceAll("_", " ")} · subscription + usage` : billing.mode === "test" ? "No live subscription" : "Subscription + usage appear here."}</small></div>{billing.portalAvailable ? <Button variant="outline" onClick={() => void billingAction("portal")} disabled={!!busy}>{busy === "portal" ? <LoaderCircle className="spin" /> : <ArrowUpRight />}Manage</Button> : billing.mode !== "beta" && billing.configured && !billing.active ? <Button onClick={() => void billingAction("checkout")} disabled={!!busy}>{busy === "checkout" ? <LoaderCircle className="spin" /> : <ArrowUpRight />}Subscribe</Button> : null}</div> : <div className="skeleton skeleton--row" />}
       {!!visibleUsage.length && <div className="usage-lines">{visibleUsage.map(item => {const view=usagePresentation(item);return <span key={`${item.category}-${item.unit}`} title={view.title}><strong>{view.value}</strong><small>{view.label}</small></span>;})}</div>}
     </section>
-    <MailAccountSettings />
     <section className="product-section" aria-labelledby="deliveries-title">
       <div className="section-heading"><div><PackageOpen /><span><h2 id="deliveries-title">Deliveries</h2><p>Companions shared with clients.</p></span></div></div>
       {received.filter(item => item.status === "pending").map(item => <ReceivedDelivery key={item.id} item={item} busy={busy === item.id} onAccept={accept} />)}

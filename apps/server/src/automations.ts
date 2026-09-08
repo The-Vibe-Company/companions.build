@@ -6,31 +6,14 @@ import type { SQL, ReservedSQL } from "bun";
 
 type Database = SQL | ReservedSQL;
 export class AutomationConflict extends Error {}
-const routineBase = z.object({
+export const routineInput = z.object({
   name: z.string().trim().min(1).max(100), prompt: z.string().trim().min(1).max(50_000),
+  cron: z.string().trim().min(1).max(100), timezone: z.string().trim().min(1).max(100),
   enabled: z.boolean().default(true),
-});
-export const routineInput = z.union([
-  routineBase.extend({
-    cron: z.string().trim().min(1).max(100), timezone: z.string().trim().min(1).max(100),
-    runAt: z.never().optional(),
-  }).strict(),
-  routineBase.extend({
-    runAt: z.iso.datetime({ offset: true }), cron: z.never().optional(), timezone: z.never().optional(),
-  }).strict(),
-]);
+}).strict();
 // Patch omission must preserve the stored enabled state; creation defaults are not patch values.
-export const routinePatchInput = z.object({
-  name: z.string().trim().min(1).max(100).optional(), prompt: z.string().trim().min(1).max(50_000).optional(),
-  cron: z.string().trim().min(1).max(100).optional(), timezone: z.string().trim().min(1).max(100).optional(),
-  runAt: z.iso.datetime({ offset: true }).optional(), enabled: z.boolean().optional(),
-}).strict().superRefine((value,context)=>{
-  if (value.runAt !== undefined && (value.cron !== undefined || value.timezone !== undefined)) {
-    context.addIssue({code:'custom',message:'Choose runAt or cron and timezone, not both.'});
-  }
-});
+export const routinePatchInput = routineInput.partial().extend({enabled: z.boolean().optional()});
 export type RoutineInput = z.infer<typeof routineInput>;
-export type RoutinePatchInput = z.infer<typeof routinePatchInput>;
 
 export async function migrateAutomations(sql: Database = db) {
   const migration = await Bun.file(new URL("./automations.sql", import.meta.url)).text();
@@ -48,19 +31,8 @@ export function nextRoutineFire(cron: string, timezone: string, after = new Date
   catch { throw new Error("Choose a valid cron schedule."); }
 }
 
-const routineColumns = `id,companion_id AS "companionId",name,prompt,cron,timezone,run_at AS "runAt",enabled,
-  next_fire_at AS "nextFireAt",last_run_status AS "lastRunStatus",last_error AS "lastError",
-  created_at AS "createdAt",updated_at AS "updatedAt"`;
-
-function parsedRunAt(value: string): Date {
-  const result = new Date(value);
-  if (!Number.isFinite(result.getTime())) throw new Error('Choose a valid run time.');
-  return result;
-}
-
-function routineNext(input: RoutineInput, now: Date): Date {
-  return input.runAt !== undefined ? parsedRunAt(input.runAt) : nextRoutineFire(input.cron,input.timezone,now);
-}
+const routineColumns = `id,companion_id AS "companionId",name,prompt,cron,timezone,enabled,
+  next_fire_at AS "nextFireAt",created_at AS "createdAt",updated_at AS "updatedAt"`;
 
 /** Callers authorize the Companion first; every query still carries its exact identity. */
 export async function listRoutines(companionId: string, sql: Database = db) {
@@ -68,37 +40,27 @@ export async function listRoutines(companionId: string, sql: Database = db) {
 }
 export async function createRoutine(companionId: string, value: RoutineInput, sql: Database = db, now = new Date()) {
   const input = routineInput.parse(value);
-  const next = routineNext(input,now);
-  const recurring = 'cron' in input;
+  const next = nextRoutineFire(input.cron, input.timezone, now);
   const id = crypto.randomUUID();
   return sql.begin(async tx => {
     const [companion] = await tx`SELECT id FROM companions WHERE id=${companionId} AND retired_at IS NULL AND archive_requested_at IS NULL FOR UPDATE`;
     if (!companion) return null;
-    await tx`INSERT INTO routines(id,companion_id,name,prompt,cron,timezone,run_at,enabled,next_fire_at)
-      VALUES(${id},${companionId},${input.name},${input.prompt},${recurring ? input.cron : null},${recurring ? input.timezone : null},${recurring ? null : parsedRunAt(input.runAt)},${input.enabled},${input.enabled ? next : null})`;
+    await tx`INSERT INTO routines(id,companion_id,name,prompt,cron,timezone,enabled,next_fire_at)
+      VALUES(${id},${companionId},${input.name},${input.prompt},${input.cron},${input.timezone},${input.enabled},${input.enabled ? next : null})`;
     return (await tx.unsafe(`SELECT ${routineColumns} FROM routines WHERE companion_id=$1 AND id=$2`, [companionId,id]))[0];
   });
 }
-export async function updateRoutine(companionId: string, id: string, value: RoutinePatchInput, sql: Database = db, now = new Date()) {
+export async function updateRoutine(companionId: string, id: string, value: Partial<RoutineInput>, sql: Database = db, now = new Date()) {
   const patch = routinePatchInput.parse(value);
   return sql.begin(async tx => {
     const [current] = await tx`SELECT * FROM routines WHERE companion_id=${companionId} AND id=${id} AND deleted_at IS NULL FOR UPDATE`;
     if (!current) return null;
-    const common = {name:patch.name??current.name,prompt:patch.prompt??current.prompt,enabled:patch.enabled??current.enabled};
-    let candidate: unknown;
-    if (patch.runAt !== undefined) candidate={...common,runAt:patch.runAt};
-    else if (patch.cron !== undefined || patch.timezone !== undefined) candidate={...common,cron:patch.cron??current.cron,timezone:patch.timezone??current.timezone};
-    else candidate=current.run_at?{...common,runAt:new Date(current.run_at).toISOString()}:{...common,cron:current.cron,timezone:current.timezone};
-    const input = routineInput.parse(candidate);
-    const recurring = 'cron' in input;
-    const runAt = recurring ? null : parsedRunAt(input.runAt);
-    const next = routineNext(input,now);
-    const scheduleChanged = (recurring ? input.cron : null) !== current.cron ||
-      (recurring ? input.timezone : null) !== current.timezone ||
-      (runAt?.getTime()??null) !== (current.run_at ? new Date(current.run_at).getTime() : null);
-    const rescheduled = scheduleChanged || input.enabled !== current.enabled;
-    await tx`UPDATE routines SET name=${input.name},prompt=${input.prompt},cron=${recurring ? input.cron : null},timezone=${recurring ? input.timezone : null},run_at=${runAt},
-      enabled=${input.enabled},next_fire_at=${input.enabled ? (rescheduled ? next : current.next_fire_at) : null},last_run_status=${scheduleChanged ? null : current.last_run_status},last_error=${scheduleChanged ? null : current.last_error},updated_at=${now}
+    const input = routineInput.parse({ name: current.name, prompt: current.prompt, cron: current.cron, timezone: current.timezone,
+      enabled: current.enabled, ...patch });
+    const next = nextRoutineFire(input.cron, input.timezone, now);
+    const rescheduled = input.cron !== current.cron || input.timezone !== current.timezone || input.enabled !== current.enabled;
+    await tx`UPDATE routines SET name=${input.name},prompt=${input.prompt},cron=${input.cron},timezone=${input.timezone},
+      enabled=${input.enabled},next_fire_at=${input.enabled ? (rescheduled ? next : current.next_fire_at) : null},updated_at=${now}
       WHERE companion_id=${companionId} AND id=${id}`;
     return (await tx.unsafe(`SELECT ${routineColumns} FROM routines WHERE companion_id=$1 AND id=$2`, [companionId,id]))[0];
   });
@@ -174,24 +136,21 @@ export async function scheduleDueRoutines(sql: Database = db, now = new Date()):
       ORDER BY r.next_fire_at,r.id LIMIT 50 FOR UPDATE OF r,c SKIP LOCKED`;
     for (const routine of due) {
       const first = new Date(routine.next_fire_at);
-      let latest = first;
-      if (routine.run_at === null) {
-        // prev is exclusive: +1ms includes an occurrence exactly at the scheduler's instant.
-        latest = CronExpressionParser.parse(routine.cron, { tz: routine.timezone, currentDate: new Date(now.getTime()+1) }).prev().toDate();
-        if (latest < first) throw new Error("Routine schedule checkpoint is inconsistent.");
-        if (latest > first) {
-          const lastMissed = CronExpressionParser.parse(routine.cron, { tz: routine.timezone, currentDate: latest }).prev().toDate();
-          await tx`INSERT INTO routine_missed_windows(routine_id,first_scheduled_for,last_scheduled_for,cron,timezone,recorded_at)
-            VALUES(${routine.id},${first},${lastMissed},${routine.cron},${routine.timezone},${now}) ON CONFLICT DO NOTHING`;
-        }
+      // prev is exclusive: +1ms includes an occurrence exactly at the scheduler's instant.
+      const latest = CronExpressionParser.parse(routine.cron, { tz: routine.timezone, currentDate: new Date(now.getTime()+1) }).prev().toDate();
+      if (latest < first) throw new Error("Routine schedule checkpoint is inconsistent.");
+      if (latest > first) {
+        const lastMissed = CronExpressionParser.parse(routine.cron, { tz: routine.timezone, currentDate: latest }).prev().toDate();
+        await tx`INSERT INTO routine_missed_windows(routine_id,first_scheduled_for,last_scheduled_for,cron,timezone,recorded_at)
+          VALUES(${routine.id},${first},${lastMissed},${routine.cron},${routine.timezone},${now}) ON CONFLICT DO NOTHING`;
       }
       const runId = routineRunId(routine.id, latest);
       await tx`INSERT INTO runs(id,companion_id,client_message_id,content,lane,source,routine_id,scheduled_for)
         VALUES(${runId},${routine.companion_id},${runId},${routine.prompt},'background','routine',${routine.id},${latest})
         ON CONFLICT(companion_id,client_message_id) DO NOTHING`;
-      await tx`INSERT INTO routine_occurrences(routine_id,scheduled_for,run_id,prompt,cron,timezone,run_at,accepted_at)
-        VALUES(${routine.id},${latest},${runId},${routine.prompt},${routine.cron},${routine.timezone},${routine.run_at},${now}) ON CONFLICT DO NOTHING`;
-      await tx`UPDATE routines SET enabled=${routine.run_at === null},next_fire_at=${routine.run_at === null ? nextRoutineFire(routine.cron,routine.timezone,now) : null},updated_at=${now} WHERE id=${routine.id}`;
+      await tx`INSERT INTO routine_occurrences(routine_id,scheduled_for,run_id,prompt,cron,timezone,accepted_at)
+        VALUES(${routine.id},${latest},${runId},${routine.prompt},${routine.cron},${routine.timezone},${now}) ON CONFLICT DO NOTHING`;
+      await tx`UPDATE routines SET next_fire_at=${nextRoutineFire(routine.cron,routine.timezone,now)} WHERE id=${routine.id}`;
     }
     return due.length;
   });

@@ -1,4 +1,3 @@
-import {tickCompanionMail} from './companion-mail';
 import { SoftwareBuildCoordinator, type SoftwareRuntimeHooks } from './software-runtime';
 import {tracePreparation} from './preparation-trace';
 import {BoxObserver} from './box-observation';
@@ -392,13 +391,6 @@ if (import.meta.main) {
   const observations=new BoxObserver();
   const runs=new RunCoordinator();
   const software=new SoftwareBuildCoordinator();
-  const [{pid:mailLeaderPid}]=await sql`SELECT pg_backend_pid() AS pid`;
-  let mailWork:Promise<unknown>|null=null;
-  let lastMailTick=0;
-  const assertMailActive=async()=>{
-    const [state]=await db`SELECT EXISTS(SELECT 1 FROM pg_locks WHERE locktype='advisory' AND pid=${mailLeaderPid} AND objid=721440139 AND granted) AS owned`;
-    if(shutdown.signal.aborted||!state.owned)throw new Error('MAIL_EXECUTOR_STOPPED');
-  };
-  try { while(!shutdown.signal.aborted) { if(!mailWork&&Date.now()-lastMailTick>=1000){lastMailTick=Date.now();mailWork=tickCompanionMail({assertActive:assertMailActive}).catch(()=>console.error('mail_progress_failed')).finally(()=>{mailWork=null;});} if(productHooks.software)await software.schedule(sql,productHooks.software); await observations.schedule(sql); await tick(sql, productHooks,lifecycle,runs); await Bun.sleep(500); } }
-  finally { await Promise.allSettled([lifecycle.close(),observations.close(),runs.close(),software.close(),...(mailWork?[mailWork]:[])]); sql.release(); await db.close(); }
+  try { while(!shutdown.signal.aborted) { if(productHooks.software)await software.schedule(sql,productHooks.software); await observations.schedule(sql); await tick(sql, productHooks,lifecycle,runs); await Bun.sleep(500); } }
+  finally { await Promise.allSettled([lifecycle.close(),observations.close(),runs.close(),software.close()]); sql.release(); await db.close(); }
 }

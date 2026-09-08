@@ -1,4 +1,3 @@
-import {mailFilesForRun} from './companion-mail';
 import {tracePreparation} from './preparation-trace';
 import {synchronizeSpecialistConnections} from './specialist-connections';
 import {createHash} from 'node:crypto';
@@ -43,15 +42,6 @@ export const productHooks:ExecutorHooks={
   const request=execution?.requestAgent??agentRequest;
   const ownerId=await owner(run);await tracePreparation(run.companion_id,'plugin_configuration',()=>syncConfiguration(run,endpoint,token,undefined,execution),undefined,run.id);
   await execution?.assertActive();await stageTriggerContext(run,endpoint,token,request);
-  if(run.source==='email'){
-   const files=await mailFilesForRun(run.companion_id,run.id);const paths:string[]=[];
-   for(const [position,file] of files.entries()){
-    const bytes=Buffer.from(file.content,'base64');
-    const result=await request(endpoint,token,`/files/inbox/${run.id}/${position}`,'PUT',{name:file.filename.slice(0,120),sha256:hash(bytes),data:file.content});
-    if(!result?.path)throw Error('FILE_STAGING_FAILED');paths.push(result.path);
-   }
-   if(paths.length)run.content+='\n\nEmail attachments in your workspace:\n'+paths.join('\n');
-  }
   if(run.attachment_count||run.source==='delegation'){
    const files=await filesForAgent({ownerId,companionId:run.companion_id,runId:run.id});const paths:string[]=[];
    for(const file of files){

@@ -1,0 +1,21 @@
+scripts/dev-herdr.py
+  s_1366f5d0c95d1a::t_eee8a6910d32bf 412-420
+scripts/dev-herdr.test.py
+  s_1366f5d0c95d1a::t_07e258c99e54e5 8,39-59
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "6212df047406fcc1dc56691bf75f65bc1ad37e65",
+  "prompts": {},
+  "sessions": {
+    "s_1366f5d0c95d1a": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0813e-201a-7b50-b94d-f5ff8183e203",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "StanGirard <stan@quivr.app>"
+    }
+  }
+}

@@ -280,15 +280,38 @@ describe("agent daemon protocol", () => {
   });
 });
 
-test('streamed preview and usage survive daemon restart without re-executing the prompt',async()=>{
+test('streamed messages and usage survive restart, duplicate requests, and stale progress',async()=>{
  const state=mkdtempSync(join(tmpdir(),'companion-progress-'));
  let calls=0;
- const executor:RunExecutor={async execute(_id,_input,progress){calls++;progress?.({previewText:'Partial answer',thinkingText:'Checking the requested constraints',usage:{input:10,output:2,cacheRead:0,cacheWrite:0,totalTokens:12,costUsd:0.001}});return new Promise(()=>{});},async cancel(){}};
+ const createdAt=new Date().toISOString();
+ const executor:RunExecutor={async execute(_id,_input,progress){calls++;
+   progress?.({previewText:'Partial answer',thinkingText:'Checking the requested constraints',usage:{input:10,output:2,cacheRead:0,cacheWrite:0,totalTokens:12,costUsd:0.001},messages:[{sequence:1,text:'Partial answer',createdAt,complete:false}],messageVersion:1});
+   progress?.({previewText:'Complete answer',thinkingText:'Checking the requested constraints',usage:{input:10,output:4,cacheRead:0,cacheWrite:0,totalTokens:14,costUsd:0.002},messages:[{sequence:1,text:'Complete answer',createdAt,complete:true}],messageVersion:2});
+   progress?.({previewText:'Stale answer',usage:{input:0,output:0,cacheRead:0,cacheWrite:0,totalTokens:0,costUsd:0},messages:[{sequence:1,text:'Stale answer',createdAt,complete:false}],messageVersion:1});
+   return new Promise(()=>{});},async cancel(){}};
  const first=new AgentDaemon(state,token,executor);
  await first.fetch(request(`/runs/${id}`,{method:'PUT',body:JSON.stringify({content:'hello',instructions:''})}));
- expect(await (await first.fetch(request(`/runs/${id}`))).json()).toMatchObject({status:'running',previewText:'Partial answer',thinkingText:'Checking the requested constraints',usage:{totalTokens:12}});
+ expect(await (await first.fetch(request(`/runs/${id}`))).json()).toMatchObject({status:'running',previewText:'Complete answer',thinkingText:'Checking the requested constraints',usage:{totalTokens:14},messages:[{sequence:1,text:'Complete answer',createdAt,complete:true}],messageVersion:2});
+ expect((await first.fetch(request(`/runs/${id}`,{method:'PUT',body:JSON.stringify({content:'hello',instructions:''})}))).status).toBe(200);
  first.close();const restarted=new AgentDaemon(state,token,executor);open.push(restarted);
- expect(await (await restarted.fetch(request(`/runs/${id}`))).json()).toMatchObject({status:'interrupted',previewText:'Partial answer',thinkingText:'Checking the requested constraints',usage:{totalTokens:12}});
+ expect(await (await restarted.fetch(request(`/runs/${id}`))).json()).toMatchObject({status:'interrupted',previewText:'Complete answer',thinkingText:'Checking the requested constraints',usage:{totalTokens:14},messages:[{sequence:1,text:'Complete answer',createdAt,complete:true}],messageVersion:2});
  await restarted.fetch(request(`/runs/${id}`,{method:'PUT',body:JSON.stringify({content:'hello',instructions:''})}));
  expect(calls).toBe(1);
+});
+
+test('legacy progress remains unversioned and accepts successive previews',async()=>{
+ const state=mkdtempSync(join(tmpdir(),'companion-legacy-progress-'));
+ const runId=crypto.randomUUID();
+ const executor:RunExecutor={async execute(_id,_input,progress){
+   const usage={input:0,output:0,cacheRead:0,cacheWrite:0,totalTokens:0,costUsd:0};
+   progress?.({previewText:'First preview',usage});
+   progress?.({previewText:'Second preview',usage});
+   return new Promise(()=>{});
+ },async cancel(){}};
+ const app=new AgentDaemon(state,token,executor);open.push(app);
+ await app.fetch(request(`/runs/${runId}`,{method:'PUT',body:JSON.stringify({content:'hello',instructions:''})}));
+ const run=await (await app.fetch(request(`/runs/${runId}`))).json();
+ expect(run).toMatchObject({status:'running',previewText:'Second preview'});
+ expect(run.messageVersion).toBeUndefined();
+ expect(run.messages).toBeUndefined();
 });

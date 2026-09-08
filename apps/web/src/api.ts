@@ -35,6 +35,8 @@ export interface Companion {
 export interface AccountUser { id: string; email: string; name: string }
 
 export interface ChatMessage {
+  sequence?: number;
+  complete?: boolean;
   id: string;
   role: "user" | "assistant";
   content: string;
@@ -50,6 +52,7 @@ export interface Run {
   source?: string;
   resultText?: string|null;
   previewText?: string|null;
+  messageVersion?: number|null;
   thinkingText?: string|null;
   id: string;
   status: RunStatus;

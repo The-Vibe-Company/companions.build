@@ -235,6 +235,7 @@ function Chat({ detail, onRefresh, onUnauthorized, onOpenCompanion, specialistTe
   const dragDepth = useRef(0);
   const activeRun = detail.runs.find((run) => run.lane !== "background" && isActiveRun(run.status));
   const activePreview = activeRun
+    && activeRun.messageVersion == null
     && (activeRun.status === "running" || activeRun.status === "needs_input")
     && activeRun.previewText
     && !(detail.questions ?? []).some(question => question.contextText === activeRun.previewText)
@@ -249,20 +250,20 @@ function Chat({ detail, onRefresh, onUnauthorized, onOpenCompanion, specialistTe
   const streamingAt = Math.max(latestConversationAt+2,timestamp(activeRun?.createdAt)+2,timestamp(pendingQuestion?.createdAt)-1);
   const timeline = [
     ...detail.messages.map(message => ({ id: message.id, createdAt: message.createdAt, message, content: null as ReactNode })),
-    ...specialistHistory.map(item => ({ ...item, createdAt: new Date(Math.max(timestamp(item.createdAt),
+    ...specialistHistory.map(item => ({ ...item, createdAt: detail.runs.some(run => run.id === item.runId && run.messageVersion != null) ? item.createdAt : new Date(Math.max(timestamp(item.createdAt),
       ...(item.runId ? detail.messages.filter(message=>message.runId===item.runId && message.role==='assistant').map(message=>timestamp(message.createdAt)+1) : []),
       item.runId && item.runId===activeRun?.id ? streamingAt+1 : 0)).toISOString(), message: null })),
-    ...detail.runs.filter(run => run.thinkingText && run.lane !== 'background').map(run => ({ id: 'thinking-' + run.id, createdAt: new Date(isActiveRun(run.status) ? streamingAt-1 : Math.max(timestamp(run.createdAt), ...detail.messages.filter(message=>message.role==='assistant' && message.runId===run.id).map(message=>timestamp(message.createdAt)-1))).toISOString(), message: null, content: <details className="thinking-panel" open={isActiveRun(run.status)}><summary>{isActiveRun(run.status) ? 'Thinking' : 'Thought process'}</summary><div><MessageResponse>{run.thinkingText!}</MessageResponse></div></details> })),
+    ...detail.runs.filter(run => run.thinkingText && run.lane !== 'background').map(run => ({ id: 'thinking-' + run.id, createdAt: new Date(isActiveRun(run.status) ? streamingAt-1 : Math.max(timestamp(run.createdAt), ...detail.messages.filter(message=>message.role==='assistant' && message.runId===run.id).map(message=>timestamp(message.createdAt)-1))).toISOString(), message: null, content: <details className="thinking-panel" ><summary>{isActiveRun(run.status) ? 'Thinking' : 'Thought process'}</summary><div><MessageResponse>{run.thinkingText!}</MessageResponse></div></details> })),
     ...(activePreview && activeRun ? [{ id: 'preview-' + activeRun.id, message: null, createdAt: new Date(streamingAt).toISOString(), content: <Message from="assistant" className="thread-message message-preview">
               <div className="thread-avatar" aria-hidden="true"><CompanionAvatar name={detail.companion.name} avatar={detail.companion.avatar} size={32} /></div>
               <div className="thread-message-body"><div className="message-meta"><span className="message-author">{detail.companion.name}</span></div>
               <MessageContent className="thread-content"><MessageResponse>{activePreview}</MessageResponse></MessageContent></div>
             </Message> }] : []),
     ...(detail.questions ?? []).map(question => ({ id: question.id, createdAt: question.createdAt ?? detail.runs.find(run => run.id === question.runId)?.createdAt ?? '', message: null, content: <>
-      {question.contextText && !detail.messages.some(message => message.content === question.contextText) && <div className="question-context"><MessageResponse>{question.contextText}</MessageResponse></div>}
+      {question.contextText && !detail.messages.some(message => message.runId === question.runId && message.content === question.contextText) && <div className="question-context"><MessageResponse>{question.contextText}</MessageResponse></div>}
       <Question companionId={detail.companion.id} question={question} onAnswered={onRefresh}/>
     </> })),
-  ].sort((a,b) => timestamp(a.createdAt)-timestamp(b.createdAt) || a.id.localeCompare(b.id));
+  ].sort((a,b) => timestamp(a.createdAt)-timestamp(b.createdAt) || (a.message && b.message && a.message.runId===b.message.runId ? (a.message.sequence??0)-(b.message.sequence??0) : 0) || a.id.localeCompare(b.id));
 
   async function send(event: FormEvent) {
     event.preventDefault();
@@ -339,14 +340,14 @@ function Chat({ detail, onRefresh, onUnauthorized, onOpenCompanion, specialistTe
           ) : timeline.map(({id, message, content}) => message ? (
             <Message from={message.role} key={message.id} className="thread-message">
               <div className="thread-avatar" aria-hidden="true">{message.role === "assistant" ? <CompanionAvatar name={detail.companion.name} avatar={detail.companion.avatar} size={32} /> : <span className="user-avatar"><UserRound /></span>}</div>
-              <div className="thread-message-body"><div className="message-meta"><span className="message-author">{message.role === "assistant" ? detail.companion.name : "You"}</span><time className="message-time" dateTime={message.createdAt}>{readableDate(message.createdAt)}</time></div>
+              <div className="thread-message-body"><div className="message-meta"><span className="message-author">{message.role === "assistant" ? detail.companion.name : "You"}</span><time className="message-time" dateTime={message.createdAt}>{readableDate(message.createdAt)}</time>{message.complete === false && detail.runs.some(run => run.id === message.runId && !isActiveRun(run.status)) && <span className="message-time">Incomplete response</span>}</div>
               <MessageContent className="thread-content"><MessageResponse>{message.content}</MessageResponse></MessageContent>
               {message.files?.length ? <div className="message-files">{message.files.map((file) => <a key={file.id} href={file.url} target="_blank" rel="noreferrer"><FileText /><span>{file.name}</span></a>)}</div> : null}
               {message.role === "user" && <SpecialistsForRun detail={detail} runId={message.runId} onOpen={onOpenCompanion} />}
               </div>
             </Message>
           ) : <div className="conversation-action" key={id}>{content}</div>)}
-          {activeRun && (
+          {activeRun && !pendingQuestion && (
             <div className="working-row" role="status">
               <span className="working-dots"><i /><i /><i /></span>
               {activeRun.status === "queued" ? "Queued" : activeRun.status === "preparing" ? "Preparing" : activeRun.status === "needs_input" ? "Waiting for your answer" : activeRun.thinkingText && !activePreview ? "Thinking…" : `${detail.companion.name} is working`}

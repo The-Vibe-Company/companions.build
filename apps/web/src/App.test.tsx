@@ -1054,3 +1054,49 @@ it('keeps a completed specialist turn ordered as thinking, answer, then its inte
  expect(thought.compareDocumentPosition(answer)&Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
  expect(answer.compareDocumentPosition(card)&Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
 });
+
+
+it('retains intermediate and partial messages through completion and reload without a duplicate preview',async()=>{
+ window.history.replaceState({},'', '/companions/ada');
+ FakeEventSource.instances=[];
+ vi.stubGlobal('EventSource',FakeEventSource);
+ const first={id:'step-one',role:'assistant',runId:'run',sequence:1,complete:true,content:'Two directions are worth exploring.',createdAt:'2026-09-08T10:00:01.000Z'};
+ let state={companion:{...companion,status:'ready'},messages:[first,{...first,id:'step-two',sequence:2,complete:false,content:'Here is',createdAt:'2026-09-08T10:00:02.000Z'}],runs:[{id:'run',status:'running',messageVersion:2,previewText:'Here is',createdAt:'2026-09-08T10:00:00.000Z'}],activity:[]};
+ vi.stubGlobal('fetch',vi.fn((input:RequestInfo|URL)=>{
+  const path=String(input);
+  if(path==='/api/me')return response(me);
+  if(path==='/api/config')return response(config);
+  if(path==='/api/companions')return response({companions:[state.companion]});
+  if(path==='/api/companions/ada')return response(state);
+  return response({improvements:[],proposals:[],tasks:[],files:[],templates:[],routines:[],triggers:[]});
+ }));
+ const view=render(<App/>);
+ await screen.findByText(first.content);
+ expect(screen.getAllByText('Here is')).toHaveLength(1);
+ state={...state,messages:[first,{...state.messages[1],complete:true,content:'Here is the agreed direction.'}],runs:[{...state.runs[0],status:'succeeded',messageVersion:3,previewText:'Here is the agreed direction.'}]};
+ await act(async()=>{FakeEventSource.instances.at(-1)?.emit('invalidate');});
+ await screen.findByText('Here is the agreed direction.');
+ expect(screen.getAllByText(first.content)).toHaveLength(1);
+ expect(screen.getAllByText('Here is the agreed direction.')).toHaveLength(1);
+ view.unmount();render(<App/>);
+ await screen.findByText(first.content);
+ expect(screen.getAllByText('Here is the agreed direction.')).toHaveLength(1);
+});
+
+it('keeps an interrupted assistant message and a closed question without claiming it still needs an answer',async()=>{
+ window.history.replaceState({},'', '/companions/ada');
+ vi.stubGlobal('fetch',vi.fn((input:RequestInfo|URL)=>{
+  const path=String(input);
+  if(path==='/api/me')return response(me);
+  if(path==='/api/config')return response(config);
+  if(path==='/api/companions')return response({companions:[{...companion,status:'ready'}]});
+  if(path==='/api/companions/ada')return response({companion:{...companion,status:'ready'},messages:[{id:'partial',role:'assistant',runId:'run',sequence:1,complete:false,content:'I have identified a useful direction.',createdAt:'2026-09-08T10:00:01.000Z'}],runs:[{id:'run',status:'interrupted',messageVersion:1,createdAt:'2026-09-08T10:00:00.000Z',error:'The agent restarted.'}],questions:[{id:'question',runId:'run',question:'Which direction?',options:['Simple'],answer:null,runStatus:'interrupted',createdAt:'2026-09-08T10:00:02.000Z'}],activity:[]});
+  return response({improvements:[],proposals:[],tasks:[],files:[],templates:[],routines:[],triggers:[]});
+ }));
+ render(<App/>);
+ await screen.findByText('I have identified a useful direction.');
+ expect(screen.getByText('Incomplete response')).toBeInTheDocument();
+ expect(screen.getByRole('region',{name:'Closed question'})).toBeInTheDocument();
+ expect(screen.queryByText('Needs you')).not.toBeInTheDocument();
+ expect(screen.queryByRole('button',{name:'Simple'})).not.toBeInTheDocument();
+});

@@ -1,5 +1,5 @@
 import {beforeAll,afterEach,expect,test} from 'bun:test';
-import {db,migrate,createCompanion,acceptMessage} from '../src/store';
+import {db,migrate,createCompanion,acceptMessage,detail} from '../src/store';
 import {acquireExecutor,tick,persistObservation} from '../src/executor';
 import {migrateLifecycle,handleLifecycle,type LifecycleMachines} from '../src/lifecycle';
 import {encrypt} from '../src/config';
@@ -81,4 +81,53 @@ test('child file durability checks actual stored bytes, not only attachment meta
   expect(await productHooks.lifecycle!.filesDurable!({id:run,companion_id:id})).toBe(true);
   stored=Buffer.from('Corrupt stored bytes');await expect(productHooks.lifecycle!.filesDurable!({id:run,companion_id:id})).rejects.toThrow('OUTBOX_STORAGE_INTEGRITY_FAILED');
  }finally{for(const [key,value]of Object.entries(prior)){if(value===undefined)delete process.env[key];else process.env[key]=value;}daemon.stop(true);object.stop(true);}
+});
+
+
+test('assistant messages survive polling, stale observations and settlement without duplicate final answers',async()=>{
+ const id=await companion(),root=await acceptMessage(owner,id,crypto.randomUUID(),'Design together'),lock=await leader();
+ const started=new Date(Date.now()+1).toISOString();
+ const first={sequence:1,text:'I found two directions.',createdAt:started,complete:true};
+ const partial={sequence:2,text:'Here is',createdAt:new Date(Date.now()+2).toISOString(),complete:false};
+ let observed:any={responseRootId:root,status:'running',messageVersion:2,messages:[first,partial]};
+ const daemon=Bun.serve({hostname:'127.0.0.1',port:0,fetch(){return Response.json(observed);}});
+ try{
+  await db`UPDATE companions SET endpoint_secret=${encrypt(`http://127.0.0.1:${daemon.port}`)} WHERE id=${id}`;
+  await db`UPDATE runs SET status='running',dispatched=true,started_at=now() WHERE id=${root}`;
+  await tick(lock.sql);await tick(lock.sql);
+  let messages=(await detail(owner,id))!.messages.filter((m:any)=>m.role==='assistant');
+  expect(messages.map((m:any)=>m.content)).toEqual([first.text,partial.text]);
+  const stableIds=messages.map((m:any)=>m.id);
+  const final={...partial,text:'Here is the agreed design.',complete:true};
+  observed={...observed,status:'succeeded',text:final.text,messageVersion:3,messages:[first,final]};
+  await tick(lock.sql);await tick(lock.sql);
+  await persistObservation(lock.sql,{id:root,companion_id:id},{messageVersion:2,messages:[first,partial]});
+  messages=(await detail(owner,id))!.messages.filter((m:any)=>m.role==='assistant');
+  expect(messages.map((m:any)=>m.id)).toEqual(stableIds);
+  expect(messages.map((m:any)=>m.content)).toEqual([first.text,final.text]);
+  expect(messages.every((m:any)=>m.complete)).toBe(true);
+  expect((await detail(owner,id))!.runs[0].status).toBe('succeeded');
+ }finally{await lock.close();daemon.stop(true);}
+});
+
+test('interrupted and cancelled replies retain partial messages, while background and steering histories stay isolated',async()=>{
+ const id=await companion(),root=await acceptMessage(owner,id,crypto.randomUUID(),'Root'),steer=await acceptMessage(owner,id,crypto.randomUUID(),'Steer'),lock=await leader();
+ const message={sequence:1,text:'Visible before interruption',createdAt:new Date().toISOString(),complete:false};
+ try{
+  await persistObservation(lock.sql,{id:root,companion_id:id},{messageVersion:1,messages:[message]});
+  await persistObservation(lock.sql,{id:steer,companion_id:id},{responseRootId:root,messageVersion:2,messages:[{...message,text:'Duplicate sibling'}]});
+  await db`UPDATE runs SET status='interrupted' WHERE id=${root}`;
+  expect((await detail(owner,id))!.messages.filter((m:any)=>m.role==='assistant').map((m:any)=>m.content)).toEqual([message.text]);
+  const background=await acceptMessage(owner,id,crypto.randomUUID(),'Private background');
+  await db`UPDATE runs SET lane='background' WHERE id=${background}`;
+  await persistObservation(lock.sql,{id:background,companion_id:id},{messageVersion:1,messages:[{...message,text:'Private background update'}]});
+  expect(await db`SELECT id FROM messages WHERE run_id=${background} AND role='assistant'`).toHaveLength(0);
+  const cancelled=await acceptMessage(owner,id,crypto.randomUUID(),'Cancel me');
+  await persistObservation(lock.sql,{id:cancelled,companion_id:id},{messageVersion:1,messages:[message]});
+  await db`UPDATE runs SET status='cancelled' WHERE id=${cancelled}`;
+  expect((await db`SELECT content FROM messages WHERE run_id=${cancelled} AND role='assistant'`)[0].content).toBe(message.text);
+  await lock.sql`SELECT pg_advisory_unlock(721440139)`;
+  await persistObservation(lock.sql,{id:root,companion_id:id},{messageVersion:3,messages:[{...message,text:'Former leader'}]});
+  expect((await db`SELECT content FROM messages WHERE run_id=${root} AND role='assistant'`)[0].content).toBe(message.text);
+ }finally{await lock.close();}
 });

@@ -7,6 +7,7 @@ import type { RunInput, RunRecord, TerminalRunStatus, RunProgress } from "./type
 interface StoredRun extends RunRecord {
   request_hash: string;
   usage_json?:string;
+  messages_json?:string;
 }
 
 export class RunJournal {
@@ -37,6 +38,8 @@ export class RunJournal {
     if (!columns.has("thinking_text")) this.db.exec("ALTER TABLE runs ADD COLUMN thinking_text TEXT");
     if (!columns.has("preview_text")) this.db.exec("ALTER TABLE runs ADD COLUMN preview_text TEXT");
     if (!columns.has("usage_json")) this.db.exec("ALTER TABLE runs ADD COLUMN usage_json TEXT");
+    if (!columns.has("messages_json")) this.db.exec("ALTER TABLE runs ADD COLUMN messages_json TEXT");
+    if (!columns.has("message_version")) this.db.exec("ALTER TABLE runs ADD COLUMN message_version INTEGER");
     if (!columns.has("lane")) this.db.exec("ALTER TABLE runs ADD COLUMN lane TEXT NOT NULL DEFAULT 'main'");
     if (!columns.has("response_root_id")) this.db.exec("ALTER TABLE runs ADD COLUMN response_root_id TEXT");
     if (!columns.has("publish_to_chat")) this.db.exec("ALTER TABLE runs ADD COLUMN publish_to_chat INTEGER NOT NULL DEFAULT 0");
@@ -89,8 +92,16 @@ export class RunJournal {
   }
 
   progress(rootId:string,value:RunProgress):void {
-    this.db.query("UPDATE runs SET preview_text=?,thinking_text=COALESCE(?,thinking_text),usage_json=?,updated_at=? WHERE id=? AND status='running'")
-      .run(value.previewText,value.thinkingText??null,JSON.stringify(value.usage),new Date().toISOString(),rootId);
+    if(value.messageVersion===undefined){
+      this.db.query("UPDATE runs SET preview_text=?,thinking_text=COALESCE(?,thinking_text),usage_json=?,updated_at=? WHERE id=? AND status='running'")
+        .run(value.previewText,value.thinkingText??null,JSON.stringify(value.usage),new Date().toISOString(),rootId);
+      return;
+    }
+    this.db.query(`UPDATE runs SET preview_text=?,thinking_text=COALESCE(?,thinking_text),usage_json=?,
+      messages_json=?,message_version=?,updated_at=?
+      WHERE id=? AND status='running' AND (message_version IS NULL OR message_version < ?)`)
+      .run(value.previewText,value.thinkingText??null,JSON.stringify(value.usage),JSON.stringify(value.messages??[]),
+        value.messageVersion,new Date().toISOString(),rootId,value.messageVersion);
   }
 
   initializationWarning(id: string, warning: string): void {
@@ -109,7 +120,8 @@ export class RunJournal {
 
   private getStored(id: string): StoredRun | null {
     return this.db.query(`SELECT id, request_hash, CASE WHEN status='running' AND parked=1 THEN 'needs_input' ELSE status END AS status, text, error, lane,
-      response_root_id AS responseRootId, publish_to_chat AS publishToChat,preview_text AS previewText,thinking_text AS thinkingText,usage_json,init_warning AS initWarning FROM runs WHERE id = ?`).get(id) as StoredRun | null;
+      response_root_id AS responseRootId, publish_to_chat AS publishToChat,preview_text AS previewText,thinking_text AS thinkingText,
+      usage_json,messages_json,message_version AS messageVersion,init_warning AS initWarning FROM runs WHERE id = ?`).get(id) as StoredRun | null;
   }
 }
 
@@ -126,5 +138,7 @@ function publicRun(run: StoredRun): RunRecord {
     lane: run.lane, responseRootId: run.responseRootId, publishToChat: !!run.publishToChat,
     ...(run.thinkingText!=null?{thinkingText:run.thinkingText}:{}),
     ...(run.previewText!=null?{previewText:run.previewText}:{}),...(run.usage_json?{usage:JSON.parse(run.usage_json)}:{}),
+    ...(run.messages_json?{messages:JSON.parse(run.messages_json)}:{}),
+    ...(run.messageVersion!=null?{messageVersion:run.messageVersion}:{}),
     ...(run.initWarning?{initWarning:run.initWarning}:{}) };
 }

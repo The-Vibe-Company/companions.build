@@ -41,7 +41,7 @@ export function CompanionHeader({ detail, section, refreshVersion, onSection, on
     reveal();window.addEventListener("resize",reveal);return()=>window.removeEventListener("resize",reveal);
   },[section]);
   const run=detail.runs.find(item=>isActiveRun(item.status));
-  const activity=finished?"Finished":detail.questions?.length||run?.status==="needs_input"?"Needs you":run?.status==="running"?`${companion.name} · working`:run?.status==="preparing"?"Preparing":run?"Queued":"Idle";
+  const activity=finished?"Finished":detail.questions?.some(question=>question.answer==null&&(!question.runStatus||['running','needs_input','preparing'].includes(question.runStatus)))||run?.status==="needs_input"?"Needs you":run?.status==="running"?`${companion.name} · working`:run?.status==="preparing"?"Preparing":run?"Queued":"Idle";
   const next=summary.automations?.next?new Intl.DateTimeFormat(undefined,{weekday:"short",hour:"numeric",minute:"2-digit"}).format(new Date(summary.automations.next)):null;
   return <header className="companion-header">
     <Button className="mobile-menu" variant="ghost" size="icon" onClick={onMenu} aria-label="Open navigation"><Menu/></Button>

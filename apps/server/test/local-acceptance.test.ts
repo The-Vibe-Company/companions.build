@@ -48,7 +48,11 @@ test.skipIf(process.env.RUN_LOCAL_ACCEPTANCE !== "1")("full local path: real Pi 
     const next = await acceptMessage(owner, ada.id, crypto.randomUUID(), "write-note");
     await until(async () => (await detail(owner, ada.id))!.runs.find((r: any) => r.id === next).status === "succeeded");
     expect(readFileSync(effectPath, "utf8")).toBe("effect");
-    expect((await detail(owner, ada.id))!.messages.filter((m: any) => m.role === "assistant")).toHaveLength(2);
+    const replies=(await detail(owner, ada.id))!.messages.filter((m:any)=>m.role==='assistant');
+    expect(replies.filter((m:any)=>m.runId===first)).toHaveLength(1);
+    expect(replies.filter((m:any)=>m.runId===next)).toHaveLength(1);
+    expect(replies.filter((m:any)=>m.runId===slow).map((m:any)=>m.content)).toEqual(['Starting the requested work.']);
+    expect(replies).toHaveLength(3);
     const controlled=await acceptMessage(owner,ada.id,crypto.randomUUID(),"control-identity");
     const deadline=Date.now()+30_000;
     while((await detail(owner,ada.id))!.runs.find((r:any)=>r.id===controlled).status!=="succeeded") {

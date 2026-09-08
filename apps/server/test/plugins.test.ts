@@ -117,3 +117,23 @@ test('a later provider refresh failure preserves an earlier rotated grant and st
  expect(retried).toBe(1);
  expect(projected.map(plugin=>plugin.headers?.Authorization)).toEqual(['Bearer rotated-access','Bearer recovered-access']);
 });
+
+
+test('account cards list only owned active companion grants and follow revocation',async()=>{
+ const ownerId=crypto.randomUUID(),other=crypto.randomUUID();
+ for (const id of [ownerId,other]) await db`INSERT INTO "user"(id,name,email,"emailVerified") VALUES(${id},'Test owner',${id+'@example.test'},true)`;
+ const account=await addCustomPlugin(ownerId,{label:'Card tools',transport:'http',url:'https://example.com/mcp'});
+ const nova=await createCompanion(ownerId,{name:'Nova',provider:'local',avatar:{shape:1,color:2,face:0}});
+ const retired=await createCompanion(ownerId,{name:'Retired',provider:'local'});
+ const foreign=await createCompanion(other,{name:'Foreign',provider:'local'});
+ await attachPlugin(ownerId,nova.id,account.id,true);
+ await attachPlugin(ownerId,retired.id,account.id,true);
+ await db`UPDATE companions SET retired_at=now() WHERE id=${retired.id}`;
+ // Even an inconsistent cross-owner grant must not expose another owner's companion.
+ await db`INSERT INTO companion_plugins VALUES (${foreign.id},${account.id})`;
+ const [listed]=await listPluginAccounts(ownerId);
+ expect(listed.usedBy).toEqual([{id:nova.id,name:'Nova',avatar:{shape:1,color:2,face:0}}]);
+ expect(await listPluginAccounts(other)).toEqual([]);
+ await attachPlugin(ownerId,nova.id,account.id,false);
+ expect((await listPluginAccounts(ownerId))[0].usedBy).toEqual([]);
+});

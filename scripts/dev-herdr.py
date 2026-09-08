@@ -409,7 +409,15 @@ def menu():
 def launcher():
     return '''#!/usr/bin/env python3
 # companions.build managed dispatcher
-import pathlib, subprocess, sys
+import os, pathlib, subprocess, sys
+# Detached Herdr key commands identify the active pane, not a caller pane.
+# Preserve genuine pane context when this dispatcher is invoked directly.
+if not os.environ.get('HERDR_PANE_ID') and os.environ.get('HERDR_ACTIVE_PANE_ID'):
+    for name in ('WORKSPACE_ID', 'TAB_ID', 'PANE_ID'):
+        value = os.environ.get('HERDR_ACTIVE_' + name)
+        if value:
+            os.environ['HERDR_' + name] = value
+    os.environ['HERDR_ENV'] = '1'
 result = subprocess.run(['git', 'rev-parse', '--show-toplevel'], capture_output=True, text=True)
 if result.returncode:
     sys.exit('Run this command inside a companions.build worktree.')

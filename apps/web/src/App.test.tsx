@@ -679,7 +679,7 @@ describe("first Companion flow", () => {
     expect(screen.getByRole("button",{name:"Unavailable"})).toBeDisabled();
     completed=true;window.dispatchEvent(new MessageEvent("message",{origin:window.location.origin,source:popup as unknown as Window,data:{type:"companions:plugin-oauth",status:"connected"}}));
     expect(await screen.findByText("Connection added.")).toBeInTheDocument();
-    expect(screen.getAllByText("Linear").length).toBeGreaterThan(1);
+    expect(screen.getByRole("heading", { name: "Linear" })).toBeInTheDocument();
     expect(screen.getByText("Default")).toBeInTheDocument();
     await user.click(await screen.findByRole("button",{name:"Manage Default"}));
     await user.click(screen.getByRole("button",{name:"Disconnect"}));
@@ -697,7 +697,7 @@ describe("first Companion flow", () => {
       if(path==="/api/me")return response(me);
       if(path==="/api/config")return response(config);
       if(path==="/api/companions")return response({companions:[]});
-      if(path==="/api/plugins")return response({catalog:[{id:"app.linear/linear",name:"Linear",provider:"linear",available:true}],accounts:[account]});
+      if(path==="/api/plugins")return response({catalog:[{id:"app.linear/linear",name:"Linear",provider:"linear",available:true}],accounts:[{...account,usedBy:[{id:"nova",name:"Nova",avatar:{shape:1,color:2,face:0}},{id:"sage",name:"Sage"},{id:"bo",name:"Bo"},{id:"pip",name:"Pip"}]}]});
       if(path==="/api/plugins/connect"&&options?.method==="POST"){bodies.push(JSON.parse(String(options.body)));return response({url:"https://oauth.example/authorize"});}
       if(path==="/api/plugins/linear-default"&&options?.method==="PATCH"){const {label}=JSON.parse(String(options.body));account={...account,label};return response({account});}
       throw Error(`Unexpected request: ${path}`);
@@ -705,13 +705,13 @@ describe("first Companion flow", () => {
     vi.stubGlobal("fetch",fetchMock);
     const popup={closed:false,location:{href:""},close:vi.fn()};vi.spyOn(window,"open").mockReturnValue(popup as unknown as Window);
     const user=userEvent.setup();render(<App/>);
-    await user.click(await screen.findByRole("button",{name:"Connect"}));
+    await user.click(await screen.findByRole("button",{name:"Add account"}));
     expect(screen.getByRole("textbox",{name:"Account name"})).toHaveFocus();
     expect(bodies).toHaveLength(0);
     await user.click(screen.getByRole("button",{name:"Cancel"}));
     expect(screen.queryByRole("textbox",{name:"Account name"})).not.toBeInTheDocument();
     expect(bodies).toHaveLength(0);
-    await user.click(screen.getByRole("button",{name:"Connect"}));
+    await user.click(screen.getByRole("button",{name:"Add account"}));
     await user.type(screen.getByRole("textbox",{name:"Account name"}),"Client workspace");
     await user.click(screen.getByRole("button",{name:"Connect account"}));
     expect(bodies).toEqual([{serverId:"app.linear/linear",label:"Client workspace"}]);
@@ -723,8 +723,10 @@ describe("first Companion flow", () => {
     await user.clear(rename);await user.type(rename,"Personal");
     await user.click(screen.getByRole("button",{name:"Save name"}));
     expect(await screen.findByText("Personal saved.")).toBeInTheDocument();
-    expect(screen.getAllByText("Linear").length).toBeGreaterThan(1);
+    expect(screen.getByRole("heading", { name: "Linear" })).toBeInTheDocument();
     expect(screen.getByText("Personal")).toBeInTheDocument();
+    expect(screen.getByRole("link",{name:"Open Nova"})).toHaveAttribute("href","/companions/nova");
+    expect(screen.getByRole("group",{name:"Allowed companions: Nova, Sage, Bo, Pip"})).toBeInTheDocument();
     expect(fetchMock).toHaveBeenCalledWith("/api/plugins/linear-default",expect.objectContaining({method:"PATCH",body:JSON.stringify({label:"Personal"})}));
   });
 
@@ -783,7 +785,7 @@ describe("first Companion flow", () => {
     vi.stubGlobal("fetch", fetchMock);
     const user = userEvent.setup(); render(<App />);
 
-    await user.click(await screen.findByRole("button", { name: "Custom MCP" }));
+    await user.click(await screen.findByRole("button", { name: "Custom MCP server" }));
     await user.type(screen.getByLabelText("Name"), "Private API");
     await user.type(screen.getByLabelText("Server URL"), "https://mcp.example/tools");
     await user.click(screen.getByText("Request headers"));
@@ -794,7 +796,7 @@ describe("first Companion flow", () => {
     await user.type(headerSecret, "Bearer private-value");
     await user.click(screen.getByRole("button", { name: "Add server" }));
 
-    await user.click(await screen.findByRole("button", { name: "Custom MCP" }));
+    await user.click(await screen.findByRole("button", { name: "Custom MCP server" }));
     await user.type(screen.getByLabelText("Name"), "Local tools");
     await user.selectOptions(screen.getByLabelText("Transport"), "stdio");
     await user.type(screen.getByLabelText("Command"), "/usr/local/bin/tools-mcp");
@@ -968,7 +970,7 @@ it("opens the shared libraries from the rail without losing unsaved settings", a
   expect(window.location.pathname).toBe("/specialists");
   expect(await screen.findByText("Writer")).toBeInTheDocument();
   await user.click(screen.getByRole("button",{name:"Apps"}));
-  expect(await screen.findByRole("heading",{name:"Connections"})).toBeInTheDocument();
+  expect(await screen.findByRole("heading",{name:"Apps"})).toBeInTheDocument();
   expect(window.location.pathname).toBe("/connections");
   vi.unstubAllGlobals();
 });

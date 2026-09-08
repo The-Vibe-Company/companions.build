@@ -1,0 +1,231 @@
+apps/server/src/activation.ts
+  s_1366f5d0c95d1a::t_96e43338090339 11
+apps/server/src/admission.sql
+  s_1366f5d0c95d1a::t_c5707bd06620f2 1-47
+apps/server/src/admission.ts
+  s_1366f5d0c95d1a::t_23fdafdb85af44 1-300
+apps/server/src/api.ts
+  s_1366f5d0c95d1a::t_d35d57eb43923b 2-5,14,36-51,54-71,92,99,162,167,181,206
+apps/server/src/automation-routes.ts
+  s_1366f5d0c95d1a::t_370500a8d7f053 16
+apps/server/src/config.ts
+  s_1366f5d0c95d1a::t_dd8d2fc28bbdfc 63-64
+apps/server/src/control-help.ts
+  s_1366f5d0c95d1a::t_6802c59c99c2f3 3-6
+apps/server/src/control-product.ts
+  s_1366f5d0c95d1a::t_4b8ae8b496b081 2-5,22-45,67
+apps/server/src/control.ts
+  s_1366f5d0c95d1a::t_61915021cbb288 3,9,37-42,52,72,76
+apps/server/src/delegation.ts
+  s_1366f5d0c95d1a::t_0b3ef5fe918328 1,5,9,13,17-19,21-22,26-27,29,31-32,35-38,87
+apps/server/src/delivery.ts
+  s_1366f5d0c95d1a::t_1d0507ccf3a292 16,35,38,40-44,53,65,70,120,124-129,149-150,152
+apps/server/src/executor.ts
+  s_1366f5d0c95d1a::t_d72ef7c5b51035 2,78-79,82-83,131,153,158,264-265,357-362
+apps/server/src/lifecycle-errors.ts
+  s_1366f5d0c95d1a::t_08999717f1a1d4 1-4
+apps/server/src/lifecycle.sql
+  s_1366f5d0c95d1a::t_b941db447a3dce 67-68
+apps/server/src/lifecycle.ts
+  s_1366f5d0c95d1a::t_ae3163615e57a0 1-4,19,36-37,40,50-51,65-71,74-78,82,85,87,104,131-139,150-157,177,181-182,185-190,235,255,293,300,316,319,332-333,337,339-342,345-349
+apps/server/src/machines.ts
+  s_1366f5d0c95d1a::t_e8d1e4dfc82e40 1,126-129
+apps/server/src/plugins.ts
+  s_1366f5d0c95d1a::t_c8b881c7530b20 82-90
+apps/server/src/product.sql
+  s_1366f5d0c95d1a::t_c19a5c820ab037 26-29
+apps/server/src/retirement.ts
+  s_1366f5d0c95d1a::t_772548ca773aee 7-9
+apps/server/src/runtime-product.ts
+  s_1366f5d0c95d1a::t_d285709eb240df 2,27
+apps/server/src/software.ts
+  s_1366f5d0c95d1a::t_7dd40c2597fcf1 102,115,155
+apps/server/src/specialist-box.ts
+  s_1366f5d0c95d1a::t_df41d50fed1a8a 1-103
+apps/server/src/specialist-connections.ts
+  s_1366f5d0c95d1a::t_60d4c72ad746bf 1-59
+apps/server/src/specialist-drafts.sql
+  s_1366f5d0c95d1a::t_62f9da90851fda 1-89
+apps/server/src/specialist-drafts.ts
+  s_1366f5d0c95d1a::t_b30b967b040a1b 1-172
+apps/server/src/specialist-improvements.ts
+  s_1366f5d0c95d1a::t_a3f1e5221a065d 1-51
+apps/server/src/specialist-provider.ts
+  s_1366f5d0c95d1a::t_b77380f01922ff 1-70
+apps/server/src/specialist-runtime.ts
+  s_1366f5d0c95d1a::t_882389d14baba6 1-186
+apps/server/src/store.ts
+  s_1366f5d0c95d1a::t_0f3602bb9177f2 5,7,71-73,83,87,110,126,134-144
+apps/server/src/templates.ts
+  s_1366f5d0c95d1a::t_7828344488b80b 1,7-8,11,22-23,40,43,49,52,56,68,82,86,95-114
+apps/server/test/admission.test.ts
+  s_1366f5d0c95d1a::t_b3a7db65827196 1-343
+apps/server/test/automations.test.ts
+  s_1366f5d0c95d1a::t_9f60b430576437 240-253
+apps/server/test/box.test.ts
+  s_1366f5d0c95d1a::t_9ee9913a2e64e4 4-10,156-187
+apps/server/test/control.test.ts
+  s_1366f5d0c95d1a::t_a3a4b8c71c39d6 9-10,52-60,89-107
+apps/server/test/delivery.test.ts
+  s_1366f5d0c95d1a::t_cc73644b6a63c8 8,220-239
+apps/server/test/lifecycle.test.ts
+  s_1366f5d0c95d1a::t_5846050b0fa27b 12,15,199,211-214,361-373
+apps/server/test/specialist-connection-pinning.test.ts
+  s_1366f5d0c95d1a::t_3e3f1abea7ecea 1-31
+apps/server/test/specialist-connections.test.ts
+  s_1366f5d0c95d1a::t_bd8c18d809a6e7 1-24
+apps/server/test/specialist-delete.test.ts
+  s_1366f5d0c95d1a::t_b27aaaf18169b1 1-48
+apps/server/test/specialist-drafts.test.ts
+  s_1366f5d0c95d1a::t_52bf94c5cf2c6b 1-230
+apps/server/test/specialist-improvements.test.ts
+  s_1366f5d0c95d1a::t_da2773099faf1d 1-21
+apps/server/test/specialist-provider.test.ts
+  s_1366f5d0c95d1a::t_fc9973ce9d302c 1-46
+apps/server/test/store.test.ts
+  s_1366f5d0c95d1a::t_53a8cbacc2c4c9 198-210
+apps/web/src/App.test.tsx
+  s_1366f5d0c95d1a::t_227aec0efd9d4c 43-69,161,237,833,837,1010-1055
+apps/web/src/App.tsx
+  s_1366f5d0c95d1a::t_d3122fbf4d2564 22,57,62-63,227,240,245-266,332,335-337,339,348,352,355-356,402,436-437,440,442,445,806,809
+apps/web/src/api.ts
+  s_1366f5d0c95d1a::t_a6af7ef1efd936 53,82,97,280,287-341,370,377-384,390-397
+apps/web/src/components/ApplicationAccess.css
+  s_1366f5d0c95d1a::t_26249c5c0574e7 6-31
+apps/web/src/components/ApplicationAccess.test.tsx
+  s_1366f5d0c95d1a::t_19ce631994c083 110-136
+apps/web/src/components/ApplicationAccess.tsx
+  s_1366f5d0c95d1a::t_4469bcea24a59f 2,56,65-66,89-104,125-151,154,156-188
+apps/web/src/components/CreateCompanion.test.tsx
+  s_1366f5d0c95d1a::t_4cf66d326788b7 126,223-234
+apps/web/src/components/CreateCompanion.tsx
+  s_1366f5d0c95d1a::t_aad6f38aab2879 2,63,291,293-294
+apps/web/src/components/ProductPanels.test.tsx
+  s_1366f5d0c95d1a::t_c26df92a4e7836 1,13-73
+apps/web/src/components/ProductPanels.tsx
+  s_1366f5d0c95d1a::t_0eb695eb44f952 3,90,96-106,146,148-150,152
+apps/web/src/components/Question.test.tsx
+  s_1366f5d0c95d1a::t_5afe5a4b001e27 1-17
+apps/web/src/components/Question.tsx
+  s_1366f5d0c95d1a::t_02b93badae1da7 4,11-13
+apps/web/src/components/SpecialistCreation.css
+  s_1366f5d0c95d1a::t_044529a36a2306 1-88
+apps/web/src/components/SpecialistCreation.tsx
+  s_1366f5d0c95d1a::t_8a806a9b872ce1 1-45
+apps/web/src/components/SpecialistDraftPanel.css
+  s_1366f5d0c95d1a::t_bce4561c077c63 1-16
+apps/web/src/components/SpecialistDraftPanel.test.tsx
+  s_1366f5d0c95d1a::t_e072ef088c6d6a 1-206
+apps/web/src/components/SpecialistDraftPanel.tsx
+  s_1366f5d0c95d1a::t_c96083024fe711 1-220
+apps/web/src/components/SpecialistIdentity.test.tsx
+  s_1366f5d0c95d1a::t_02600d004432b6 1-17
+apps/web/src/components/SpecialistIdentity.tsx
+  s_1366f5d0c95d1a::t_61e20f5fa1322e 1-24
+apps/web/src/components/SpecialistImprovements.css
+  s_1366f5d0c95d1a::t_4465f26422984a 1
+apps/web/src/components/SpecialistImprovements.test.tsx
+  s_1366f5d0c95d1a::t_3ca62a618c43e7 1-28
+apps/web/src/components/SpecialistImprovements.tsx
+  s_1366f5d0c95d1a::t_85b306a71292e3 1-36
+apps/web/src/components/SpecialistLibrary.css
+  s_1366f5d0c95d1a::t_05587befa33e0b 7,17,54
+apps/web/src/components/SpecialistLibrary.test.tsx
+  s_1366f5d0c95d1a::t_c71653b8f9c7b1 13-55,76,199,210-227
+apps/web/src/components/SpecialistLibrary.tsx
+  s_1366f5d0c95d1a::t_88fe66a9f6f7e1 2,4,8,12,14,20,41-52,58,64,67,73-82,88-89,91,167
+apps/web/src/components/SpecialistPreparation.test.tsx
+  s_1366f5d0c95d1a::t_827d415a662ece 1-29
+apps/web/src/components/SpecialistPreparation.tsx
+  s_1366f5d0c95d1a::t_4090f85d25ee6b 1-45
+apps/web/src/components/TeamPanel.css
+  s_1366f5d0c95d1a::t_1282d9233e2d9d 66,101,107-109
+apps/web/src/components/TeamPanel.test.tsx
+  s_1366f5d0c95d1a::t_ee2b487ad87af6 15-42,55,60,78,86,112,117-118,124-125,128-130,155,159,182,206,208,230,242,245-257,259-270,272-281,283-292
+apps/web/src/components/TeamPanel.tsx
+  s_1366f5d0c95d1a::t_ccd1ec1aba9f43 2-4,8,17,27,107,139-141,143-146,149,153,170-171,174-177,179-180,191,194,201,228,230-231,238-281
+apps/web/src/index.css
+  s_1366f5d0c95d1a::t_0c4ca070bb6ab3 405-407
+apps/web/src/maison.css
+  s_1366f5d0c95d1a::t_5e50905f8828a2 260-262
+docs/UI_CONTRACT.md
+  s_1366f5d0c95d1a::t_5ba47ef4952395 75-89
+docs/dev-workflow.md
+  s_1366f5d0c95d1a::t_fb48bfbbc852da 111-193
+docs/lifecycle.md
+  s_1366f5d0c95d1a::t_61730c73112be1 39-74,152-153,162-165
+docs/specs/specialists-configuration-and-lifecycle.md
+  s_1366f5d0c95d1a::t_0684eb2e74f913 1-460
+docs/specs/specialists-configuration-and-lifecycle.review.md
+  s_1366f5d0c95d1a::t_8c4b4cabcb0607 1-187
+docs/specs/specialists-implementation-review.md
+  s_1366f5d0c95d1a::t_b22f91b0f0f8c8 1-93
+docs/v0.md
+  s_1366f5d0c95d1a::t_fe0c31f4f3c64d 7-18
+packages/agent/src/daemon.ts
+  s_1366f5d0c95d1a::t_8cbc89d4718c03 6,16-17,20-21,23,51,65-66,69-71,80-83,87,114-116,164-178,184
+packages/agent/src/index.ts
+  s_1366f5d0c95d1a::t_9826da43291936 7,29,57-61
+packages/agent/src/initialization.ts
+  s_1366f5d0c95d1a::t_683c81bce48108 1-161
+packages/agent/src/journal.ts
+  s_1366f5d0c95d1a::t_148c5b8ef95e1e 37,44,92-98,112,120,127-129
+packages/agent/src/pi-executor.ts
+  s_1366f5d0c95d1a::t_cbe7defb2ed684 182-183,216-217,227-228
+packages/agent/src/types.ts
+  s_1366f5d0c95d1a::t_baf875a78cd630 8,19,21,28-31
+packages/agent/test/daemon.test.ts
+  s_1366f5d0c95d1a::t_6889eb56c83339 3,8,32-33,66-123,286,289,291
+packages/agent/test/git-credentials.test.ts
+  s_1366f5d0c95d1a::t_b903714e4362f5 1-97
+packages/agent/test/specialist-initialization.test.ts
+  s_1366f5d0c95d1a::t_9a2cf87be57ad4 1-93
+packages/box/client.ts
+  s_1366f5d0c95d1a::t_4defa225db6ad0 36-46,49-52,87-90,107-114
+packages/control/agent.ts
+  s_1366f5d0c95d1a::t_7859e47f9a51ea 13,17,24,28,39,106
+packages/control/git-credentials.ts
+  s_1366f5d0c95d1a::t_4ec97eceffee2a 1-135
+scripts/dev-cli.py
+  s_1366f5d0c95d1a::t_20a2ac815c0655 17,28-43,122-125,129-130,132,134-137,140-143,145-150,187,286-291,301-306,309-311
+scripts/dev-cli.test.py
+  s_1366f5d0c95d1a::t_4101e1c8c6b912 8,14,23-56,114-168,171-172
+scripts/dev.py
+  s_1366f5d0c95d1a::t_57a95dc68cee33 13-14,23,39-43,50-57,250-253
+scripts/dev_environment.py
+  s_1366f5d0c95d1a::t_4719abf7860a3c 1-51
+scripts/dev_support.py
+  s_1366f5d0c95d1a::t_64753ce1f28e9a 9,15-29
+scripts/herdr-copy-env.py
+  s_1366f5d0c95d1a::t_003a6c9d218565 1-32
+scripts/herdr-copy-env.test.py
+  s_1366f5d0c95d1a::t_441008b86fe3bd 1-40
+scripts/lib/distribution-verification.test.ts
+  s_1366f5d0c95d1a::t_1969b02363868e 115-126
+scripts/lib/distribution-verification.ts
+  s_1366f5d0c95d1a::t_04e5c3398f363e 8,71,84,89,92
+scripts/prepare-box-template.ts
+  s_1366f5d0c95d1a::t_29464b80d94152 15-16,27-28,73
+scripts/test-server.ts
+  s_1366f5d0c95d1a::t_b93df348dc4e9b 20,22
+scripts/test-specialist-image.ts
+  s_1366f5d0c95d1a::t_8b055bf73f018f 1-135
+scripts/verify.py
+  s_1366f5d0c95d1a::t_09744535af18c2 70,240-241
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "09d991ec313a313c01f1ea106243c84d6d47f0fc",
+  "prompts": {},
+  "sessions": {
+    "s_1366f5d0c95d1a": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0813e-201a-7b50-b94d-f5ff8183e203",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "StanGirard <stan@quivr.app>"
+    }
+  }
+}

@@ -112,3 +112,15 @@ test('an existing distribution on the purported fresh source is refused before i
  await expect(publishDistribution(f.durable,f)).rejects.toThrow('DISTRIBUTION_SOURCE_NOT_FRESH');
  expect(f.events.some(e=>e.startsWith('install ')||e.startsWith('capture '))).toBe(false);expect(f.durable.sourceVerifiedFreshAt).toBeUndefined();
 });
+
+
+test('archived distribution mode verifies an independent fork without named snapshots',async()=>{
+ const f=fixture(),s=f.durable;s.storage='archived_box';
+ f.box.getSnapshot=async reference=>{expect(reference).toBe('box:source-box');return {status:f.machines.get('source-box')?.state==='archived'?'ready':'pending'};};
+ await publishDistribution(s,f);
+ expect(contentVerifiedJournal(s)).toBe(true);
+ expect(f.events.some(event=>event.startsWith('capture '))).toBe(false);
+ expect(f.events.some(event=>event.endsWith('box:source-box'))).toBe(true);
+ expect(f.machines.get('source-box')?.state).toBe('archived');
+ expect(f.machines.get('verify-box')?.state).toBe('archived');
+});

@@ -64,3 +64,5 @@ CREATE TABLE IF NOT EXISTS delegation_files (
  FOREIGN KEY(target_run_id,target_companion_id) REFERENCES runs(id,companion_id) ON DELETE CASCADE
 );
 CREATE INDEX IF NOT EXISTS delegation_files_target ON delegation_files(owner_id,target_companion_id,target_run_id);
+
+ALTER TABLE agent_templates ADD COLUMN IF NOT EXISTS deleted_at timestamptz;

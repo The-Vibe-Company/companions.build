@@ -5,7 +5,7 @@ import { acceptDelivery, canMaintainCompanion, createDelivery, handleDelivery, m
 import { migrateDeliverySkills } from "../src/delivery-skills";
 import { allowTemplate, listTemplateRevisions, listTemplates, saveTemplate } from "../src/templates";
 import { attachPlugin, selectedPlugins } from "../src/plugins";
-import { encrypt } from "../src/config";
+import { config, encrypt } from "../src/config";
 
 beforeAll(async () => { await migrate(); await migrateBilling(); await migrateDelivery(); await migrateDeliverySkills(); });
 afterEach(() => {
@@ -216,4 +216,24 @@ test("a delivery stays pending when the recipient has no active subscription", a
   await expect(acceptDelivery(recipient, delivery!.id, false)).rejects.toThrow("active subscription");
   const [persisted] = await db`SELECT status,accepted_by,delivered_companion_id FROM companion_deliveries WHERE id=${delivery!.id}`;
   expect(persisted).toMatchObject({ status: "pending", accepted_by: null, delivered_companion_id: null });
+});
+
+
+test("billing test mode does not opt delivered companions into the local runtime", async () => {
+  process.env.BILLING_TEST_MODE = "1";
+  const sender = await user(`sender-${crypto.randomUUID()}@example.com`);
+  const email = `recipient-${crypto.randomUUID()}@example.com`;
+  const recipient = await user(email);
+  const source = await createCompanion(sender, { name: "Shared", instructions: "Help", provider: "local" });
+  setDeliveryMailerForTests(async () => {});
+  const delivery = await createDelivery(sender, { clientDeliveryId: crypto.randomUUID(), companionId: source.id, clientEmail: email, includeSkills: false });
+  const previous = { defaultProvider: config.defaultProvider, localAvailable: config.localAvailable, boxTemplate: config.boxTemplate };
+  try {
+    Object.assign(config, { defaultProvider: "box", localAvailable: false, boxTemplate: "box:test-base" });
+    const accepted = await acceptDelivery(recipient, delivery!.id, false);
+    const [copy] = await db`SELECT provider,box_id FROM companions WHERE id=${accepted!.companionId}`;
+    expect(copy).toMatchObject({ provider: "box", box_id: null });
+  } finally {
+    Object.assign(config, previous);
+  }
 });

@@ -1,21 +1,23 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
-import { Check, ChevronDown, LoaderCircle, Menu, Plus, RotateCw, X } from "lucide-react";
+import { ChevronDown, LoaderCircle, Menu, Plus, RotateCw, Trash2 } from "lucide-react";
 import { workspaceApi, type AgentTemplate, type AgentTemplateRevision } from "@/api";
-import { AvatarPicker, CompanionAvatar, DEFAULT_AVATAR, type CompanionAvatarValue } from "@/components/CompanionAvatar";
+import { AvatarPicker, CompanionAvatar, DEFAULT_AVATAR } from "@/components/CompanionAvatar";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import "./SpecialistLibrary.css";
+import { SpecialistCreation } from "./SpecialistCreation";
 
 const errorText = (cause: unknown) => cause instanceof Error ? cause.message : "Something went wrong.";
 
-type Props = { onMenu?: () => void; refreshVersion?: number };
+type Props = { onMenu?: () => void; refreshVersion?: number; onOpenDraft?: (companionId: string, templateId: string) => void };
 
-export function SpecialistLibrary({ onMenu, refreshVersion = 0 }: Props) {
+export function SpecialistLibrary({ onMenu, refreshVersion = 0, onOpenDraft }: Props) {
   const [templates, setTemplates] = useState<AgentTemplate[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
+  const [openingId, setOpeningId] = useState<string | null>(null);
   const loadSequence = useRef(0);
 
   const load = useCallback(async (quiet = false) => {
@@ -36,71 +38,57 @@ export function SpecialistLibrary({ onMenu, refreshVersion = 0 }: Props) {
 
   useEffect(() => { void load(refreshVersion > 0); }, [load, refreshVersion]);
 
+  async function openDraft(templateId: string) {
+    if (openingId) return;
+    setOpeningId(templateId); setError("");
+    try {
+      const result = await workspaceApi.openTemplateDraft(templateId);
+      onOpenDraft?.(result.draft.companionId, result.draft.templateId);
+    } catch (cause) { setError(errorText(cause)); }
+    finally { setOpeningId(null); }
+  }
+
+  if (creating) return <SpecialistCreation onCancel={() => setCreating(false)} onRefresh={async () => { await load(); setCreating(false); }} onCreated={draft => { setCreating(false); onOpenDraft?.(draft.companionId, draft.templateId); }} />;
+
   return <main className="specialist-library" id="main-content">
     <div className="specialist-library__inner">
       <header className="specialist-library__heading">
         <div className="specialist-library__title">
           {onMenu && <Button className="specialist-library__menu" variant="ghost" size="icon" onClick={onMenu} aria-label="Open navigation"><Menu /></Button>}
-          <div><h1>Specialists</h1><p>Reusable profiles your companions can call on. Adding one here never starts a machine.</p></div>
+          <div><h1>Specialists</h1><p>Prepare tools, skills and accounts once. Your companions launch a fresh copy for each focused mission.</p></div>
         </div>
         <Button onClick={() => { setCreating(true); setEditingId(null); }} disabled={creating}><Plus />New specialist</Button>
       </header>
 
       {error && <div className="specialist-library__error" role="alert"><span>{error}</span><Button variant="outline" size="sm" onClick={() => void load()}><RotateCw />Try again</Button></div>}
-      {creating && <NewSpecialist onCancel={() => setCreating(false)} onRefresh={async () => { await load(); setCreating(false); }} onCreated={async id => { const result = await load(true); setCreating(false); if (result?.some(item => item.id === id)) setEditingId(id); }} />}
+
 
       {loading && templates.length === 0 ? <LibrarySkeleton /> : !error && templates.length === 0 && !creating ? <section className="specialist-library__empty"><CompanionAvatar name="Specialist" avatar={DEFAULT_AVATAR} size={72}/><h2>No specialists yet</h2><p>Create a reusable role once, then add it to any companion’s team.</p></section> : <section className="specialist-library__list" aria-label="Saved specialists">
-        {templates.map(template => <SpecialistLibraryRow key={template.id} template={template} expanded={editingId === template.id} onToggle={() => setEditingId(current => current === template.id ? null : template.id)} onReload={load} />)}
+        {templates.map(template => <SpecialistLibraryRow key={template.id} template={template} expanded={editingId === template.id} opening={openingId === template.id} onConfigure={() => void openDraft(template.id)} onToggle={() => setEditingId(current => current === template.id ? null : template.id)} onReload={load} />)}
       </section>}
     </div>
   </main>;
 }
 
-function NewSpecialist({ onCancel, onRefresh, onCreated }: { onCancel: () => void; onRefresh: () => Promise<void>; onCreated: (id: string) => Promise<void> }) {
-  const [name, setName] = useState("");
-  const [instructions, setInstructions] = useState("");
-  const [avatar, setAvatar] = useState<CompanionAvatarValue>(DEFAULT_AVATAR);
-  const [saving, setSaving] = useState(false);
-  const [uncertain, setUncertain] = useState(false);
-  const [error, setError] = useState("");
-  const savingRef = useRef(false);
-
-  async function submit(event: FormEvent) {
-    event.preventDefault();
-    if (savingRef.current || !name.trim() || uncertain) return;
-    savingRef.current = true; setSaving(true); setError("");
-    try {
-      const result = await workspaceApi.createTemplate({ name: name.trim(), instructions: instructions.trim(), avatar });
-      await onCreated(result.id);
-    } catch (cause) {
-      setUncertain(true);
-      setError(errorText(cause));
-    } finally { savingRef.current = false; setSaving(false); }
+function SpecialistLibraryRow({ template, expanded, opening, onConfigure, onToggle, onReload }: { template: AgentTemplate; expanded: boolean; opening: boolean; onConfigure: () => void; onToggle: () => void; onReload: (quiet?: boolean) => Promise<AgentTemplate[] | null> }) {
+  const [confirming, setConfirming] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState('');
+  async function remove() {
+    if (deleting) return;
+    setDeleting(true); setDeleteError('');
+    try { await workspaceApi.deleteTemplate(template.id); await onReload(true); }
+    catch (cause) { setDeleteError(errorText(cause)); }
+    finally { setDeleting(false); }
   }
-
-  return <section className="specialist-create" aria-labelledby="new-specialist-title">
-    <div className="specialist-create__preview"><CompanionAvatar name={name || "New specialist"} avatar={avatar} size={112}/><strong>{name || "New specialist"}</strong><span>{instructions || "Give this specialist a focused role."}</span></div>
-    <form onSubmit={submit}>
-      <div className="specialist-editor__head"><div><h2 id="new-specialist-title">New specialist</h2><p>Create a reusable profile without starting work.</p></div><Button variant="ghost" size="icon" type="button" onClick={onCancel} disabled={saving} aria-label="Close new specialist"><X /></Button></div>
-      {uncertain ? <div className="specialist-editor__uncertain" role="alert"><strong>We couldn’t confirm whether this specialist was created.</strong><p>Refresh the page before creating another so you don’t make a duplicate.</p>{error && <span>{error}</span>}</div> : <>
-        <div className="specialist-editor__grid"><label>Name<input autoFocus value={name} maxLength={80} disabled={saving} onChange={event => setName(event.target.value)} /></label><label>Role<Textarea value={instructions} rows={3} maxLength={20_000} disabled={saving} onChange={event => setInstructions(event.target.value)} /></label></div>
-        <details className="specialist-editor__appearance"><summary><CompanionAvatar name="Appearance preview" avatar={avatar} size={32}/>Change appearance<ChevronDown /></summary><AvatarPicker value={avatar} onChange={setAvatar}/></details>
-        <ProviderAccess />
-        {error && <p className="field-error" role="alert">{error}</p>}
-      </>}
-      <div className="specialist-editor__actions"><Button type="button" variant="outline" onClick={onCancel} disabled={saving}>Cancel</Button>{uncertain ? <Button type="button" onClick={() => void onRefresh()}><RotateCw />Refresh specialists</Button> : <Button type="submit" disabled={saving || !name.trim()}>{saving ? <LoaderCircle className="spin"/> : <Check />}{saving ? "Creating…" : "Create specialist"}</Button>}</div>
-    </form>
-  </section>;
-}
-
-function SpecialistLibraryRow({ template, expanded, onToggle, onReload }: { template: AgentTemplate; expanded: boolean; onToggle: () => void; onReload: (quiet?: boolean) => Promise<AgentTemplate[] | null> }) {
   return <article className={`specialist-library__row${expanded ? " is-expanded" : ""}`}>
     <div className="specialist-library__summary">
       <CompanionAvatar name={template.name} avatar={template.avatar} size={56}/>
       <div><strong>{template.name}</strong><span>{template.instructions || "Focused specialist profile."}</span></div>
-      <span className="specialist-library__version">Version {template.revision}</span>
-      <Button variant="outline" size="sm" onClick={onToggle} aria-expanded={expanded}>{expanded ? "Editing" : "Edit"}</Button>
+      <span className="specialist-library__version">{template.hasPublished === false ? "Draft" : `Version ${template.revision}`}</span>
+      <div className="specialist-library__row-actions"><Button size="sm" disabled={opening || deleting} onClick={onConfigure}>{opening && <LoaderCircle className="spin"/>}{opening ? "Opening…" : "Configure"}</Button><Button variant="outline" size="sm" disabled={deleting} onClick={onToggle} aria-expanded={expanded}>{expanded ? "Editing" : "Edit"}</Button><Button variant="ghost" size="icon" disabled={deleting || opening} aria-label={`Delete ${template.name}`} onClick={() => setConfirming(true)}><Trash2/></Button></div>
     </div>
+    {confirming && <div className="specialist-library__delete" role="region" aria-label={`Delete ${template.name}`}><div><strong>Delete {template.name}?</strong><p>It will be removed from your library and teams. Its draft and tests will stop; existing delegated missions keep their history.</p></div>{deleteError && <p role="alert">{deleteError}</p>}<div><Button variant="outline" disabled={deleting} onClick={() => setConfirming(false)}>Cancel</Button><Button variant="destructive" disabled={deleting} onClick={() => void remove()}>{deleting ? 'Deleting…' : 'Delete specialist'}</Button></div></div>}
     {expanded && <SpecialistEditor template={template} onCancel={onToggle} onReload={onReload}/>} 
   </article>;
 }
@@ -176,7 +164,7 @@ function SpecialistEditor({ template, onCancel, onReload }: { template: AgentTem
 }
 
 function ProviderAccess() {
-  return <section className="specialist-editor__access"><strong>Apps &amp; accounts</strong><span>Apps are granted by the companion that calls this specialist.</span></section>;
+  return <section className="specialist-editor__access"><strong>Apps &amp; accounts</strong><span>Configure the specialist’s own accounts in its draft. A coordinator can override them for its team.</span></section>;
 }
 
 function LibrarySkeleton() { return <div className="specialist-library__skeleton" role="status" aria-label="Loading specialists">{[0,1,2,3].map(item => <span key={item}/>)}</div>; }

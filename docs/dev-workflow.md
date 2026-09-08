@@ -108,3 +108,86 @@ changes. A focused passing result names its profile; it does not replace full va
 GitHub's Verify workflow runs the full PostgreSQL 18 path and uploads only summary JSON,
 excluding local authentication state, database backups and raw logs. Configure Verify as a
 required repository check if merges must be blocked on it.
+
+### Real model or scripted responses
+
+`./dev restart --live` uses the selected runtime settings described below.
+Database and storage remain local; agent computers use Box when its key and template are configured.
+The worktree remembers this choice without writing credentials to its options file.
+`./dev restart --scripted` restores deterministic test responses. The default for a new
+worktree is scripted mode; `Scripted response.` indicates that mode, not an AI answer.
+Existing messages are retained when switching modes. Send a new message to use the real model.
+
+### Shared runtime settings from the main checkout
+
+In live mode, the launcher reads runtime settings from the main checkout’s `.env`
+(found through Git’s common directory), then this worktree’s `.env`, then the shell.
+It reads them again on each startup; secrets are not copied into worktree options.
+Only `MODEL_PROVIDER`, `MODEL_ID`, the selected provider’s API key, `BOX_API_KEY`
+and `BOX_TEMPLATE` are inherited. Database, storage, authentication, email and ports
+remain local. Scripted mode does not inherit these external credentials.
+
+Use `./dev restart --live --direct` to apply changes. With both Box settings present,
+new specialists use Box; existing Docker specialists retain their provider.
+For ZAI Coding Plan, use `MODEL_PROVIDER=zai` and `MODEL_ID=glm-5.3-flash` in the
+main `.env`. Pi’s `zai` provider uses `https://api.z.ai/api/coding/paas/v4`.
+
+### Herdr worktree `.env` copy
+
+The repository’s shared Git `post-checkout` hook is installed locally from
+`scripts/herdr-copy-env.py`. When `HERDR_ENV=1`, it copies the primary checkout’s
+`.env` into a newly created worktree if none exists. The copy has mode `0600` and
+must be ignored by Git. Existing worktree settings are never overwritten.
+The hook is shared by this repository’s worktrees and requires no Herdr restart.
+Use `./dev up --live` in a new worktree to activate the external runtime settings
+while keeping development infrastructure isolated. Local `.env` copies take
+precedence over later changes to the main file.
+
+### Specialist images and Box snapshot capacity
+
+New specialist versions retain a sealed, archived Box and store a `box:<id>` image
+reference. Missions fork that Box with an idempotency key, `noEnv: true`, and an
+empty environment. The configuration source is archived before its sanitation
+copy is made; the sanitized image is archived and retired before publication.
+Published images must never be resumed, mutated or deleted while referenced by
+versions or shared copies. Existing named snapshot versions still work.
+
+Retention policy checked on 2026-09-08 against [Snapshots & Copies](https://docs.ascii.dev/box/snapshots#retention),
+[Data retention](https://docs.ascii.dev/box/data-retention), and the [FAQ](https://docs.ascii.dev/box/faq):
+there is no documented seven-day expiry for the latest snapshot. It remains usable
+for the lifetime of the archived Box, including months later. Seven days refers to
+the free trial. Stopped Boxes and their latest snapshot are included without running
+compute charges; this is the documented service policy, not an independent backup.
+
+Keep the sealed-Box strategy; do not schedule periodic wakeups or rotation to extend
+retention. Account zero-data-retention must remain disabled: read it with
+`GET /account/data-retention` before adopting this storage strategy. Enabling it
+queues existing archived Boxes for deletion and discards future archives; disabling
+it does not cancel accepted deletions. Explicit Box deletion also removes the restore
+source. Closing the Box account starts a 30-day recovery window before data purge.
+Named snapshots have no expiry but remain limited to 10. An independent off-provider
+backup would require its own export and tested restore path.
+
+Specialist names and avatars are live metadata: saving them updates the library,
+configuration chat and existing active mission identities immediately. It does not
+publish instructions, increment the technical revision, or invalidate a tested image.
+
+A development distribution can use the same mechanism:
+`python3 scripts/bun.py scripts/prepare-box-template.ts <unique-release> --archived`.
+The command builds first, verifies every file on an independent fork, archives both
+owned Boxes, and prints the `BOX_TEMPLATE=box:<id>` setting for the worktree `.env`.
+
+
+### Box by default; opt-in local testing
+
+The product does not expose a local/cloud computer picker. New companions and
+specialist configuration environments use Box by default. Existing local companions
+remain readable and runnable; a prepared specialist always launches a Box child,
+even when its coordinator is local.
+
+For fast Docker-backed local testing, set `LOCAL_RUNTIME=1` in the worktree `.env`
+or shell and restart with `./dev restart`. Remove it or set `LOCAL_RUNTIME=0` to
+return to Box. This setting is independent of model selection: `--scripted` controls
+the test model, while `--live` uses configured model credentials. Live Box development
+still requires `BOX_API_KEY` and `BOX_TEMPLATE`. Deterministic verification explicitly
+enables the local runtime in its isolated test environment.

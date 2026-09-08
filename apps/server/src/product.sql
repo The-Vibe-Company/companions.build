@@ -23,3 +23,7 @@ ALTER TABLE companions ADD COLUMN IF NOT EXISTS model_id text;
 ALTER TABLE companions ADD COLUMN IF NOT EXISTS client_creation_id uuid;
 ALTER TABLE companions ADD COLUMN IF NOT EXISTS creation_fingerprint text;
 CREATE UNIQUE INDEX IF NOT EXISTS companions_owner_creation_id ON companions(owner_id,client_creation_id) WHERE client_creation_id IS NOT NULL;
+
+ALTER TABLE task_questions ADD COLUMN IF NOT EXISTS context_text text;
+
+ALTER TABLE runs ADD COLUMN IF NOT EXISTS thinking_text text;

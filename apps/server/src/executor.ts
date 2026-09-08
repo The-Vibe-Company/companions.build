@@ -1,4 +1,5 @@
 import { SoftwareBuildCoordinator, type SoftwareRuntimeHooks } from './software-runtime';
+import {specialistConfigurationInstructions} from './specialist-drafts';
 import {tracePreparation} from './preparation-trace';
 import {BoxObserver} from './box-observation';
 import { db, migrateForService } from "./store";
@@ -74,10 +75,12 @@ export async function persistObservation(sql:any,run:any,result:any,leaderPid?:n
    AND EXISTS(SELECT 1 FROM pg_locks WHERE locktype='advisory' AND pid=COALESCE(${leaderPid??null}::int,pg_backend_pid()) AND objid=721440139 AND granted)`;
   return;
  }
+ const warning=typeof result.initWarning==='string'?result.initWarning.slice(0,2000):null;
+ const thinking=typeof result.thinkingText==='string'?result.thinkingText.slice(0,20_000):null;
  const preview=typeof result.previewText==='string'?result.previewText.slice(0,20_000):null;
  const parsed=usageShape.safeParse(result.usage);const usage=parsed.success?parsed.data:null;
- if(preview===null&&usage===null)return;
- await sql`UPDATE runs SET preview_text=COALESCE(${preview},preview_text),usage=COALESCE(${usage},usage)
+ if(preview===null&&usage===null&&warning===null&&thinking===null)return;
+ await sql`UPDATE runs SET thinking_text=COALESCE(${thinking},thinking_text),init_warning=COALESCE(${warning},init_warning),preview_text=COALESCE(${preview},preview_text),usage=COALESCE(${usage},usage)
    WHERE id=${run.id} AND companion_id=${run.companion_id}
    AND EXISTS(SELECT 1 FROM pg_locks WHERE locktype='advisory' AND pid=COALESCE(${leaderPid??null}::int,pg_backend_pid()) AND objid=721440139 AND granted)`;
 }
@@ -125,6 +128,7 @@ export async function claimQueuedRuns(sql: ReservedSQL) {
   await sql`UPDATE runs r SET status='preparing',started_at=COALESCE(started_at,now()) WHERE r.id IN (
     SELECT DISTINCT ON (q.companion_id,q.lane) q.id FROM runs q WHERE (q.status='queued' OR (q.status='needs_input' AND q.resume_requested_at IS NOT NULL))
       AND EXISTS (SELECT 1 FROM companions c WHERE c.id=q.companion_id AND c.retired_at IS NULL AND c.archive_requested_at IS NULL)
+      AND NOT EXISTS (SELECT 1 FROM machine_admission_requests m WHERE m.companion_id=q.companion_id AND m.state IN ('queued','cancelling'))
       AND NOT EXISTS (SELECT 1 FROM runs a WHERE a.companion_id=q.companion_id AND a.lane=q.lane
         AND (a.status='preparing' OR (q.lane='background' AND a.status='running')))
     ORDER BY q.companion_id,q.lane,COALESCE(q.resume_requested_at,q.created_at),q.id)
@@ -146,11 +150,12 @@ export async function tick(sql: ReservedSQL, hooks: ExecutorHooks = {}, lifecycl
   // another lane on an already active daemon reuses that machine without restarting it.
   await sql`UPDATE companions c SET prepare_requested=true WHERE c.retired_at IS NULL AND c.archive_requested_at IS NULL
     AND NOT c.prepare_requested
+    AND NOT EXISTS(SELECT 1 FROM machine_admission_requests m WHERE m.companion_id=c.id AND m.state IN ('queued','cancelling'))
     AND EXISTS(SELECT 1 FROM runs r WHERE r.companion_id=c.id AND r.status='preparing' AND NOT r.dispatched AND (c.endpoint_secret IS NULL OR c.status<>'ready' OR c.archived_at IS NOT NULL))
     AND NOT EXISTS(SELECT 1 FROM runs r WHERE r.companion_id=c.id AND r.dispatched AND r.status IN ('running','preparing','needs_input'))`;
   if(lifecycle)await lifecycle.schedule(sql,hooks);
   else await progressLifecycle(sql, {...hooks.lifecycle,canStartWork:hooks.canStartWork??hooks.lifecycle?.canStartWork??ownerMayStartWork}, hooks.lifecycleMachines);
-  const runs = await sql`SELECT r.id,r.companion_id,r.client_message_id,r.content,r.status,r.dispatched,r.cancel_requested,r.error,r.created_at,r.started_at,r.finished_at,r.prepared_at,r.lane,r.source,r.response_root_id,r.result_text,r.publish_to_chat,r.routine_id,r.scheduled_for,r.resume_requested_at,r.attachment_count,c.provider,c.box_id,c.create_key,c.create_started_at,c.agent_secret,c.endpoint_secret,c.instructions,c.config_digest,c.snapshot_name,c.template_id,c.template_revision,c.model_id,c.owner_id
+  const runs = await sql`SELECT r.id,r.companion_id,r.client_message_id,r.content,r.status,r.dispatched,r.cancel_requested,r.error,r.created_at,r.started_at,r.finished_at,r.prepared_at,r.lane,r.source,r.response_root_id,r.result_text,r.publish_to_chat,r.routine_id,r.scheduled_for,r.resume_requested_at,r.attachment_count,c.provider,c.box_id,c.create_key,c.create_started_at,c.agent_secret,c.endpoint_secret,c.instructions,c.specialist_draft_id,c.init_script,c.config_digest,c.snapshot_name,c.template_id,c.template_revision,c.model_id,c.owner_id
     FROM runs r JOIN companions c ON c.id=r.companion_id WHERE r.status IN ('preparing','running','needs_input') AND c.retired_at IS NULL AND c.archive_requested_at IS NULL ORDER BY r.created_at`;
   const progressSql=coordinator?db:sql;
   const groups=[...Map.groupBy(runs as any[],run=>`${run.companion_id}:${runJobKind(run)}`).entries()];
@@ -256,7 +261,8 @@ export async function tick(sql: ReservedSQL, hooks: ExecutorHooks = {}, lifecycl
             RETURNING id`;
           if (!dispatch) return;
           await execution.checkpoint(async tx=>tx`UPDATE companions SET status='ready',error=null WHERE id=${run.companion_id}`);
-          const accepted = await tracePreparation(run.companion_id,'admission_put',()=>request(endpoint!, token, `/runs/${run.id}`, "PUT", { content: run.content, instructions: run.instructions, lane: run.lane,
+          const accepted = await tracePreparation(run.companion_id,'admission_put',()=>request(endpoint!, token, `/runs/${run.id}`, "PUT", { content: run.content, instructions: run.specialist_draft_id ? specialistConfigurationInstructions : run.instructions, lane: run.lane,
+            ...(run.init_script?{initScript:run.init_script,initTimeoutMs:600_000}:{}),
             ...(run.model_id ? {modelId: run.model_id} : {}),
             ...(useGateway?{modelGateway:{token:mintModelGatewayToken(run.companion_id,run.id,run.agent_secret,undefined,run.endpoint_secret)}}:{}) }),undefined,run.id);
           if (accepted?.responseRootId) {
@@ -348,6 +354,12 @@ export class LifecycleCoordinator {
   this.leaderPid=identity.pid;
   const pending=await leader`SELECT c.id FROM companions c WHERE
    (c.retired_at IS NULL AND (c.prepare_requested OR ((c.desktop_boundary_version=1 OR c.desktop_taken) AND c.status='ready' AND c.endpoint_secret IS NOT NULL AND (c.desktop_checked_at IS NULL OR c.desktop_checked_at<now()-interval '30 seconds' OR (c.desktop_observed_generation IS DISTINCT FROM c.desktop_generation AND c.desktop_checked_at<now()-interval '2 seconds'))) OR c.archive_requested_at IS NOT NULL
+    OR EXISTS(SELECT 1 FROM machine_admission_requests m WHERE m.companion_id=c.id AND m.state IN ('queued','cancelling'))
+    OR ((c.temporary OR c.specialist_draft_id IS NOT NULL) AND c.archived_at IS NULL AND EXISTS(SELECT 1 FROM machine_admission_requests m WHERE m.owner_id=c.owner_id AND m.state='queued' AND m.waiting_reason='active_limit'))
+    OR (c.status='ready' AND c.prepare_requested=false AND NOT c.desktop_taken AND COALESCE(c.keep_alive_until,'-infinity')<=now()
+      AND COALESCE(c.machine_activity_at,c.ready_at,c.created_at)<=now()-interval '30 minutes')
+    OR ((c.temporary OR c.specialist_draft_id IS NOT NULL) AND c.box_id IS NOT NULL AND c.archived_at IS NULL AND (c.provider_ttl_checked_at IS NULL OR c.provider_ttl_checked_at<now()-interval '15 minutes') AND (c.keep_alive_until>now() OR EXISTS(SELECT 1 FROM runs active WHERE active.companion_id=c.id AND active.dispatched AND active.status='running')))
+    OR EXISTS(SELECT 1 FROM specialist_operations o JOIN specialist_drafts d ON d.template_id=o.template_id WHERE d.companion_id=c.id AND o.status IN ('queued','freezing','capturing','preparing','running'))
     OR EXISTS(SELECT 1 FROM template_candidates t WHERE t.source_companion_id=c.id AND t.status IN ('queued','capturing','ready'))
     OR EXISTS(SELECT 1 FROM delegations d JOIN runs r ON r.id=d.run_id WHERE d.target_id=c.id AND d.finished_at IS NULL AND r.status IN ('succeeded','failed','interrupted','cancelled'))))
    OR (c.retired_at IS NOT NULL AND c.archive_requested_at IS NOT NULL AND (c.archived_at IS NULL OR c.archived_at<c.archive_requested_at))

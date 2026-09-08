@@ -1,9 +1,11 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtempSync } from "node:fs";
+import { Database } from "bun:sqlite";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { AgentDaemon } from "../src/daemon";
 import type { RunExecutor, RunInput } from "../src/types";
+import { InitializationRunner, type InitializationProcess } from "../src/initialization";
 
 const token = "test-secret";
 const open: AgentDaemon[] = [];
@@ -27,8 +29,8 @@ class ControlledExecutor implements RunExecutor {
   fail(id: string, error: Error) { this.rejects.get(id)?.(error); }
 }
 
-function daemon(state = mkdtempSync(join(tmpdir(), "companion-agent-")), executor = new ControlledExecutor()) {
-  const value = new AgentDaemon(state, token, executor); open.push(value); return { state, executor, daemon: value };
+function daemon(state = mkdtempSync(join(tmpdir(), "companion-agent-")), executor = new ControlledExecutor(), initialization?: InitializationRunner) {
+  const value = new AgentDaemon(state, token, executor, undefined, 0, initialization); open.push(value); return { state, executor, daemon: value };
 }
 function request(path: string, init: RequestInit = {}) {
   return new Request(`http://agent${path}`, { ...init, headers: { authorization: `Bearer ${token}`, "content-type": "application/json", ...init.headers } });
@@ -59,6 +61,64 @@ describe("agent daemon protocol", () => {
     expect((await app.daemon.fetch(request(`/runs/${id}`, { method: "PUT", body }))).status).toBe(200);
     expect((await app.daemon.fetch(request(`/runs/${id}`, { method: "PUT", body: JSON.stringify({ content: "changed", instructions: "" }) }))).status).toBe(409);
     expect(app.executor.calls).toHaveLength(1);
+  });
+
+  test("runs specialist initialization once, persists its warning, and continues the mission", async () => {
+    const state = mkdtempSync(join(tmpdir(), "companion-agent-"));
+    let launches = 0;
+    const initialization = new InitializationRunner(state, () => {
+      launches += 1;
+      return { pid: 1, exited: Promise.resolve(7), killGroup() {} } satisfies InitializationProcess;
+    });
+    const app = daemon(state, new ControlledExecutor(), initialization);
+    const body = (content: string) => JSON.stringify({ content, instructions: "base", initScript: "prepare", initTimeoutMs: 5_000 });
+    expect((await app.daemon.fetch(request(`/runs/${id}`, { method: "PUT", body: body("first") }))).status).toBe(202);
+    await Bun.sleep(0);
+    expect(app.executor.calls[0]!.input.instructions).toContain("initialization script failed");
+    app.executor.finish(id, "repaired during mission"); await Bun.sleep(0);
+    expect(await (await app.daemon.fetch(request(`/runs/${id}`))).json()).toMatchObject({ status: "succeeded", initWarning: expect.stringContaining("initialization script failed") });
+
+    const followup = "01993c9a-b0c2-7000-8000-000000000009";
+    await app.daemon.fetch(request(`/runs/${followup}`, { method: "PUT", body: body("follow-up") }));
+    await Bun.sleep(0);
+    expect(launches).toBe(1);
+    expect(app.executor.calls[1]!.input.instructions).toContain("initialization script failed");
+  });
+
+  test("does not start the mission when initialization was ambiguous before restart", async () => {
+    const state = mkdtempSync(join(tmpdir(), "companion-agent-"));
+    const seed = new InitializationRunner(state, () => ({ pid: 1, exited: Promise.resolve(0), killGroup() {} }));
+    await seed.run("prepare", 5_000); seed.close();
+    const db = new Database(join(state, "initialization.sqlite"));
+    db.query("UPDATE initialization SET status='running',finished_at=NULL").run(); db.close();
+    const app = daemon(state);
+    await app.daemon.fetch(request(`/runs/${id}`, { method: "PUT", body: JSON.stringify({ content: "mission", instructions: "", initScript: "prepare" }) }));
+    await Bun.sleep(0);
+    expect(app.executor.calls).toHaveLength(0);
+    expect(await (await app.daemon.fetch(request(`/runs/${id}`))).json()).toMatchObject({ status: "interrupted", error: "INIT_SCRIPT_OUTCOME_UNKNOWN" });
+  });
+
+  test("does not steer or accept another main turn while initialization is running", async () => {
+    const state = mkdtempSync(join(tmpdir(), "companion-agent-"));
+    let finish!: (code: number) => void;
+    const exited = new Promise<number>(resolve => { finish = resolve; });
+    // Pi does not expose an accepting root until execute() starts, after initialization.
+    class InitializingExecutor extends ControlledExecutor { acceptingRoot() { return null; } }
+    const app = daemon(state, new InitializingExecutor(), new InitializationRunner(state, () => ({ pid: 1, exited, killGroup() {} })));
+    await app.daemon.fetch(request(`/runs/${id}`, { method: "PUT", body: JSON.stringify({ content: "mission", instructions: "", initScript: "prepare" }) }));
+    await Bun.sleep(0);
+    const next = "01993c9a-b0c2-7000-8000-000000000008";
+    expect((await app.daemon.fetch(request(`/runs/${next}`, { method: "PUT", body: JSON.stringify({ content: "follow-up", instructions: "", initScript: "prepare" }) }))).status).toBe(409);
+    expect((await app.daemon.fetch(request(`/runs/${next}`))).status).toBe(404);
+    expect(app.executor.steers).toHaveLength(0);
+    expect((await app.daemon.fetch(request(`/runs/${next}`, { method: "PUT", body: JSON.stringify({ content: "background", instructions: "", lane: "background", initScript: "prepare" }) }))).status).toBe(409);
+    expect((await app.daemon.fetch(request(`/runs/${next}`))).status).toBe(404);
+    finish(0); await Bun.sleep(0);
+    expect(app.executor.calls).toHaveLength(1);
+    app.executor.finish(id, "first done"); await Bun.sleep(0);
+    expect((await app.daemon.fetch(request(`/runs/${next}`, { method: "PUT", body: JSON.stringify({ content: "follow-up", instructions: "", initScript: "prepare" }) }))).status).toBe(202);
+    await Bun.sleep(0);
+    expect(app.executor.calls).toHaveLength(2);
   });
 
   test("a run-bound gateway token is required in gateway mode, rotates across retries, and is never journaled",async()=>{
@@ -223,12 +283,12 @@ describe("agent daemon protocol", () => {
 test('streamed preview and usage survive daemon restart without re-executing the prompt',async()=>{
  const state=mkdtempSync(join(tmpdir(),'companion-progress-'));
  let calls=0;
- const executor:RunExecutor={async execute(_id,_input,progress){calls++;progress?.({previewText:'Partial answer',usage:{input:10,output:2,cacheRead:0,cacheWrite:0,totalTokens:12,costUsd:0.001}});return new Promise(()=>{});},async cancel(){}};
+ const executor:RunExecutor={async execute(_id,_input,progress){calls++;progress?.({previewText:'Partial answer',thinkingText:'Checking the requested constraints',usage:{input:10,output:2,cacheRead:0,cacheWrite:0,totalTokens:12,costUsd:0.001}});return new Promise(()=>{});},async cancel(){}};
  const first=new AgentDaemon(state,token,executor);
  await first.fetch(request(`/runs/${id}`,{method:'PUT',body:JSON.stringify({content:'hello',instructions:''})}));
- expect(await (await first.fetch(request(`/runs/${id}`))).json()).toMatchObject({status:'running',previewText:'Partial answer',usage:{totalTokens:12}});
+ expect(await (await first.fetch(request(`/runs/${id}`))).json()).toMatchObject({status:'running',previewText:'Partial answer',thinkingText:'Checking the requested constraints',usage:{totalTokens:12}});
  first.close();const restarted=new AgentDaemon(state,token,executor);open.push(restarted);
- expect(await (await restarted.fetch(request(`/runs/${id}`))).json()).toMatchObject({status:'interrupted',previewText:'Partial answer',usage:{totalTokens:12}});
+ expect(await (await restarted.fetch(request(`/runs/${id}`))).json()).toMatchObject({status:'interrupted',previewText:'Partial answer',thinkingText:'Checking the requested constraints',usage:{totalTokens:12}});
  await restarted.fetch(request(`/runs/${id}`,{method:'PUT',body:JSON.stringify({content:'hello',instructions:''})}));
  expect(calls).toBe(1);
 });

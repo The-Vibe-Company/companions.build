@@ -123,7 +123,7 @@ describe("CreateCompanion", () => {
     const onCreated = vi.fn();
     render(<CreateCompanion config={config} onCreated={onCreated}/>);
     await screen.findByRole("heading", { name: "Linear" });
-    await user.click(screen.getByText("Advanced", { exact: false }));
+    await user.click(screen.getByText("Starting profile"));
     await user.selectOptions(screen.getByLabelText("Start from"), "researcher");
     expect(screen.getByLabelText("Name")).toHaveValue("Researcher");
     await user.click(screen.getByRole("button", { name: "Create companion" }));
@@ -219,4 +219,16 @@ describe("CreateCompanion", () => {
     expect(await screen.findByRole("checkbox", { name: /Researcher/ })).toBeInTheDocument();
     expect(workspaceApi.templates).toHaveBeenCalledTimes(2);
   });
+});
+
+
+it.each(['box','local'] as const)('uses the configured %s provider without a runtime picker',async(provider)=>{
+ const create=vi.spyOn(api,'createCompanion').mockResolvedValue({companion:{...companion,provider}});
+ const user=userEvent.setup();
+ render(<CreateCompanion config={{...config,defaultProvider:provider,localAvailable:provider==='local'}} onCreated={vi.fn()}/>);
+ await enterBasics(user);
+ expect(screen.queryByRole('radio',{name:/Local/})).not.toBeInTheDocument();
+ expect(screen.queryByRole('radio',{name:/Box/})).not.toBeInTheDocument();
+ await user.click(screen.getByRole('button',{name:'Create companion'}));
+ await waitFor(()=>expect(create).toHaveBeenCalledWith(expect.objectContaining({provider})));
 });

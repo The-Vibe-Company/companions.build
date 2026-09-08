@@ -5,7 +5,7 @@ export type RunLane = "main" | "background";
 export type TerminalRunStatus = Exclude<RunStatus, "running" | "needs_input">;
 
 export interface RunUsage {input:number;output:number;cacheRead:number;cacheWrite:number;totalTokens:number;costUsd:number}
-export interface RunProgress {previewText:string;usage:RunUsage}
+export interface RunProgress {thinkingText?:string;previewText:string;usage:RunUsage}
 
 export interface RunRecord {
   id: string;
@@ -16,13 +16,19 @@ export interface RunRecord {
   responseRootId: string;
   publishToChat: boolean;
   previewText?:string;
+  thinkingText?:string;
   usage?:RunUsage;
+  initWarning?: string;
 }
 
 export interface RunInput {
   content: string;
   instructions: string;
   modelId?:string;
+  /** Immutable specialist initialization, journaled once per Companion state directory. */
+  initScript?: string;
+  /** Server-resolved administrative timeout; defaults to ten minutes. */
+  initTimeoutMs?: number;
   lane?: RunLane;
   /** Short-lived, run-bound credential. It is intentionally never written to the run journal. */
   modelGateway?: {token:string};

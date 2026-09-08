@@ -10,6 +10,49 @@ const earlier = { revision: 1, name: "Research partner", instructions: "Find pri
 beforeEach(() => vi.unstubAllGlobals());
 
 describe("SpecialistLibrary", () => {
+  it("opens a persisted draft companion for configuration", async () => {
+    const onOpenDraft = vi.fn();
+    const draft = { templateId: "t1", companionId: "draft-companion", generation: 2, name: "Researcher", instructions: researcher.instructions, initScript: "", status: "editing", lastTest: null, publication: null };
+    const fetchMock = vi.fn((input: RequestInfo | URL, options?: RequestInit) => {
+      const path = String(input);
+      if (path === "/api/templates") return response({ templates: [{ ...researcher, hasPublished: false, draftCompanionId: "draft-companion" }] });
+      if (path === "/api/templates/t1/draft" && options?.method === "POST") return response({ draft });
+      throw new Error(`Unexpected ${path}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+    render(<SpecialistLibrary onOpenDraft={onOpenDraft} />);
+
+    expect(await screen.findByText("Draft", { selector: ".specialist-library__version" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Configure" }));
+    await waitFor(() => expect(onOpenDraft).toHaveBeenCalledWith("draft-companion", "t1"));
+    const posted = JSON.parse(String((fetchMock.mock.calls.find(([path, options]) => String(path) === "/api/templates/t1/draft" && (options as RequestInit)?.method === "POST")?.[1] as RequestInit).body));
+    expect(posted.commandId).toEqual(expect.any(String));
+  });
+
+  it("creates a private draft and opens its chat", async () => {
+    const onOpenDraft = vi.fn();
+    const draft = { templateId: "new-template", companionId: "new-draft", generation: 1, name: "Analyst", instructions: "Analyze product data", initScript: "", status: "editing", lastTest: null, publication: null };
+    const fetchMock = vi.fn((input: RequestInfo | URL, options?: RequestInit) => {
+      const path = String(input);
+      if (path === "/api/templates" && options?.method === "POST") return response({ draft });
+      if (path === "/api/companions/new-draft") return response({ companion: { id: "new-draft", status: "ready" } });
+      if (path === "/api/templates") return response({ templates: [] });
+      throw new Error(`Unexpected ${path}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+    render(<SpecialistLibrary onOpenDraft={onOpenDraft} />);
+    await screen.findByText("No specialists yet");
+    await user.click(screen.getByRole("button", { name: "New specialist" }));
+    await user.type(screen.getByRole("textbox", { name: "Specialist brief" }), "Analyze product data");
+    await user.click(screen.getByRole("button", { name: "Create specialist" }));
+
+    await waitFor(() => expect(onOpenDraft).toHaveBeenCalledWith("new-draft", "new-template"));
+    const posted = JSON.parse(String((fetchMock.mock.calls.find(([path, options]) => String(path) === "/api/templates" && (options as RequestInit)?.method === "POST")?.[1] as RequestInit).body));
+    expect(posted).toMatchObject({ draft: true, name: "New specialist", instructions: "Analyze product data", commandId: expect.any(String) });
+  });
+
   it("edits a profile with its current revision and exposes real provider access semantics", async () => {
     let current = researcher;
     const fetchMock = vi.fn((input: RequestInfo | URL, options?: RequestInit) => {
@@ -30,7 +73,7 @@ describe("SpecialistLibrary", () => {
     const edit = await screen.findByRole("button", { name: "Edit" });
     edit.focus();
     await user.keyboard("{Enter}");
-    expect(screen.getByText("Apps are granted by the companion that calls this specialist.")).toBeInTheDocument();
+    expect(screen.getByText("Configure the specialist’s own accounts in its draft. A coordinator can override them for its team.")).toBeInTheDocument();
     expect(screen.queryByText(/works with/i)).not.toBeInTheDocument();
     await user.clear(screen.getByRole("textbox", { name: "Name" }));
     await user.type(screen.getByRole("textbox", { name: "Name" }), "Evidence researcher");
@@ -153,8 +196,7 @@ describe("SpecialistLibrary", () => {
     await user.keyboard("{Enter}");
     expect(onMenu).toHaveBeenCalledOnce();
     await user.click(screen.getByRole("button", { name: "New specialist" }));
-    await user.type(screen.getByRole("textbox", { name: "Name" }), "Analyst");
-    await user.type(screen.getByRole("textbox", { name: "Role" }), "Analyze product data");
+    await user.type(screen.getByRole("textbox", { name: "Specialist brief" }), "Analyze product data");
     await user.click(screen.getByRole("button", { name: "Create specialist" }));
 
     expect(await screen.findByText(/couldn’t confirm whether this specialist was created/i)).toBeInTheDocument();
@@ -164,4 +206,22 @@ describe("SpecialistLibrary", () => {
     expect(await screen.findByText("Analyst", { selector: ".specialist-library__summary strong" })).toBeInTheDocument();
     expect(fetchMock.mock.calls.filter(([path, options]) => String(path) === "/api/templates" && (options as RequestInit | undefined)?.method === "POST")).toHaveLength(1);
   });
+});
+
+it('removes a specialist from the library only after the server confirms deletion', async () => {
+  let templates = [researcher];
+  const fetchMock = vi.fn((input: RequestInfo | URL, options?: RequestInit) => {
+    const path = String(input);
+    if (path === '/api/templates') return response({ templates });
+    if (path === '/api/templates/t1' && options?.method === 'DELETE') { templates = []; return response({ deleted: true }); }
+    throw Error(`Unexpected ${path}`);
+  });
+  vi.stubGlobal('fetch', fetchMock);
+  const user = userEvent.setup();
+  render(<SpecialistLibrary/>);
+  await user.click(await screen.findByRole('button', { name: 'Delete Researcher' }));
+  expect(fetchMock.mock.calls.some(([, options]) => options?.method === 'DELETE')).toBe(false);
+  await user.click(screen.getByRole('button', { name: 'Delete specialist' }));
+  expect(await screen.findByText('No specialists yet')).toBeInTheDocument();
+  expect(fetchMock).toHaveBeenCalledWith('/api/templates/t1', expect.objectContaining({ method: 'DELETE' }));
 });

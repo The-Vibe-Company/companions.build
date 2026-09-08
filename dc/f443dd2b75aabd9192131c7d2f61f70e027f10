@@ -1,0 +1,37 @@
+apps/web/src/App.tsx
+  s_1366f5d0c95d1a::t_0c1b84d3b9fb2f 33,493,501
+  s_1366f5d0c95d1a::t_5bc3ddacc32184 448,450,500,502
+  s_1366f5d0c95d1a::t_cf69b1c76bf3db 471
+apps/server/test/plugins.test.ts
+  s_1366f5d0c95d1a::t_206e031806b612 124
+  s_1366f5d0c95d1a::t_32ccf6d0f57901 120-123,125-139
+apps/web/src/components/ConnectionCards.css
+  s_1366f5d0c95d1a::t_b26d2257cebc32 1,3
+  s_1366f5d0c95d1a::t_32ccf6d0f57901 2,4-41
+apps/web/src/App.test.tsx
+  s_1366f5d0c95d1a::t_32ccf6d0f57901 655,673,681,687,699,701,760,771
+  s_1366f5d0c95d1a::t_5bc3ddacc32184 946
+apps/web/src/components/ConnectionCards.tsx
+  s_1366f5d0c95d1a::t_0c1b84d3b9fb2f 1-9,20-42,44-62
+  s_1366f5d0c95d1a::t_b26d2257cebc32 10-19,43
+apps/web/src/api.ts
+  s_1366f5d0c95d1a::t_0c1b84d3b9fb2f 260
+apps/server/src/plugins.ts
+  s_1366f5d0c95d1a::t_0c1b84d3b9fb2f 24-30
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "dcf443dd2b75aabd9192131c7d2f61f70e027f10",
+  "prompts": {},
+  "sessions": {
+    "s_1366f5d0c95d1a": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0813e-201a-7b50-b94d-f5ff8183e203",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "StanGirard <stan@quivr.app>"
+    }
+  }
+}

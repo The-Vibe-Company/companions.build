@@ -1,0 +1,53 @@
+packages/control/agent.ts
+  s_895cd30c8c0144::t_3cda28d1022dfa 17
+apps/server/src/control-help.ts
+  s_895cd30c8c0144::t_a21e2ac3f5b477 9
+apps/server/src/automations.ts
+  s_895cd30c8c0144::t_a21e2ac3f5b477 9,11,13,15,34-35,43,48-49,53,58-63,139-145,151-153
+packages/agent/src/scripted-model.ts
+  s_895cd30c8c0144::t_a21e2ac3f5b477 46
+apps/web/src/components/CreateCompanion.test.tsx
+  s_895cd30c8c0144::t_a21e2ac3f5b477 4
+apps/server/src/api.ts
+  s_895cd30c8c0144::t_a21e2ac3f5b477 134
+apps/web/src/components/ProductPanels.test.tsx
+  s_895cd30c8c0144::t_a21e2ac3f5b477 5,9
+apps/web/src/components/AutomationPanels.tsx
+  s_895cd30c8c0144::t_a21e2ac3f5b477 11,40,48,56,61,149,152-153,157,163,165,170
+apps/web/src/components/CreateCompanion.tsx
+  s_895cd30c8c0144::t_a21e2ac3f5b477 117,186,243
+apps/web/src/api.ts
+  s_895cd30c8c0144::t_a21e2ac3f5b477 266,347
+apps/server/test/automations.test.ts
+  s_895cd30c8c0144::t_a21e2ac3f5b477 5
+apps/web/src/components/SettingsSheet.tsx
+  s_895cd30c8c0144::t_a21e2ac3f5b477 2,34
+apps/web/src/components/CompanionHeader.tsx
+  s_895cd30c8c0144::t_a21e2ac3f5b477 2,8
+apps/server/src/store.ts
+  s_895cd30c8c0144::t_3cda28d1022dfa 7
+apps/server/src/executor.ts
+  s_895cd30c8c0144::t_a21e2ac3f5b477 394-395
+apps/server/src/control.ts
+  s_895cd30c8c0144::t_a21e2ac3f5b477 10,20,35,67
+apps/web/src/App.tsx
+  s_895cd30c8c0144::t_a21e2ac3f5b477 395,438
+bun.lock
+  s_895cd30c8c0144::t_518c7f02cb6ca5 431
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "d299cf40cbe57fa02982dea54aba3cebba351520",
+  "prompts": {},
+  "sessions": {
+    "s_895cd30c8c0144": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a07d31-b106-7d00-912b-601ce8884ca0",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "StanGirard <stan@quivr.app>"
+    }
+  }
+}

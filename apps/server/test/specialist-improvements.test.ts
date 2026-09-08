@@ -1,0 +1,21 @@
+import {beforeAll,expect,test} from 'bun:test';
+import {db,migrate,createCompanion,detail} from '../src/store';
+import {saveTemplate,listTemplates} from '../src/templates';
+import {proposeSpecialistImprovement,listSpecialistImprovements,decideSpecialistImprovement} from '../src/specialist-improvements';
+const owner='00000000-0000-4000-8000-000000000001';
+beforeAll(()=>migrate());
+test('accepting a proposal prepares one reconstruction task and never publishes or replaces the template',async()=>{
+ const parent=await createCompanion(owner,{name:'Parent',provider:'local'}),child=await createCompanion(owner,{name:'Child',provider:'local'});
+ const template=await saveTemplate(owner,{name:'Developer',instructions:'Original'});
+ await db`UPDATE companions SET temporary=true,parent_id=${parent.id},template_id=${template.id},template_revision=1 WHERE id=${child.id}`;
+ const proposal=await proposeSpecialistImprovement(owner,child.id,crypto.randomUUID(),{summary:'Need jq',recipe:'Install jq then verify its version.'});
+ expect((await listSpecialistImprovements(owner,parent.id))[0].status).toBe('proposed');
+ const commandId=crypto.randomUUID();
+ const first=await decideSpecialistImprovement(owner,proposal.id,'apply',{commandId});
+ const second=await decideSpecialistImprovement(owner,proposal.id,'apply',{commandId});
+ if(!('companionId' in first)||!('companionId' in second))throw Error('Expected reconstruction companion');
+ expect(second.companionId).toBe(first.companionId);
+ expect((await detail(owner,first.companionId))?.messages).toHaveLength(1);
+ expect((await listTemplates(owner)).find((p:any)=>p.id===template.id).revision).toBe(1);
+ expect(await listSpecialistImprovements('different-owner',parent.id)).toEqual([]);
+});

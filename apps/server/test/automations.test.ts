@@ -237,3 +237,17 @@ test("retiring and retired companions cannot accumulate routine or other backgro
     expect((await routineHistory(id, routine.id))!.missed).toHaveLength(0);
   }
 });
+
+test('answering a question preserves its displayed context across resume and duplicate answers', async () => {
+  const id = await companion();
+  const runId = await acceptMessage(owner,id,crypto.randomUUID(),'Prepare a specialist');
+  await db`UPDATE runs SET status='needs_input',preview_text='I have prepared the role. Choose a language.' WHERE id=${runId}`;
+  const questionId = crypto.randomUUID();
+  await db`INSERT INTO task_questions(id,companion_id,run_id,question,options) VALUES(${questionId},${id},${runId},'Which language?',${['French','English']}::jsonb)`;
+  const answer = () => handleAutomations(new Request(`http://localhost/api/companions/${id}/questions/${questionId}/answer`,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({answer:'French'})}),owner);
+  expect((await answer())!.status).toBe(200);
+  await db`UPDATE runs SET preview_text='Now testing in French' WHERE id=${runId}`;
+  expect((await answer())!.status).toBe(200);
+  const [saved] = await db`SELECT answer,context_text FROM task_questions WHERE id=${questionId}`;
+  expect(saved).toMatchObject({answer:'French',context_text:'I have prepared the role. Choose a language.'});
+});

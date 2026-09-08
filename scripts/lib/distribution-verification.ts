@@ -5,7 +5,7 @@ import {dirname,join} from 'node:path';
 import {BoxError,type Box} from '../../packages/box/client';
 
 export type DistributionManifest={version:1;files:Array<{path:string;size:number;sha256:string}>};
-export type DistributionJournal={version:1;name:string;key:string;startedAt:string;boxId?:string;manifest:DistributionManifest;manifestDigest:string;sha256:string;sourceVerifiedFreshAt?:string;installedVerifiedAt?:string;snapshotRequestedAt?:string;snapshotRejectedAt?:string;snapshotRejectedCode?:string;contentVerifiedAt?:string;completedAt?:string;sourceArchivedAt?:string;verification?:{key:string;startedAt:string;boxId?:string;failedAt?:string;errorCode?:string;archivedAt?:string};software?:unknown};
+export type DistributionJournal={version:1;storage?:'archived_box';name:string;key:string;startedAt:string;boxId?:string;manifest:DistributionManifest;manifestDigest:string;sha256:string;sourceVerifiedFreshAt?:string;installedVerifiedAt?:string;snapshotRequestedAt?:string;snapshotRejectedAt?:string;snapshotRejectedCode?:string;contentVerifiedAt?:string;completedAt?:string;sourceArchivedAt?:string;verification?:{key:string;startedAt:string;boxId?:string;failedAt?:string;errorCode?:string;archivedAt?:string};software?:unknown};
 export interface DistributionBoxes{
  create(key:string,template?:string):Promise<Box>;get(id:string):Promise<Box>;resume(id:string):Promise<unknown>;
  command(id:string,command:string,timeoutSeconds?:number):Promise<string>;snapshot(id:string,name:string):Promise<unknown>;getSnapshot(name:string):Promise<any>;stop(id:string):Promise<unknown>;
@@ -68,7 +68,7 @@ export async function publishDistribution(state:DistributionJournal,deps:{box:Di
  const creationWindow=(started:string)=>{const age=now()-Date.parse(started);if(!Number.isFinite(age)||age<0||age>=23*3600_000)throw Error('DISTRIBUTION_CREATION_UNRESOLVED');};
  const ready=async(id:string)=>{if((await box.get(id)).state==='archived')await box.resume(id);await wait(async()=>distributionReady(await box.get(id)));};
  if(!state.snapshotRequestedAt&&!state.completedAt){
-  try{await box.getSnapshot(state.name);throw Error('DISTRIBUTION_NAME_ALREADY_EXISTS');}catch(error){if(!(error instanceof BoxError&&error.status===404))throw error;}
+  if(state.storage!=='archived_box')try{await box.getSnapshot(state.name);throw Error('DISTRIBUTION_NAME_ALREADY_EXISTS');}catch(error){if(!(error instanceof BoxError&&error.status===404))throw error;}
   if(!state.boxId){creationWindow(state.startedAt);const created=await box.create(state.key);state.boxId=created.id;await save(state);}
   await ready(state.boxId);
   if(!state.sourceVerifiedFreshAt){
@@ -81,15 +81,15 @@ export async function publishDistribution(state:DistributionJournal,deps:{box:Di
   await box.command(state.boxId,'sync',60);await verified(state.boxId);
   state.installedVerifiedAt=timestamp();await save(state);
   state.snapshotRequestedAt=timestamp();await save(state);
-  try{await box.snapshot(state.boxId,state.name);}catch(error){
+  try{if(state.storage==='archived_box')await box.stop(state.boxId);else await box.snapshot(state.boxId,state.name);}catch(error){
    if(error instanceof BoxError&&error.code==='box_snapshot_limit'){state.snapshotRejectedAt=timestamp();state.snapshotRejectedCode=error.code;delete state.snapshotRequestedAt;await save(state);}throw error;
   }
  }
  if(!state.snapshotRequestedAt||!state.boxId)throw Error('DISTRIBUTION_JOURNAL_INVALID');
- await wait(async()=>{const result=await box.getSnapshot(state.name),status=result.snapshot?.status??result.namedSnapshot?.status??result.status;if(status==='failed')throw Error('DISTRIBUTION_CAPTURE_FAILED');return status==='ready';});
+ await wait(async()=>{const result=await box.getSnapshot(state.storage==='archived_box'?'box:'+state.boxId:state.name),status=result.snapshot?.status??result.namedSnapshot?.status??result.status;if(status==='failed')throw Error('DISTRIBUTION_CAPTURE_FAILED');return status==='ready';});
  if(!contentVerifiedJournal(state)){
   state.verification??={key:randomUUID(),startedAt:timestamp()};await save(state);
-  if(!state.verification.boxId){creationWindow(state.verification.startedAt);const created=await box.create(state.verification.key,state.name);if(created.id===state.boxId)throw Error('DISTRIBUTION_VERIFIER_NOT_INDEPENDENT');state.verification.boxId=created.id;await save(state);}
+  if(!state.verification.boxId){creationWindow(state.verification.startedAt);const created=await box.create(state.verification.key,state.storage==='archived_box'?'box:'+state.boxId:state.name);if(created.id===state.boxId)throw Error('DISTRIBUTION_VERIFIER_NOT_INDEPENDENT');state.verification.boxId=created.id;await save(state);}
   await ready(state.verification.boxId);
   try{await verified(state.verification.boxId);}catch(error){state.verification.failedAt=timestamp();state.verification.errorCode=error instanceof Error&&error.message==='DISTRIBUTION_CONTENT_MISMATCH'?'DISTRIBUTION_CONTENT_MISMATCH':'DISTRIBUTION_CONTENT_UNREADABLE';await save(state);throw error;}
   delete state.verification.failedAt;delete state.verification.errorCode;

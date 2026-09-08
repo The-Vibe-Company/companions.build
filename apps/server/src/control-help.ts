@@ -1,5 +1,9 @@
 /** Compact examples for the same owner-scoped services used by the web app. */
 export const controlHelp={
+ specialist_next_step:{kind:"connections",message:"Connect GitHub and Linear so I can prepare your repositories and read your issues.",providers:["github","linear"]},
+ specialist_configure:{expectedGeneration:'Read with specialist_configure {} first',expectedIdentityRevision:'Required for name/avatar edits; use identityRevision from the draft',name:'Applies immediately without publish',instructions:'Mission for future copies',initScript:'Optional script run once per intervention'},
+ specialist_install:{packages:['jq']},specialist_propose_improvement:{summary:'What changed and why',recipe:'Verified installation steps or selected file changes to reconstruct in the current draft'},specialist_keep_alive:{companionId:'Own specialist intervention ID'},
+
  history_search:{query:'Words or an exact quoted phrase from earlier work',limit:5},
  identity:{},models:{},configure:{name:'Optional name',instructions:'Optional full instructions',modelId:'ID returned by models',avatar:{shape:'0..7',color:'0..10',face:'0..4'}},
  companion_create:{name:'Name',instructions:'Mission'},companions:{},

@@ -1,4 +1,8 @@
 import {privateBetaEmails} from "./private-beta";
+import {createSpecialistDraft,openSpecialistDraft,readSpecialistDraft,updateSpecialistDraft,requestSpecialistPublication,requestSpecialistTest,assessSpecialistTest} from './specialist-drafts';
+import {specialistConnections,overrideSpecialistConnection} from './specialist-connections';
+import {listSpecialistImprovements,decideSpecialistImprovement} from './specialist-improvements';
+import {effectiveAccountLimits,setPersonalActiveLimit,cancelMachineAdmission,AdmissionConflict} from './admission';
 import {requireHostedActivation,mutationStartsWork} from "./activation";
 import {handleModelGateway,MODEL_GATEWAY_MAX_REQUEST_BYTES} from './model-gateway';
 import {handleMaintenance} from "./maintenance";
@@ -7,7 +11,7 @@ import { handleBilling, handleStripeWebhook, requireProductActivation, billingCo
 import { handleDelivery } from "./delivery";
 import { handleLifecycle } from "./lifecycle";
 import { retireCompanion } from "./retirement";
-import {listTemplateRevisions,rollbackTemplate} from "./templates";
+import {deleteTemplate,listTemplateRevisions,rollbackTemplate} from "./templates";
 import { LifecycleConflict } from "./templates";
 import { z } from "zod";
 import { config } from "./config";
@@ -29,9 +33,42 @@ const idSchema = z.string().uuid();
 const json = (body: unknown, status = 200, headers: Record<string, string> = {}) => Response.json(body, { status, headers: { "Cache-Control": "no-store", ...headers } });
 async function lifecycleRoute(request:Request,ownerId:string):Promise<Response|null> {
  const path=new URL(request.url).pathname;
+ if(path==='/api/account/specialist-limits'){
+  if(request.method==='PATCH'){const {active}=z.object({active:z.number().int().min(0).max(1000).nullable()}).parse(await request.json());return json({limits:await setPersonalActiveLimit(ownerId,active)});}
+  if(request.method==='GET')return json({limits:await effectiveAccountLimits(ownerId),requests:await db`SELECT id,companion_id AS "companionId",state,waiting_reason AS "waitingReason",kind FROM machine_admission_requests WHERE owner_id=${ownerId} AND state IN ('queued','admitted','cancelling') ORDER BY requested_at,id`});
+ }
+ const cancelAdmission=path.match(/^\/api\/account\/specialist-requests\/([^/]+)\/cancel$/);
+ if(cancelAdmission&&request.method==='POST')return json(await cancelMachineAdmission(ownerId,idSchema.parse(cancelAdmission[1])),202);
+ const improvements=path.match(/^\/api\/companions\/([^/]+)\/specialist-improvements$/);
+ if(improvements&&request.method==='GET')return json({improvements:await listSpecialistImprovements(ownerId,idSchema.parse(improvements[1]))});
+ const decision=path.match(/^\/api\/specialist-improvements\/([^/]+)\/(apply|reject)$/);
+ if(decision&&request.method==='POST')return json(await decideSpecialistImprovement(ownerId,idSchema.parse(decision[1]),decision[2] as 'apply'|'reject',await request.json()),202);
+ const connectionRoute=path.match(/^\/api\/companions\/([^/]+)\/specialists\/([^/]+)\/connections$/);
+ if(connectionRoute){
+  const parent=idSchema.parse(connectionRoute[1]),template=idSchema.parse(connectionRoute[2]);
+  if(request.method==='GET')return json({connections:await specialistConnections(ownerId,parent,template)});
+  if(request.method==='PATCH')return json(await overrideSpecialistConnection(ownerId,parent,template,await request.json()));
+ }
  if(path==='/api/templates') {
   if(request.method==='GET')return json({templates:await handleLifecycle({operation:'templates'},ownerId)});
-  if(request.method==='POST')return json(await handleLifecycle({operation:'template_save',input:await request.json()},ownerId),201);
+  if(request.method==='POST'){
+   const input=await request.json() as any;
+   if(input.draft===true)return json(await createSpecialistDraft(ownerId,input),201);
+   return json(await handleLifecycle({operation:'template_save',input},ownerId),201);
+  }
+ }
+ const draftRoute=path.match(/^\/api\/templates\/([^/]+)\/draft(?:\/(test|publish)(?:\/([^/]+)\/assessment)?)?$/);
+ if(draftRoute){
+  const templateId=idSchema.parse(draftRoute[1]);
+  if(!draftRoute[2]){
+   if(request.method==='GET'){const result=await readSpecialistDraft(ownerId,templateId);return result?json(result):json({error:'Draft not found.'},404);}
+   if(request.method==='POST')return json(await openSpecialistDraft(ownerId,templateId,await request.json()),201);
+   if(request.method==='PATCH')return json(await updateSpecialistDraft(ownerId,templateId,await request.json()));
+  }
+  if(request.method==='POST'){
+   if(draftRoute[3])return json(await assessSpecialistTest(ownerId,templateId,idSchema.parse(draftRoute[3]),await request.json()));
+   return json(await (draftRoute[2]==='publish'?requestSpecialistPublication:requestSpecialistTest)(ownerId,templateId,await request.json()),202);
+  }
  }
  const revisions=path.match(/^\/api\/templates\/([^/]+)\/(revisions|rollback)$/);
  if(revisions){const id=idSchema.parse(revisions[1]);
@@ -52,13 +89,14 @@ async function lifecycleRoute(request:Request,ownerId:string):Promise<Response|n
   }
  }
  const template=path.match(/^\/api\/templates\/([^/]+)$/);
+ if(template&&request.method==='DELETE'){const result=await deleteTemplate(ownerId,idSchema.parse(template[1]));return result?json(result,202):json({error:'Specialist not found.'},404);}
  if(template&&request.method==='PATCH')return json(await handleLifecycle({operation:'template_save',input:{...await request.json() as object,id:idSchema.parse(template[1])}},ownerId));
  const permission=path.match(/^\/api\/companions\/([^/]+)\/templates(?:\/([^/]+))?$/);
  if(permission){
   const id=idSchema.parse(permission[1]);
   const [owned]=await db`SELECT id FROM companions WHERE id=${id} AND owner_id=${ownerId} AND retired_at IS NULL`;
   if(!owned)return json({error:'Companion not found.'},404);
-  if(request.method==='GET'&&!permission[2])return json({templates:await db`SELECT p.template_id AS "templateId",p.max_children AS "maxChildren",t.name,t.revision FROM template_permissions p JOIN agent_templates t ON t.id=p.template_id WHERE p.parent_id=${id} AND t.owner_id=${ownerId}`});
+  if(request.method==='GET'&&!permission[2])return json({templates:await db`SELECT p.template_id AS "templateId",p.max_children AS "maxChildren",t.name,t.revision FROM template_permissions p JOIN agent_templates t ON t.id=p.template_id WHERE p.parent_id=${id} AND t.owner_id=${ownerId} AND t.deleted_at IS NULL`});
   if(request.method==='PUT'&&permission[2])return json(await handleLifecycle({operation:'template_permission',companionId:id,input:{...await request.json() as object,templateId:idSchema.parse(permission[2])}},ownerId));
  }
  const replicas=path.match(/^\/api\/companions\/([^/]+)\/replicas$/);
@@ -121,12 +159,12 @@ export async function handler(request: Request): Promise<Response> {
     if(automationResponse) return automationResponse;
     const pluginResponse = await handlePlugins(request,ownerId);
     if(pluginResponse) return pluginResponse;
-    if (request.method === "GET" && url.pathname === "/api/config") return json({ models:await availableModels(),localAvailable: config.localAvailable, boxAvailable: !!(config.boxKey && config.boxTemplate), model: config.testMode ? "Local test model" : `${config.modelProvider}/${config.modelId}` });
+    if (request.method === "GET" && url.pathname === "/api/config") return json({ models:await availableModels(),localAvailable: config.localAvailable, defaultProvider: config.defaultProvider, boxAvailable: !!(config.boxKey && config.boxTemplate), model: config.testMode ? "Local test model" : `${config.modelProvider}/${config.modelId}` });
     if (url.pathname === "/api/companions") {
       if (request.method === "GET") return json({ companions: await listCompanions(ownerId) });
       if (request.method === "POST") {
         if(privateBetaEmails() !== null || billingConfiguration().mode === "stripe" || process.env.NODE_ENV === "production") await requireProductActivation(ownerId);
-        const input = z.object({ clientCreationId:idSchema.optional(),prepare:z.boolean().default(true),name: z.string().trim().min(1).max(80), instructions: z.string().max(20_000).optional(), provider: z.enum(["local", "box"]), avatar: avatarSchema.optional(), templateId:idSchema.optional(), templateRevision:z.number().int().positive().optional() }).parse(await request.json());
+        const input = z.object({ clientCreationId:idSchema.optional(),prepare:z.boolean().default(true),name: z.string().trim().min(1).max(80), instructions: z.string().max(20_000).optional(), provider: z.enum(["local", "box"]).default(config.defaultProvider), avatar: avatarSchema.optional(), templateId:idSchema.optional(), templateRevision:z.number().int().positive().optional() }).parse(await request.json());
         if (input.provider === "box" && (!config.boxKey || !config.boxTemplate)) return json({ error: "Box needs an API key and a prepared template." }, 409);
         if (input.provider === "local" && !config.localAvailable) return json({ error: "Local runtime is disabled." }, 409);
         return json({ companion: await createCompanion(ownerId, input) }, 201);
@@ -140,7 +178,7 @@ export async function handler(request: Request): Promise<Response> {
       if (!match[2] && request.method === "GET") { const result = await detail(ownerId, id);
         if(!result)return json({error:"Companion not found."},404);
         const files=await filesForThread(ownerId,id);
-        const questions=await db`SELECT q.id,q.run_id AS "runId",q.question,q.options,q.answer FROM task_questions q JOIN runs r ON r.id=q.run_id WHERE q.companion_id=${id} AND r.status IN ('running','needs_input','preparing') AND q.answer IS NULL ORDER BY q.created_at`;
+        const questions=await db`SELECT q.id,q.run_id AS "runId",q.question,q.options,q.answer,q.created_at AS "createdAt",q.context_text AS "contextText",r.status AS "runStatus" FROM task_questions q JOIN runs r ON r.id=q.run_id WHERE q.companion_id=${id} ORDER BY q.created_at,q.id`;
         return json({...result,questions,files,messages:result.messages.map((m:any)=>({...m,files:files.filter(f=>f.runId===m.runId&&f.kind===(m.role==='user'?'user_upload':'agent_output'))}))}); }
       if (match[2] === "events" && request.method === "GET") return handleCompanionEvents(request, ownerId, id);
       if (match[2] === "messages" && request.method === "POST") {
@@ -165,6 +203,7 @@ export async function handler(request: Request): Promise<Response> {
     if (error instanceof SoftwareConflict || error instanceof SoftwareUnavailable) return json({error:error.message},409);
     if (error instanceof ProductActivationRequired) return json({error:error.message},402);
     if (error instanceof LifecycleConflict) return json({error:error.message},409);
+    if (error instanceof AdmissionConflict) return json({error:error.message},409);
     if (error instanceof Conflict) return json({ error: error.message }, 409);
     console.error(error instanceof BoxError ? `api_request_failed:${error.code}:${error.status}` : "api_request_failed");
     return json({ error: "The request could not be completed. Please try again." }, 500);

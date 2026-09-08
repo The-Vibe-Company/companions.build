@@ -13,7 +13,7 @@ export async function handleAutomations(request:Request,ownerId:string):Promise<
    if(!row)return json({error:'Question not found.'},404);
    if(row.answer)return row.answer===answer?json({ok:true}):json({error:'This question already has an answer.'},409);
    if(!['running','needs_input'].includes(row.status))return json({error:'This task is no longer waiting.'},409);
-   await tx`UPDATE task_questions SET answer=${answer},answered_at=now() WHERE id=${id}`;
+   await tx`UPDATE task_questions SET answer=${answer},answered_at=now(),context_text=(SELECT preview_text FROM runs WHERE id=task_questions.run_id) WHERE id=${id}`;
    await requestRunResume(companionId,row.run_id,tx);return json({ok:true});
   });
  }

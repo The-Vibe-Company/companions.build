@@ -67,7 +67,7 @@ class Verifier:
         self.storage_name = f"companions-verify-minio-{self.run_id}"
         self.verification_label = f"companions.build.verification={self.run_id}"
         self.env = {key: value for key, value in os.environ.items() if not private_environment(key)}
-        self.env.update({"AGENT_TEST_MODE": "1", "COMPANIONS_VERIFY_RUN": self.run_id})
+        self.env.update({"AGENT_TEST_MODE": "1", "LOCAL_RUNTIME": "1", "COMPANIONS_VERIFY_RUN": self.run_id})
         self.steps = []
         self.started = time.monotonic()
         self.status = "failed"
@@ -237,6 +237,8 @@ class Verifier:
             "scripts/register-software-base.test.ts", "scripts/lib/distribution-verification.test.ts",
             "scripts/live-desktop-canary-wait.test.ts", "scripts/live-box-desktop-wait.test.ts",
             "scripts/live-routine-chat-canary.test.ts", "scripts/live-routine-clock-canary.test.ts"])
+        self.run("specialist-init-and-git", [self.bun, "--no-env-file", "test", "packages/agent/test/specialist-initialization.test.ts", "packages/agent/test/git-credentials.test.ts"])
+        self.run("specialist-image-linux", [self.bun, "--no-env-file", "scripts/test-specialist-image.ts"])
         # A fresh checkout must not depend on a manually built developer image.
         context = ROOT / "experiments/desktop-boundary"
         image = "companions-distribution-proof:" + dependency_fingerprint(sorted(path for path in context.rglob("*") if path.is_file()))[:16]

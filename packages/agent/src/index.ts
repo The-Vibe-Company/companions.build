@@ -4,6 +4,7 @@ import { takeAgentToken } from "./environment";
 import { PiExecutor } from "./pi-executor";
 
 import { AgentControl } from "../../control/agent";
+import {runGitCredentialHelper} from "../../control/git-credentials";
 import { AgentFiles } from "../../control/files";
 import { AgentSkills } from "../../control/skills";
 import { desktopTools } from "../../desktop/tools";
@@ -25,6 +26,7 @@ export async function startAgent() {
   const files = await startupPhase("FILES",()=>new AgentFiles(stateDir));
   const skills = await startupPhase("SKILLS",()=>new AgentSkills(stateDir));
   const control = await startupPhase("CONTROL",()=>new AgentControl(stateDir,skills));
+  Object.assign(process.env,control.gitCredentials.environment());
   const desktopSocket = process.env.DESKTOP_BOUNDARY_VERSION === "1" ? process.env.DESKTOP_AGENT_SOCKET : undefined;
   executor.toolsFactory = async context => {
     const product = await control.toolsFactory(context);
@@ -52,7 +54,11 @@ function parsePort(raw: string | undefined): number {
 }
 
 if (import.meta.main) {
-  if(process.argv.includes('--desktop-broker')){
+  const credentialHelper=process.argv.indexOf('--git-credential-helper');
+  if(credentialHelper>=0){
+    const socketPath=process.argv[credentialHelper+1]??'',operation=process.argv[credentialHelper+2]??'';
+    runGitCredentialHelper(socketPath,operation).then(code=>{if(code===2)console.error('GITHUB_CREDENTIAL_AMBIGUOUS');process.exit(code===2?1:code);},()=>process.exit(1));
+  }else if(process.argv.includes('--desktop-broker')){
     const service=runDesktopBroker();const shutdown=async()=>{await service.stop();process.exit(0);};
     process.on('SIGTERM',shutdown);process.on('SIGINT',shutdown);
   }else startAgent().catch(error => {

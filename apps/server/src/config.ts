@@ -60,7 +60,8 @@ export const config = {
   modelId: process.env.MODEL_ID ?? "gemini-2.5-flash",
   modelGatewayUrl:modelGatewayUrl(),
   testMode: process.env.AGENT_TEST_MODE === "1",
-  localAvailable: process.env.LOCAL_RUNTIME !== "0",
+  localAvailable: process.env.LOCAL_RUNTIME === "1",
+  defaultProvider: process.env.LOCAL_RUNTIME === "1" ? "local" as const : "box" as const,
 };
 if (!/^[0-9a-f]{64}$/i.test(config.encryptionKey)) throw new Error("COMPANIONS_ENCRYPTION_KEY must be 32 bytes encoded as hex");
 export function encrypt(value: string) {

@@ -4,7 +4,9 @@ import type {LifecycleMachines} from './lifecycle';
 
 /** Remove from the workspace immediately; only the executor may stop its computer. */
 export async function retireCompanion(ownerId:string,id:string,sql:any=db){
- return sql.begin(async(tx:any)=>{
+ return sql.begin((tx:any)=>retireCompanionInTransaction(ownerId,id,tx));
+}
+export async function retireCompanionInTransaction(ownerId:string,id:string,tx:any){
   await tx`SELECT pg_advisory_xact_lock(hashtextextended(${ownerId},569))`;
   // Spawn holds the same parent lock, so no owned child can appear after this list.
   const [parent]=await tx`SELECT id FROM companions WHERE id=${id} AND owner_id=${ownerId} FOR UPDATE`;
@@ -28,7 +30,6 @@ export async function retireCompanion(ownerId:string,id:string,sql:any=db){
    await tx`UPDATE companion_maintenance_grants SET revoked_at=COALESCE(revoked_at,now()) WHERE companion_id=${companionId} AND client_owner_id=${ownerId}`;
   }
   return {deleted:true,companionIds:ids};
- });
 }
 
 type Checkpoint=<T>(body:(tx:any)=>Promise<T>)=>Promise<T>;

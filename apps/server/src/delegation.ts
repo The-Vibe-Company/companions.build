@@ -1,32 +1,41 @@
+import {synchronizeSpecialistConnections} from './specialist-connections';
 import { randomBytes } from 'node:crypto';
 import { z } from 'zod';
 import { db } from './store';
-import { encrypt } from './config';
+import { config, encrypt } from './config';
 import { LifecycleConflict } from './templates';
 import { requestRunResume } from './automations';
 import {requireSoftwareReady,SoftwareReadinessError} from './software-readiness';
+import {requestMachineAdmissionInTransaction} from './admission';
 export async function spawnChild(ownerId:string,parentId:string,parentRunId:string|null,commandId:string,input:unknown,sql:any=db){
  const value=z.object({templateId:z.string().uuid(),prompt:z.string().min(1).max(50_000)}).parse(input);
  return sql.begin(async(tx:any)=>{
+  await tx`SELECT pg_advisory_xact_lock(721440140)`;
   const [parent]=await tx`SELECT * FROM companions WHERE id=${parentId} AND owner_id=${ownerId} AND parent_id IS NULL AND NOT temporary AND retired_at IS NULL FOR UPDATE`;
   if(!parent)throw new LifecycleConflict('Only an available permanent parent can launch an agent.');
   const [prior]=await tx`SELECT d.target_id,d.run_id,r.content,c.template_id FROM delegations d JOIN runs r ON r.id=d.run_id JOIN companions c ON c.id=d.target_id WHERE d.id=${commandId} AND d.parent_id=${parentId}`;
-  if(prior){if(prior.content!==value.prompt||prior.template_id!==value.templateId)throw new LifecycleConflict('Request identifier changed.');return {companionId:prior.target_id,runId:prior.run_id};}
+  if(prior){if(prior.content!==value.prompt||prior.template_id!==value.templateId)throw new LifecycleConflict('Request identifier changed.');
+   const journaled=(await tx`SELECT id FROM machine_admission_requests WHERE id=${commandId} AND owner_id=${ownerId}`).length>0;
+   return {companionId:prior.target_id,runId:prior.run_id,...(journaled?{admission:await requestMachineAdmissionInTransaction(tx,ownerId,{requestId:commandId,companionId:prior.target_id,kind:'intervention'})}:{})};}
   if(parentRunId&&!(await tx`SELECT id FROM runs WHERE id=${parentRunId} AND companion_id=${parentId}`).length)throw new LifecycleConflict('Parent task unavailable.');
-  const [template]=await tx`SELECT t.*,p.max_children FROM agent_templates t JOIN template_permissions p ON p.template_id=t.id WHERE t.id=${value.templateId} AND t.owner_id=${ownerId} AND p.parent_id=${parentId}`;
-  if(!template)throw new LifecycleConflict('Template is not authorized.');
+  const [template]=await tx`SELECT t.*,p.max_children FROM agent_templates t JOIN template_permissions p ON p.template_id=t.id WHERE t.id=${value.templateId} AND t.owner_id=${ownerId} AND t.deleted_at IS NULL AND p.parent_id=${parentId}`;
+  if(!template||!template.has_published||template.max_children===0)throw new LifecycleConflict('Template is not authorized or has not been published.','template_not_authorized');
   let resolvedSnapshot:string|null;
   try{resolvedSnapshot=await requireSoftwareReady(ownerId,template.software_build_id,template.software_result_id,template.snapshot_name,tx);}
   catch(error){if(error instanceof SoftwareReadinessError)throw new LifecycleConflict(error.message);throw error;}
-  if(resolvedSnapshot&&parent.provider!=='box')throw new LifecycleConflict('This prepared template requires Box.');
+  // The prepared environment selects the child's provider independently of its coordinator.
+  const provider=resolvedSnapshot||!config.localAvailable?'box':parent.provider;
   const [count]=await tx`SELECT count(*)::int AS count FROM companions WHERE parent_id=${parentId} AND template_id=${value.templateId} AND retired_at IS NULL`;
-  if(count.count>=template.max_children)throw new LifecycleConflict('The authorized child limit has been reached.');
+  if(count.count>=template.max_children)throw new LifecycleConflict('The authorized child limit has been reached.','specialist_limit_reached');
   const childId=crypto.randomUUID(),runId=crypto.randomUUID();
-  await tx`INSERT INTO companions(id,owner_id,name,instructions,avatar,model_id,provider,create_key,agent_secret,parent_id,temporary,prepare_requested,template_id,template_revision,snapshot_name,software_build_id,software_result_id)
-   VALUES(${childId},${ownerId},${template.name},${template.instructions},${template.avatar},${template.model_id},${parent.provider},${crypto.randomUUID()},${encrypt(randomBytes(32).toString('hex'))},${parentId},true,true,${template.id},${template.revision},${resolvedSnapshot},${template.software_build_id},${template.software_result_id})`;
+  await tx`INSERT INTO companions(id,owner_id,name,instructions,avatar,model_id,init_script,provider,create_key,agent_secret,parent_id,temporary,prepare_requested,template_id,template_revision,snapshot_name,software_build_id,software_result_id)
+   VALUES(${childId},${ownerId},${template.name},${template.instructions},${template.avatar},${template.model_id},${template.init_script},${provider},${crypto.randomUUID()},${encrypt(randomBytes(32).toString('hex'))},${parentId},true,false,${template.id},${template.revision},${resolvedSnapshot},${template.software_build_id},${template.software_result_id})`;
   await tx`INSERT INTO runs(id,companion_id,client_message_id,content,lane,source) VALUES(${runId},${childId},${commandId},${value.prompt},'background','delegation')`;
   await tx`INSERT INTO delegations(id,parent_id,parent_run_id,target_id,run_id) VALUES(${commandId},${parentId},${parentRunId},${childId},${runId})`;
-  return {companionId:childId,runId};
+  await synchronizeSpecialistConnections(childId,tx);
+  const admission=await requestMachineAdmissionInTransaction(tx,ownerId,{requestId:commandId,companionId:childId,kind:'intervention'});
+  if(admission.state==='refused')throw new LifecycleConflict('The specialist queue is full. Wait before submitting more work.','specialist_queue_full');
+  return {companionId:childId,runId,admission};
  });
 }
 export async function delegateTask(ownerId:string,parentId:string,parentRunId:string,commandId:string,input:unknown,sql:any=db){
@@ -75,7 +84,7 @@ export async function answerDelegationQuestion(ownerId:string,parentId:string,ru
   if(!row)throw new LifecycleConflict('Delegated question unavailable.');
   if(row.answer){if(row.answer!==answer)throw new LifecycleConflict('This question already has an answer.');return {ok:true};}
   if(!['running','needs_input'].includes(row.status))throw new LifecycleConflict('This delegated task is no longer waiting.');
-  await tx`UPDATE task_questions SET answer=${answer},answered_at=now() WHERE id=${questionId}`;
+  await tx`UPDATE task_questions SET answer=${answer},answered_at=now(),context_text=(SELECT preview_text FROM runs WHERE id=task_questions.run_id) WHERE id=${questionId}`;
   await requestRunResume(row.target_id,runId,tx);return {ok:true};
  });
 }

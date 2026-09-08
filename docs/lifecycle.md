@@ -36,10 +36,42 @@ run. Existing Companions retain their original `/home/user/.companions` state pa
 use `/home/user/.companions/agents/<child-id>` so they never open the source Pi journal or history.
 A clone keeps its selected template revision and snapshot name even if the profile later changes.
 A private snapshot may intentionally retain the owner's browser sessions and installed software.
-Cross-owner delivery copies only the portable profile (`name`, `instructions`, `avatar`) plus
-bounded, validated local-skill bundles included by the delivery request, and starts from the
-installation's fresh base Box. It never copies `snapshot_name`, `source_companion_id`, browser
-state, credentials, history, or connections.
+Cross-owner delivery keeps the permanent Companion on a fresh base. Prepared specialists require
+an explicit `includeSpecialistDisks` choice: each delivered specialist gets an independent profile
+referencing the immutable prepared image. User files and browser sessions in that disk travel with
+it; product histories and runtime identities are removed before publication. MCP requirements are
+copied without account grants, so the recipient reconnects them. Legacy declarative profiles retain
+their portable-profile and validated skill-bundle delivery behavior.
+
+## Specialist configuration and publication
+
+`specialist-drafts.ts` owns an editable generation and a hidden configuration Companion. Its chat
+prepares repositories, skills and tools; `specialist_install` journals a bounded apt installation
+in that Box. Git operations obtain the selected GitHub account through an in-memory credential
+broker, without writing its credential into repository configuration. Publication and test requests
+freeze editing and are advanced only by `specialist-runtime.ts` in the executor.
+
+A capture stops product services, saves a private source snapshot, archives the source, and admits
+an image-preparation Box under the same quota. That copy removes product state while preserving the
+chosen workspace and skills. A second named snapshot is the publishable artifact. Snapshot intent
+precedes POST; ambiguous captures are observed by name rather than submitted again. Active snapshot
+exclusions require review before capture. Publication atomically appends an immutable revision and
+its MCP requirements. Testing uses a distinct copy; publication reuses the tested image when the
+generation has not changed. Test completion waits for retained files and confirmed archive.
+
+Improvement cards describe a durable reconstruction recipe. Preparing one queues configuration work
+against the current draft and opens its chat; it does not claim that an opaque disk change has been
+merged or publish a revision. The user reviews and publishes the resulting draft explicitly.
+
+An optional initialization script runs once per new intervention. Its journal survives follow-ups
+and restart. A known failure warns the parent and permits the mission; an ambiguous or still-running
+initialization blocks overlapping work. The default timeout is ten minutes.
+
+Admission persists FIFO requests before machine effects. Default account limits are two active
+specialists, ten starts per hour and twenty waiting requests; personal active limits can be lower.
+Configuration, capture, test and intervention Boxes share those limits. Permanent Companions share
+provider capacity but do not consume the account's specialist slots. The executor refreshes provider
+limits, delays explicitly rejected starts, and renews the lifetime of working or maintained Boxes.
 
 ## Desktop takeover
 
@@ -117,7 +149,8 @@ child run. The same transaction that creates the parent review inserts owner-sco
 `delegation_files` references, so the parent can stage and download the exact bytes after child
 archival without a second object copy.
 
-The child is retained until the parent review finishes, allowing `adopt_template` during review.
+The child is retained until the parent review finishes. Legacy profiles allow `adopt_template`
+during review; configured specialists require an improvement proposal and human publication.
 A queued/capturing snapshot blocks archive. Snapshot names are persisted before POST; a lost
 response is reconciled by GET of that same name, without repeating the capture request. A crash
 before POST leaves an uncertain capture that fails visibly after ten minutes; the parent can
@@ -126,7 +159,10 @@ readiness. A concurrent profile edit wins; capture never overwrites that edit.
 
 Template activation also records the immutable revision in the same transaction.
 
-After review, durable outputs and pending snapshots are checked before requesting child archive.
+After review, the child remains available for thirty minutes of inactivity, unless capacity is
+needed by waiting work. Running Pi work, a renewed parent lease, desktop takeover and pending
+captures protect it from idle archival. Durable outputs are checked before archive. An unanswered
+temporary task that expires is marked interrupted after confirmed archive and is never replayed.
 The provider is observed until archived; only then is the child soft-retired. No healthy permanent
 Box is deleted, replaced or archived by this module. An archive failure retains the child and its
 visible error. Rows/results survive retirement. A pending parent review can extend the child's

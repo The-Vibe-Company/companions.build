@@ -1,5 +1,5 @@
 import { type FormEvent, useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
-import { Box, Check, ChevronRight, Computer, LoaderCircle, Plus } from "lucide-react";
+import { Check, ChevronRight, LoaderCircle, Plus } from "lucide-react";
 import {
   api,
   ApiError,
@@ -60,7 +60,7 @@ export function CreateCompanion({ config, onCreated, compact = false, ownerId, o
   const restored = useRef(readStoredCreation(ownerId));
   const appearanceId = useId();
   const [appearanceExpanded, setAppearanceExpanded] = useState(false);
-  const firstProvider: "local" | "box" = config.boxAvailable ? "box" : "local";
+  const firstProvider: "local" | "box" = config.defaultProvider ?? (config.localAvailable && !config.boxAvailable ? "local" : "box");
   const [name, setName] = useState(restored.current?.request.name ?? "");
   const [instructions, setInstructions] = useState(restored.current?.request.instructions ?? "");
   const [provider, setProvider] = useState<"local" | "box">(restored.current?.request.provider ?? firstProvider);
@@ -148,7 +148,6 @@ export function CreateCompanion({ config, onCreated, compact = false, ownerId, o
   }, [attempted]);
 
   const sourceTemplate = templates.find(template => template.id === sourceTemplateId);
-  const sourceNeedsBox = Boolean(sourceTemplate?.hasSnapshot || sourceTemplate?.softwareBuildId || sourceTemplate?.softwareResultId);
   const selectionLocked = attempted || submitting;
   const selectedAccountIds = useMemo(() => accountIds, [accountIds]);
 
@@ -289,13 +288,10 @@ export function CreateCompanion({ config, onCreated, compact = false, ownerId, o
       <Button className="create-companion-submit" type="submit" aria-label={attempted ? "Resume setup" : "Create companion"} disabled={!canCreate || submitting}>
         {submitting ? <LoaderCircle className="spin"/> : attempted ? <><Plus/>Resume setup</> : <>Create {name.trim() || "companion"}</>}
       </Button>
-      <details className="create-companion-advanced"><summary>Advanced: computer, starting profile<ChevronRight/></summary>
+      {templates.length > 0 && <details className="create-companion-advanced"><summary>Starting profile<ChevronRight/></summary>
         {templates.length > 0 && <div className="field"><label htmlFor="create-source-template">Start from</label><select id="create-source-template" value={sourceTemplateId} disabled={selectionLocked} onChange={event => chooseSourceTemplate(event.target.value)}><option value="">Blank companion</option>{templates.map(template => { const needsBox = Boolean(template.hasSnapshot || template.softwareBuildId || template.softwareResultId); return <option key={template.id} value={template.id} disabled={needsBox && !config.boxAvailable}>{template.name} · v{template.revision}{needsBox && !config.boxAvailable ? " · cloud unavailable" : ""}</option>; })}</select><span className="field-hint">Pins this companion to the profile version shown. Team access is selected separately above.</span></div>}
-        <fieldset className="create-provider-picker" disabled={selectionLocked}><legend>Computer</legend>
-          <label className={cn(provider === "local" && "is-selected", (!config.localAvailable || sourceNeedsBox) && "is-disabled")}><input type="radio" name="create-provider" checked={provider === "local"} disabled={!config.localAvailable || sourceNeedsBox} onChange={() => setProvider("local")}/><Computer/><span><strong>Local</strong><small>Runs on this machine</small></span>{provider === "local" && <Check/>}</label>
-          <label className={cn(provider === "box" && "is-selected", !config.boxAvailable && "is-disabled")}><input type="radio" name="create-provider" checked={provider === "box"} disabled={!config.boxAvailable} onChange={() => setProvider("box")}/><Box/><span><strong>Box</strong><small>Persistent cloud computer</small></span>{provider === "box" && <Check/>}</label>
-        </fieldset>
-      </details></div>
+
+      </details>}</div>
       {attempted && !submitting && error && <p className="create-lock-note">Setup is locked so retrying cannot create a different companion.</p>}
       {mayLeaveToResolve && <p className="create-lock-note">You can leave this page to resolve the account issue, then return to resume this exact setup.</p>}
       {error && <p className="field-error" role="alert">{error}</p>}

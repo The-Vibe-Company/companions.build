@@ -195,3 +195,16 @@ test("team setup can persist a coordinator without requesting preparation or a r
   expect(await db`SELECT id FROM runs WHERE companion_id=${companion.id}`).toHaveLength(0);
   expect((await create(true)).status).toBe(409);
 });
+
+
+test('Box is the default and local creation requires the explicit testing policy',async()=>{
+ const previous={localAvailable:config.localAvailable,defaultProvider:config.defaultProvider};
+ try{
+  config.localAvailable=false;config.defaultProvider='box';
+  const cloud=await createCompanion(owner,{name:'Default cloud'});
+  expect(cloud.provider).toBe('box');
+  await expect(createCompanion(owner,{name:'Forbidden local',provider:'local'})).rejects.toThrow('Local runtime is disabled');
+  config.localAvailable=true;config.defaultProvider='local';
+  expect((await createCompanion(owner,{name:'Explicit local testing'})).provider).toBe('local');
+ }finally{Object.assign(config,previous);}
+});

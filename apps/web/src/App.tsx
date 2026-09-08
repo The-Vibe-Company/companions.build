@@ -19,7 +19,7 @@ import {
   Waypoints,
   X,
 } from "lucide-react";
-import { DragEvent, FormEvent, lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { DragEvent, FormEvent, type ReactNode, lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Conversation,
   ConversationContent,
@@ -54,10 +54,13 @@ import { RoutineSettings, TriggerSettings } from "@/components/AutomationPanels"
 const CreateCompanion = lazy(() => import("@/components/CreateCompanion").then(module => ({ default: module.CreateCompanion })));
 const TaskActivity = lazy(() => import("@/components/TaskActivity").then(module => ({ default: module.TaskActivity })));
 const SpecialistLibrary = lazy(() => import("@/components/SpecialistLibrary").then(module => ({ default: module.SpecialistLibrary })));
+const SpecialistDraftPanel = lazy(() => import("@/components/SpecialistDraftPanel").then(module => ({ default: module.SpecialistDraftPanel })));
 const TeamPanel = lazy(() => import("@/components/TeamPanel").then(module => ({ default: module.TeamPanel })));
 const CreateTeamWizard = lazy(() => import("@/components/CreateTeamWizard").then(module => ({ default: module.CreateTeamWizard })));
 import { ProviderMark } from "@/components/ProviderMark";
 import { SettingsSheet, type SettingsSheetHandle } from "@/components/SettingsSheet";
+import { SpecialistPreparation } from "@/components/SpecialistPreparation";
+import { SpecialistImprovements } from "@/components/SpecialistImprovements";
 import { LandingPage } from "@/components/LandingPage";
 import { LegalPage, type LegalPageKind } from "@/components/LegalPage";
 
@@ -221,7 +224,7 @@ function Sidebar({
   );
 }
 
-function Chat({ detail, onRefresh, onUnauthorized, onOpenCompanion, readOnly = false }: { detail: CompanionDetail; onRefresh: () => Promise<void>; onUnauthorized: () => void; onOpenCompanion: (id: string) => void; readOnly?: boolean }) {
+function Chat({ detail, onRefresh, onUnauthorized, onOpenCompanion, specialistTemplateId, specialistCards, specialistHistory = [], readOnly = false }: { detail: CompanionDetail; onRefresh: () => Promise<void>; onUnauthorized: () => void; onOpenCompanion: (id: string) => void; specialistTemplateId?: string | null; specialistCards?: ReactNode; specialistHistory?: Array<{id:string;runId?:string;createdAt:string;content:ReactNode}>; readOnly?: boolean }) {
   const [draft, setDraft] = useState("");
   const [files, setFiles] = useState<File[]>([]);
   const [sending, setSending] = useState(false);
@@ -234,9 +237,32 @@ function Chat({ detail, onRefresh, onUnauthorized, onOpenCompanion, readOnly = f
   const activePreview = activeRun
     && (activeRun.status === "running" || activeRun.status === "needs_input")
     && activeRun.previewText
+    && !(detail.questions ?? []).some(question => question.contextText === activeRun.previewText)
     && !detail.messages.some((message) => message.role === "assistant" && message.runId === activeRun.id)
       ? activeRun.previewText
       : null;
+
+  const timestamp = (value: string | undefined) => value && Number.isFinite(Date.parse(value)) ? Date.parse(value) : 0;
+  const latestConversationAt = Math.max(0,...detail.messages.map(message=>timestamp(message.createdAt)),...specialistHistory.filter(item=>!activeRun||item.runId!==activeRun.id).map(item=>timestamp(item.createdAt)),...(detail.questions??[]).filter(question=>question.answer!=null).map(question=>timestamp(question.createdAt)));
+  const pendingQuestion = activeRun ? (detail.questions??[]).find(question=>question.runId===activeRun.id && question.answer==null) : undefined;
+  // A resumed turn may retain an older question/run timestamp; new output stays after prior chat.
+  const streamingAt = Math.max(latestConversationAt+2,timestamp(activeRun?.createdAt)+2,timestamp(pendingQuestion?.createdAt)-1);
+  const timeline = [
+    ...detail.messages.map(message => ({ id: message.id, createdAt: message.createdAt, message, content: null as ReactNode })),
+    ...specialistHistory.map(item => ({ ...item, createdAt: new Date(Math.max(timestamp(item.createdAt),
+      ...(item.runId ? detail.messages.filter(message=>message.runId===item.runId && message.role==='assistant').map(message=>timestamp(message.createdAt)+1) : []),
+      item.runId && item.runId===activeRun?.id ? streamingAt+1 : 0)).toISOString(), message: null })),
+    ...detail.runs.filter(run => run.thinkingText && run.lane !== 'background').map(run => ({ id: 'thinking-' + run.id, createdAt: new Date(isActiveRun(run.status) ? streamingAt-1 : Math.max(timestamp(run.createdAt), ...detail.messages.filter(message=>message.role==='assistant' && message.runId===run.id).map(message=>timestamp(message.createdAt)-1))).toISOString(), message: null, content: <details className="thinking-panel" open={isActiveRun(run.status)}><summary>{isActiveRun(run.status) ? 'Thinking' : 'Thought process'}</summary><div><MessageResponse>{run.thinkingText!}</MessageResponse></div></details> })),
+    ...(activePreview && activeRun ? [{ id: 'preview-' + activeRun.id, message: null, createdAt: new Date(streamingAt).toISOString(), content: <Message from="assistant" className="thread-message message-preview">
+              <div className="thread-avatar" aria-hidden="true"><CompanionAvatar name={detail.companion.name} avatar={detail.companion.avatar} size={32} /></div>
+              <div className="thread-message-body"><div className="message-meta"><span className="message-author">{detail.companion.name}</span></div>
+              <MessageContent className="thread-content"><MessageResponse>{activePreview}</MessageResponse></MessageContent></div>
+            </Message> }] : []),
+    ...(detail.questions ?? []).map(question => ({ id: question.id, createdAt: question.createdAt ?? detail.runs.find(run => run.id === question.runId)?.createdAt ?? '', message: null, content: <>
+      {question.contextText && !detail.messages.some(message => message.content === question.contextText) && <div className="question-context"><MessageResponse>{question.contextText}</MessageResponse></div>}
+      <Question companionId={detail.companion.id} question={question} onAnswered={onRefresh}/>
+    </> })),
+  ].sort((a,b) => timestamp(a.createdAt)-timestamp(b.createdAt) || a.id.localeCompare(b.id));
 
   async function send(event: FormEvent) {
     event.preventDefault();
@@ -303,14 +329,14 @@ function Chat({ detail, onRefresh, onUnauthorized, onOpenCompanion, readOnly = f
       )}
       <Conversation className="conversation">
         <ConversationContent className="conversation-content">
-          {detail.messages.length === 0 ? (
+          {timeline.length === 0 ? (
             <ConversationEmptyState className="chat-empty">
               <CompanionAvatar name={detail.companion.name} avatar={detail.companion.avatar} size={72} />
-              <h2>A little less on your mind.</h2>
-              <p>Make room for what matters. {detail.companion.name} can help.</p>
-              {!readOnly && <div className="chat-suggestions">{['Plan my day', 'Help with a project', 'Set up a routine'].map(prompt=><button type="button" key={prompt} onClick={()=>{setDraft(prompt);textareaRef.current?.focus();}}>{prompt}<ChevronRight/></button>)}</div>}
+              <h2>{specialistTemplateId ? "What should this specialist do?" : "A little less on your mind."}</h2>
+              <p>{specialistTemplateId ? "Describe its role, then prepare its tools together." : `Make room for what matters. ${detail.companion.name} can help.`}</p>
+              {!readOnly && !specialistTemplateId && <div className="chat-suggestions">{(specialistTemplateId ? ['Set up GitHub & Linear', 'Prepare my repositories', 'Help me test this specialist'] : ['Plan my day', 'Help with a project', 'Set up a routine']).map(prompt=><button type="button" key={prompt} onClick={()=>{setDraft(prompt);textareaRef.current?.focus();}}>{prompt}<ChevronRight/></button>)}</div>}
             </ConversationEmptyState>
-          ) : detail.messages.map((message) => (
+          ) : timeline.map(({id, message, content}) => message ? (
             <Message from={message.role} key={message.id} className="thread-message">
               <div className="thread-avatar" aria-hidden="true">{message.role === "assistant" ? <CompanionAvatar name={detail.companion.name} avatar={detail.companion.avatar} size={32} /> : <span className="user-avatar"><UserRound /></span>}</div>
               <div className="thread-message-body"><div className="message-meta"><span className="message-author">{message.role === "assistant" ? detail.companion.name : "You"}</span><time className="message-time" dateTime={message.createdAt}>{readableDate(message.createdAt)}</time></div>
@@ -319,24 +345,18 @@ function Chat({ detail, onRefresh, onUnauthorized, onOpenCompanion, readOnly = f
               {message.role === "user" && <SpecialistsForRun detail={detail} runId={message.runId} onOpen={onOpenCompanion} />}
               </div>
             </Message>
-          ))}
-          {activePreview && (
-            <Message from="assistant" className="thread-message message-preview">
-              <div className="thread-avatar" aria-hidden="true"><CompanionAvatar name={detail.companion.name} avatar={detail.companion.avatar} size={32} /></div>
-              <div className="thread-message-body"><div className="message-meta"><span className="message-author">{detail.companion.name}</span></div>
-              <MessageContent className="thread-content"><MessageResponse>{activePreview}</MessageResponse></MessageContent></div>
-            </Message>
-          )}
+          ) : <div className="conversation-action" key={id}>{content}</div>)}
           {activeRun && (
             <div className="working-row" role="status">
               <span className="working-dots"><i /><i /><i /></span>
-              {activeRun.status === "queued" ? "Queued" : activeRun.status === "preparing" ? "Preparing" : `${detail.companion.name} is working`}
+              {activeRun.status === "queued" ? "Queued" : activeRun.status === "preparing" ? "Preparing" : activeRun.status === "needs_input" ? "Waiting for your answer" : activeRun.thinkingText && !activePreview ? "Thinking…" : `${detail.companion.name} is working`}
             </div>
           )}
+          {specialistCards}
+          {!readOnly && <SpecialistImprovements companionId={detail.companion.id} onOpenCompanion={onOpenCompanion}/>}
         </ConversationContent>
         <ConversationScrollButton aria-label="Scroll to latest message" />
       </Conversation>
-      {(detail.questions??[]).map(question=><Question key={question.id} companionId={detail.companion.id} question={question} onAnswered={onRefresh}/>)}
       {!readOnly && <form className={cn("composer-wrap", dragActive && "composer-wrap--drop")} onSubmit={send} onDragEnter={dragEnter} onDragOver={dragOver} onDragLeave={dragLeave} onDrop={drop}>
         <span className="sr-only" aria-live="polite">{fileNotice}</span>
         {actionError && <p className="composer-error" role="alert">{actionError}</p>}
@@ -379,6 +399,7 @@ type NavigationGuard = (action: () => void, updateHistory?: boolean) => boolean;
 
 function CompanionView({ detail, models, onRefresh, onUnauthorized, onMenu, onOpenCompanion, onDeleted, onRegisterNavigationGuard, onLocationChange, refreshVersion, onNavigate }: { onNavigate: (path: string) => void; detail: CompanionDetail; models: Array<{ id: string; name: string }>; onDeleted: (ids: string[]) => void; onRefresh: () => Promise<void>; onUnauthorized: () => void; onMenu: () => void; onOpenCompanion: (id: string) => void; onRegisterNavigationGuard: (guard: NavigationGuard | null) => void; onLocationChange: (location: string) => void; refreshVersion: number }) {
   const finished = Boolean(detail.companion.retiredAt);
+  const specialistTemplateId = new URLSearchParams(window.location.search).get("specialist");
   const readView = (): CompanionSection => {
     const value = new URLSearchParams(window.location.search).get('view');
     if (finished) return value === 'activity' ? value : 'chat';
@@ -412,14 +433,16 @@ function CompanionView({ detail, models, onRefresh, onUnauthorized, onMenu, onOp
     return () => onRegisterNavigationGuard(null);
   }, [onRegisterNavigationGuard]);
 
+  if (specialistTemplateId && !finished && ['new', 'preparing'].includes(detail.companion.status)) return <main className="workspace" id="main-content"><SpecialistPreparation companionId={detail.companion.id} onReady={() => void onRefresh()} onBack={() => onNavigate('/specialists')}/></main>;
+
   return (
     <main className="workspace" id="main-content">
-      <CompanionHeader detail={detail} section={view} refreshVersion={refreshVersion} onSection={changeView} onMenu={onMenu} />
+      {(!specialistTemplateId || finished || view !== "chat") && <CompanionHeader detail={detail} section={view} refreshVersion={refreshVersion} onSection={changeView} onMenu={onMenu} />}
       <div className="workspace-body" hidden={view !== 'chat'}>
-        <Chat detail={detail} onRefresh={onRefresh} onUnauthorized={onUnauthorized} onOpenCompanion={onOpenCompanion} readOnly={finished} />
+        {specialistTemplateId && !finished ? <Suspense fallback={<div role="status">Opening specialist…</div>}><SpecialistDraftPanel templateId={specialistTemplateId} companionId={detail.companion.id} avatar={detail.companion.avatar ?? undefined} onClose={() => onNavigate('/specialists')} onComputer={detail.companion.provider === 'box' ? () => changeView('computer') : undefined} onOpenCompanion={onOpenCompanion} onContinued={onRefresh} renderChat={(cards, history) => <Chat detail={detail} onRefresh={onRefresh} onUnauthorized={onUnauthorized} onOpenCompanion={onOpenCompanion} specialistTemplateId={specialistTemplateId} specialistCards={cards} specialistHistory={history}/>} /></Suspense> : <Chat detail={detail} onRefresh={onRefresh} onUnauthorized={onUnauthorized} onOpenCompanion={onOpenCompanion} readOnly={finished}/>}
       </div>
       {!finished && view === 'automations' && <section className="companion-page" aria-label="Automations"><div className="companion-page-inner"><header className="section-intro"><h2>A little help, on repeat.</h2><p>Set the timing. Your companion takes it from there.</p></header><div className="automation-group"><RoutineSettings companionId={detail.companion.id}/></div><div className="automation-group" id="events"><TriggerSettings companionId={detail.companion.id}/></div></div></section>}
-      {!finished && view === 'team' && <section className="companion-page" aria-label="Team"><Suspense fallback={<div className="companion-page-inner" role="status">Opening your team…</div>}><TeamPanel companion={detail.companion} refreshVersion={refreshVersion} onOpenCompanion={onOpenCompanion}/></Suspense></section>}
+      {!finished && view === 'team' && <section className="companion-page" aria-label="Team"><Suspense fallback={<div className="companion-page-inner" role="status">Opening your team…</div>}><TeamPanel onOpenDraft={(companionId, templateId) => onNavigate(`/companions/${companionId}?specialist=${encodeURIComponent(templateId)}`)} companion={detail.companion} refreshVersion={refreshVersion} onOpenCompanion={onOpenCompanion}/></Suspense></section>}
       {view === 'activity' && <section className="companion-page" aria-label="Activity"><Suspense fallback={<div className="companion-page-inner" role="status">Opening activity…</div>}><TaskActivity companion={detail.companion} refreshVersion={refreshVersion} specialists={detail.specialists} onOpenCompanion={onOpenCompanion} onOpenDiscussion={() => changeView('chat')} /></Suspense></section>}
       {!finished && view === 'computer' && <section className="companion-page" aria-label="Computer"><DesktopSheet embedded companion={detail.companion} onClose={() => changeView('chat')} onRefresh={onRefresh} /></section>}
       {!finished && view === 'applications' && <section className="companion-page" aria-label="Applications"><div className="companion-page-inner"><header className="section-intro"><h2>Applications</h2><p>Choose which connected accounts {detail.companion.name} can use.</p></header><ApplicationAccess key={detail.companion.id} companionId={detail.companion.id} onConnect={() => onNavigate("/connections")} /></div></section>}
@@ -780,10 +803,10 @@ export function App() {
       {teamCreateOpen ? <main className="team-onboarding" id="main-content"><Suspense fallback={<div className="companion-page-inner" role="status">Opening team creation…</div>}><CreateTeamWizard config={config} companions={companions.filter(item => !item.temporary && !item.retiredAt)} onCancel={() => setTeamCreateOpen(false)} onCreated={companion => { handleCreated(companion); window.history.replaceState({}, '', `/companions/${companion.id}?view=team`); }} /></Suspense></main> : currentPath === "/account" && !createOpen ? (
         <AccountPage user={user} onSignOut={signOut} onMenu={() => setSidebarOpen(true)} />
       ) : currentPath === "/specialists" && !createOpen ? (
-        <Suspense fallback={<main className="detail-loading" id="main-content" role="status">Opening specialists…</main>}><SpecialistLibrary onMenu={() => setSidebarOpen(true)} /></Suspense>
+        <Suspense fallback={<main className="detail-loading" id="main-content" role="status">Opening specialists…</main>}><SpecialistLibrary onMenu={() => setSidebarOpen(true)} onOpenDraft={(companionId, templateId) => navigate(`/companions/${companionId}?specialist=${encodeURIComponent(templateId)}`)} /></Suspense>
       ) : currentPath === "/connections" && !createOpen ? (
         <ConnectionsPage onMenu={() => setSidebarOpen(true)} />
-      ) : companions.length === 0 || createOpen ? (
+      ) : (companions.length === 0 && !selectedId) || createOpen ? (
         <main className="onboarding" id="main-content">
           <div className="onboarding-mobile-header"><Button disabled={creationLocked} variant="ghost" size="icon" onClick={() => setSidebarOpen(true)} aria-label="Open navigation"><Menu /></Button><span className="wordmark">companions.build</span></div>
           <Suspense fallback={<div className="detail-loading" role="status">Opening creation…</div>}><CreateCompanion ownerId={user.id} onSetupLockedChange={setupLockedChange} config={config} onCreated={handleCreated} compact={companions.length > 0} /></Suspense>

@@ -63,6 +63,7 @@
 .team-advanced-content { display: grid; gap: 14px; padding: 16px; border-radius: 14px; background: var(--secondary); }
 .team-advanced-content > label { display: flex; align-items: center; justify-content: space-between; gap: 16px; color: var(--muted-foreground); font-size: .8125rem; }
 .team-advanced-content select { min-height: 40px; max-width: min(100%, 260px); border: 1px solid var(--input); border-radius: 8px; padding: 7px 10px; background: var(--card); color: var(--foreground); }
+.team-connections{display:grid;gap:10px;border-bottom:1px solid var(--border);padding-bottom:18px}.team-connections>div:first-child strong{font-size:.8125rem}.team-connections>div:first-child p{margin:4px 0 0;color:var(--muted-foreground);font-size:.72rem}.team-connections>label{display:flex;align-items:center;justify-content:space-between;gap:14px;color:var(--foreground)}.team-connections>label>span{min-width:0;text-transform:capitalize}.team-connections small{display:block;margin-top:3px;color:var(--muted-foreground);font-size:.68rem;text-transform:none}.team-connections--loading{color:var(--muted-foreground);font-size:.75rem}
 .team-profile-edit { display: grid; grid-template-columns:1fr 1fr; gap: 14px 16px; border-bottom: 1px solid var(--border); padding-bottom: 18px; }
 .team-profile-edit>p:first-child,.team-profile-edit .team-edit-avatar,.team-profile-edit .field:nth-of-type(2),.team-profile-edit>.field-error,.team-profile-edit>.team-save-status{grid-column:1 / -1}.team-profile-edit>button{grid-column:2;justify-self:end}
 .team-profile-edit > p:first-child { margin: 0; color: var(--muted-foreground); font-size: .8125rem; line-height: 1.5; }
@@ -97,8 +98,12 @@
   .team-task, .team-advanced { margin-left: 0; margin-right:0; }
   .team-profile-edit { grid-template-columns:1fr; }.team-profile-edit>*{grid-column:1!important}.team-profile-edit>button{justify-self:stretch;width:100%}
   .team-restore { align-items: stretch; flex-direction: column; }
+  .team-connections>label{align-items:stretch;flex-direction:column}.team-connections>label select{width:100%;max-width:none}
   .team-restore > button { min-height: 40px; }
 }
 @media (prefers-reduced-motion: reduce) {
   .team-appearance > summary svg:last-child { transition: none; }
 }
+
+.team-member-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+@media (max-width: 640px) { .team-person > .team-member-actions { grid-column: 1 / -1; } .team-member-actions > button { flex: 1; } }

@@ -1,6 +1,13 @@
 import { test, expect, spyOn } from "bun:test";
 import { BoxClient } from "../../../packages/box/client";
 import { fetchAgent } from "../../../packages/box/transport";
+import {specialistBoxMachines} from '../src/specialist-box';
+test('an ambiguous specialist image create cannot outlive the provider idempotency window',async()=>{
+ let creates=0;
+ const adapter=specialistBoxMachines({create:async()=>{creates++;return {id:'unwanted'};}} as any);
+ await expect(adapter.createSpecialistImage!({box_id:null,create_key:'stable',create_started_at:new Date(Date.now()-24*3600_000)},async()=>{})).rejects.toThrow('image_creation_needs_reconciliation');
+ expect(creates).toBe(0);
+});
 test("Box creation is isolated, templated and idempotent", async () => {
   let request: RequestInit | undefined;
   const client = new BoxClient("synthetic-secret", (async (_url: any, init: any) => {
@@ -145,4 +152,36 @@ test("invalid desktop provider replies fail visibly without leaking payloads or 
     const client = new BoxClient("synthetic-secret", (async () => Response.json(reply)) as unknown as typeof fetch);
     await expect(client.desktop("owned-box")).rejects.toThrow("desktop_invalid");
   }
+});
+
+test('archived image references fork with an idempotency key and no inherited environment',async()=>{
+ let observed:any;
+ const client=new BoxClient('test',(async(url:any,init:any)=>{observed={url,body:JSON.parse(init.body),headers:init.headers};return Response.json({id:'bx_copy',status:'cloning'});}) as any);
+ expect(await client.create('stable-request','box:bx_source')).toEqual({id:'bx_copy',state:'cloning'});
+ expect(observed.url).toEndWith('/boxes/bx_source/fork');
+ expect(observed.body).toEqual({noEnv:true,env:{},type:'small',ttlSeconds:21600});
+ expect(observed.headers['Idempotency-Key']).toBe('stable-request');
+});
+
+test('archived images become usable only after provider archive confirmation',async()=>{
+ let state='archiving';
+ const client=new BoxClient('test',(async()=>Response.json({box:{id:'bx_image',state}})) as any);
+ expect(await client.getSnapshot('box:bx_image')).toEqual({status:'pending'});
+ state='archived';expect(await client.getSnapshot('box:bx_image')).toEqual({status:'ready'});
+});
+
+
+test('hosting reconciles the firewall after provider registration and propagates failure',async()=>{
+ const commands:string[]=[];
+ let succeeds=true;
+ const client=new BoxClient('test-only',(async(_input:any,init:any)=>{
+  commands.push(JSON.parse(init.body).command);
+  return Response.json({success:succeeds,exitCode:succeeds?0:1,stdout:succeeds?'https://fixture.on.ascii.dev?_token=synthetic':''});
+ }) as typeof fetch);
+ expect(await client.host('owned-box',8787)).toBe('https://fixture.on.ascii.dev/?_token=synthetic');
+ expect(commands[0]).toMatch(/host 8787 --private.*&& sudo -n ufw allow 8787\/tcp.*&& host url 8787/);
+ succeeds=false;
+ await expect(client.host('owned-box',8787)).rejects.toThrow('box_command_failed');
+ await expect(client.host('owned-box',NaN)).rejects.toThrow('box_host_port_invalid');
+ expect(commands).toHaveLength(2);
 });

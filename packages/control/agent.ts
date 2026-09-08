@@ -10,19 +10,22 @@ import type { ToolDefinition } from '@earendil-works/pi-coding-agent';
 import { z } from 'zod';
 import { pluginTools } from '../plugins/tools';
 import type { MachinePlugin } from '../plugins/catalog';
+import {GitCredentialBroker} from './git-credentials';
 import {AgentSkills,type SkillMutationCheckpoint} from './skills';
 
 const localSkillOperations=['skills','skill_install','skill_update','skill_remove'] as const;
-const operations=['history_search','identity','companion_create','models','configure','companions','routines','routine_save','routine_delete','routine_history','routine_test','plugins','plugin_select','plugin_catalog','plugin_connect','plugin_custom','plugin_check','plugin_disconnect','triggers','trigger_save','trigger_delete','trigger_test','trigger_history','delegate','task_status','task_answer','task_cancel','deliveries','delivery_prepare','maintenance','maintenance_inspect','maintenance_configure','maintenance_prepare','maintenance_task','maintenance_history','templates','template_permission','prepare','template_save','template_history','template_rollback','software_prepare','software_status','spawn','adopt_template','ask_user','desktop_takeover','desktop_release',...localSkillOperations] as const;
+const operations=['history_search','identity','companion_create','models','configure','companions','routines','routine_save','routine_delete','routine_history','routine_test','plugins','plugin_select','plugin_catalog','plugin_connect','plugin_custom','plugin_check','plugin_disconnect','triggers','trigger_save','trigger_delete','trigger_test','trigger_history','delegate','task_status','task_answer','task_cancel','deliveries','delivery_prepare','maintenance','maintenance_inspect','maintenance_configure','maintenance_prepare','maintenance_task','maintenance_history','templates','template_permission','prepare','template_save','template_history','template_rollback','software_prepare','software_status','spawn','adopt_template','specialist_configure','specialist_next_step','specialist_propose_improvement','specialist_keep_alive','specialist_install','ask_user','desktop_takeover','desktop_release',...localSkillOperations] as const;
 export type ControlOperation=typeof operations[number];
 /** Durable local MCP outbox. The executor visits Box; Box need not reach a local web server. */
 export class AgentControl {
   private readonly db:Database;
   private plugins:MachinePlugin[]=[];
   private generation='';
+  readonly gitCredentials:GitCredentialBroker;
   constructor(stateDir:string,private readonly skills=new AgentSkills(stateDir),private readonly afterLocalSkillControl?:()=>void) {
     mkdirSync(stateDir,{recursive:true});
     this.db=new Database(join(stateDir,'control.sqlite'));
+    this.gitCredentials=new GitCredentialBroker(stateDir);
     this.db.exec(`PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL;
       CREATE TABLE IF NOT EXISTS requests(id TEXT PRIMARY KEY,run_id TEXT NOT NULL,operation TEXT NOT NULL,input TEXT NOT NULL,result TEXT,status TEXT NOT NULL DEFAULT 'pending',created_at INTEGER NOT NULL);
       CREATE TABLE IF NOT EXISTS local_requests(id TEXT PRIMARY KEY,run_id TEXT NOT NULL,operation TEXT NOT NULL,input TEXT NOT NULL,result TEXT,status TEXT NOT NULL DEFAULT 'pending',created_at INTEGER NOT NULL);
@@ -33,7 +36,7 @@ export class AgentControl {
     if(url.pathname==='/configuration'&&request.method==='PUT') {
       const body=await request.json() as any;
       if(!Array.isArray(body.plugins)||body.plugins.length>30||typeof body.generation!=='string') return Response.json({error:'INVALID_CONFIGURATION'},{status:400});
-      this.plugins=body.plugins;this.generation=body.generation;return Response.json({generation:this.generation});
+      this.plugins=body.plugins;this.gitCredentials.update(this.plugins);this.generation=body.generation;return Response.json({generation:this.generation});
     }
     if(url.pathname==='/control'&&request.method==='GET') return Response.json({generation:this.generation,requests:this.db.query(`SELECT id,run_id AS runId,operation,input FROM requests WHERE status='pending' ORDER BY created_at LIMIT 20`).all().map((r:any)=>({...r,input:JSON.parse(r.input)}))});
     const match=url.pathname.match(/^\/control\/([a-f0-9-]+)\/result$/);
@@ -100,7 +103,7 @@ export class AgentControl {
     }};
     return {tools:[tool,...plugins.tools],async close(){await plugins.close();await client.close();await server.close();}};
   }
-  close(){this.db.close();}
+  close(){this.gitCredentials.close();this.db.close();}
 }
 
 function localRequestInput(raw:unknown,fingerprint:string):{checkpoint:SkillMutationCheckpoint|null}|null{

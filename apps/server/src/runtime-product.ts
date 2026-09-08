@@ -1,4 +1,5 @@
 import {tracePreparation} from './preparation-trace';
+import {synchronizeSpecialistConnections} from './specialist-connections';
 import {createHash} from 'node:crypto';
 import {db} from './store';
 import {agentRequest} from './machines';
@@ -23,6 +24,7 @@ async function owner(run:any){
 }
 async function syncConfiguration(run:any,endpoint:string,token:string,observedGeneration?:string,execution?:RunExecution){
  const request=execution?.requestAgent??agentRequest;
+ await db.begin((tx:any)=>synchronizeSpecialistConnections(run.companion_id,tx));
  const plugins=await machinePlugins(run.companion_id);const generation=hash(JSON.stringify(plugins));
  if(configured.get(endpoint)!==generation||observedGeneration!==undefined&&observedGeneration!==generation){
   await request(endpoint,token,'/configuration','PUT',{generation,plugins});configured.set(endpoint,generation);

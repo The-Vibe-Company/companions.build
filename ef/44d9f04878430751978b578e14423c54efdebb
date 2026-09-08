@@ -1,0 +1,21 @@
+apps/web/public/favicon.svg
+  s_eca58c1e61ed9a::t_bcc2823efd5cb7 1-8
+apps/web/index.html
+  s_eca58c1e61ed9a::t_bcc2823efd5cb7 5
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "ef44d9f04878430751978b578e14423c54efdebb",
+  "prompts": {},
+  "sessions": {
+    "s_eca58c1e61ed9a": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a07fa4-775d-78f0-8cc4-c6e5a6c61950",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "StanGirard <stan@quivr.app>"
+    }
+  }
+}

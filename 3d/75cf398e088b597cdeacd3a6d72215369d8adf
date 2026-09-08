@@ -1,0 +1,79 @@
+scripts/dev_environment.py
+  s_895cd30c8c0144::t_c93265a855cf7c 13,50
+apps/server/src/control-product.ts
+  s_895cd30c8c0144::t_c93265a855cf7c 67
+apps/server/src/templates.ts
+  s_895cd30c8c0144::t_49b301439f8d2b 7-8
+apps/server/src/store.ts
+  s_895cd30c8c0144::t_c93265a855cf7c 72-73,83
+scripts/test-server.ts
+  s_895cd30c8c0144::t_c93265a855cf7c 20
+apps/server/src/api.ts
+  s_895cd30c8c0144::t_c93265a855cf7c 162,167
+apps/web/src/api.ts
+  s_895cd30c8c0144::t_c93265a855cf7c 97
+scripts/dev-cli.py
+  s_895cd30c8c0144::t_4ca1cc875800be 129-130,132,135
+apps/server/src/specialist-drafts.ts
+  s_895cd30c8c0144::t_c93265a855cf7c 65
+apps/server/src/lifecycle-errors.ts
+  s_895cd30c8c0144::t_49b301439f8d2b 1-4
+scripts/verify.py
+  s_895cd30c8c0144::t_c93265a855cf7c 70
+apps/server/test/lifecycle.test.ts
+  s_895cd30c8c0144::t_74afdae144c0eb 361-373
+apps/server/src/control.ts
+  s_895cd30c8c0144::t_49b301439f8d2b 3,37-42
+apps/web/src/components/CreateCompanion.tsx
+  s_895cd30c8c0144::t_c93265a855cf7c 2,63,291,293-294
+scripts/dev.py
+  s_895cd30c8c0144::t_4ca1cc875800be 40-41,43
+  s_895cd30c8c0144::t_c93265a855cf7c 23
+apps/web/src/App.test.tsx
+  s_895cd30c8c0144::t_49b301439f8d2b 1023
+  s_895cd30c8c0144::t_74afdae144c0eb 1009-1022,1024-1031
+  s_895cd30c8c0144::t_f5e4838a4f90b2 237,832,836
+docs/dev-workflow.md
+  s_895cd30c8c0144::t_c93265a855cf7c 179-193
+apps/web/src/components/CreateCompanion.test.tsx
+  s_895cd30c8c0144::t_bfaec0a1c99335 223-234
+  s_895cd30c8c0144::t_77ec5428533fd4 126
+scripts/dev-cli.test.py
+  s_895cd30c8c0144::t_bfaec0a1c99335 146-151
+  s_895cd30c8c0144::t_0679062b666f76 152-164
+  s_895cd30c8c0144::t_c2a2b4ea0f3149 171
+apps/server/src/delivery.ts
+  s_895cd30c8c0144::t_4ca1cc875800be 149-150,152
+apps/server/test/store.test.ts
+  s_895cd30c8c0144::t_bfaec0a1c99335 198-210
+apps/server/src/delegation.ts
+  s_895cd30c8c0144::t_c93265a855cf7c 5,27
+  s_895cd30c8c0144::t_49b301439f8d2b 22,26,29,32,37
+apps/server/test/delivery.test.ts
+  s_895cd30c8c0144::t_0679062b666f76 8,220-238
+  s_895cd30c8c0144::t_78f35bb887cad4 239
+apps/web/src/App.tsx
+  s_895cd30c8c0144::t_49b301439f8d2b 246-250,254-255,264
+apps/server/src/config.ts
+  s_895cd30c8c0144::t_c93265a855cf7c 63-64
+apps/server/test/control.test.ts
+  s_895cd30c8c0144::t_49b301439f8d2b 89-107
+apps/web/src/components/SpecialistDraftPanel.test.tsx
+  s_895cd30c8c0144::t_2ec27b36b9f7ac 113,158
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "3d75cf398e088b597cdeacd3a6d72215369d8adf",
+  "prompts": {},
+  "sessions": {
+    "s_895cd30c8c0144": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a07d31-b106-7d00-912b-601ce8884ca0",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "StanGirard <stan@quivr.app>"
+    }
+  }
+}

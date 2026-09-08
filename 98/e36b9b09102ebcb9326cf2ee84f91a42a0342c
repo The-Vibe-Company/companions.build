@@ -1,0 +1,29 @@
+apps/web/src/components/TeamPanel.tsx
+  s_895cd30c8c0144::t_e498c462312ada 2-4,8,17,27,139-141,143-146,149,170-171,174-177,179-180,191,194,228,230
+apps/web/src/components/TeamPanel.css
+  s_895cd30c8c0144::t_e498c462312ada 107-109
+apps/web/src/App.tsx
+  s_895cd30c8c0144::t_e498c462312ada 444
+apps/server/src/specialist-drafts.ts
+  s_895cd30c8c0144::t_f00dfde13ea9bf 74-85
+apps/server/test/specialist-drafts.test.ts
+  s_895cd30c8c0144::t_fd4557970d93a6 195-212
+apps/web/src/components/TeamPanel.test.tsx
+  s_895cd30c8c0144::t_691580892594cf 34-35,55,60,78,86,112,117-118,124-125,128-130,155,159,182,206,208,230,242,245-257,259-270,272-281,283-292
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "98e36b9b09102ebcb9326cf2ee84f91a42a0342c",
+  "prompts": {},
+  "sessions": {
+    "s_895cd30c8c0144": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a07d31-b106-7d00-912b-601ce8884ca0",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "StanGirard <stan@quivr.app>"
+    }
+  }
+}

@@ -697,7 +697,7 @@ describe("first Companion flow", () => {
       if(path==="/api/me")return response(me);
       if(path==="/api/config")return response(config);
       if(path==="/api/companions")return response({companions:[]});
-      if(path==="/api/plugins")return response({catalog:[{id:"app.linear/linear",name:"Linear",provider:"linear",available:true}],accounts:[{...account,usedBy:[{id:"nova",name:"Nova",avatar:{shape:1,color:2,face:0}}]}]});
+      if(path==="/api/plugins")return response({catalog:[{id:"app.linear/linear",name:"Linear",provider:"linear",available:true}],accounts:[{...account,usedBy:[{id:"nova",name:"Nova",avatar:{shape:1,color:2,face:0}},{id:"sage",name:"Sage"},{id:"bo",name:"Bo"},{id:"pip",name:"Pip"}]}]});
       if(path==="/api/plugins/connect"&&options?.method==="POST"){bodies.push(JSON.parse(String(options.body)));return response({url:"https://oauth.example/authorize"});}
       if(path==="/api/plugins/linear-default"&&options?.method==="PATCH"){const {label}=JSON.parse(String(options.body));account={...account,label};return response({account});}
       throw Error(`Unexpected request: ${path}`);
@@ -726,6 +726,7 @@ describe("first Companion flow", () => {
     expect(screen.getByRole("heading", { name: "Linear" })).toBeInTheDocument();
     expect(screen.getByText("Personal")).toBeInTheDocument();
     expect(screen.getByRole("link",{name:"Open Nova"})).toHaveAttribute("href","/companions/nova");
+    expect(screen.getByRole("group",{name:"Allowed companions: Nova, Sage, Bo, Pip"})).toBeInTheDocument();
     expect(fetchMock).toHaveBeenCalledWith("/api/plugins/linear-default",expect.objectContaining({method:"PATCH",body:JSON.stringify({label:"Personal"})}));
   });
 

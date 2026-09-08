@@ -44,7 +44,7 @@ export function ConnectionCards({ catalog, accounts, busy, namingServer, healthT
       <div className="connection-card-accounts">{group.accounts.map(account => <div key={account.id} className={`connection-chip connection-chip--${account.healthStatus}`}>
         <span className="connection-chip-dot" aria-hidden="true" />
         <div className="connection-chip-copy"><strong title={account.label}>{account.label}</strong><small role="status" title={healthText(account)}>{healthText(account)}</small></div>
-        {account.usedBy && <div className="connection-used-by" aria-label={account.usedBy.length ? `Allowed companions: ${account.usedBy.map(companion => companion.name).join(", ")}` : "No companions have access"}>
+        {account.usedBy && <div className="connection-used-by" role="group" aria-label={account.usedBy.length ? `Allowed companions: ${account.usedBy.map(companion => companion.name).join(", ")}` : "No companions have access"}>
           {account.usedBy.slice(0, 3).map(companion => <a key={companion.id} href={`/companions/${companion.id}`} aria-label={`Open ${companion.name}`} title={companion.name}><CompanionAvatar name={companion.name} avatar={companion.avatar} size={24} /></a>)}
           {account.usedBy.length > 3 && <span title={account.usedBy.slice(3).map(companion => companion.name).join(", ")}>+{account.usedBy.length - 3}</span>}
           {!account.usedBy.length && <span className="connection-unused" title="No companions have access" />}

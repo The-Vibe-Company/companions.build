@@ -1,0 +1,175 @@
+packages/agent/src/journal.ts
+  s_895cd30c8c0144::t_3b9af01654ed6d 37,92-93,112,127
+apps/server/test/specialist-delete.test.ts
+  s_895cd30c8c0144::t_283d10ee636ace 29
+  s_895cd30c8c0144::t_00997eae5f09b5 6-28,30-33
+  s_895cd30c8c0144::t_b5d7ad80e1ccae 1-5,34-48
+apps/web/src/components/SpecialistPreparation.test.tsx
+  s_895cd30c8c0144::t_ecf5caf1db3031 1-29
+packages/agent/src/pi-executor.ts
+  s_895cd30c8c0144::t_3b9af01654ed6d 216-217,227-228
+apps/web/src/components/SpecialistDraftPanel.tsx
+  s_895cd30c8c0144::t_eea898de2206f4 10,37-38,61,101,177,181,199,212
+  s_895cd30c8c0144::t_e9ef6ab0a07282 1,9,24-25,49-51,172,178-180,182,184,200,203-204,207-210,213-215,219
+  s_895cd30c8c0144::t_0780eb47789df6 4,23,36,89,92,145-171,216-218
+  s_895cd30c8c0144::t_dcaae50d3174ed 34-35,57,87
+  s_895cd30c8c0144::t_ff900d4bbba054 2-3,22,26,45,48,114,135,173-176,188,190,192,194-195,197,211
+apps/web/src/components/SpecialistCreation.css
+  s_895cd30c8c0144::t_9fa995f8f9e840 15
+  s_895cd30c8c0144::t_4a15dffe058249 12
+  s_895cd30c8c0144::t_0780eb47789df6 52-84
+  s_895cd30c8c0144::t_3e87b7bf792818 1-11,13-14,16-51,85-88
+apps/server/src/control-help.ts
+  s_895cd30c8c0144::t_ebcc290191c408 3
+apps/web/src/components/Question.tsx
+  s_895cd30c8c0144::t_8c00fc38167b39 4,11-13
+apps/server/src/control-product.ts
+  s_895cd30c8c0144::t_ebcc290191c408 2,22
+apps/server/src/delegation.ts
+  s_895cd30c8c0144::t_8c00fc38167b39 86
+  s_895cd30c8c0144::t_31d2d3ea1e5907 21
+apps/web/src/components/SpecialistIdentity.tsx
+  s_895cd30c8c0144::t_0780eb47789df6 1-3,5-21,23-24
+  s_895cd30c8c0144::t_fda407f313d279 4,22
+docs/dev-workflow.md
+  s_895cd30c8c0144::t_6be3cf4f2fc053 114-115,134-144
+  s_895cd30c8c0144::t_6fe6ce0511dc83 120-133
+  s_895cd30c8c0144::t_8e8c5a19c482cc 111-113,116-119,145-165
+apps/web/src/api.ts
+  s_895cd30c8c0144::t_8c00fc38167b39 82,297,305-306
+  s_895cd30c8c0144::t_eea898de2206f4 307,379
+  s_895cd30c8c0144::t_31d2d3ea1e5907 375
+  s_895cd30c8c0144::t_2894b7652f30b0 53
+apps/web/src/App.tsx
+  s_895cd30c8c0144::t_9fa995f8f9e840 63,433
+  s_895cd30c8c0144::t_0780eb47789df6 249
+  s_895cd30c8c0144::t_3b9af01654ed6d 349
+  s_895cd30c8c0144::t_e9ef6ab0a07282 22,332-333,352,437
+  s_895cd30c8c0144::t_04fd027d2da52c 228,241,246-248,250-263,329,334,336,345,434,439
+packages/agent/src/types.ts
+  s_895cd30c8c0144::t_3b9af01654ed6d 8,19
+apps/web/src/components/SpecialistDraftPanel.test.tsx
+  s_895cd30c8c0144::t_4a15dffe058249 46
+  s_895cd30c8c0144::t_be036343fd8482 125-144,164,174,183,194
+  s_895cd30c8c0144::t_3c6971d8405310 145-163,165-173,175-182,184-193
+apps/server/src/templates.ts
+  s_895cd30c8c0144::t_31d2d3ea1e5907 1,10,42,55,67,81,94-103,105-111
+  s_895cd30c8c0144::t_00997eae5f09b5 104
+  s_895cd30c8c0144::t_f91405ebe7f433 112-113
+apps/web/src/components/SpecialistCreation.tsx
+  s_895cd30c8c0144::t_9fa995f8f9e840 7,17,30
+  s_895cd30c8c0144::t_db366fb338a8f9 2,9-13,34,38-39,41,43
+  s_895cd30c8c0144::t_67fa697be1e702 1,3-6,8,14-16,18-29,31-33,35-37,40,42,44-45
+apps/server/test/specialist-drafts.test.ts
+  s_895cd30c8c0144::t_ecf5caf1db3031 127-144,148,167
+  s_895cd30c8c0144::t_daae6e7f0eef9a 11,13-14,23,37,145-147,149-166
+apps/server/src/specialist-runtime.ts
+  s_895cd30c8c0144::t_eea898de2206f4 18-19,54-61,104-110,127
+apps/server/src/retirement.ts
+  s_895cd30c8c0144::t_c47cf949b33631 7-9
+scripts/dev.py
+  s_895cd30c8c0144::t_b23374320e51ab 13,40-42
+  s_895cd30c8c0144::t_e6d3d3904b06e7 39
+scripts/dev-cli.test.py
+  s_895cd30c8c0144::t_e6d3d3904b06e7 114-119,122-124,149,153
+  s_895cd30c8c0144::t_6fe6ce0511dc83 14,120-121,125-148
+scripts/dev_environment.py
+  s_895cd30c8c0144::t_b23374320e51ab 1-51
+apps/server/src/store.ts
+  s_895cd30c8c0144::t_31d2d3ea1e5907 85
+  s_895cd30c8c0144::t_3b9af01654ed6d 108
+  s_895cd30c8c0144::t_8c00fc38167b39 134-137
+apps/server/src/lifecycle.ts
+  s_895cd30c8c0144::t_31d2d3ea1e5907 293
+  s_895cd30c8c0144::t_dc889c00ae8309 40,50
+apps/web/src/components/SpecialistLibrary.test.tsx
+  s_895cd30c8c0144::t_4a15dffe058249 48,53,199
+  s_895cd30c8c0144::t_b6e21350291bd3 210-227
+  s_895cd30c8c0144::t_9fa995f8f9e840 39
+apps/web/src/components/SpecialistPreparation.tsx
+  s_895cd30c8c0144::t_db366fb338a8f9 8,39
+  s_895cd30c8c0144::t_9fa995f8f9e840 1-7,9-38,40-45
+packages/control/agent.ts
+  s_895cd30c8c0144::t_ebcc290191c408 17
+apps/web/src/App.test.tsx
+  s_895cd30c8c0144::t_4a15dffe058249 43,63,66
+  s_895cd30c8c0144::t_ecf5caf1db3031 52
+scripts/herdr-copy-env.py
+  s_895cd30c8c0144::t_6be3cf4f2fc053 1-32
+apps/server/src/delivery.ts
+  s_895cd30c8c0144::t_31d2d3ea1e5907 40
+scripts/herdr-copy-env.test.py
+  s_895cd30c8c0144::t_05559d0d04bc07 1-40
+apps/web/src/components/Question.test.tsx
+  s_895cd30c8c0144::t_cbae4df4114f82 1-17
+apps/server/src/software.ts
+  s_895cd30c8c0144::t_31d2d3ea1e5907 102,115,155
+apps/server/src/specialist-drafts.ts
+  s_895cd30c8c0144::t_31d2d3ea1e5907 27,60,80,93
+  s_895cd30c8c0144::t_c2acc6c200dfd3 130
+  s_895cd30c8c0144::t_eea898de2206f4 3,10,25,45,83
+  s_895cd30c8c0144::t_db366fb338a8f9 13-14
+  s_895cd30c8c0144::t_8c00fc38167b39 30-32
+  s_895cd30c8c0144::t_ecf5caf1db3031 53
+  s_895cd30c8c0144::t_ebcc290191c408 15-16,124-129,131
+  s_895cd30c8c0144::t_e6ff1eb63b3ea2 132-133
+apps/web/src/components/SpecialistLibrary.tsx
+  s_895cd30c8c0144::t_67fa697be1e702 3-4,8,51-52
+  s_895cd30c8c0144::t_4bbbb1169716b4 2,64,74-83,89,91
+apps/server/src/specialist-drafts.sql
+  s_895cd30c8c0144::t_ebcc290191c408 76-86
+  s_895cd30c8c0144::t_8c00fc38167b39 87-88
+scripts/dev-cli.py
+  s_895cd30c8c0144::t_b23374320e51ab 17,133-135,139-140
+  s_895cd30c8c0144::t_e6d3d3904b06e7 122-125,132,138,141,185,284-289,299-304,307-309
+apps/server/src/automation-routes.ts
+  s_895cd30c8c0144::t_8c00fc38167b39 16
+apps/server/src/api.ts
+  s_895cd30c8c0144::t_31d2d3ea1e5907 14,92
+  s_895cd30c8c0144::t_63ab43b405a498 99
+  s_895cd30c8c0144::t_8c00fc38167b39 181
+apps/server/src/lifecycle.sql
+  s_895cd30c8c0144::t_31d2d3ea1e5907 67-68
+apps/server/src/product.sql
+  s_895cd30c8c0144::t_3b9af01654ed6d 28-29
+  s_895cd30c8c0144::t_8c00fc38167b39 26-27
+apps/server/src/executor.ts
+  s_895cd30c8c0144::t_3b9af01654ed6d 79,82-83
+  s_895cd30c8c0144::t_d7122b437fa522 2,158,264
+apps/server/test/automations.test.ts
+  s_895cd30c8c0144::t_064f76d7de63ef 240-253
+apps/server/test/box.test.ts
+  s_895cd30c8c0144::t_a15da0574c6af4 156-171
+apps/web/src/components/ApplicationAccess.tsx
+  s_895cd30c8c0144::t_0435dde1f2180d 56,156-162,164
+apps/web/src/components/SpecialistIdentity.test.tsx
+  s_895cd30c8c0144::t_4b696a677427bd 1-17
+apps/web/src/components/SpecialistLibrary.css
+  s_895cd30c8c0144::t_1861ab354ee84b 54
+packages/agent/test/daemon.test.ts
+  s_895cd30c8c0144::t_7b3226d5d7dac8 286,289,291
+packages/box/client.ts
+  s_895cd30c8c0144::t_939cb14b58e477 36-44,104-111
+scripts/lib/distribution-verification.test.ts
+  s_895cd30c8c0144::t_10f7e08fb70d21 115-126
+scripts/lib/distribution-verification.ts
+  s_895cd30c8c0144::t_256e365e64e729 8,71,84,89,92
+scripts/prepare-box-template.ts
+  s_895cd30c8c0144::t_977af5aa4a6d94 15-16,27-28,73
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "3be161e0e5d6ac4ddcbebd215d7ff9fbb397ea79",
+  "prompts": {},
+  "sessions": {
+    "s_895cd30c8c0144": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a07d31-b106-7d00-912b-601ce8884ca0",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "StanGirard <stan@quivr.app>"
+    }
+  }
+}

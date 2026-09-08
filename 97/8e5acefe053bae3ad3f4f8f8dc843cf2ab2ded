@@ -1,0 +1,21 @@
+apps/server/src/specialist-drafts.ts
+  s_895cd30c8c0144::t_625bca9e20816a 14-18,27-38,68
+  s_895cd30c8c0144::t_5d47611d27d6ac 12,19-26
+  s_895cd30c8c0144::t_20bb7d87673e76 13
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "978e5acefe053bae3ad3f4f8f8dc843cf2ab2ded",
+  "prompts": {},
+  "sessions": {
+    "s_895cd30c8c0144": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a07d31-b106-7d00-912b-601ce8884ca0",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "StanGirard <stan@quivr.app>"
+    }
+  }
+}

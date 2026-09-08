@@ -1,0 +1,44 @@
+apps/web/src/api.ts
+  s_895cd30c8c0144::t_02bcd83fc370a5 305,380
+apps/web/src/components/SpecialistIdentity.test.tsx
+  s_895cd30c8c0144::t_5ff1a85d2f0166 8
+  s_895cd30c8c0144::t_02bcd83fc370a5 15
+apps/web/src/components/SpecialistDraftPanel.tsx
+  s_895cd30c8c0144::t_5ff1a85d2f0166 216
+  s_895cd30c8c0144::t_02bcd83fc370a5 100,158
+docs/dev-workflow.md
+  s_895cd30c8c0144::t_5ff1a85d2f0166 155-173
+apps/web/src/App.test.tsx
+  s_895cd30c8c0144::t_02bcd83fc370a5 161
+apps/server/src/specialist-runtime.ts
+  s_895cd30c8c0144::t_5ff1a85d2f0166 127
+apps/server/src/specialist-drafts.sql
+  s_895cd30c8c0144::t_02bcd83fc370a5 16
+apps/server/test/specialist-drafts.test.ts
+  s_895cd30c8c0144::t_5ff1a85d2f0166 2-4,9,15,20-26,28,32-40,42,99,102-103
+  s_895cd30c8c0144::t_02bcd83fc370a5 12,17,27,29-31,41,47,75,98
+apps/web/src/components/SpecialistIdentity.tsx
+  s_895cd30c8c0144::t_5ff1a85d2f0166 22
+  s_895cd30c8c0144::t_02bcd83fc370a5 17
+apps/server/src/control-help.ts
+  s_895cd30c8c0144::t_02bcd83fc370a5 4
+apps/server/src/specialist-drafts.ts
+  s_895cd30c8c0144::t_02bcd83fc370a5 19,24,77,82-83,86-87
+  s_895cd30c8c0144::t_5ff1a85d2f0166 84-85,88-90
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "8285e296c60ee641e3fea55dca5b8a497c20c110",
+  "prompts": {},
+  "sessions": {
+    "s_895cd30c8c0144": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a07d31-b106-7d00-912b-601ce8884ca0",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "StanGirard <stan@quivr.app>"
+    }
+  }
+}

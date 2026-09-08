@@ -59,8 +59,14 @@ export function scriptedModel(model: any, context: any) {
     else message.content = [{ type: "text", text: JSON.stringify(results.at(-1)?.content).includes("written by real Pi tools")
       ? "The note was written and read back." : "Tool verification failed." }];
   } else if (text === "slow-write") {
-    if (results.length === 0) tool("bash", { command: "printf started > slow-started; sleep 30; printf completed > should-not-exist" });
+    if (results.length === 0) {
+      tool("bash", { command: "printf started > slow-started; sleep 30; printf completed > should-not-exist" });
+      message.content.unshift({type:"text",text:"Starting the requested work."});
+    }
     else message.content = [{ type: "text", text: "Slow command returned." }];
+  } else if (text === "model-error-fixture") {
+    message.content = [{type:"text",text:"The model response failed after producing this text."}];
+    message.stopReason = "error";
   } else if (text === "crash-after-effect") {
     if (results.length === 0) tool("bash", { command: "printf effect >> effects.txt; sleep 30" });
     else message.content = [{ type: "text", text: "Effect completed." }];
@@ -73,7 +79,10 @@ export function scriptedModel(model: any, context: any) {
     if (results.length === 0) tool("publish_to_chat", { text: "Useful background result" });
     else message.content = [{ type: "text", text: "Private execution details" }];
   } else if (text === "ask-background") {
-    if (results.length === 0) tool("fixture_ask_user", {});
+    if (results.length === 0) {
+      tool("fixture_ask_user", {});
+      message.content.unshift({type:"text",text:"I need your answer before I can continue."});
+    }
     else message.content = [{ type: "text", text: `Answer received: ${JSON.stringify(results.at(-1)?.content)}` }];
   } else if (text === "remember-preference") {
     if (results.length === 0) tool("shared_memory_read", {});

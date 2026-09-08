@@ -4,7 +4,7 @@ import { config, encrypt } from "./config";
 import { requireSoftwareReady, SoftwareReadinessError } from "./software-readiness";
 import {requestMachineAdmissionInTransaction} from './admission';
 export const db = new SQL(config.databaseUrl, { max: 8, connectionTimeout: 10 });
-const migrationNames = ["schema.sql", "auth-schema.sql", "product.sql", "plugins.sql", "storage-schema.sql", "automations.sql", "triggers.sql", "lifecycle.sql", "software.sql", "desktop.sql", "box-observation.sql", "billing.sql", "delivery.sql", "maintenance.sql", "delivery-skills.sql", "software-results.sql", "events.sql", "model-gateway.sql", "specialist-drafts.sql", "admission.sql"] as const;
+const migrationNames = ["schema.sql", "auth-schema.sql", "product.sql", "plugins.sql", "storage-schema.sql", "automations.sql", "triggers.sql", "lifecycle.sql", "software.sql", "desktop.sql", "box-observation.sql", "billing.sql", "delivery.sql", "maintenance.sql", "delivery-skills.sql", "software-results.sql", "events.sql", "model-gateway.sql", "specialist-drafts.sql", "admission.sql", "conversation.sql"] as const;
 
 async function migrationFiles() {
   return Promise.all(migrationNames.map(async name => ({ name, sql: await Bun.file(new URL(`./${name}`, import.meta.url)).text() })));
@@ -106,8 +106,8 @@ export async function detail(ownerId: string, id: string) {
   const [companion] = await db.unsafe(`SELECT ${companionColumns} FROM companions WHERE id=$1 AND owner_id=$2`, [id, ownerId]);
   if (!companion) return null;
   const [messages, runs, specialists] = await Promise.all([
-    db`SELECT id,role,content,created_at AS "createdAt",run_id AS "runId" FROM messages WHERE companion_id=${id} ORDER BY created_at,id`,
-    db`SELECT id,status,error,lane,source,result_text AS "resultText",preview_text AS "previewText",thinking_text AS "thinkingText",publish_to_chat AS "publishToChat",response_root_id AS "responseRootId",created_at AS "createdAt",prepared_at AS "preparedAt",finished_at AS "finishedAt" FROM runs WHERE companion_id=${id} ORDER BY created_at,id`,
+    db`SELECT id,role,content,sequence,complete,created_at AS "createdAt",run_id AS "runId" FROM messages WHERE companion_id=${id} ORDER BY created_at,sequence,id`,
+    db`SELECT id,status,error,lane,source,result_text AS "resultText",preview_text AS "previewText",message_version AS "messageVersion",thinking_text AS "thinkingText",publish_to_chat AS "publishToChat",response_root_id AS "responseRootId",created_at AS "createdAt",prepared_at AS "preparedAt",finished_at AS "finishedAt" FROM runs WHERE companion_id=${id} ORDER BY created_at,id`,
     db`SELECT d.id AS "delegationId",d.parent_run_id AS "parentRunId",d.run_id AS "childRunId",
       jsonb_build_object('id',child.id,'name',child.name,'avatar',child.avatar,'status',child.status,'retiredAt',child.retired_at) AS companion
       FROM delegations d

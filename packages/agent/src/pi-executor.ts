@@ -6,7 +6,8 @@ import { scriptedModel, scriptedHumanTool } from "./scripted-model";
 import { clearProviderSecrets, takeProviderApiKey } from "./environment";
 import { SharedMemory } from "./memory";
 import { configureModelGateway, withModelGatewayRequest } from "./model-gateway";
-import type { RunExecutor, RunInput, RunLane, RunProgress } from "./types";
+import { conversationInstructions } from "./conversation-instructions";
+import type { RunExecutor, RunInput, RunLane, RunMessage, RunProgress } from "./types";
 
 type Session = Awaited<ReturnType<typeof createAgentSession>>["session"];
 type ActiveExecution = {
@@ -87,7 +88,7 @@ export class PiExecutor implements RunExecutor {
       accepting: true, ready: undefined!,
       preflight, preflightDone, parked: false, onProgress,
       modelGateway:input.modelGateway,
-      progress:{previewText:"",usage:{input:0,output:0,cacheRead:0,cacheWrite:0,totalTokens:0,costUsd:0}},
+      progress:{previewText:"",usage:{input:0,output:0,cacheRead:0,cacheWrite:0,totalTokens:0,costUsd:0},messages:[],messageVersion:0},
     };
     if(this.gatewayUrl&&!input.modelGateway)throw new Error("MODEL_GATEWAY_CREDENTIAL_REQUIRED");
     this.active.set(id, execution);
@@ -114,6 +115,7 @@ export class PiExecutor implements RunExecutor {
       if (last?.role === "assistant" && last.stopReason === "error") throw new Error("MODEL_RESPONSE_FAILED");
       return { text: execution.publishText ?? session.getLastAssistantText() ?? "", publishToChat: execution.publishText !== undefined };
     } finally {
+      this.emitProgress(execution);
       execution.accepting = false;
       execution.preflightDone();
       execution.session?.dispose();
@@ -178,7 +180,7 @@ export class PiExecutor implements RunExecutor {
   private async initialize(input: RunInput, execution: ActiveExecution, extra?: PiSessionTools): Promise<Session> {
     const settingsManager = SettingsManager.inMemory({ compaction: { enabled: true }, retry: { enabled: false } });
     const memory = this.memory.read().content.slice(0, 30_000);
-    const instructions = [input.instructions,
+    const instructions = [input.instructions, conversationInstructions,
       "You have a persistent Linux computer with read, write, edit and bash. Use companion_control identity to discover your product configuration and supported operations. Use companion_control history_search with focused terms to retrieve short excerpts from your own earlier chat and tasks without loading entire transcripts. Plugins are discovered lazily with plugin_tools and called with plugin_call. Use send_file to return verified files from the workspace. Template software preparation is asynchronous: poll software_status and never claim its tools are installed until status is ready and verified. Manage local Pi skill packages with skills, skill_install, skill_update and skill_remove after obtaining their files with native file/shell tools; use a stable clientOperationId for mutation retries and verify discovery on the next turn. Routines and delegated tasks are independent of the main chat; report results only after observing completion. When delegated work returns needs_input, inspect task_status and use task_answer with that task's exact runId, pendingQuestion.id and the human's answer; never answer an unrelated Companion question. If the runtime reports that specialist initialization failed or timed out, disclose that degraded state, diagnose or repair it within the mission when useful, and use specialist_propose_improvement for a reusable fix; the script will not be replayed automatically. Managed MCP connection selection remains platform configuration surfaced to the human; do not invent a connected account. Never invent a successful setup, connection or task result.",
       "When working as a temporary specialist, propose reusable improvements before finishing if you installed a dependency, added a useful skill or repaired the environment. Use specialist_propose_improvement with a brief explanation and a reproducible preparation recipe, identifying the files or configuration that changed. The parent receives a review card; never publish a template or claim the proposal was applied. Configuration drafts prepare these changes for explicit human publication.",
       "Your shared long-term memory is MEMORY.md in your workspace. Chat and background tasks share it but have separate histories. Use shared_memory_read before every change and shared_memory_update with that version; on conflict, merge the returned current memory and retry. Never edit MEMORY.md with generic file or shell tools. Retain durable preferences and useful facts, not every message.",
@@ -210,12 +212,36 @@ export class PiExecutor implements RunExecutor {
     })).session;
     // Subscribe before the first prompt. Historical transcript messages are never counted.
     let lastPreviewAt=0;
+    let activeMessage: { createdAt: string; index?: number } | undefined;
+    const updateMessage = (text: string, complete: boolean) => {
+      const messages = execution.progress.messages!;
+      if (!activeMessage) activeMessage = { createdAt: new Date().toISOString() };
+      if (activeMessage.index === undefined) {
+        if (!text) return false;
+        activeMessage.index = messages.length;
+        messages.push({ sequence: messages.length + 1, text, createdAt: activeMessage.createdAt, complete });
+        return true;
+      }
+      const previous = messages[activeMessage.index]!;
+      const next: RunMessage = { ...previous, text:text||previous.text, complete: previous.complete || complete };
+      if (next.text === previous.text && next.complete === previous.complete) return false;
+      messages[activeMessage.index] = next;
+      return true;
+    };
     session.subscribe(event=>{
+      if(event.type==='message_start' && event.message.role==='assistant'){
+        activeMessage={createdAt:new Date().toISOString()};
+        const text=assistantText(event.message);
+        execution.progress.previewText=text.slice(0,50_000);
+        if(updateMessage(text,false)){lastPreviewAt=Date.now();this.emitProgress(execution);}
+      }
       if(event.type==='message_update' && event.message.role==='assistant'){
-        execution.progress.previewText=event.message.content.filter(part=>part.type==='text').map(part=>part.text).join('').slice(0,50_000);
+        const text=assistantText(event.message);
+        execution.progress.previewText=text.slice(0,50_000);
+        updateMessage(text,false);
         const thinking=event.message.content.filter(part=>part.type==='thinking').map(part=>part.thinking).join('').slice(0,20_000);
         if(thinking)execution.progress.thinkingText=thinking;
-        if(Date.now()-lastPreviewAt>=150){lastPreviewAt=Date.now();execution.onProgress?.(execution.progress);}
+        if(Date.now()-lastPreviewAt>=150){lastPreviewAt=Date.now();this.emitProgress(execution);}
       }
       if(event.type==='message_end' && event.message.role==='assistant'){
         const usage=event.message.usage;
@@ -223,15 +249,35 @@ export class PiExecutor implements RunExecutor {
           const value=usage[key];if(Number.isFinite(value)&&value>=0)execution.progress.usage[key]+=value;
         }
         if(Number.isFinite(usage.cost.total)&&usage.cost.total>=0)execution.progress.usage.costUsd+=usage.cost.total;
-        execution.progress.previewText=event.message.content.filter(part=>part.type==='text').map(part=>part.text).join('').slice(0,50_000);
+        const text=assistantText(event.message);
+        const complete=["stop","toolUse","length"].includes(event.message.stopReason);
+        updateMessage(text,complete);
+        const captured=activeMessage?.index===undefined?undefined:execution.progress.messages![activeMessage.index];
+        execution.progress.previewText=(text||captured?.text||"").slice(0,50_000);
         const thinking=event.message.content.filter(part=>part.type==='thinking').map(part=>part.thinking).join('').slice(0,20_000);
         if(thinking)execution.progress.thinkingText=thinking;
-        execution.onProgress?.(execution.progress);
+        this.emitProgress(execution);
+        activeMessage=undefined;
       }
     });
     return session;
   }
 
+  private emitProgress(execution: ActiveExecution): void {
+    execution.progress.messageVersion=(execution.progress.messageVersion??0)+1;
+    execution.onProgress?.({
+      ...execution.progress,
+      usage:{...execution.progress.usage},
+      messages:execution.progress.messages?.map(message=>({...message})),
+    });
+  }
+
+}
+
+function assistantText(message: {content: readonly unknown[]}): string {
+  return message.content.filter((part):part is {type:"text";text:string}=>
+    !!part&&typeof part==="object"&&(part as {type?:unknown}).type==="text"&&typeof (part as {text?:unknown}).text==="string")
+    .map(part=>part.text).join("");
 }
 
 export async function guardedInitialization<T extends { dispose(): void }>(work: Promise<T>, signal: AbortSignal, timeoutMs: number): Promise<T> {

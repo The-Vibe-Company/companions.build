@@ -29,12 +29,15 @@ acceptance("compiled Linux daemon uses real Pi tools, persists output, rejects u
     expect((await fetch(`${base}/runs/${writeId}`, { method: "PUT", headers: headers(token), body: JSON.stringify({ content: "write-note", instructions: "Use the available tools." }) })).status).toBe(202);
     const written = await waitTerminal(base, token, writeId);
     expect(written).toMatchObject({ id: writeId, status: "succeeded", text: "The note was written and read back.", error: null });
+    expect(written.messages).toEqual([{sequence:1,text:"The note was written and read back.",createdAt:expect.any(String),complete:true}]);
+    expect(Number.isNaN(Date.parse(written.messages[0].createdAt))).toBe(false);
+    expect(written.messageVersion).toBeGreaterThan(0);
     expect(readFileSync(join(state, "workspace", "note.txt"), "utf8")).toBe("written by real Pi tools\n");
     const slowId = crypto.randomUUID();
     await fetch(`${base}/runs/${slowId}`, { method: "PUT", headers: headers(token), body: JSON.stringify({ content: "slow-write", instructions: "" }) });
     await Bun.sleep(300);
     const cancelled = await fetch(`${base}/runs/${slowId}/cancel`, { method: "POST", headers: headers(token) });
-    expect((await cancelled.json()).status).toBe("cancelled");
+    expect(await cancelled.json()).toMatchObject({status:"cancelled",messages:[{sequence:1,text:"Starting the requested work.",complete:true}]});
     await Bun.sleep(500);
     expect(existsSync(join(state, "workspace", "should-not-exist"))).toBe(false);
 
@@ -105,6 +108,9 @@ acceptance("compiled Linux daemon uses real Pi tools, persists output, rejects u
     const waiting = crypto.randomUUID(), whileWaiting = crypto.randomUUID();
     await put(waiting, "ask-background", "background");
     await waitFile(join(state, `workspace/question-${waiting}.txt`));
+    expect(await (await fetch(`${base}/runs/${waiting}`, {headers:headers(token)})).json()).toMatchObject({
+      status:"running",messages:[{sequence:1,text:"I need your answer before I can continue.",complete:true}],
+    });
     expect((await (await fetch(`${base}/runs/${waiting}/suspend`, { method: "POST", headers: headers(token) })).json()).status).toBe("needs_input");
     await put(whileWaiting, "background-hold", "background");
     expect((await fetch(`${base}/runs/${waiting}/resume`, { method: "POST", headers: headers(token) })).status).toBe(409);
@@ -118,7 +124,18 @@ acceptance("compiled Linux daemon uses real Pi tools, persists output, rejects u
     const resumed = await waitTerminal(base, token, waiting);
     expect(resumed.status).toBe("succeeded");
     expect(resumed.text).toContain("Use the blue option");
+    expect(resumed.messages).toMatchObject([
+      {sequence:1,text:"I need your answer before I can continue.",complete:true},
+      {sequence:2,complete:true},
+    ]);
     expect(readFileSync(join(state, `workspace/question-${waiting}.txt`), "utf8")).toBe("asked\n");
+
+    const failed = crypto.randomUUID();
+    await put(failed, "model-error-fixture");
+    expect(await waitTerminal(base, token, failed)).toMatchObject({
+      status:"failed",error:"PI_RUN_FAILED",
+      messages:[{sequence:1,text:"The model response failed after producing this text.",complete:false}],
+    });
 
     const parkedCrash = crypto.randomUUID();
     await put(parkedCrash, "ask-background", "background");

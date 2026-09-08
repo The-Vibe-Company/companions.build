@@ -109,6 +109,20 @@ GitHub's Verify workflow runs the full PostgreSQL 18 path and uploads only summa
 excluding local authentication state, database backups and raw logs. Configure Verify as a
 required repository check if merges must be blocked on it.
 
+### Conversation message migration
+
+`conversation.sql` replaces the one-message-per-role constraint with a sequence per run and
+role, retaining all existing rows at sequence zero. Build the agent distribution first. Stop
+the previous executor before applying this migration, then start the updated server/executor:
+the old executor's final-message conflict target is incompatible with the new index. Updated
+servers accept older agent journals through the legacy final-answer path; existing Boxes need
+the updated distribution to capture future intermediate messages.
+
+For rollback, retain the new schema and the compatible executor settlement code. Restoring
+the old unique constraint after multi-message runs exist requires a separately reviewed data
+migration; do not delete conversation rows to make an old binary start. This change cannot
+recover intermediate messages that older runtimes never saved.
+
 ### Real model or scripted responses
 
 `./dev restart --live` uses the selected runtime settings described below.

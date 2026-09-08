@@ -179,7 +179,10 @@ export async function handler(request: Request): Promise<Response> {
         if(!result)return json({error:"Companion not found."},404);
         const files=await filesForThread(ownerId,id);
         const questions=await db`SELECT q.id,q.run_id AS "runId",q.question,q.options,q.answer,q.created_at AS "createdAt",q.context_text AS "contextText",r.status AS "runStatus" FROM task_questions q JOIN runs r ON r.id=q.run_id WHERE q.companion_id=${id} ORDER BY q.created_at,q.id`;
-        return json({...result,questions,files,messages:result.messages.map((m:any)=>({...m,files:files.filter(f=>f.runId===m.runId&&f.kind===(m.role==='user'?'user_upload':'agent_output'))}))}); }
+        // Output attachments belong to the latest assistant message, not every update.
+        const lastAssistant=new Map<string,string>();
+        for(const message of result.messages)if(message.role==='assistant')lastAssistant.set(message.runId,message.id);
+        return json({...result,questions,files,messages:result.messages.map((m:any)=>({...m,files:files.filter(f=>f.runId===m.runId&&f.kind===(m.role==='user'?'user_upload':'agent_output')&&(m.role==='user'||lastAssistant.get(m.runId)===m.id))}))}); }
       if (match[2] === "events" && request.method === "GET") return handleCompanionEvents(request, ownerId, id);
       if (match[2] === "messages" && request.method === "POST") {
         const body = z.object({ clientMessageId: idSchema, content: z.string().trim().min(1).max(50_000), attachmentCount: z.number().int().min(0).max(5).default(0) }).parse(await request.json());

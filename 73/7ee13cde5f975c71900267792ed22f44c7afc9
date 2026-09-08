@@ -1,0 +1,43 @@
+apps/server/test/box.test.ts
+  s_895cd30c8c0144::t_ccc7266d206556 172-173,175-181,183-187
+  s_895cd30c8c0144::t_b1bd7d6758a82a 174,182
+apps/web/src/components/SpecialistDraftPanel.tsx
+  s_895cd30c8c0144::t_95bc62d6e8cf7f 23,169,218
+apps/web/src/api.ts
+  s_895cd30c8c0144::t_95bc62d6e8cf7f 308
+apps/server/test/specialist-drafts.test.ts
+  s_895cd30c8c0144::t_a202a2034c95ce 224-225
+  s_895cd30c8c0144::t_054e5a488b63a0 213-223,226-230
+apps/web/src/App.test.tsx
+  s_895cd30c8c0144::t_b3676a760e41d1 1023
+  s_895cd30c8c0144::t_95bc62d6e8cf7f 1031-1053
+  s_895cd30c8c0144::t_9429d206afed66 1011,1022
+packages/box/client.ts
+  s_895cd30c8c0144::t_b1bd7d6758a82a 89-90
+  s_895cd30c8c0144::t_ccc7266d206556 87-88
+apps/web/src/App.tsx
+  s_895cd30c8c0144::t_95bc62d6e8cf7f 228,247,253-255
+  s_895cd30c8c0144::t_81cef692fea5c8 256
+apps/server/src/specialist-drafts.ts
+  s_895cd30c8c0144::t_a202a2034c95ce 149-150
+  s_895cd30c8c0144::t_b1bc485e36092a 13,148,151
+  s_895cd30c8c0144::t_95bc62d6e8cf7f 30
+apps/web/src/components/SpecialistDraftPanel.test.tsx
+  s_895cd30c8c0144::t_b3fcb37f3b87d1 152,180,197-206
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "737ee13cde5f975c71900267792ed22f44c7afc9",
+  "prompts": {},
+  "sessions": {
+    "s_895cd30c8c0144": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a07d31-b106-7d00-912b-601ce8884ca0",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "StanGirard <stan@quivr.app>"
+    }
+  }
+}

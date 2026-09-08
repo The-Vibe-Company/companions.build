@@ -5,6 +5,7 @@ import json
 import os
 from pathlib import Path
 import subprocess
+import sys
 import tempfile
 import time
 import tomllib
@@ -34,6 +35,27 @@ class ConfigTests(unittest.TestCase):
         original = '[ui.sidebar.spaces]\nrows=[["workspace"], ["$custom"]]\n'
         updated = tomllib.loads(MODULE.updated_config(original, Path('/tmp/bin')))
         self.assertEqual(updated['ui']['sidebar']['spaces']['rows'], [['workspace'], ['$custom']])
+
+    def test_dispatcher_resolves_shortcut_context_and_preserves_direct_callers(self):
+        cases = [
+            ({'HERDR_ACTIVE_WORKSPACE_ID': 'w1', 'HERDR_ACTIVE_TAB_ID': 'w1:t2', 'HERDR_ACTIVE_PANE_ID': 'w1:p3'},
+             {'HERDR_ENV': '1', 'HERDR_WORKSPACE_ID': 'w1', 'HERDR_TAB_ID': 'w1:t2', 'HERDR_PANE_ID': 'w1:p3'}),
+            ({'HERDR_ENV': '1', 'HERDR_WORKSPACE_ID': 'w2', 'HERDR_TAB_ID': 'w2:t1', 'HERDR_PANE_ID': 'w2:p1', 'HERDR_ACTIVE_PANE_ID': 'w1:p3'},
+             {'HERDR_ENV': '1', 'HERDR_WORKSPACE_ID': 'w2', 'HERDR_TAB_ID': 'w2:t1', 'HERDR_PANE_ID': 'w2:p1'}),
+            ({}, {'HERDR_ENV': None, 'HERDR_WORKSPACE_ID': None, 'HERDR_TAB_ID': None, 'HERDR_PANE_ID': None}),
+        ]
+        with tempfile.TemporaryDirectory() as tmp:
+            subprocess.run(['git', 'init', '-q', tmp], check=True)
+            launcher = Path(tmp) / 'dispatch.py'
+            launcher.write_text(MODULE.launcher())
+            command = Path(tmp) / 'dev'
+            command.write_text('#!' + sys.executable + '\n' + MODULE.MARKER + '\nimport os,json\nprint(json.dumps({k:os.environ.get(k) for k in ["HERDR_ENV","HERDR_WORKSPACE_ID","HERDR_TAB_ID","HERDR_PANE_ID"]}))\n')
+            command.chmod(0o755)
+            clean = {key: value for key, value in os.environ.items() if not key.startswith('HERDR_')}
+            for supplied, expected in cases:
+                with self.subTest(supplied=supplied):
+                    result = subprocess.run([sys.executable, str(launcher), 'workspace'], cwd=tmp, env={**clean, **supplied}, capture_output=True, text=True, check=True)
+                    self.assertEqual(json.loads(result.stdout), expected)
 
     def test_dispatcher_rejects_other_repositories(self):
         with tempfile.TemporaryDirectory() as tmp:

@@ -257,7 +257,7 @@ export const api = {
 
 export interface PluginServer { id: string; name: string; description?: string; provider?: string; kind?: "oauth" | "remote" | "custom"; available: boolean }
 export type PluginHealthCode = "authorization_required" | "connection_failed" | "configuration_invalid" | "agent_check_required";
-export interface PluginAccount { id: string; serverId: string | null; label: string; provider?: string; healthStatus: "unchecked" | "ok" | "error" | "requires_agent"; healthCode: PluginHealthCode | null; checkedAt: string | null }
+export interface PluginAccount { usedBy?: Array<Pick<Companion, "id" | "name" | "avatar">>; id: string; serverId: string | null; label: string; provider?: string; healthStatus: "unchecked" | "ok" | "error" | "requires_agent"; healthCode: PluginHealthCode | null; checkedAt: string | null }
 export type PluginHealthResult = Pick<PluginAccount, "id" | "healthStatus" | "healthCode" | "checkedAt">;
 export interface PluginsResponse { catalog: PluginServer[]; accounts: PluginAccount[] }
 export type CustomPluginInput =

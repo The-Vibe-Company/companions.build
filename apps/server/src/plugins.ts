@@ -21,7 +21,13 @@ export async function migratePlugins(sql:any) { await sql.unsafe(await Bun.file(
 export class PluginError extends Error {}
 const publicColumns = db`id,provider,label,server_id AS "serverId",health_status AS "healthStatus",health_code AS "healthCode",health_checked_at AS "checkedAt",created_at AS "createdAt"`;
 const accountLabel = z.string().trim().min(1).max(80);
-export async function listPluginAccounts(ownerId:string) { return db`SELECT ${publicColumns} FROM plugin_accounts WHERE owner_id=${ownerId} ORDER BY created_at`; }
+export async function listPluginAccounts(ownerId:string) {
+  return db`SELECT ${publicColumns}, COALESCE((
+    SELECT jsonb_agg(jsonb_build_object('id',c.id,'name',c.name,'avatar',c.avatar) ORDER BY c.created_at,c.id)
+    FROM companion_plugins cp JOIN companions c ON c.id=cp.companion_id
+    WHERE cp.account_id=plugin_accounts.id AND c.owner_id=${ownerId} AND c.retired_at IS NULL
+  ),'[]'::jsonb) AS "usedBy" FROM plugin_accounts WHERE owner_id=${ownerId} ORDER BY created_at`;
+}
 export async function newPluginAccountLabel(ownerId:string,serverId:string,label:string) {
   const [existing]=await db`SELECT id FROM plugin_accounts WHERE owner_id=${ownerId} AND server_id=${serverId} LIMIT 1`;
   if(!existing)return'Default';

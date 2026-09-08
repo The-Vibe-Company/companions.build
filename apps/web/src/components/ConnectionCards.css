@@ -1,0 +1,41 @@
+.simple-inner.connections-inner { width: min(100% - 72px, 1040px); max-width: 1040px; padding-top: 36px; }
+.connections-inner .page-title-row { align-items: flex-end; margin-bottom: 26px; }
+.simple-inner.connections-inner h1 { font-size: 32px; line-height: 1.15; font-weight: 550; letter-spacing: -.035em; }
+.connections-inner .muted-copy { margin: 10px 0 0; font-size: 15px; }
+.connections-inner .page-title-row > button { flex-shrink: 0; color: var(--muted-foreground); font-size: 13px; }
+.connection-cards { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; align-items: start; }
+.connection-card { min-width: 0; min-height: 252px; display: flex; flex-direction: column; gap: 14px; padding: 20px; border: 1px solid var(--input); border-radius: 20px; }
+.connection-card--connected { background: var(--card); border-color: var(--border); }
+.connection-card > header { display: flex; align-items: center; gap: 12px; }
+.connection-card > header > .provider-dot { width: 44px; height: 44px; flex-shrink: 0; border: 1px solid var(--border); border-radius: 13px; background: var(--card); }
+.connection-card > header > div { min-width: 0; }
+.connection-card h2 { margin: 0; font-size: 17px; font-weight: 620; letter-spacing: -.01em; }
+.connection-card header p { margin: 2px 0 0; color: var(--muted-foreground); font-size: 12px; overflow-wrap: anywhere; }
+.connection-card-accounts { display: flex; flex-direction: column; gap: 8px; }
+.connection-chip { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 5px 3px 5px 12px; background: var(--card); border: 1px solid var(--border); border-radius: 12px; min-width: 0; }
+.connection-chip--error { border-color: color-mix(in oklab, var(--destructive) 40%, var(--border)); }
+.connection-chip-dot { width: 8px; height: 8px; flex-shrink: 0; border-radius: 50%; background: var(--muted-foreground); }
+.connection-chip--ok .connection-chip-dot { background: oklch(.62 .15 145); }
+.connection-chip--error .connection-chip-dot { background: var(--destructive); }
+.connection-chip-copy { flex: 1; min-width: 0; }
+.connection-chip-copy strong, .connection-chip-copy small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.connection-chip-copy strong { font-size: 13px; font-weight: 600; }
+.connection-chip-copy small { font-size: 11px; color: var(--muted-foreground); }
+.connection-chip--error small { color: var(--destructive); }
+.connection-used-by { display: flex; align-items: center; padding-left: 6px; }
+.connection-used-by > * { margin-left: -6px; flex-shrink: 0; }
+.connection-used-by a { display: flex; border-radius: 50%; background: var(--card); }
+.connection-used-by > span { font-size: 10px; margin-left: 2px; }
+.connection-unused { width: 24px; height: 24px; border-radius: 50%; border: 1px dashed var(--input); }
+.connection-chip-reconnect { margin-left: 16px; }
+.connection-card .connection-card-connect { align-self: flex-start; margin: auto 0 -8px -10px; min-height: 44px; font-size: 13px; font-weight: 550; }
+.connection-card .connection-card-connect svg { width: 14px; height: 14px; }
+.connection-card .plugin-account-name { min-width: 0; }
+@media (max-width: 1180px) { .connection-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 720px) {
+  .simple-inner.connections-inner { width: calc(100% - 32px); padding-top: 24px; }
+  .connections-inner .page-title-row { align-items: flex-start; flex-direction: column; gap: 12px; }
+  .connections-inner .page-title-row > button { margin-left: -12px; }
+  .connection-cards { grid-template-columns: minmax(0, 1fr); }
+  .connection-card { min-height: 210px; }
+}

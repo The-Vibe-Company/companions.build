@@ -169,3 +169,19 @@ test('archived images become usable only after provider archive confirmation',as
  expect(await client.getSnapshot('box:bx_image')).toEqual({status:'pending'});
  state='archived';expect(await client.getSnapshot('box:bx_image')).toEqual({status:'ready'});
 });
+
+
+test('hosting reconciles the firewall after provider registration and propagates failure',async()=>{
+ const commands:string[]=[];
+ let succeeds=true;
+ const client=new BoxClient('test-only',(async(_input:any,init:any)=>{
+  commands.push(JSON.parse(init.body).command);
+  return Response.json({success:succeeds,exitCode:succeeds?0:1,stdout:succeeds?'https://fixture.on.ascii.dev?_token=synthetic':''});
+ }) as typeof fetch);
+ expect(await client.host('owned-box',8787)).toBe('https://fixture.on.ascii.dev/?_token=synthetic');
+ expect(commands[0]).toMatch(/host 8787 --private.*&& sudo -n ufw allow 8787\/tcp.*&& host url 8787/);
+ succeeds=false;
+ await expect(client.host('owned-box',8787)).rejects.toThrow('box_command_failed');
+ await expect(client.host('owned-box',NaN)).rejects.toThrow('box_host_port_invalid');
+ expect(commands).toHaveLength(2);
+});

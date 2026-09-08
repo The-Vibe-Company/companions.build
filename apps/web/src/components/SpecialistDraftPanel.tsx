@@ -20,7 +20,7 @@ function testStatus(draft: SpecialistDraft) {
 }
 
 export function SpecialistDraftPanel({ templateId, companionId, onClose, onConnections, onOpenCompanion, avatar, renderChat, onComputer, onContinued }: {
-  renderChat?: (cards: ReactNode, history?: Array<{id:string;createdAt:string;content:ReactNode}>) => ReactNode;
+  renderChat?: (cards: ReactNode, history?: Array<{id:string;runId?:string;createdAt:string;content:ReactNode}>) => ReactNode;
   avatar?: CompanionAvatarValue;
   onComputer?: () => void;
   onContinued?: () => Promise<void>;
@@ -166,7 +166,7 @@ export function SpecialistDraftPanel({ templateId, companionId, onClose, onConne
     finally { setBusy(''); }
   }
   const history = (draft.guidance ?? []).filter(item => item.id !== step?.id).map(item => ({
-    id: item.id, createdAt: item.createdAt,
+    id: item.id, runId: item.runId, createdAt: item.createdAt,
     content: <section className="specialist-action-history" aria-label="Previous specialist step"><div><span>{{profile:'Profile',connections:'Apps & accounts',test:'Trial mission',publish:'Publication'}[item.kind]}</span><small>{item.respondedAt ? 'Continued in chat' : 'Earlier suggestion'}</small></div><p>{item.message}</p>{item.providers.length > 0 && <span className="specialist-action-history__apps">{item.providers.join(' · ')}</span>}</section>,
   }));
   const cards = <div className="specialist-draft__content">
@@ -215,6 +215,6 @@ export function SpecialistDraftPanel({ templateId, companionId, onClose, onConne
   return <section className="specialist-studio" aria-label="Specialist configuration">
     {identityOpen && <SpecialistIdentity draft={draft} onClose={() => setIdentityOpen(false)} onSaved={value => { setDraft(value); setName(value.name); setAppearance(value.avatar ?? fallbackAvatar.current); }}/>}
     <header className="specialist-studio-header"><div><button className="specialist-identity-trigger" aria-label="Edit specialist name and appearance" disabled={controlsDisabled} onClick={() => { editRevision.current += 1; setIdentityOpen(true); }}><CompanionAvatar name={draft.name} avatar={draft.avatar ?? avatar} size={28}/><strong>{draft.name}</strong></button><span className="specialist-studio-status">{draft.status === 'publishing' ? 'Publishing' : draft.status === 'testing' ? 'Testing' : published ? 'Published' : 'Draft'}</span></div><div><Button className="specialist-summary-toggle" variant="ghost" aria-expanded={summaryOpen} onClick={() => setSummaryOpen(value => !value)}>Summary</Button>{onComputer && <Button variant="ghost" onClick={onComputer}>Computer</Button>}<Button disabled={controlsDisabled || dirty} onClick={() => { setPublishingOpen(true); window.setTimeout(() => { publicationRef.current?.scrollIntoView({ behavior: 'instant', block: 'center' }); publicationRef.current?.querySelector('input')?.focus(); }, 0); }}>Publish</Button><Button variant="ghost" size="icon" aria-label="Close specialist" onClick={onClose}><X/></Button></div></header>
-    <div className="specialist-studio-body">{renderChat(cards, history)}<aside className={`specialist-studio-summary${summaryOpen ? ' is-open' : ''}`} aria-label="Specialist summary"><button className="specialist-identity-trigger specialist-identity-trigger--summary" aria-label="Change specialist appearance" disabled={controlsDisabled} onClick={() => { editRevision.current += 1; setIdentityOpen(true); }}><CompanionAvatar name={draft.name} avatar={draft.avatar ?? avatar} size={88}/><strong>{draft.name}</strong><small>Edit name &amp; appearance</small></button><p>{draft.instructions || 'A focused role, shaped together.'}</p><ul>{checklist.map(item => <li key={item.label}><span className={`specialist-check${item.done ? ' is-done' : ''}`}>{item.done && <Check/>}</span>{item.label}</li>)}</ul><p className="specialist-studio-summary__note">{published ? 'This version is available to your teams.' : 'Only a published version is available to your teams.'}</p></aside></div>
+    <div className="specialist-studio-body">{renderChat(step ? null : cards, step ? [...history, { id: step.id, runId: step.runId, createdAt: step.createdAt, content: cards }] : history)}<aside className={`specialist-studio-summary${summaryOpen ? ' is-open' : ''}`} aria-label="Specialist summary"><button className="specialist-identity-trigger specialist-identity-trigger--summary" aria-label="Change specialist appearance" disabled={controlsDisabled} onClick={() => { editRevision.current += 1; setIdentityOpen(true); }}><CompanionAvatar name={draft.name} avatar={draft.avatar ?? avatar} size={88}/><strong>{draft.name}</strong><small>Edit name &amp; appearance</small></button><p>{draft.instructions || 'A focused role, shaped together.'}</p><ul>{checklist.map(item => <li key={item.label}><span className={`specialist-check${item.done ? ' is-done' : ''}`}>{item.done && <Check/>}</span>{item.label}</li>)}</ul><p className="specialist-studio-summary__note">{published ? 'This version is available to your teams.' : 'Only a published version is available to your teams.'}</p></aside></div>
   </section>;
 }

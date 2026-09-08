@@ -210,3 +210,21 @@ test('opening a legacy specialist requests its environment once before entering 
  if(admissions[0].state==='admitted')expect(machine.prepare_requested).toBe(true);
  expect(await db`SELECT id FROM runs WHERE companion_id=${first.draft.companionId}`).toHaveLength(0);
 });
+
+
+test('the specialist must offer an apps card before suggesting a trial even when connections are optional',async()=>{
+ const {proposeSpecialistNextStep}=await import('../src/specialist-drafts');
+ const profile=await saveTemplate(owner,{name:'Researcher',instructions:'Research public sources'});
+ const {draft}=await openSpecialistDraft(owner,profile.id,{commandId:crypto.randomUUID()});
+ const runId=crypto.randomUUID();
+ await db`INSERT INTO runs(id,companion_id,client_message_id,content,status) VALUES(${runId},${draft.companionId},${crypto.randomUUID()},'Configure research','running')`;
+ const trial={kind:'test',message:'Try a research mission.'};
+ await expect(proposeSpecialistNextStep(owner,draft.companionId,runId,crypto.randomUUID(),trial)).rejects.toThrow('connections');
+ await proposeSpecialistNextStep(owner,draft.companionId,runId,crypto.randomUUID(),{kind:'connections',message:'Choose where to read and save your research, or continue without an account.',providers:[]});
+ await expect(proposeSpecialistNextStep(owner,draft.companionId,runId,crypto.randomUUID(),trial)).rejects.toThrow('wait for the human');
+ await db`UPDATE specialist_guidance SET responded_at=now() WHERE template_id=${profile.id} AND kind='connections'`;
+ const commandId=crypto.randomUUID();
+ await proposeSpecialistNextStep(owner,draft.companionId,runId,commandId,trial);
+ await proposeSpecialistNextStep(owner,draft.companionId,runId,commandId,trial);
+ expect(await db`SELECT id FROM specialist_guidance WHERE template_id=${profile.id} AND kind='test'`).toHaveLength(1);
+});

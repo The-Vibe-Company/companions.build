@@ -149,7 +149,7 @@ it('shows only the next card proposed by the specialist, not a prebuilt onboardi
   vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL) => String(input).endsWith('/draft') ? response({ draft }) : response({ accounts: [], catalog: [{ id: 'github', provider: 'github', name: 'GitHub', available: true }, { id: 'linear', provider: 'linear', name: 'Linear', available: true }, { id: 'notion', provider: 'notion', name: 'Notion', available: true }] })));
   const interval = vi.spyOn(window, 'setInterval');
   try {
-    render(<SpecialistDraftPanel templateId="template-1" companionId="draft-1" onClose={vi.fn()} renderChat={cards => <div aria-label="Chat">{cards}</div>}/>);
+    render(<SpecialistDraftPanel templateId="template-1" companionId="draft-1" onClose={vi.fn()} renderChat={(cards,history) => <div aria-label="Chat">{history?.map(item=><div key={item.id}>{item.content}</div>)}{cards}</div>}/>);
     await screen.findByRole('region', { name: 'Specialist configuration' });
     expect(screen.queryByRole('textbox', { name: 'Name' })).not.toBeInTheDocument();
     expect(screen.queryByRole('heading', { name: 'Apps & accounts' })).not.toBeInTheDocument();
@@ -177,7 +177,7 @@ it('saves profile edits before asking the specialist to continue', async () => {
     if (options?.method === 'POST') { calls.push('continue'); return response({ runId: 'run-1' }); }
     return response({ draft });
   }));
-  render(<SpecialistDraftPanel templateId="template-1" companionId="draft-1" onClose={vi.fn()} renderChat={cards => <div>{cards}</div>}/>);
+  render(<SpecialistDraftPanel templateId="template-1" companionId="draft-1" onClose={vi.fn()} renderChat={(cards,history) => <div>{history?.map(item=><div key={item.id}>{item.content}</div>)}{cards}</div>}/>);
   fireEvent.change(await screen.findByRole('textbox', { name: 'Name' }), { target: { value: 'Repo developer' } });
   fireEvent.click(screen.getByRole('button', { name: 'Looks good, continue' }));
   await waitFor(() => expect(calls).toEqual(['save', 'continue']));
@@ -193,4 +193,14 @@ it('restores previous specialist cards from the server after a reload', async ()
   expect(screen.getByText('Continued in chat')).toBeInTheDocument();
   expect(screen.getByText('Try a small review.')).toBeInTheDocument();
   expect(screen.queryByRole('textbox', {name:'Name'})).not.toBeInTheDocument();
+});
+
+
+it('places the active specialist card in the timestamped conversation alongside previous cards',async()=>{
+ const next={id:'apps-step',kind:'connections',message:'Choose where to save your research.',providers:[],createdAt:'2026-09-08T12:31:41.645Z'};
+ vi.stubGlobal('fetch',vi.fn((input:RequestInfo|URL)=>String(input).endsWith('/draft')?response({draft:{...baseDraft,guidance:[next],nextStep:next}}):response({accounts:[],catalog:[]})));
+ const renderChat=vi.fn((cards:React.ReactNode,history?:Array<{id:string;createdAt:string;content:React.ReactNode}>)=><div>{history?.map(item=><div key={item.id}>{item.content}</div>)}{cards}</div>);
+ render(<SpecialistDraftPanel templateId="template-1" companionId="draft-1" onClose={vi.fn()} renderChat={renderChat}/>);
+ await screen.findByText(next.message);
+ expect(renderChat.mock.calls.at(-1)?.[1]).toEqual(expect.arrayContaining([expect.objectContaining({id:next.id,createdAt:next.createdAt})]));
 });

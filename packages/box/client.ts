@@ -84,7 +84,10 @@ export class BoxClient {
     return data.content as string;
   }
   async host(id: string, port: number) {
-    const output = await this.command(id, `host ${port} --private --title companions >/dev/null && host url ${port}`);
+    if (!Number.isInteger(port) || port < 1 || port > 65535) throw new BoxError("box_host_port_invalid");
+    // Forks can retain the preview registration while restoring a firewall without its rule.
+    // The host command can refresh provider firewall rules, so reconcile the port AFTER it.
+    const output = await this.command(id, `host ${port} --private --title companions >/dev/null && sudo -n ufw allow ${port}/tcp >/dev/null && host url ${port}`);
     const raw = output.match(/https:\/\/[^\s"'<>]+/)?.[0];
     if (!raw) throw new BoxError("box_host_unavailable");
     const url = new URL(raw);

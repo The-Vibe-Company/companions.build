@@ -1008,7 +1008,7 @@ it("keeps creation on screen until selected accounts finish saving", async () =>
 });
 
 
-it('keeps a resumed streaming response below the prior conversation even with an older pending question',async()=>{
+it.each(['2026-09-08T10:00:30.000Z','2026-09-08T10:03:00.000Z'])('keeps resumed thinking after the conversation and choice card dated %s',async(questionAt)=>{
  window.history.replaceState({},'', '/companions/ada');
  const ready={...companion,status:'ready'};
  vi.stubGlobal('fetch',vi.fn((input:RequestInfo|URL)=>{
@@ -1019,8 +1019,8 @@ it('keeps a resumed streaming response below the prior conversation even with an
   if(path==='/api/companions/ada')return response({companion:ready,
    messages:[{id:'old-answer',role:'assistant',content:'Earlier answer',createdAt:'2026-09-08T10:01:00.000Z',runId:'earlier'}, {id:'new-message',role:'user',content:'Continue please',createdAt:'2026-09-08T10:02:00.000Z',runId:'resumed'}],
    runs:[{id:'resumed',status:'needs_input',createdAt:'2026-09-08T10:00:00.000Z',previewText:'New streaming response',thinkingText:'Current reasoning'}],
-   questions:[{id:'pending',runId:'resumed',question:'Which repository?',options:[],answer:null,createdAt:'2026-09-08T10:00:30.000Z'}],activity:[]});
-  return response({proposals:[],tasks:[],files:[],templates:[],routines:[],triggers:[]});
+   questions:[{id:'pending',runId:'resumed',question:'Which repository?',options:[],answer:null,createdAt:questionAt}],activity:[]});
+  return response({improvements:[],proposals:[],tasks:[],files:[],templates:[],routines:[],triggers:[]});
  }));
  render(<App/>);
  const preview=await screen.findByText('New streaming response');
@@ -1028,4 +1028,27 @@ it('keeps a resumed streaming response below the prior conversation even with an
  expect(earlier.compareDocumentPosition(preview)&Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
  expect(screen.getByText('Continue please').compareDocumentPosition(preview)&Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
  expect(earlier.compareDocumentPosition(screen.getByText('Current reasoning'))&Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+ const question=screen.getByText('Which repository?'),thinking=screen.getByText('Current reasoning');
+ expect(question.compareDocumentPosition(thinking)&(questionAt<'2026-09-08T10:02:00.000Z'?Node.DOCUMENT_POSITION_FOLLOWING:Node.DOCUMENT_POSITION_PRECEDING)).toBeTruthy();
+});
+
+
+it('keeps a completed specialist turn ordered as thinking, answer, then its interactive card',async()=>{
+ window.history.replaceState({},'', '/companions/ada?specialist=template-1');
+ const step={id:'step',runId:'run',kind:'connections',message:'Connect the apps here.',providers:[],createdAt:'2026-09-08T12:28:36.038Z'};
+ vi.stubGlobal('fetch',vi.fn((input:RequestInfo|URL)=>{
+  const path=String(input);
+  if(path==='/api/me')return response(me);
+  if(path==='/api/config')return response(config);
+  if(path==='/api/companions')return response({companions:[]});
+  if(path==='/api/companions/ada')return response({companion:{...companion,status:'ready'},messages:[{id:'user',role:'user',runId:'run',content:'Prepare my repositories',createdAt:'2026-09-08T12:27:06.848Z'},{id:'answer',role:'assistant',runId:'run',content:'I need GitHub and Linear.',createdAt:'2026-09-08T12:28:44.333Z'}],runs:[{id:'run',status:'succeeded',createdAt:'2026-09-08T12:27:06.848Z',thinkingText:'Configuration reasoning'}],activity:[]});
+  if(path==='/api/templates/template-1/draft')return response({draft:{templateId:'template-1',companionId:'ada',generation:1,name:'Ada',instructions:'Prepare development',initScript:'',status:'editing',guidance:[step],nextStep:step}});
+  return response({catalog:[],accounts:[],improvements:[],templates:[],routines:[],triggers:[],tasks:[]});
+ }));
+ render(<App/>);
+ const card=await screen.findByRole('heading',{name:'Give me access to work'});
+ const answer=screen.getByText('I need GitHub and Linear.');
+ const thought=screen.getByText('Configuration reasoning');
+ expect(thought.compareDocumentPosition(answer)&Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+ expect(answer.compareDocumentPosition(card)&Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
 });

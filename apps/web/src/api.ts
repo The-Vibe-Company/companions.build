@@ -305,7 +305,7 @@ export interface SpecialistPublication {
 export interface SpecialistDraft {
   identityRevision?: number;
   guidance?: NonNullable<SpecialistDraft['nextStep']>[];
-  nextStep?: { id: string; kind: "profile" | "connections" | "test" | "publish"; message: string; providers: string[]; createdAt: string; respondedAt?: string | null } | null;
+  nextStep?: { id: string; runId?: string; kind: "profile" | "connections" | "test" | "publish"; message: string; providers: string[]; createdAt: string; respondedAt?: string | null } | null;
   avatar?: CompanionAvatarValue;
   templateId: string;
   companionId: string;

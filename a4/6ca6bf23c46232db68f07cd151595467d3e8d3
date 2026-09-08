@@ -1,0 +1,35 @@
+packages/agent/src/pi-executor.ts
+  s_12844ec05252fc::t_4ffeb449c1e0f2 185
+  s_12844ec05252fc::t_320918e919bd33 1,183-184
+packages/agent/src/companion-instructions.ts
+  s_12844ec05252fc::t_320918e919bd33 2-8,17
+  s_12844ec05252fc::t_4ffeb449c1e0f2 10-16
+  s_12844ec05252fc::t_dd7c4a5eb865bd 1,9
+docs/companion-behavior.md
+  s_12844ec05252fc::t_db82c84b2c391d 1-52,57-67
+  s_12844ec05252fc::t_dd7c4a5eb865bd 53-54
+  s_12844ec05252fc::t_d0b0def50e138d 68-80
+  s_12844ec05252fc::t_4ffeb449c1e0f2 55-56
+apps/server/src/specialist-drafts.ts
+  s_12844ec05252fc::t_320918e919bd33 12,14-19
+docs/companions-build.md
+  s_12844ec05252fc::t_db82c84b2c391d 119-121
+packages/agent/src/conversation-instructions.ts
+  s_12844ec05252fc::t_dd7c4a5eb865bd 1-2,4-7,9,11-16,18-24
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "a46ca6bf23c46232db68f07cd151595467d3e8d3",
+  "prompts": {},
+  "sessions": {
+    "s_12844ec05252fc": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0821c-6c9b-72c2-8caf-1a9d2d2be37e",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "StanGirard <stan@quivr.app>"
+    }
+  }
+}

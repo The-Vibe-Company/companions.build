@@ -108,6 +108,17 @@ describe("ApplicationAccess",()=>{
     expect(onConnect).toHaveBeenCalledOnce();
   });
 
+  it("keeps existing accounts selectable when new connections are unavailable in chat", async () => {
+    vi.spyOn(workspaceApi,"plugins").mockResolvedValue({accounts:[linearWork],catalog:plugins.catalog.map(server=>({...server,available:false}))});
+    vi.spyOn(workspaceApi,"companionPlugins").mockResolvedValue({accounts:[]});
+    render(<ApplicationAccess companionId="draft" inlineConnections compact providers={["linear","github"]}/>);
+    expect(await screen.findByRole("checkbox",{name:"Work workspace"})).toBeEnabled();
+    expect(screen.getAllByRole("heading",{name:"Linear"})).toHaveLength(1);
+    expect(screen.getAllByRole("heading",{name:"GitHub"})).toHaveLength(1);
+    expect(screen.queryByRole("button",{name:"Connect GitHub"})).not.toBeInTheDocument();
+    expect(screen.getByText(/You can continue and add access later/)).toBeInTheDocument();
+  });
+
   it("connects a provider inside a draft and then grants the persisted account",async()=>{
     let connected=false;let selected:PluginAccount[]=[];
     vi.spyOn(workspaceApi,"plugins").mockImplementation(async()=>({catalog:plugins.catalog,accounts:connected?[linearWork]:[]}));
@@ -115,7 +126,7 @@ describe("ApplicationAccess",()=>{
     vi.spyOn(workspaceApi,"connectPlugin").mockResolvedValue({url:"https://oauth.example/linear"});
     const grant=vi.spyOn(workspaceApi,"selectPlugin").mockImplementation(async()=>{selected=[linearWork];return {ok:true};});
     const popup={closed:false,location:{href:""},close:vi.fn()};vi.spyOn(window,"open").mockReturnValue(popup as unknown as Window);
-    const user=userEvent.setup();render(<ApplicationAccess companionId="draft" inlineConnections/>);
+    const user=userEvent.setup();render(<ApplicationAccess companionId="draft" inlineConnections compact/>);
     await waitFor(()=>expect(screen.getAllByRole("button",{name:/Connect/})).toHaveLength(2));
     await user.click(screen.getAllByRole("button",{name:/Connect/})[0]);
     await waitFor(()=>expect(popup.location.href).toBe("https://oauth.example/linear"));

@@ -3,3 +3,29 @@
 .account-tile-accounts{display:grid;gap:2px}.account-grant{display:grid;grid-template-columns:0 16px minmax(0,1fr);align-items:center;gap:7px;min-height:34px;padding:3px 2px;border-radius:7px;cursor:pointer;color:var(--muted-foreground);font-size:.72rem}.account-grant:hover{background:var(--secondary);color:var(--foreground)}.account-grant:has(input:focus-visible){outline:2px solid var(--ring);outline-offset:1px}.account-grant:has(input:disabled){cursor:wait}.account-grant input{width:0;height:0;opacity:0}.account-grant-check{display:grid;place-items:center;width:14px;height:14px;border:1.5px solid var(--input);border-radius:50%;color:#fff}.account-grant-check svg{width:9px;height:9px}.account-grant--selected{color:var(--foreground)}.account-grant--selected .account-grant-check{border-color:var(--foreground);background:var(--foreground)}.account-grant>span:last-child{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .application-access-error,.application-access-state{display:flex;align-items:center;justify-content:space-between;gap:16px;color:oklch(.46 .15 25);font-size:.8rem}.application-access-state{min-height:150px;flex-direction:column;justify-content:center;text-align:center;color:var(--muted-foreground)}.application-access-loading{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}.application-access-loading span{height:112px;border:1px solid var(--border);border-radius:14px;background:#fff;animation:application-pulse 1.2s ease-in-out infinite}
 @keyframes application-pulse{50%{opacity:.45}}@media(max-width:700px){.account-tiles,.application-access-loading{grid-template-columns:1fr 1fr}}@media(max-width:480px){.account-tiles,.application-access-loading{grid-template-columns:1fr}.application-access-meta{align-items:flex-start;flex-direction:column;gap:4px}.account-grant{min-height:44px}}@media(prefers-reduced-motion:reduce){.application-access-loading span{animation:none}}
+
+.specialist-app-choices{display:grid;gap:16px;min-width:0}
+.specialist-app-choices__intro{margin:0;color:var(--muted-foreground);font-size:.875rem;line-height:1.5}
+.specialist-app-choices__list{display:grid}
+.specialist-app-choice{min-width:0;padding:18px 0;border-top:1px solid var(--border)}
+.specialist-app-choice:last-child{padding-bottom:0}
+.specialist-app-choice__header{display:flex;align-items:center;gap:12px;min-width:0}
+.specialist-app-choice__header>.provider-dot{width:36px;height:36px;flex:none;border-radius:10px;background:var(--secondary);display:grid;place-items:center}
+.specialist-app-choice__header>.provider-dot svg{width:21px;height:21px}
+.specialist-app-choice__identity{flex:1;min-width:0}
+.specialist-app-choice__identity h3{margin:0;font-size:.9rem;font-weight:600;overflow-wrap:anywhere}
+.specialist-app-choice__status{display:flex;align-items:center;gap:5px;margin-top:3px;font-size:.75rem;line-height:1.4;color:var(--muted-foreground)}
+.specialist-app-choice__status.is-granted{color:var(--foreground)}
+.specialist-app-choice__status svg{width:13px;height:13px}
+.specialist-app-choice__actions{display:flex;flex-wrap:wrap;gap:6px}
+.specialist-app-choice__accounts{display:grid;gap:2px;margin:12px 0 0 48px}
+.specialist-app-choice__account{display:flex;align-items:center;gap:10px;min-height:40px;padding:8px;border-radius:6px;cursor:pointer;font-size:.8125rem;line-height:1.4}
+.specialist-app-choice__account:hover{background:var(--secondary)}
+.specialist-app-choice__account:has(input:focus-visible){outline:2px solid var(--ring);outline-offset:2px}
+.specialist-app-choice__account input{width:16px;height:16px;flex:none;accent-color:var(--foreground)}
+.specialist-app-choice__account span{overflow-wrap:anywhere;min-width:0}
+.specialist-app-choice__account svg{width:14px;height:14px;flex:none}
+.specialist-app-choice__account:has(input:disabled){cursor:wait;opacity:.65}
+.specialist-app-choice__unavailable{margin:10px 0 0 48px;font-size:.75rem;line-height:1.5;color:var(--muted-foreground)}
+.specialist-app-choices__manage{justify-self:start;font-size:.8125rem;text-decoration:underline;text-underline-offset:3px}
+@media(max-width:480px){.specialist-app-choice__header{flex-wrap:wrap}.specialist-app-choice__actions{margin-left:48px}.specialist-app-choice__account{min-height:44px}.specialist-app-choice__accounts,.specialist-app-choice__unavailable{margin-left:0}}

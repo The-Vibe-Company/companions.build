@@ -145,7 +145,7 @@ export function SpecialistDraftPanel({ templateId, companionId, onClose, onConne
   const step = draft.nextStep?.respondedAt ? null : draft.nextStep;
   const stepPresentation = step ? {
     profile: { title: 'Meet your specialist', action: 'Looks good, continue', Icon: UserRound },
-    connections: { title: 'Give me access to work', action: 'Accounts ready, continue', Icon: Plug },
+    connections: { title: 'Connect your apps', action: 'Continue', Icon: Plug },
     test: { title: 'Let’s try a real mission', action: 'Discuss the result', Icon: FlaskConical },
     publish: { title: 'Ready for your team', action: 'Continue the conversation', Icon: Send },
   }[step.kind] : null;
@@ -187,7 +187,7 @@ export function SpecialistDraftPanel({ templateId, companionId, onClose, onConne
         <Button type="submit" disabled={controlsDisabled || !dirty || !name.trim()}>{busy === "save" ? <LoaderCircle className="spin"/> : <Check/>}{busy === "save" ? "Saving…" : "Save configuration"}</Button>
       </form></details></>}
 
-      {show("connections") && <section className="specialist-draft__section"><div className="specialist-draft__section-title"><div><h3>Apps &amp; accounts</h3><p>Choose an existing account or connect a new one. You stay in control of access.</p></div></div><ApplicationAccess companionId={companionId} onConnect={onConnections} inlineConnections compact={Boolean(renderChat)} providers={step?.providers}/></section>}
+      {show("connections") && <section className="specialist-draft__section">{!renderChat && <div className="specialist-draft__section-title"><div><h3>Apps &amp; accounts</h3><p>Choose an existing account or connect a new one.</p></div></div>}<ApplicationAccess companionId={companionId} onConnect={onConnections} inlineConnections compact={Boolean(renderChat)} providers={step?.providers}/></section>}
 
       {show("test") && <section className="specialist-draft__section"><div className="specialist-draft__section-title"><div><h3>Test a mission</h3><p>See how it works on a fresh copy before adding it to your team.</p></div><span className={`specialist-draft__status specialist-draft__status--${draft.lastTest?.status ?? "none"}`}>{testStatus(draft)}</span></div>
         {draft.lastTest && <div className="specialist-draft__test-result"><span>Generation {draft.lastTest.generation}</span>{draft.lastTest.error && <p role="alert">{draft.lastTest.error}</p>}{testFinished && <div><Button type="button" size="sm" variant={draft.lastTest.assessment === "satisfactory" ? "default" : "outline"} disabled={controlsDisabled || dirty} onClick={() => void assess("satisfactory")}>Satisfactory</Button><Button type="button" size="sm" variant="outline" disabled={controlsDisabled || dirty} aria-pressed={draft.lastTest.assessment === "needs_changes"} onClick={() => void assess("needs_changes")}>Needs changes</Button></div>}{draft.lastTest.companionId && <Button type="button" size="sm" variant="ghost" onClick={() => onOpenCompanion?.(draft.lastTest!.companionId!)}>Open test chat</Button>}</div>}
@@ -200,7 +200,7 @@ export function SpecialistDraftPanel({ templateId, companionId, onClose, onConne
         {(!draft.lastTest || draft.lastTest.generation !== draft.generation) && <p className="specialist-draft__warning">This generation has not been tested. You can still publish it.</p>}
         <Button type="button" disabled={controlsDisabled || dirty || !reviewed} onClick={() => void publish()}>{busy === "publish" ? <LoaderCircle className="spin"/> : <Send/>}{busy === "publish" ? "Publishing…" : "Publish version"}</Button>
       </section>
-      {step && step.kind !== 'publish' && <footer className="specialist-action-card__footer"><span>{continuedStepId === step.id ? 'Sent to your specialist' : dirty ? 'Your edits will be saved when you continue.' : 'Or tell me what you’d like to change in the chat.'}</span><Button type="button" disabled={controlsDisabled || (dirty && step.kind !== 'profile') || !name.trim() || continuedStepId === step.id} onClick={() => void continueSetup()}>{busy === 'continue' ? <><LoaderCircle className="spin"/>Sending…</> : continuedStepId === step.id ? <><Check/>Sent</> : <>{stepPresentation?.action}<ArrowRight/></>}</Button></footer>}
+      {step && step.kind !== 'publish' && <footer className="specialist-action-card__footer"><span>{continuedStepId === step.id ? 'Sent to your specialist' : dirty ? 'Your edits will be saved when you continue.' : step.kind === 'connections' ? 'You can add or change accounts later.' : 'Or tell me what you’d like to change in the chat.'}</span><Button type="button" disabled={controlsDisabled || (dirty && step.kind !== 'profile') || !name.trim() || continuedStepId === step.id} onClick={() => void continueSetup()}>{busy === 'continue' ? <><LoaderCircle className="spin"/>Sending…</> : continuedStepId === step.id ? <><Check/>Sent</> : <>{stepPresentation?.action}<ArrowRight/></>}</Button></footer>}
       </div>
       {error && <p className="specialist-draft__error" role="alert">{error}</p>}
       {notice && <p className="specialist-draft__notice" role="status">{notice}</p>}

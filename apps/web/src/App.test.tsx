@@ -1046,7 +1046,7 @@ it('keeps a completed specialist turn ordered as thinking, answer, then its inte
   return response({catalog:[],accounts:[],improvements:[],templates:[],routines:[],triggers:[],tasks:[]});
  }));
  render(<App/>);
- const card=await screen.findByRole('heading',{name:'Give me access to work'});
+ const card=await screen.findByRole('heading',{name:'Connect your apps'});
  const answer=screen.getByText('I need GitHub and Linear.');
  const thought=screen.getByText('Configuration reasoning');
  expect(thought.compareDocumentPosition(answer)&Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();

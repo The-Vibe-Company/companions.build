@@ -1,0 +1,21 @@
+apps/web/src/components/Question.test.tsx
+  s_e4ccf603d9ab8f::t_3a60ac28f1c99f 18-48
+apps/web/src/components/Question.tsx
+  s_e4ccf603d9ab8f::t_ca9ad6fb38f30b 13-14,16
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "18346b2aa94c7d896a961d92aac714ba545d5d10",
+  "prompts": {},
+  "sessions": {
+    "s_e4ccf603d9ab8f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0816a-ca13-7f70-a16c-dd4c3c330fe1",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "StanGirard <stan@quivr.app>"
+    }
+  }
+}

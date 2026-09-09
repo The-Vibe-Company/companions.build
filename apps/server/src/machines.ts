@@ -209,6 +209,14 @@ export async function pauseMachine(companion: any, paused: boolean, beforeEffect
   const current=parse(await box.command(companion.box_id,'sudo -n /usr/local/bin/companions-desktop-state'));
   await beforeEffect(); // A leader can be lost while the read-only observation is in flight.
   if(current.generation===generation&&current.taken===paused&&current.confirmed)return current;
+  // A Box desktop is provisioned lazily by the provider. The initial broker is
+  // deliberately fail-closed until that display exists, so provision it before
+  // the first durable reconciliation. A desktop_preparing response leaves the
+  // intent untouched and the lifecycle retries on its existing bounded cadence.
+  if(!current.confirmed&&companion.desktop_observed_generation==null){
+    await box.desktop(companion.box_id);
+    await beforeEffect(); // Provisioning can outlive executor authority.
+  }
   const applied=parse(await box.command(companion.box_id,`sudo -n /usr/local/bin/companions-desktop-state ${generation} ${paused?'true':'false'}`));
   if(applied.generation!==generation||applied.taken!==paused||!applied.confirmed)throw new MachineError('desktop_not_confirmed');
   return applied;

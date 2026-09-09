@@ -11,6 +11,39 @@ async function companion(){const c=await createCompanion(owner,{name:'Runtime li
 async function leader(){const sql=await acquireExecutor();if(!sql)throw Error('Test executor missing');return {sql,async close(){await sql`SELECT pg_advisory_unlock(721440139)`;sql.release();}};}
 function machines(endpoint:string,events:string[],companionId:string):LifecycleMachines{return {async prepare(c,checkpoint){if(c.id!==companionId)return null;events.push('prepare '+(c.snapshot_name??'base'));await checkpoint('fixture-box');return endpoint;},async health(){events.push('health');return {ready:true,desktopBoundaryVersion:1};},async pause(c,taken){events.push('pause '+taken);return {generation:Number(c.desktop_generation),taken,confirmed:true,bootId:'fixture'};},async archive(){events.push('archive');return true;},async snapshot(){events.push('snapshot');},async snapshotStatus(){return 'pending';}};}
 
+test('managed image publication can exceed five minutes before the same run prepares and dispatches',async()=>{
+ const id=await companion(),events:string[]=[];let imageReady=false,puts=0,run='';
+ const daemon=Bun.serve({hostname:'127.0.0.1',port:0,fetch(req){const path=new URL(req.url).pathname;if(req.method==='PUT'){puts++;expect(path).toBe('/runs/'+run);}return Response.json(path==='/health'?{ready:true,activeRuns:{main:null,background:null}}:{status:'running'});}});
+ const fake=machines(`http://127.0.0.1:${daemon.port}`,events,id);fake.preparationReady=async()=>imageReady;
+ const lock=await leader();
+ try{
+  run=(await acceptMessage(owner,id,crypto.randomUUID(),'Wait for the managed image'))!;
+  await tick(lock.sql,{lifecycleMachines:fake});
+  await db`UPDATE runs SET started_at=now()-interval '3 hours' WHERE id=${run}`;
+  await tick(lock.sql,{lifecycleMachines:fake});
+  expect((await db`SELECT status,dispatched,prepared_at FROM runs WHERE id=${run}`)[0]).toMatchObject({status:'preparing',dispatched:false,prepared_at:null});
+  expect((await db`SELECT preparation_started_at FROM companions WHERE id=${id}`)[0].preparation_started_at).toBeNull();
+  imageReady=true;await tick(lock.sql,{lifecycleMachines:fake});
+  expect(puts).toBe(1);
+  expect((await db`SELECT id,status,dispatched,prepared_at FROM runs WHERE id=${run}`)[0]).toMatchObject({id:run,status:'running',dispatched:true,prepared_at:expect.any(Date)});
+  await tick(lock.sql,{lifecycleMachines:fake});
+  expect((await db`SELECT status FROM runs WHERE id=${run}`)[0].status).toBe('running');
+ }finally{await lock.close();daemon.stop(true);}
+});
+
+test('post-ready run preparation still expires from its persisted preparation clock',async()=>{
+ const id=await companion(),events:string[]=[];let requests=0;
+ const daemon=Bun.serve({hostname:'127.0.0.1',port:0,fetch(){requests++;return Response.json({ready:true});}}),lock=await leader();
+ try{
+  await db`UPDATE companions SET status='ready',prepare_requested=false,box_id='ready-box',endpoint_secret=${encrypt(`http://127.0.0.1:${daemon.port}`)},ready_at=now() WHERE id=${id}`;
+  const run=await acceptMessage(owner,id,crypto.randomUUID(),'Bound post-ready work');
+  await db`UPDATE runs SET status='preparing',started_at=now()-interval '10 minutes',prepared_at=now()-interval '6 minutes' WHERE id=${run}`;
+  await tick(lock.sql,{lifecycleMachines:machines(`http://127.0.0.1:${daemon.port}`,events,id)});
+  expect(requests).toBe(0);
+  expect((await db`SELECT status,dispatched,error FROM runs WHERE id=${run}`)[0]).toMatchObject({status:'failed',dispatched:false,error:'Preparation timed out. Send a new message to retry.'});
+ }finally{await lock.close();daemon.stop(true);}
+});
+
 test('executor prepares the pinned snapshot and continues admission and observation during GUI takeover',async()=>{
  const id=await companion(),events:string[]=[];let puts=0,submittedModel:string|undefined;
  const daemon=Bun.serve({hostname:'127.0.0.1',port:0,async fetch(req){events.push(req.method+' '+new URL(req.url).pathname);if(req.method==='PUT'){puts++;submittedModel=(await req.json() as any).modelId;}return Response.json(new URL(req.url).pathname==='/health'?{ready:true,activeRuns:{main:null,background:null}}:{status:'running'});}});

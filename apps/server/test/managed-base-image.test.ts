@@ -5,6 +5,7 @@ import {manifestDigest,type DistributionManifest} from '../../../scripts/lib/dis
 import {acquireExecutor} from '../src/executor';
 import {ManagedBaseImageCoordinator} from '../src/managed-base-image';
 import {createCompanion,db,migrate} from '../src/store';
+import {config} from '../src/config';
 
 const owner='00000000-0000-4000-8000-000000000001';
 const companions:string[]=[];
@@ -78,6 +79,19 @@ class FakeBox {
 function coordinator(box:FakeBox,value:ReturnType<typeof artifact>,now:()=>number=Date.now){
  return new ManagedBaseImageCoordinator({database:db,box:box as any,artifact:async()=>value,now,enabled:true});
 }
+
+test('consuming managed images without publication permission makes no provider or database effects',async()=>{
+ const previous={managed:config.managedBoxTemplate,publish:config.publishManagedBoxTemplate};
+ config.managedBoxTemplate=true;config.publishManagedBoxTemplate=false;
+ let artifacts=0;
+ const value=artifact('shared-account'),box=new FakeBox(value.manifest);
+ const publisher=new ManagedBaseImageCoordinator({box:box as any,artifact:async()=>{artifacts++;return value;}});
+ try{
+  await publisher.schedule((()=>{throw Error('Unexpected database access');}) as any);
+  expect(publisher.active).toBe(false);expect(artifacts).toBe(0);
+  expect(box.creates).toHaveLength(0);expect(box.deletes).toHaveLength(0);expect(box.stops).toHaveLength(0);
+ }finally{await publisher.close();config.managedBoxTemplate=previous.managed;config.publishManagedBoxTemplate=previous.publish;}
+});
 
 test('concurrent coordinators publish one verified image and archive both owned Boxes',async()=>{
  const value=artifact('release-one'),box=new FakeBox(value.manifest),lock=await leader();
@@ -190,7 +204,7 @@ test('snapshot capacity retries the same source and journal after the cooldown',
  }finally{await lock.close();}
 });
 
-test('release cleanup deletes only unreferenced managed snapshots',async()=>{
+test('release cleanup deletes only unreferenced managed snapshots and preserves an in-flight fallback pin',async()=>{
  const old=artifact('old-release'),box=new FakeBox(old.manifest),lock=await leader();
  try{
   const first=coordinator(box,old);await first.schedule(lock.sql);await settled(first);await first.close();
@@ -203,8 +217,8 @@ test('release cleanup deletes only unreferenced managed snapshots',async()=>{
   await db`INSERT INTO managed_base_images(id,release_digest,generation,snapshot_name,archive,journal,status,retired_at)
    VALUES(${protectedId},${protectedRelease},1,${protectedName},${Buffer.from('protected')},${{version:1}}::jsonb,'retired',now())`;
   box.snapshots.add(protectedName);
-  const pending=await createCompanion(owner,{name:'Pending fork',provider:'box',prepare:false});companions.push(pending.id);
-  await db`UPDATE companions SET snapshot_name=${protectedName},box_id=null,create_started_at=null WHERE id=${pending.id}`;
+  const fallbackPin=await createCompanion(owner,{name:'Pending fallback fork',provider:'box',prepare:false});companions.push(fallbackPin.id);
+  await db`UPDATE companions SET snapshot_name=${protectedName},box_id=null,create_started_at=now() WHERE id=${fallbackPin.id}`;
   const unrelated=`outside-${crypto.randomUUID().replaceAll('-','').slice(0,12)}`;box.snapshots.add(unrelated);
 
   const replacement=artifact('replacement-release');box.manifest=replacement.manifest;

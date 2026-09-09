@@ -42,6 +42,7 @@ for key, value in runtime_settings.items():
     if env["AGENT_TEST_MODE"] != "1" or key in {"BOX_API_KEY", "BOX_TEMPLATE", "BOX_MANAGED_TEMPLATE", "LOCAL_RUNTIME"}:
         env.setdefault(key, value)
 env.setdefault("LOCAL_RUNTIME", "0")
+env.update(BOX_MANAGED_TEMPLATE="0", BOX_MANAGED_TEMPLATE_PUBLISH="0")
 env.setdefault("COMPANIONS_DATA_DIR", str(ROOT / ".local"))
 data_dir = Path(env["COMPANIONS_DATA_DIR"])
 if not data_dir.is_absolute():

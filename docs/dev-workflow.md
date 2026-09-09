@@ -185,7 +185,11 @@ DEV_LIVE_MODEL=1
 `/responses` endpoint. Azure uses the Responses protocol through the same run-scoped
 gateway, preserving native streaming, function tools, images, reasoning and token usage.
 In production, set the key and endpoint on the API; API, executor and worker use the
-same provider and model defaults. The global key must never reach a Box.
+same provider and model defaults. The production key remains on the API.
+Existing hosted agents use the OpenAI Responses wire format; the gateway selects Azure
+from the persisted run provider. Direct development agents use the Azure adapter,
+which removes the legacy `api-version` query rejected by Foundry v1 endpoints.
+Those direct agents need a freshly built distribution (or an updated Box template).
 The [Microsoft Responses reference](https://learn.microsoft.com/en-us/rest/api/aifoundry/azureopenai/responses)
 describes this API.
 

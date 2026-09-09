@@ -1,0 +1,32 @@
+apps/server/test/lifecycle.test.ts
+  s_3a42cadc2a06c2::t_2038da77ec8d6a 13,144-162,164-170
+  s_3a42cadc2a06c2::t_3da565205b9ada 132-143
+  s_3a42cadc2a06c2::t_4e95378fb2bc44 100-109
+  s_3a42cadc2a06c2::t_3436fd3ef82531 163
+  s_3a42cadc2a06c2::t_4ba342f14a913f 171
+apps/server/src/lifecycle.ts
+  s_3a42cadc2a06c2::t_990a3835bfe3da 12,41,53,205-207,266-268,270,272-282
+  s_3a42cadc2a06c2::t_d94305bf5adbd2 209-210
+  s_3a42cadc2a06c2::t_974c4a8a5b037f 173,204,249,269
+  s_3a42cadc2a06c2::t_3da565205b9ada 212-215,271
+apps/server/test/specialist-provider.test.ts
+  s_3a42cadc2a06c2::t_2038da77ec8d6a 15,17-18
+apps/server/src/specialist-provider.ts
+  s_3a42cadc2a06c2::t_990a3835bfe3da 15
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "ae7c5926aae6858ecab9ec31d22d76eeed980a12",
+  "prompts": {},
+  "sessions": {
+    "s_3a42cadc2a06c2": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a085f7-65e6-7543-9909-16542d8e4ac4",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "StanGirard <stan@quivr.app>"
+    }
+  }
+}

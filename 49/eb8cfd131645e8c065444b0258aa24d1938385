@@ -1,0 +1,104 @@
+apps/web/src/components/AutomationPanels.test.tsx
+  s_3a42cadc2a06c2::t_69f94ca576c66a 126,171-208
+scripts/verify.py
+  s_3a42cadc2a06c2::t_69f94ca576c66a 31
+README.md
+  s_3a42cadc2a06c2::t_69f94ca576c66a 100-104
+scripts/verify_test.py
+  s_3a42cadc2a06c2::t_69f94ca576c66a 86-87,91-93
+apps/server/test/model-gateway-token.test.ts
+  s_3a42cadc2a06c2::t_69f94ca576c66a 34,39,43,53-63
+  s_3a42cadc2a06c2::t_f71456ab4346b4 64-66
+packages/agent/src/companion-instructions.ts
+  s_3a42cadc2a06c2::t_69f94ca576c66a 15
+apps/server/src/azure-openai.ts
+  s_3a42cadc2a06c2::t_69f94ca576c66a 1-11
+apps/server/test/tasks.test.ts
+  s_3a42cadc2a06c2::t_69f94ca576c66a 45
+apps/server/src/automations.ts
+  s_3a42cadc2a06c2::t_69f94ca576c66a 13,16-17,35,49-50,60,64,81,84,92-94,101,110,113,117-118,149-150
+apps/server/src/store.ts
+  s_3a42cadc2a06c2::t_69f94ca576c66a 110
+packages/agent/src/pi-executor.ts
+  s_3a42cadc2a06c2::t_69f94ca576c66a 11,69
+apps/server/test/azure-openai.test.ts
+  s_3a42cadc2a06c2::t_69f94ca576c66a 1-13
+apps/server/src/model-gateway.ts
+  s_3a42cadc2a06c2::t_69f94ca576c66a 5,18,25,76,86,90-98,178-181,184,201
+scripts/dev_environment.py
+  s_3a42cadc2a06c2::t_69f94ca576c66a 10,14-15
+  s_3a42cadc2a06c2::t_fba5554b6fad17 16,53
+scripts/dev-cli.py
+  s_3a42cadc2a06c2::t_69f94ca576c66a 124,126,303
+apps/server/src/machines.ts
+  s_3a42cadc2a06c2::t_69f94ca576c66a 12,46-47,54-56,59-61
+  s_3a42cadc2a06c2::t_60533e275350cc 62
+packages/agent/test/initialization.test.ts
+  s_3a42cadc2a06c2::t_69f94ca576c66a 6,104-126
+  s_3a42cadc2a06c2::t_1ced38594c7eb4 127
+packages/agent/src/azure-foundry.ts
+  s_3a42cadc2a06c2::t_69f94ca576c66a 1-39
+apps/server/src/tasks.ts
+  s_3a42cadc2a06c2::t_69f94ca576c66a 7,27
+apps/web/src/components/AutomationPanels.tsx
+  s_3a42cadc2a06c2::t_69f94ca576c66a 3,13-14,17,19-20,33-38,48,62,65,70,77,158,160,167,180,184-192
+  s_3a42cadc2a06c2::t_d5843cb83abb10 193
+apps/server/src/models.ts
+  s_3a42cadc2a06c2::t_69f94ca576c66a 2,5-6,10-11
+.env.example
+  s_3a42cadc2a06c2::t_69f94ca576c66a 8-12
+apps/server/src/executor.ts
+  s_3a42cadc2a06c2::t_69f94ca576c66a 53-57,60,188,294
+apps/server/src/model-gateway.sql
+  s_3a42cadc2a06c2::t_69f94ca576c66a 9,22-25
+apps/web/src/components/ai-elements/conversation.tsx
+  s_3a42cadc2a06c2::t_69f94ca576c66a 8,72,76,80-86,104-105,108
+apps/web/src/components/RoutineChat.test.tsx
+  s_3a42cadc2a06c2::t_69f94ca576c66a 1-94
+docs/dev-workflow.md
+  s_3a42cadc2a06c2::t_69f94ca576c66a 126-150,157,165-166,174-203
+  s_3a42cadc2a06c2::t_2984ef6ccd32a8 204
+apps/web/src/api.ts
+  s_3a42cadc2a06c2::t_69f94ca576c66a 51-58,72-75,283-285
+docs/v0.md
+  s_3a42cadc2a06c2::t_69f94ca576c66a 88-94
+scripts/dev.py
+  s_3a42cadc2a06c2::t_69f94ca576c66a 39-41
+apps/web/src/App.test.tsx
+  s_3a42cadc2a06c2::t_69f94ca576c66a 195,1103-1131
+  s_3a42cadc2a06c2::t_a8fbdbdd116c5b 1132
+apps/web/src/App.tsx
+  s_3a42cadc2a06c2::t_69f94ca576c66a 54,228,230-232,255,268,271,345,349,365,367,418,451,453
+scripts/dev-cli.test.py
+  s_3a42cadc2a06c2::t_69f94ca576c66a 147-178
+apps/web/src/components/RoutineChat.css
+  s_3a42cadc2a06c2::t_69f94ca576c66a 1-11
+apps/web/src/components/RoutineChat.tsx
+  s_3a42cadc2a06c2::t_69f94ca576c66a 1-107
+apps/server/test/automations.test.ts
+  s_3a42cadc2a06c2::t_69f94ca576c66a 2,7,255-304
+apps/server/src/automations.sql
+  s_3a42cadc2a06c2::t_69f94ca576c66a 57-63
+apps/server/src/control-help.ts
+  s_3a42cadc2a06c2::t_69f94ca576c66a 10
+apps/server/test/model-gateway.test.ts
+  s_3a42cadc2a06c2::t_69f94ca576c66a 5,15,22,26,29,34,37-39,49-68,143
+docs/companions-build.md
+  s_3a42cadc2a06c2::t_69f94ca576c66a 278-292
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "49eb8cfd131645e8c065444b0258aa24d1938385",
+  "prompts": {},
+  "sessions": {
+    "s_3a42cadc2a06c2": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a085f7-65e6-7543-9909-16542d8e4ac4",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "StanGirard <stan@quivr.app>"
+    }
+  }
+}

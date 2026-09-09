@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "./App";
@@ -553,6 +553,139 @@ describe("first Companion flow", () => {
     await userEvent.click(screen.getByRole("button", { name: "Open desktop" }));
     expect(screen.getByRole("button", { name: /Open desktop/ })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Settings for Ada" })).not.toBeInTheDocument();
+  });
+
+  describe("clipboard attachments", () => {
+    let admissions: Array<{ content: string; attachmentCount: number }>;
+    let uploads: File[];
+    beforeEach(() => {
+      window.history.replaceState({}, "", "/companions/ada");
+      admissions = []; uploads = [];
+      vi.stubGlobal("URL", class extends URL {
+        static createObjectURL() { return "blob:preview"; }
+        static revokeObjectURL() {}
+      });
+      vi.stubGlobal("fetch", vi.fn((input: RequestInfo | URL, options?: RequestInit) => {
+        const path = String(input);
+        const ready = { ...companion, status: "ready" };
+        if (path === "/api/me") return response(me);
+        if (path === "/api/config") return response(config);
+        if (path === "/api/templates") return response({ templates: [] });
+        if (path === "/api/companions") return response({ companions: [ready] });
+        if (path === "/api/companions/ada") return response({ companion: ready, messages: [], runs: [], activity: [] });
+        if (path === "/api/companions/ada/messages") {
+          admissions.push(JSON.parse(String(options?.body)));
+          return response({ runId: "pasted" }, 202);
+        }
+        if (path === "/api/companions/ada/runs/pasted/files") {
+          uploads.push((options?.body as FormData).get("file") as File);
+          return response({ file: { id: `file-${uploads.length}` } }, 201);
+        }
+        throw new Error(`Unexpected request: ${path}`);
+      }));
+    });
+
+    afterEach(() => cleanup());
+
+    function clipboard(files: File[], text = "") {
+      return {
+        items: files.map(file => ({ kind: "file", type: file.type, getAsFile: () => file })),
+        getData: (type: string) => ["text", "text/plain"].includes(type) ? text : "",
+        types: text ? ["Files", "text/plain"] : ["Files"],
+        files,
+      } as unknown as DataTransfer;
+    }
+
+    it("pastes an image, preserves the draft, and resets the preview after Enter sends one attachment", async () => {
+      const user = userEvent.setup(); render(<App />);
+      const composer = await screen.findByRole("textbox", { name: "Message Ada" });
+      await user.type(composer, "Review this");
+      await user.paste(clipboard([new File(["png"], "image.png", { type: "image/png" })]));
+      expect(composer).toHaveValue("Review this");
+      expect(screen.getByRole("img", { name: "Preview of image.png" })).toBeVisible();
+      expect(screen.getByText("image.png")).toBeVisible();
+      expect(screen.getByRole("button", { name: "Remove image.png" })).toBeVisible();
+      expect(admissions).toHaveLength(0);
+      await user.keyboard("{Enter}");
+      await waitFor(() => expect(composer).toHaveValue(""));
+      expect(screen.queryByRole("img", { name: "Preview of image.png" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "Remove image.png" })).not.toBeInTheDocument();
+      expect(admissions).toEqual([expect.objectContaining({ content: "Review this", attachmentCount: 1 })]);
+      expect(uploads.map(file => [file.name, file.type])).toEqual([["image.png", "image/png"]]);
+    });
+
+    it("keeps mixed clipboard text and multiple image formats alongside a picked file", async () => {
+      const user = userEvent.setup(); render(<App />);
+      const composer = await screen.findByRole("textbox", { name: "Message Ada" });
+      await user.upload(composer.closest("form")!.querySelector('input[type="file"]')!, new File(["notes"], "notes.txt", { type: "text/plain" }));
+      await user.click(composer);
+      await user.paste(clipboard(["jpeg", "webp", "gif"].map(type => new File([type], `image.${type}`, { type: `image/${type}` })), "Look at these"));
+      expect(composer).toHaveValue("Look at these");
+      for (const type of ["jpeg", "webp", "gif"]) expect(screen.getByRole("img", { name: `Preview of image.${type}` })).toBeVisible();
+      expect(screen.getByText("notes.txt")).toBeVisible();
+      await user.click(screen.getByRole("button", { name: "Remove image.webp" }));
+      expect(screen.queryByRole("img", { name: "Preview of image.webp" })).not.toBeInTheDocument();
+      expect(screen.getByRole("img", { name: "Preview of image.gif" })).toBeVisible();
+      await user.click(screen.getByRole("button", { name: "Remove notes.txt" }));
+      expect(screen.queryByText("notes.txt")).not.toBeInTheDocument();
+      await user.click(composer); await user.keyboard("{Shift>}{Enter}{/Shift}");
+      expect(composer).toHaveValue("Look at these\n");
+      await user.keyboard("{Enter}");
+      await waitFor(() => expect(composer).toHaveValue(""));
+      expect(admissions).toEqual([expect.objectContaining({ content: "Look at these", attachmentCount: 2 })]);
+      expect(uploads.map(file => file.name)).toEqual(["image.jpeg", "image.gif"]);
+    });
+
+    it("keeps documents as chips after removing a preceding image and resets previews on remount", async () => {
+      const user = userEvent.setup(); const view = render(<App />);
+      const composer = await screen.findByRole("textbox", { name: "Message Ada" });
+      await user.click(composer);
+      await user.paste(clipboard([new File(["png"], "image.png", { type: "image/png" })]));
+      await user.upload(composer.closest("form")!.querySelector('input[type="file"]')!, new File(["notes"], "notes.txt", { type: "text/plain" }));
+      await user.click(screen.getByRole("button", { name: "Remove image.png" }));
+      expect(screen.queryByRole("img", { name: /Preview of/ })).not.toBeInTheDocument();
+      expect(screen.getByText("notes.txt")).toBeVisible();
+      expect(screen.getByRole("button", { name: "Remove notes.txt" })).toBeVisible();
+      await user.click(composer);
+      await user.paste(clipboard([new File(["png"], "another.png", { type: "image/png" })]));
+      expect(screen.getByRole("img", { name: "Preview of another.png" })).toBeVisible();
+      view.unmount(); render(<App />);
+      expect(await screen.findByRole("textbox", { name: "Message Ada" })).toHaveValue("");
+      expect(screen.queryByRole("img", { name: /Preview of/ })).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: /Remove (notes.txt|another.png)/ })).not.toBeInTheDocument();
+    });
+
+    it("preserves ordinary text paste and ignores non-image clipboard files", async () => {
+      const user = userEvent.setup(); render(<App />);
+      const composer = await screen.findByRole("textbox", { name: "Message Ada" });
+      await user.click(composer); await user.paste("Plain text");
+      expect(composer).toHaveValue("Plain text");
+      await user.paste(clipboard([new File(["pdf"], "ignored.pdf", { type: "application/pdf" })], " continues"));
+      expect(composer).toHaveValue("Plain text continues");
+      expect(screen.queryByText("ignored.pdf")).not.toBeInTheDocument();
+      await user.keyboard("{Enter}");
+      await waitFor(() => expect(admissions).toHaveLength(1));
+      expect(admissions[0]).toMatchObject({ content: "Plain text continues", attachmentCount: 0 });
+      expect(uploads).toHaveLength(0);
+    });
+
+    it("reuses total count and size errors without losing pasted text or existing previews", async () => {
+      const user = userEvent.setup(); render(<App />);
+      const composer = await screen.findByRole("textbox", { name: "Message Ada" });
+      await user.click(composer);
+      await user.paste(clipboard(Array.from({ length: 5 }, (_, index) => new File(["png"], `${index}.png`, { type: "image/png" }))));
+      await user.paste(clipboard([new File(["png"], "extra.png", { type: "image/png" })], "Keep text"));
+      expect(screen.getByRole("alert")).toHaveTextContent("A message accepts at most 5 files.");
+      expect(composer).toHaveValue("Keep text");
+      expect(screen.queryByText("extra.png")).not.toBeInTheDocument();
+      await user.click(screen.getByRole("button", { name: "Remove 0.png" }));
+      await user.click(composer);
+      await user.paste(clipboard([new File([new Uint8Array(10 * 1024 * 1024 + 1)], "large.png", { type: "image/png" })]));
+      expect(screen.getByRole("alert")).toHaveTextContent("Each file must be between 1 byte and 10 MB.");
+      expect(screen.queryByText("large.png")).not.toBeInTheDocument();
+      expect(composer).toHaveValue("Keep text");
+      for (const index of [1, 2, 3, 4]) expect(screen.getByRole("img", { name: `Preview of ${index}.png` })).toBeVisible();
+    });
   });
 
   it("drops files through the durable upload path and preserves the draft for an exact retry", async () => {

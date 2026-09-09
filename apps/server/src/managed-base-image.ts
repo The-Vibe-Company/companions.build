@@ -4,7 +4,7 @@ import {BoxClient,BoxError} from '../../../packages/box/client';
 import {config} from './config';
 import {db} from './store';
 import {distributionManifest,manifestDigest,publishDistribution,verifyDistribution,type DistributionBoxes,type DistributionJournal,type DistributionManifest} from '../../../scripts/lib/distribution-verification';
-import {templateInstallScript} from '../../../scripts/lib/template-install';
+import {templateInstallScript,runtimeProbeScript} from '../../../scripts/lib/template-install';
 
 /** The executor leader and image publisher are session locks; registry changes use
  * a separate transaction lock so a long publication never stalls Companion starts. */
@@ -299,7 +299,7 @@ export class ManagedBaseImageCoordinator{
     await publishDistribution(state,{box:provider,save,now:this.now,install:async id=>{
      if(state.installIntentAt){
       // Observe an interrupted installation rather than execute its commands twice.
-      try{await verifyDistribution(provider,id,state.manifest);return;}
+      try{await verifyDistribution(provider,id,state.manifest);await provider.command(id,runtimeProbeScript);return;}
       catch{throw Error('MANAGED_IMAGE_INSTALL_UNRESOLVED');}
      }
      state.installIntentAt=iso(this.now);await save(state);

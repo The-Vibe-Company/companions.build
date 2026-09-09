@@ -154,7 +154,7 @@ test('a pending observation keeps the verified generation ready',async()=>{
  }finally{await lock.close();}
 });
 
-test('a captured snapshot blocked by verifier failure is reclaimed after owned Boxes archive',async()=>{
+test('a captured snapshot blocked by verifier failure is reclaimed without republishing the bad release',async()=>{
  const value=artifact('blocked-verifier-release'),box=new FakeBox(value.manifest),lock=await leader();box.mismatchVerification=true;
  try{
   const failed=coordinator(box,value);await failed.schedule(lock.sql);await settled(failed);await failed.close();
@@ -165,9 +165,11 @@ test('a captured snapshot blocked by verifier failure is reclaimed after owned B
   box.mismatchVerification=false;box.verificationCount=0;
   const recovered=coordinator(box,value);await recovered.schedule(lock.sql);await settled(recovered);await recovered.close();
   const rows=await db`SELECT id,generation,status,deleted_at FROM managed_base_images WHERE release_digest=${value.releaseDigest} ORDER BY generation`;
-  expect(rows).toHaveLength(2);expect(rows[0]).toMatchObject({id:blocked.id,generation:1,status:'deleted',deleted_at:expect.any(Date)});
-  expect(rows[1]).toMatchObject({generation:2,status:'ready'});
+  expect(rows).toEqual([{id:blocked.id,generation:1,status:'blocked',deleted_at:expect.any(Date)}]);
   expect(box.deletes).toContain(blocked.snapshot_name);expect(box.deleteSawArchived).toEqual([true]);
+  expect(box.creates).toHaveLength(2);
+  const stable=coordinator(box,value);await stable.schedule(lock.sql);await settled(stable);await stable.close();
+  expect(box.creates).toHaveLength(2);
  }finally{await lock.close();}
 });
 

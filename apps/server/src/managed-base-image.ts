@@ -170,7 +170,7 @@ async function cleanupOne(sql:SQLLike,box:ManagedBox,row:any,now:()=>number){
     await sql`UPDATE managed_base_images SET retry_at=${new Date(now()+RETRY_MS)},error_code=${safeCode(error)},updated_at=now() WHERE id=${row.id}`;return false;
    }
   }
-  if(row.delete_intent_at){await sql`UPDATE managed_base_images SET status='deleted',deleted_at=now(),updated_at=now() WHERE id=${row.id}`;return true;}
+  if(row.delete_intent_at){await sql`UPDATE managed_base_images SET status=CASE WHEN status='blocked' THEN 'blocked' ELSE 'deleted' END,deleted_at=now(),updated_at=now() WHERE id=${row.id}`;return true;}
  }
  const marked=await sql.begin(async(tx:SQLLike)=>{
   await tx`SELECT pg_advisory_xact_lock(${MANAGED_BASE_IMAGE_REGISTRY_LOCK_ID})`;
@@ -179,9 +179,9 @@ async function cleanupOne(sql:SQLLike,box:ManagedBox,row:any,now:()=>number){
   await tx`UPDATE managed_base_images SET delete_intent_at=${iso(now)},updated_at=now() WHERE id=${row.id}`;return true;
  });
  if(!marked)return false;
- try{await box.deleteSnapshot(row.snapshot_name);await sql`UPDATE managed_base_images SET status='deleted',deleted_at=now(),error_code=null,updated_at=now() WHERE id=${row.id}`;return true;}
+ try{await box.deleteSnapshot(row.snapshot_name);await sql`UPDATE managed_base_images SET status=CASE WHEN status='blocked' THEN 'blocked' ELSE 'deleted' END,deleted_at=now(),error_code=CASE WHEN status='blocked' THEN error_code ELSE null END,updated_at=now() WHERE id=${row.id}`;return true;}
  catch(error){
-  if(error instanceof BoxError&&(error.status===404)){await sql`UPDATE managed_base_images SET status='deleted',deleted_at=now(),updated_at=now() WHERE id=${row.id}`;return true;}
+  if(error instanceof BoxError&&(error.status===404)){await sql`UPDATE managed_base_images SET status=CASE WHEN status='blocked' THEN 'blocked' ELSE 'deleted' END,deleted_at=now(),updated_at=now() WHERE id=${row.id}`;return true;}
   if(error instanceof BoxError&&error.status===409){await sql`UPDATE managed_base_images SET delete_intent_at=null,retry_at=now()+interval '60 seconds',error_code=${safeCode(error)},updated_at=now() WHERE id=${row.id}`;return false;}
   await sql`UPDATE managed_base_images SET retry_at=${new Date(now()+RETRY_MS)},error_code='managed_image_delete_unresolved',updated_at=now() WHERE id=${row.id}`;return false;
  }

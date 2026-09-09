@@ -8,6 +8,7 @@ import {applyControl,registerControl,controlHandlers} from '../src/control';
 import {addCustomPlugin,attachPlugin,listPluginAccounts,machinePlugins,disconnectPlugin} from '../src/plugins';
 import {saveTemplate} from '../src/templates';
 import {openSpecialistDraft,readSpecialistDraft} from '../src/specialist-drafts';
+import {handleAutomations} from '../src/automation-routes';
 import '../src/control-product';
 import '../src/runtime-product';
 const owner='00000000-0000-4000-8000-000000000001';
@@ -104,4 +105,25 @@ test('control returns actionable lifecycle errors and correlation IDs without le
   expect(result).toMatchObject({code:'operation_failed',commandId:id});
   expect(JSON.stringify(result)).not.toContain('synthetic-sensitive-provider-payload');
  }finally{controlHandlers.identity=original;}
+});
+
+test('App confirmation persists exact public call details and requires the selected owned account',async()=>{
+ const c=await createCompanion(owner,{name:'App approval',instructions:'',provider:'local'});
+ const runId=await acceptMessage(owner,c.id,crypto.randomUUID(),'Inspect project');
+ await db`UPDATE runs SET status='running' WHERE id=${runId}`;
+ const account=await addCustomPlugin(owner,{label:'Production',transport:'http',url:'https://example.com/mcp',headers:{Authorization:'Bearer private-approval-secret'}});
+ const input={connectionId:account.id,tool:'railway-agent',annotations:{destructiveHint:true,title:'Railway Agent'},arguments:{projectId:'project',steps:['redeploy']}};
+ const command={id:crypto.randomUUID(),runId,operation:'app_tool_confirm',input};
+ expect(await applyControl(c.id,command)).toHaveProperty('error');
+ await attachPlugin(owner,c.id,account.id,true);command.id=crypto.randomUUID();
+ expect(await applyControl(c.id,command)).toEqual({pendingQuestionId:command.id});
+ expect(await applyControl(c.id,command)).toEqual({pendingQuestionId:command.id});
+ const questions=await db`SELECT question,options,answer FROM task_questions WHERE id=${command.id}`;
+ expect(questions).toHaveLength(1);expect(questions[0].answer).toBeNull();expect(questions[0].options).toEqual(['Approve this call','Decline']);
+ expect(questions[0].question).toContain(`Connection ID: ${account.id}`);expect(questions[0].question).toContain('railway-agent');expect(questions[0].question).toContain(JSON.stringify(input.annotations));expect(questions[0].question).toContain(JSON.stringify(input.arguments,null,2));expect(questions[0].question).not.toContain('private-approval-secret');
+ const answer=()=>new Request(`http://local/api/companions/${c.id}/questions/${command.id}/answer`,{method:'POST',body:JSON.stringify({answer:'Approve this call'})});
+ expect((await handleAutomations(answer(),crypto.randomUUID()))?.status).toBe(404);
+ expect((await db`SELECT answer FROM task_questions WHERE id=${command.id}`)[0].answer).toBeNull();
+ expect((await handleAutomations(answer(),owner))?.status).toBe(200);
+ expect((await db`SELECT answer FROM task_questions WHERE id=${command.id}`)[0].answer).toBe('Approve this call');
 });

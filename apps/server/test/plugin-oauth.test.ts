@@ -156,6 +156,84 @@ describe("Companion plugin OAuth broker", () => {
     expect(authorization.searchParams.get("code_challenge_method")).toBe("S256");
   });
 
+  it("runs Railway through standard discovery, DCR, PKCE and resource scoping", async () => {
+    const fetchImpl = vi.fn<OAuthFetch>()
+      .mockResolvedValueOnce(jsonResponse({
+        resource: "https://mcp.railway.com",
+        authorization_servers: ["https://backboard.railway.com"],
+        scopes_supported: ["openid", "profile", "email", "offline_access", "workspace:member"],
+      }))
+      .mockResolvedValueOnce(jsonResponse({
+        authorization_endpoint: "https://backboard.railway.com/oauth/auth?resource=https%3A%2F%2Fbackboard.railway.com",
+        token_endpoint: "https://backboard.railway.com/oauth/token",
+        registration_endpoint: "https://backboard.railway.com/oauth/register",
+      }))
+      .mockResolvedValueOnce(jsonResponse({
+        client_id: "railway-client",
+        token_endpoint_auth_method: "none",
+      }));
+
+    const started = await beginCompanionPluginOAuth({
+      serverName: "com.railway/mcp",
+      redirectUri: "https://companion.example/v1/companion-plugins/oauth/callback",
+      state: "railway-state",
+      fetchImpl,
+    });
+
+    expect(fetchImpl.mock.calls.map((call) => call[0])).toEqual([
+      "https://mcp.railway.com/.well-known/oauth-protected-resource",
+      "https://backboard.railway.com/.well-known/oauth-authorization-server",
+      "https://backboard.railway.com/oauth/register",
+    ]);
+    const authorization = new URL(started.authorizationUrl);
+    expect(authorization.origin + authorization.pathname).toBe("https://backboard.railway.com/oauth/auth");
+    expect(authorization.searchParams.get("resource")).toBe("https://mcp.railway.com");
+    expect(authorization.searchParams.get("prompt")).toBe("consent");
+    expect(authorization.searchParams.get("scope")).toBe(
+      "openid profile email offline_access workspace:member",
+    );
+    expect(authorization.searchParams.get("code_challenge_method")).toBe("S256");
+    expect(authorization.searchParams.get("code_challenge")).toMatch(/^[A-Za-z0-9_-]{43}$/);
+    expect(JSON.parse(String(fetchImpl.mock.calls[2]?.[1]?.body))).toMatchObject({
+      redirect_uris: ["https://companion.example/v1/companion-plugins/oauth/callback"],
+      grant_types: ["authorization_code", "refresh_token"],
+      token_endpoint_auth_method: "none",
+    });
+
+    const exchangeFetch = vi.fn<OAuthFetch>(async (url, init) => {
+      expect(String(url)).toBe("https://backboard.railway.com/oauth/token");
+      const body = formBody(init);
+      expect(body.get("code_verifier")).toBe(started.flow.codeVerifier);
+      expect(body.get("resource")).toBe("https://mcp.railway.com");
+      return jsonResponse({
+        access_token: "railway-access",
+        refresh_token: "railway-refresh",
+        expires_in: 3600,
+        token_type: "Bearer",
+        scope: "openid profile email offline_access workspace:member",
+      });
+    });
+    const credential = await completeCompanionPluginOAuth({
+      flow: started.flow,
+      code: "railway-code",
+      redirectUri: "https://companion.example/v1/companion-plugins/oauth/callback",
+      fetchImpl: exchangeFetch,
+    });
+
+    const refreshFetch = vi.fn<OAuthFetch>(async (_url, init) => {
+      const body = formBody(init);
+      expect(body.get("refresh_token")).toBe("railway-refresh");
+      expect(body.get("resource")).toBe("https://mcp.railway.com");
+      return jsonResponse({ access_token: "railway-access-two", expires_in: 3600 });
+    });
+    await expect(refreshCompanionPluginOAuth({ credential, fetchImpl: refreshFetch })).resolves
+      .toMatchObject({ accessToken: "railway-access-two", refreshToken: "railway-refresh" });
+
+    const revokedFetch = vi.fn<OAuthFetch>(async () => jsonResponse({ error: "invalid_grant" }, 400));
+    await expect(refreshCompanionPluginOAuth({ credential, fetchImpl: revokedFetch })).rejects
+      .toBeInstanceOf(CompanionPluginOAuthRevokedError);
+  });
+
   it("exchanges and refreshes tokens without exposing provider response bodies", async () => {
     const exchangeFetch = vi.fn<OAuthFetch>(async (_url, init) => {
       const body = formBody(init);

@@ -74,6 +74,15 @@ registerControl({
   },
   configure:(context,input)=>configureCompanion(context.ownerId,context.companionId,input),
   companions:async context=>db`SELECT id,name,instructions,avatar,status FROM companions WHERE owner_id=${context.ownerId} AND retired_at IS NULL AND NOT temporary AND specialist_draft_id IS NULL ORDER BY created_at`,
+  app_tool_confirm:async(context,input)=>{
+    const value=z.object({connectionId:z.string().uuid(),tool:z.string().min(1).max(200),annotations:z.record(z.string(),z.unknown()).optional(),arguments:z.record(z.string(),z.unknown())}).parse(input);
+    if(JSON.stringify(value).length>20_000)throw Error('APP_CONFIRMATION_TOO_LARGE');
+    const [account]=await db`SELECT p.label,p.provider FROM companion_plugins cp JOIN plugin_accounts p ON p.id=cp.account_id JOIN companions c ON c.id=cp.companion_id WHERE cp.companion_id=${context.companionId} AND p.id=${value.connectionId} AND p.owner_id=${context.ownerId} AND c.owner_id=p.owner_id`;
+    if(!account)throw Error('APP_NOT_SELECTED');
+    const question=`Approve this App tool call?\nAccount: ${account.label} (${account.provider})\nConnection ID: ${value.connectionId}\nTool: ${value.tool}\nAnnotations: ${JSON.stringify(value.annotations??{})}\nArguments: ${JSON.stringify(value.arguments,null,2)}`;
+    await db`INSERT INTO task_questions(id,companion_id,run_id,question,options) VALUES(${context.commandId},${context.companionId},${context.runId},${question},${['Approve this call','Decline']}) ON CONFLICT DO NOTHING`;
+    return {pendingQuestionId:context.commandId};
+  },
   ask_user:async(context,input)=>{
     const value=z.object({question:z.string().min(1).max(2000),options:z.array(z.string().max(200)).max(6).default([])}).parse(input);
     await db`INSERT INTO task_questions(id,companion_id,run_id,question,options) VALUES(${context.commandId},${context.companionId},${context.runId},${value.question},${value.options}) ON CONFLICT DO NOTHING`;

@@ -46,3 +46,16 @@ it.each(['cancelled','failed','succeeded'])('retains an unanswered question afte
  expect(screen.queryByRole('textbox')).not.toBeInTheDocument();
  expect(screen.queryByRole('button')).not.toBeInTheDocument();
 });
+
+it('shows the exact App call and waits for a human to choose approval or decline',async()=>{
+ const onAnswered=vi.fn(async()=>{}),fetch=vi.fn(async()=>new Response(JSON.stringify({ok:true})));
+ vi.stubGlobal('fetch',fetch);
+ const details='Approve this App tool call?\nAccount: Production (railway)\nTool: railway-agent\nAnnotations: {"destructiveHint":true}\nArguments: {"projectId":"project-1"}';
+ render(<Question companionId="operator" question={{id:'approval',question:details,options:['Approve this call','Decline'],runStatus:'needs_input'}} onAnswered={onAnswered}/>);
+ const panel=screen.getByRole('region',{name:'Waiting for your answer'});
+ expect(panel).toHaveTextContent('railway-agent');expect(panel).toHaveTextContent('"destructiveHint":true');expect(panel).toHaveTextContent('"projectId":"project-1"');
+ expect(fetch).not.toHaveBeenCalled();expect(screen.getByRole('button',{name:'Decline'})).toBeEnabled();
+ fireEvent.click(screen.getByRole('button',{name:'Approve this call'}));
+ await waitFor(()=>expect(onAnswered).toHaveBeenCalledOnce());
+ expect(fetch).toHaveBeenCalledWith('/api/companions/operator/questions/approval/answer',expect.objectContaining({body:JSON.stringify({answer:'Approve this call'})}));
+});

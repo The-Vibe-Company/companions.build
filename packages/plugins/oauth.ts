@@ -1,7 +1,16 @@
 import { createHash, randomBytes } from "node:crypto";
 import { z } from "zod";
+import {
+  appDefinitions,
+  COMPANION_GMAIL_MCP_ALLOWED_TOOLS,
+  getAppDefinition,
+  type AppDefinitionId,
+  type AppDefinitions,
+  type CuratedAppDefinition,
+} from "./definitions";
+import { getAppOAuthAdapter } from "./oauth-adapters";
 // Adapted from The Vibe Company's Companion OAuth provider contracts (MIT).
-export type CompanionPluginOAuthServerName = "app.linear/linear" | "io.github.github/github-mcp-server" | "com.notion/mcp" | "build.conductor/mcp" | "com.slack/mcp" | "com.google.workspace/gmail" | "io.sentry/mcp";
+export type CompanionPluginOAuthServerName = AppDefinitionId;
 
 export type OAuthFetch = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
 const OAUTH_TIMEOUT_MS = 10_000;
@@ -18,109 +27,39 @@ export type CompanionPluginOAuthJsonValue =
 const jsonStringSchema = z.string();
 const jsonObjectSchema = z.record(z.string(), z.unknown());
 
-interface CompanionPluginOAuthServerConfig {
-  provider: string;
-  remoteUrl: string;
-  resourceMetadataUrl: string;
-  authorizationServer: string;
-  authorizationMetadataUrl?: string;
-  scopes: readonly string[];
-  allowedOrigins: readonly string[];
-  dynamicRegistration: boolean;
-}
+export { COMPANION_GMAIL_MCP_ALLOWED_TOOLS };
 
-/**
- * Gmail's remote MCP server currently exposes label mutations as well as the v1 read/draft tools.
- * Runtime enforces this allow-list at the loopback gateway so a remote tool-catalog expansion can
- * never turn the Gmail plugin into send or mailbox-mutation authority without a Companion release.
- */
-export const COMPANION_GMAIL_MCP_ALLOWED_TOOLS = [
-  "create_draft",
-  "get_message",
-  "get_thread",
-  "list_drafts",
-  "list_labels",
-  "search_threads",
-] as const;
+/** Legacy OAuth server projection; new consumers should read appDefinitions directly. */
+type LegacyOAuthServer<D extends AppDefinitions[number]> = {
+  provider: D["provider"];
+  remoteUrl: D["mcp"]["url"];
+  resourceMetadataUrl: D["oauth"]["resourceMetadataUrl"];
+  authorizationServer: D["oauth"]["authorizationServer"];
+  scopes: D["oauth"]["scopes"];
+  allowedOrigins: D["oauth"]["allowedOrigins"];
+  dynamicRegistration: D["oauth"]["client"]["kind"] extends "dynamic" ? true : false;
+} & (D["oauth"] extends { authorizationMetadataUrl: infer U extends string }
+  ? { authorizationMetadataUrl: U }
+  : {});
 
-export const COMPANION_PLUGIN_OAUTH_SERVERS = {
-  "app.linear/linear": {
-    provider: "linear",
-    remoteUrl: "https://mcp.linear.app/mcp",
-    resourceMetadataUrl: "https://mcp.linear.app/.well-known/oauth-protected-resource/mcp",
-    authorizationServer: "https://mcp.linear.app",
-    scopes: ["read", "write"],
-    allowedOrigins: ["https://mcp.linear.app"],
-    dynamicRegistration: true,
-  },
-  "io.github.github/github-mcp-server": {
-    provider: "github",
-    remoteUrl: "https://api.githubcopilot.com/mcp/",
-    resourceMetadataUrl: "https://api.githubcopilot.com/.well-known/oauth-protected-resource/mcp/",
-    authorizationServer: "https://github.com/login/oauth",
-    scopes: ["repo", "read:org", "read:user", "user:email", "admin:repo_hook"],
-    allowedOrigins: ["https://api.githubcopilot.com", "https://github.com"],
-    dynamicRegistration: false,
-  },
-  "com.notion/mcp": {
-    provider: "notion",
-    remoteUrl: "https://mcp.notion.com/mcp",
-    resourceMetadataUrl: "https://mcp.notion.com/.well-known/oauth-protected-resource/mcp",
-    authorizationServer: "https://mcp.notion.com",
-    scopes: ["default"],
-    allowedOrigins: ["https://mcp.notion.com"],
-    dynamicRegistration: true,
-  },
-  "build.conductor/mcp": {
-    provider: "conductor",
-    remoteUrl: "https://api.conductor.build/mcp",
-    resourceMetadataUrl: "https://api.conductor.build/.well-known/oauth-protected-resource/mcp",
-    authorizationServer: "https://api.conductor.build/mcp",
-    authorizationMetadataUrl: "https://api.conductor.build/.well-known/oauth-authorization-server/mcp",
-    scopes: ["mcp:tools", "offline_access"],
-    allowedOrigins: ["https://api.conductor.build"],
-    dynamicRegistration: true,
-  },
-  "com.slack/mcp": {
-    provider: "slack",
-    // Slack does not host an MCP remote for this product. This is the product-owned bridge's
-    // pinned provider operation and is deliberately ignored by the loopback bridge at call time.
-    remoteUrl: "https://slack.com/api/chat.postMessage",
-    resourceMetadataUrl: "",
-    authorizationServer: "https://slack.com",
-    scopes: ["chat:write"],
-    allowedOrigins: ["https://slack.com"],
-    dynamicRegistration: false,
-  },
-  "com.google.workspace/gmail": {
-    provider: "gmail",
-    remoteUrl: "https://gmailmcp.googleapis.com/mcp/v1",
-    resourceMetadataUrl:
-      "https://gmailmcp.googleapis.com/.well-known/oauth-protected-resource/mcp/v1",
-    authorizationServer: "https://accounts.google.com/",
-    authorizationMetadataUrl:
-      "https://accounts.google.com/.well-known/oauth-authorization-server",
-    scopes: [
-      "https://www.googleapis.com/auth/gmail.readonly",
-      "https://www.googleapis.com/auth/gmail.compose",
-    ],
-    allowedOrigins: [
-      "https://gmailmcp.googleapis.com",
-      "https://accounts.google.com",
-      "https://oauth2.googleapis.com",
-    ],
-    dynamicRegistration: false,
-  },
-  "io.sentry/mcp": {
-    provider: "sentry",
-    remoteUrl: "https://mcp.sentry.dev/mcp",
-    resourceMetadataUrl: "https://mcp.sentry.dev/.well-known/oauth-protected-resource/mcp",
-    authorizationServer: "https://mcp.sentry.dev",
-    scopes: ["org:read", "project:write", "project:admin", "team:write", "event:write"],
-    allowedOrigins: ["https://mcp.sentry.dev"],
-    dynamicRegistration: true,
-  },
-} as const satisfies Record<CompanionPluginOAuthServerName, CompanionPluginOAuthServerConfig>;
+type LegacyOAuthServers = {
+  [D in AppDefinitions[number] as D["id"]]: LegacyOAuthServer<D>;
+};
+
+export const COMPANION_PLUGIN_OAUTH_SERVERS = Object.fromEntries(
+  appDefinitions.map((definition) => [definition.id, {
+    provider: definition.provider,
+    remoteUrl: definition.mcp.url,
+    resourceMetadataUrl: definition.oauth.resourceMetadataUrl,
+    authorizationServer: definition.oauth.authorizationServer,
+    ...(definition.oauth.authorizationMetadataUrl
+      ? { authorizationMetadataUrl: definition.oauth.authorizationMetadataUrl }
+      : {}),
+    scopes: definition.oauth.scopes,
+    allowedOrigins: definition.oauth.allowedOrigins,
+    dynamicRegistration: definition.oauth.client.kind === "dynamic",
+  }]),
+) as unknown as LegacyOAuthServers;
 
 export interface CompanionPluginOAuthClient {
   clientId: string;
@@ -188,11 +127,11 @@ export class CompanionPluginOAuthError extends Error {
   }
 }
 
-/** Google has positively confirmed that the stored Gmail grant is no longer valid. */
+/** The authorization server has positively confirmed that the stored refresh grant is invalid. */
 export class CompanionPluginOAuthRevokedError extends CompanionPluginOAuthError {
   constructor() {
     super(
-      "The MCP authorization has been revoked. Reconnect it in Plugins.",
+      "The MCP authorization has been revoked. Reconnect it in Apps.",
       "oauth_refresh_failed",
     );
     this.name = "CompanionPluginOAuthRevokedError";
@@ -289,63 +228,26 @@ export function companionPluginOAuthCodeChallenge(verifier: string): string {
   return createHash("sha256").update(verifier).digest("base64url");
 }
 
-function githubClient(env: NodeJS.ProcessEnv): CompanionPluginOAuthClient {
-  const clientId = env.COMPANION_MCP_GITHUB_CLIENT_ID?.trim();
-  const clientSecret = env.COMPANION_MCP_GITHUB_CLIENT_SECRET?.trim();
-  if (!clientId || !clientSecret) {
-    throw new CompanionPluginOAuthError(
-      "GitHub MCP OAuth is not configured.",
-      "oauth_not_configured",
-    );
-  }
-  return { clientId, clientSecret, tokenEndpointAuthMethod: "client_secret_post" };
-}
-
-function slackClient(env: NodeJS.ProcessEnv): CompanionPluginOAuthClient {
-  const clientId = env.COMPANION_MCP_SLACK_CLIENT_ID?.trim();
-  const clientSecret = env.COMPANION_MCP_SLACK_CLIENT_SECRET?.trim();
-  if (!clientId || !clientSecret) {
-    throw new CompanionPluginOAuthError(
-      "Slack Bot OAuth is not configured.",
-      "oauth_not_configured",
-    );
-  }
-  return { clientId, clientSecret, tokenEndpointAuthMethod: "client_secret_basic" };
-}
-
-function isSlackServer(serverName: string): serverName is "com.slack/mcp" {
-  return serverName === "com.slack/mcp";
-}
-
-function gmailClient(env: NodeJS.ProcessEnv): CompanionPluginOAuthClient {
-  const clientId = env.COMPANION_MCP_GMAIL_CLIENT_ID?.trim();
-  const clientSecret = env.COMPANION_MCP_GMAIL_CLIENT_SECRET?.trim();
-  if (!clientId || !clientSecret) {
-    throw new CompanionPluginOAuthError(
-      "Gmail MCP OAuth is not configured.",
-      "oauth_not_configured",
-    );
-  }
-  return { clientId, clientSecret, tokenEndpointAuthMethod: "client_secret_post" };
-}
-
-function isEnvironmentClient(serverName: CompanionPluginOAuthServerName): boolean {
-  return serverName === "io.github.github/github-mcp-server"
-    || serverName === "com.google.workspace/gmail"
-    || isSlackServer(serverName);
-}
-
 function environmentClient(
-  serverName: CompanionPluginOAuthServerName,
+  definition: CuratedAppDefinition,
   env: NodeJS.ProcessEnv,
 ): CompanionPluginOAuthClient {
-  if (serverName === "io.github.github/github-mcp-server") return githubClient(env);
-  if (serverName === "com.google.workspace/gmail") return gmailClient(env);
-  return slackClient(env);
-}
-
-function usesResourceIndicator(serverName: CompanionPluginOAuthServerName): boolean {
-  return !isEnvironmentClient(serverName);
+  const configured = definition.oauth.client;
+  if (configured.kind !== "environment") {
+    throw new CompanionPluginOAuthError(
+      `${definition.name} OAuth uses dynamic client registration.`,
+      "oauth_not_configured",
+    );
+  }
+  const clientId = env[configured.clientIdEnv]?.trim();
+  const clientSecret = env[configured.clientSecretEnv]?.trim();
+  if (!clientId || !clientSecret) {
+    throw new CompanionPluginOAuthError(
+      `${definition.name} MCP OAuth is not configured.`,
+      "oauth_not_configured",
+    );
+  }
+  return { clientId, clientSecret, tokenEndpointAuthMethod: configured.tokenEndpointAuthMethod };
 }
 
 /**
@@ -359,15 +261,16 @@ export async function beginCompanionPluginOAuth(input: {
   env?: NodeJS.ProcessEnv;
   fetchImpl?: OAuthFetch;
 }): Promise<{ authorizationUrl: string; flow: CompanionPluginOAuthFlow }> {
-  if (!(input.serverName in COMPANION_PLUGIN_OAUTH_SERVERS)) {
+  const definition = getAppDefinition(input.serverName);
+  if (!definition) {
     throw new CompanionPluginOAuthError(
       "This catalog server does not support Companion OAuth.",
       "oauth_not_supported",
     );
   }
-  // SAFETY: the `in` check above proved serverName is a key of COMPANION_PLUGIN_OAUTH_SERVERS.
-  const serverName = input.serverName as CompanionPluginOAuthServerName;
-  const server = COMPANION_PLUGIN_OAUTH_SERVERS[serverName];
+  const serverName = definition.id;
+  const server = definition.oauth;
+  const adapter = getAppOAuthAdapter(server.adapter);
   const fetchImpl = input.fetchImpl ?? fetch;
   const discoveryFailure = new CompanionPluginOAuthError(
     "The MCP server's OAuth metadata could not be verified.",
@@ -376,13 +279,12 @@ export async function beginCompanionPluginOAuth(input: {
   let authorizationEndpoint: string;
   let tokenEndpoint: string;
   let client: CompanionPluginOAuthClient;
-  let resource: string = server.remoteUrl;
-  if (isSlackServer(serverName)) {
-    // Slack Bot User OAuth is a fixed confidential flow. There is no MCP resource metadata,
-    // dynamic registration, PKCE, or resource parameter in this path.
-    authorizationEndpoint = "https://slack.com/oauth/v2/authorize";
-    tokenEndpoint = "https://slack.com/api/oauth.v2.access";
-    client = slackClient(input.env ?? process.env);
+  let resource: string = definition.mcp.url;
+  if (adapter.discovery === "fixed") {
+    if (!server.authorizationEndpoint || !server.tokenEndpoint) throw discoveryFailure;
+    authorizationEndpoint = server.authorizationEndpoint;
+    tokenEndpoint = server.tokenEndpoint;
+    client = environmentClient(definition, input.env ?? process.env);
   } else {
     const resourceMetadata = await oauthJson(
       server.resourceMetadataUrl,
@@ -390,8 +292,10 @@ export async function beginCompanionPluginOAuth(input: {
       fetchImpl,
       discoveryFailure,
     );
-    resource = allowedUrl(resourceMetadata.resource, server.allowedOrigins, discoveryFailure);
-    if (resource !== new URL(server.remoteUrl).toString()) throw discoveryFailure;
+    const validatedResource = allowedUrl(resourceMetadata.resource, server.allowedOrigins, discoveryFailure);
+    if (validatedResource !== new URL(definition.mcp.url).toString()) throw discoveryFailure;
+    // OAuth resource identifiers are exact strings; URL validation must not add a slash.
+    resource = resourceMetadata.resource as string;
     const authorizationServers = resourceMetadata.authorization_servers;
     if (
       !Array.isArray(authorizationServers)
@@ -400,15 +304,15 @@ export async function beginCompanionPluginOAuth(input: {
       throw discoveryFailure;
     }
 
-    if (serverName === "io.github.github/github-mcp-server") {
-      authorizationEndpoint = "https://github.com/login/oauth/authorize";
-      tokenEndpoint = "https://github.com/login/oauth/access_token";
-      client = githubClient(input.env ?? process.env);
+    if (adapter.discovery === "resource-only") {
+      if (!server.authorizationEndpoint || !server.tokenEndpoint) throw discoveryFailure;
+      authorizationEndpoint = server.authorizationEndpoint;
+      tokenEndpoint = server.tokenEndpoint;
+      client = environmentClient(definition, input.env ?? process.env);
     } else {
       const authorizationMetadata = await oauthJson(
-        "authorizationMetadataUrl" in server
-          ? server.authorizationMetadataUrl
-          : `${server.authorizationServer}/.well-known/oauth-authorization-server`,
+        server.authorizationMetadataUrl
+          ?? `${server.authorizationServer}/.well-known/oauth-authorization-server`,
         { method: "GET" },
         fetchImpl,
         discoveryFailure,
@@ -423,7 +327,7 @@ export async function beginCompanionPluginOAuth(input: {
         server.allowedOrigins,
         discoveryFailure,
       );
-      if (server.dynamicRegistration) {
+      if (server.client.kind === "dynamic") {
         const registrationEndpoint = allowedUrl(
           authorizationMetadata.registration_endpoint,
           server.allowedOrigins,
@@ -461,19 +365,17 @@ export async function beginCompanionPluginOAuth(input: {
             : clientSecret ? "client_secret_post" : "none";
         client = { clientId, clientSecret, tokenEndpointAuthMethod };
       } else {
-        client = environmentClient(serverName, input.env ?? process.env);
+        client = environmentClient(definition, input.env ?? process.env);
       }
     }
   }
 
-  const verifier = isSlackServer(serverName) ? null : codeVerifier();
-  // Slack's v2 authorize endpoint expects a comma-separated Bot User scope list. All other
-  // curated MCP servers use the OAuth space-delimited scope convention.
-  const scope = server.scopes.join(isSlackServer(serverName) ? "," : " ");
+  const verifier = adapter.pkce ? codeVerifier() : null;
+  const scope = server.scopes.join(adapter.scopeSeparator);
   const flow: CompanionPluginOAuthFlow = {
     serverName,
-    provider: server.provider,
-    remoteUrl: server.remoteUrl,
+    provider: definition.provider,
+    remoteUrl: definition.mcp.url,
     authorizationEndpoint,
     tokenEndpoint,
     resource,
@@ -491,13 +393,11 @@ export async function beginCompanionPluginOAuth(input: {
     authorizationUrl.searchParams.set("code_challenge_method", "S256");
   }
   authorizationUrl.searchParams.set("scope", scope);
-  if (usesResourceIndicator(serverName)) {
+  if (adapter.resourceIndicator) {
     authorizationUrl.searchParams.set("resource", resource);
   }
-  if (serverName === "com.google.workspace/gmail") {
-    authorizationUrl.searchParams.set("access_type", "offline");
-    authorizationUrl.searchParams.set("include_granted_scopes", "true");
-    authorizationUrl.searchParams.set("prompt", "consent select_account");
+  for (const [key, value] of Object.entries({...adapter.authorizationParams,...definition.oauth.authorizationParams})) {
+    authorizationUrl.searchParams.set(key, value);
   }
   return { authorizationUrl: authorizationUrl.toString(), flow };
 }
@@ -552,12 +452,18 @@ function parseTokens(
   };
 }
 
-function hasGmailScopes(scope: string | null): boolean {
+function hasRequiredScopes(definition: CuratedAppDefinition, scope: string | null): boolean {
   if (!scope) return false;
   const scopes = new Set(scope.split(/\s+/).filter(Boolean));
-  return COMPANION_PLUGIN_OAUTH_SERVERS["com.google.workspace/gmail"].scopes.every(
+  return definition.oauth.scopes.every(
     (required) => scopes.has(required),
   );
+}
+
+function requiredAppDefinition(serverName: CompanionPluginOAuthServerName): CuratedAppDefinition {
+  const definition = getAppDefinition(serverName);
+  if (!definition) throw new Error("invalid curated App definition");
+  return definition;
 }
 
 /** Exchange an authorization code without ever returning provider response bodies in errors. */
@@ -567,6 +473,8 @@ export async function completeCompanionPluginOAuth(input: {
   redirectUri: string;
   fetchImpl?: OAuthFetch;
 }): Promise<CompanionPluginStoredOAuthCredential> {
+  const definition = requiredAppDefinition(input.flow.serverName);
+  const adapter = getAppOAuthAdapter(definition.oauth.adapter);
   const failure = new CompanionPluginOAuthError(
     "The MCP authorization code could not be exchanged.",
     "oauth_exchange_failed",
@@ -577,7 +485,7 @@ export async function completeCompanionPluginOAuth(input: {
     redirect_uri: input.redirectUri,
   });
   if (input.flow.codeVerifier !== null) body.set("code_verifier", input.flow.codeVerifier);
-  if (usesResourceIndicator(input.flow.serverName)) {
+  if (adapter.resourceIndicator) {
     body.set("resource", input.flow.resource);
   }
   const authentication = clientAuthentication(input.flow.client, body);
@@ -599,16 +507,15 @@ export async function completeCompanionPluginOAuth(input: {
     ),
     null,
     null,
-    isSlackServer(input.flow.serverName) ? ["bearer", "bot"] : ["bearer"],
+    adapter.acceptedTokenTypes,
   );
-  if (input.flow.serverName === "com.google.workspace/gmail" && !hasGmailScopes(tokens.scope)) {
+  if (adapter.validateGrantedScopes && !hasRequiredScopes(definition, tokens.scope)) {
     throw new CompanionPluginOAuthError(
-      "Gmail did not grant both read and draft access.",
+      `${definition.name} did not grant all required access.`,
       "oauth_exchange_failed",
     );
   }
-  const github = input.flow.serverName === "io.github.github/github-mcp-server";
-  const githubIdentity = github
+  const githubIdentity = adapter.enrichCredential === "github-identity"
     ? await githubUserIdentity({
       accessToken: tokens.accessToken,
       fetchImpl: input.fetchImpl,
@@ -622,7 +529,7 @@ export async function completeCompanionPluginOAuth(input: {
     tokenEndpoint: input.flow.tokenEndpoint,
     resource: input.flow.resource,
     // Deployment OAuth client secrets never belong in each member account envelope.
-    client: isEnvironmentClient(input.flow.serverName)
+    client: definition.oauth.client.kind === "environment"
       ? { ...input.flow.client, clientSecret: null }
       : input.flow.client,
   };
@@ -637,29 +544,29 @@ export async function refreshCompanionPluginOAuth(input: {
   fetchImpl?: OAuthFetch;
   signal?: AbortSignal;
 }): Promise<CompanionPluginStoredOAuthCredential> {
+  const definition = requiredAppDefinition(input.credential.serverName);
+  const adapter = getAppOAuthAdapter(definition.oauth.adapter);
   if (!input.credential.refreshToken) {
     throw new CompanionPluginOAuthError(
-      "The MCP authorization has expired. Reconnect it in Plugins.",
+      "The MCP authorization has expired. Reconnect it in Apps.",
       "oauth_refresh_failed",
     );
   }
   const failure = new CompanionPluginOAuthError(
-    "The MCP authorization could not be refreshed. Reconnect it in Plugins.",
+    "The MCP authorization could not be refreshed. Reconnect it in Apps.",
     "oauth_refresh_failed",
   );
   const body = new URLSearchParams({
     grant_type: "refresh_token",
     refresh_token: input.credential.refreshToken,
   });
-  const github = input.credential.serverName === "io.github.github/github-mcp-server";
-  const slack = isSlackServer(input.credential.serverName);
-  if (usesResourceIndicator(input.credential.serverName)) {
+  if (adapter.resourceIndicator) {
     body.set("resource", input.credential.resource);
   }
   let client = input.credential.client;
-  if (isEnvironmentClient(input.credential.serverName)) {
+  if (definition.oauth.client.kind === "environment") {
     try {
-      client = environmentClient(input.credential.serverName, input.env ?? process.env);
+      client = environmentClient(definition, input.env ?? process.env);
     } catch {
       throw failure;
     }
@@ -676,7 +583,7 @@ export async function refreshCompanionPluginOAuth(input: {
     input.fetchImpl ?? fetch,
     failure,
     input.signal,
-    input.credential.serverName === "com.google.workspace/gmail"
+    adapter.revokedErrorCode === "invalid_grant"
       ? new CompanionPluginOAuthRevokedError()
       : undefined,
   );
@@ -685,12 +592,12 @@ export async function refreshCompanionPluginOAuth(input: {
     failure,
     input.credential.refreshToken,
     input.credential.scope,
-    slack ? ["bearer", "bot"] : ["bearer"],
+    adapter.acceptedTokenTypes,
   );
-  if (input.credential.serverName === "com.google.workspace/gmail" && !hasGmailScopes(tokens.scope)) {
+  if (adapter.validateGrantedScopes && !hasRequiredScopes(definition, tokens.scope)) {
     throw failure;
   }
-  const githubIdentity = github
+  const githubIdentity = adapter.enrichCredential === "github-identity"
     ? await githubUserIdentity({
       accessToken: tokens.accessToken,
       fetchImpl: input.fetchImpl,

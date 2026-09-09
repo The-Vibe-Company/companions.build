@@ -227,7 +227,7 @@ class Verifier:
             "S3_SECRET_ACCESS_KEY": storage_secret_key, "S3_BUCKET_FILES": "companions-files", "S3_REGION": "us-east-1"})
 
     def run_agent_checks(self):
-        self.run("agent-unit", [self.bun, "--no-env-file", "test", "packages/plugins/tools.test.ts", "packages/agent/test/daemon.test.ts",
+        self.run("agent-unit", [self.bun, "--no-env-file", "test", "packages/plugins/definitions.test.ts", "packages/plugins/tools.test.ts", "packages/agent/test/daemon.test.ts",
             "packages/agent/test/environment.test.ts", "packages/agent/test/initialization.test.ts",
             "packages/agent/test/memory.test.ts", "packages/agent/test/skills.test.ts",
             "packages/desktop/desktop.test.ts", "packages/control/software.test.ts",

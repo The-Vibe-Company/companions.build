@@ -1,3 +1,4 @@
+import {getAppDefinitionByProvider} from '../plugins/definitions';
 import { chmodSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -33,7 +34,7 @@ export class GitCredentialBroker {
   }
 
   update(plugins:MachinePlugin[]) {
-    const github=plugins.filter(plugin=>plugin.provider==='github');
+    const github=plugins.filter(plugin=>getAppDefinitionByProvider(plugin.provider)?.capabilities?.gitCredentials===true);
     const token=github.length===1?bearerToken(Object.entries(github[0].headers??{}).find(([name])=>name.toLowerCase()==='authorization')?.[1]):null;
     this.credential=github.length>1?{kind:'ambiguous'}:token?{kind:'available',token}:{kind:'unavailable'};
   }

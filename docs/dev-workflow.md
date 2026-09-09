@@ -254,7 +254,10 @@ Hosted executors publish the already-built `dist/agent` distribution as a named
 snapshot. A changed distribution produces a new image; a missing image triggers
 publication again. PostgreSQL records ownership, publication intent and verification
 state. One publisher runs at a time, independently of companion execution. Agents
-never install dependencies or build the distribution when waking.
+never install dependencies or build the distribution when waking. While a changed
+distribution is being published or is quarantined, new companions use the latest
+older verified managed image. New pins switch to the current image only after its
+independent verification succeeds.
 
 Publication creates a clean Box, installs the bundled archive, captures the image,
 and verifies every distribution file on an independent Box. Both owned Boxes are
@@ -264,14 +267,23 @@ reconciliation; they are never automatically replayed.
 
 Only snapshots registered as managed base images are eligible for automatic cleanup.
 After switching to a verified replacement, unreferenced older managed snapshots are
-removed. Pending creations and specialist/software references protect their sources.
+removed. A companion already pinned to the fallback keeps that immutable source once
+its Box creation starts; pending creations and specialist/software references protect
+their sources.
 Unrelated snapshots are never removed to make room: a full account without an eligible
 managed image leaves publication visibly pending or blocked until capacity is freed.
 Existing Boxes keep their disks when their original base named snapshot is removed.
 
-`BOX_MANAGED_TEMPLATE=1` opts local live development into this behavior.
-Hosted mode enables it by default; `BOX_MANAGED_TEMPLATE=0` retains the explicit
-operator-managed `BOX_TEMPLATE` path. Specialist sealed-Box images remain independent
+Hosted mode consumes managed images by default. Publication and cleanup additionally
+require `BOX_MANAGED_TEMPLATE_PUBLISH=1` on the production executor. Railway API and
+worker services use `BOX_MANAGED_TEMPLATE_PUBLISH=0`. This permission is not baked into
+the container: running a production container locally does not grant it by default.
+Both local development launchers force `BOX_MANAGED_TEMPLATE=0` and
+`BOX_MANAGED_TEMPLATE_PUBLISH=0`, including live mode and inherited shell or `.env`
+settings. They consume an existing `BOX_TEMPLATE` and never publish or delete managed
+snapshots, even when sharing the production Box account. `BOX_MANAGED_TEMPLATE=0`
+also retains the explicit operator-managed `BOX_TEMPLATE` path in hosted mode.
+Specialist sealed-Box images remain independent
 of the common base named snapshot. The production container builds its distribution
 before deployment; backend publication does not compile source at runtime.
 
@@ -286,8 +298,7 @@ For fast Docker-backed local testing, set `LOCAL_RUNTIME=1` in the worktree `.en
 or shell and restart with `./dev restart`. Remove it or set `LOCAL_RUNTIME=0` to
 return to Box. This setting is independent of model selection: `--scripted` controls
 the test model, while `--live` uses configured model credentials. Live Box development
-requires `BOX_API_KEY` and either `BOX_MANAGED_TEMPLATE=1` or an explicit
-`BOX_TEMPLATE`. Deterministic verification explicitly
+requires `BOX_API_KEY` and an existing `BOX_TEMPLATE`. Deterministic verification explicitly
 enables the local runtime in its isolated test environment.
 
 ### Agent runtime updates

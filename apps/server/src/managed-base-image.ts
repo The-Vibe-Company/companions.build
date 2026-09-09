@@ -62,11 +62,19 @@ async function readyForRelease(sql:SQLLike,releaseDigest:string){
  return row?.snapshot_name as string|undefined;
 }
 
-/** Resolve only the distribution shipped with this server process. An older ready
- * row can never silently become the default after a deploy. */
+async function selectedBaseImage(sql:SQLLike,releaseDigest:string){
+ const [row]=await sql`SELECT snapshot_name FROM managed_base_images
+   WHERE status IN ('ready','retired') AND delete_intent_at IS NULL AND deleted_at IS NULL
+   ORDER BY CASE WHEN release_digest=${releaseDigest} AND status='ready' THEN 0 ELSE 1 END,
+     ready_at DESC NULLS LAST,created_at DESC,generation DESC LIMIT 1`;
+ return row?.snapshot_name as string|undefined;
+}
+
+/** Prefer the distribution shipped with this server. While it is publishing or
+ * quarantined, keep new work available on the latest verified managed image. */
 export async function resolveManagedBaseImage(sql:SQLLike=db):Promise<string|null>{
  let digest:string;try{digest=await managedBaseImageReleaseDigest();}catch{return null;}
- return await readyForRelease(sql,digest)??null;
+ return await selectedBaseImage(sql,digest)??null;
 }
 
 /** Atomically pins the selected image before Box creation. Explicit template and
@@ -87,7 +95,7 @@ export async function pinManagedBaseImage(companionId:string,sql:SQLLike=db,guar
    // Once an external create may have happened, its exact image reference is immutable.
    if(companion.box_id||companion.create_started_at)return null;
   }
-  const selected=await readyForRelease(tx,digest);if(!selected)return null;
+  const selected=await selectedBaseImage(tx,digest);if(!selected)return null;
   await tx`UPDATE companions SET snapshot_name=${selected} WHERE id=${companionId}
     AND box_id IS NULL AND create_started_at IS NULL`;
   await guard();
@@ -227,7 +235,7 @@ export class ManagedBaseImageCoordinator{
  constructor(options:CoordinatorOptions={}){
   this.database=options.database??db;this.now=options.now??Date.now;this.artifact=options.artifact??(()=>managedBaseImageArtifact(options.directory));
   this.box=Object.hasOwn(options,'box')?options.box!:(config.boxKey?new BoxClient(config.boxKey) as unknown as ManagedBox:null);
-  this.enabled=options.enabled??((config as typeof config&{managedBoxTemplate?:boolean}).managedBoxTemplate===true);
+  this.enabled=options.enabled??(config.managedBoxTemplate&&config.publishManagedBoxTemplate);
  }
  get active(){return !!this.job;}
  async schedule(leader:SQLLike){

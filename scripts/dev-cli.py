@@ -135,6 +135,8 @@ def local_env(live=None):
         result.update(runtime)
         result.update(AGENT_TEST_MODE='0')
         result.setdefault('MODEL_PROVIDER', 'google')
+    # A shared Box account is not permission to publish or delete hosted images.
+    result.update(BOX_MANAGED_TEMPLATE='0', BOX_MANAGED_TEMPLATE_PUBLISH='0')
     return result
 
 def validate_model_env(env):

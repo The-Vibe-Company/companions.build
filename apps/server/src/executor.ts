@@ -189,13 +189,13 @@ export async function tick(sql: ReservedSQL, hooks: ExecutorHooks = {}, lifecycl
     AND NOT EXISTS(SELECT 1 FROM runs r WHERE r.companion_id=c.id AND r.dispatched AND r.status IN ('running','preparing','needs_input'))`;
   if(lifecycle)await lifecycle.schedule(sql,hooks);
   else await progressLifecycle(sql, {...hooks.lifecycle,canStartWork:hooks.canStartWork??hooks.lifecycle?.canStartWork??ownerMayStartWork}, hooks.lifecycleMachines);
-  const runs = await sql`SELECT r.id,r.companion_id,r.client_message_id,r.content,r.status,r.dispatched,r.cancel_requested,r.error,r.created_at,r.started_at,r.finished_at,r.prepared_at,r.lane,r.source,r.response_root_id,r.result_text,r.publish_to_chat,r.routine_id,r.routine_name,r.publication_mode,r.scheduled_for,r.resume_requested_at,r.attachment_count,c.provider,c.box_id,c.create_key,c.create_started_at,c.agent_secret,c.endpoint_secret,c.instructions,c.specialist_draft_id,c.init_script,c.config_digest,c.snapshot_name,c.template_id,c.template_revision,c.model_id,c.owner_id
+  const runs = await sql`SELECT r.id,r.companion_id,r.client_message_id,r.content,r.status,r.dispatched,r.cancel_requested,r.error,r.created_at,r.started_at,r.finished_at,r.prepared_at,r.lane,r.source,r.response_root_id,r.result_text,r.publish_to_chat,r.routine_id,r.routine_name,r.publication_mode,r.scheduled_for,r.resume_requested_at,r.attachment_count,c.provider,c.box_id,c.create_key,c.create_started_at,c.preparation_started_at,c.agent_secret,c.endpoint_secret,c.instructions,c.specialist_draft_id,c.init_script,c.config_digest,c.snapshot_name,c.template_id,c.template_revision,c.model_id,c.owner_id
     FROM runs r JOIN companions c ON c.id=r.companion_id WHERE r.status IN ('preparing','running','needs_input') AND c.retired_at IS NULL AND c.archive_requested_at IS NULL ORDER BY r.created_at`;
   const progressSql=coordinator?db:sql;
   const groups=[...Map.groupBy(runs as any[],run=>`${run.companion_id}:${runJobKind(run)}`).entries()];
   async function progressGroup(group:any[]){
    for(const original of group){
-    const [current]=await progressSql`SELECT c.endpoint_secret,c.config_digest,c.box_id,c.create_started_at,c.prepare_requested,c.desktop_taken,c.desktop_paused_at,c.retired_at,c.archive_requested_at,r.status,r.dispatched,r.cancel_requested,r.response_root_id
+    const [current]=await progressSql`SELECT c.endpoint_secret,c.config_digest,c.box_id,c.create_started_at,c.preparation_started_at,c.prepare_requested,c.desktop_taken,c.desktop_paused_at,c.retired_at,c.archive_requested_at,r.status,r.dispatched,r.cancel_requested,r.response_root_id,r.prepared_at
       FROM companions c JOIN runs r ON r.companion_id=c.id WHERE r.id=${original.id} AND r.status IN ('preparing','running','needs_input')`;
     if(!current||current.retired_at||current.archive_requested_at)continue;
     await progressRun({...original,...current});
@@ -211,6 +211,7 @@ export async function tick(sql: ReservedSQL, hooks: ExecutorHooks = {}, lifecycl
       const finish=(status:string,text:string|null,error:string|null,rootId=run.id,publish=false)=>settle(sql,run,status,text,error,rootId,publish,leaderPid);
       await execution.assertActive();
       const age = Date.now() - new Date(run.started_at).getTime();
+      const executionAge=()=>Date.now()-new Date(run.prepared_at??run.started_at).getTime();
       const token = decrypt(run.agent_secret);
       if (run.cancel_requested && !run.dispatched) { await finish("cancelled", null, null); return; }
       try {
@@ -219,7 +220,7 @@ export async function tick(sql: ReservedSQL, hooks: ExecutorHooks = {}, lifecycl
           // A replied-to task reserves the normal FIFO slot before its blocked Pi tool receives
           // the answer. Resume only observes/toggles the existing request, never PUTs a prompt.
           if (!endpoint) { await finish("interrupted", null, "The waiting task lost its execution endpoint. It was not replayed."); return; }
-          if (age > 2 * 3600_000 || run.cancel_requested) {
+          if (executionAge() > 2 * 3600_000 || run.cancel_requested) {
             await request(endpoint, token, `/runs/${run.id}/cancel`, "POST");
             await finish(run.cancel_requested ? "cancelled" : "interrupted", null, run.cancel_requested ? null : "Task deadline reached. It was not replayed.");
             return;
@@ -251,12 +252,22 @@ export async function tick(sql: ReservedSQL, hooks: ExecutorHooks = {}, lifecycl
             if (age > 5 * 60_000) await finish("failed", null, "File upload did not finish. Send the message again with its files.");
             return;
           }
-          if (age > 5 * 60_000) { await finish("failed", null, "Preparation timed out. Send a new message to retry."); return; }
-          if (run.prepare_requested) return;
+          if (run.prepare_requested) {
+            // Waiting for the shared managed image is outside this run's preparation
+            // budget. Lifecycle starts its persisted clock immediately before the
+            // first machine effect and enforces that deadline independently.
+            if(run.preparation_started_at&&Date.now()-new Date(run.preparation_started_at).getTime()>5*60_000)await finish("failed",null,"Preparation timed out. Send a new message to retry.");
+            return;
+          }
           if (!endpoint) {
             await execution.checkpoint(async tx=>tx`UPDATE companions SET prepare_requested=true WHERE id=${run.companion_id}`);
             return;
           }
+          if(!run.prepared_at){
+            const [marked]=await execution.checkpoint(async tx=>tx`UPDATE runs SET prepared_at=COALESCE(prepared_at,now()) WHERE id=${run.id} AND status='preparing' AND NOT dispatched RETURNING prepared_at`);
+            if(!marked)return;run.prepared_at=marked.prepared_at;
+          }
+          if(Date.now()-new Date(run.prepared_at).getTime()>5*60_000){await finish("failed",null,"Preparation timed out. Send a new message to retry.");return;}
           try {
             const health = await tracePreparation(run.companion_id,'admission_health',()=>request(endpoint!, token, "/health"),value=>value?.ready?'ready':'not_ready',run.id);
             if (!health?.ready) throw new Error("agent_not_ready");
@@ -287,7 +298,7 @@ export async function tick(sql: ReservedSQL, hooks: ExecutorHooks = {}, lifecycl
           // Persist intent before the network side effect. Recovery only observes this id.
           const useGateway=!config.testMode&&!!config.modelGatewayUrl;
           const selectedModel=run.model_id??config.modelId;
-          const [dispatch] = await sql`UPDATE runs SET status='running',dispatched=true,prepared_at=now(),
+          const [dispatch] = await sql`UPDATE runs SET status='running',dispatched=true,prepared_at=COALESCE(prepared_at,now()),
             model_provider=${config.testMode?'companion-test':config.modelProvider},model_id=${config.testMode?'scripted':selectedModel},usage_source=${useGateway?'gateway':'agent'}
             WHERE id=${run.id} AND status='preparing' AND NOT cancel_requested
             AND EXISTS(SELECT 1 FROM companions c WHERE c.id=runs.companion_id AND c.retired_at IS NULL AND c.archive_requested_at IS NULL AND NOT c.prepare_requested AND c.endpoint_secret=${run.endpoint_secret})
@@ -319,7 +330,7 @@ export async function tick(sql: ReservedSQL, hooks: ExecutorHooks = {}, lifecycl
           await finish(result.status, typeof result.text === "string" ? result.text : null,
             result.status === "failed" ? "The agent could not complete this task." : result.status === "interrupted" ? "The agent restarted during this task. It was not replayed." : null,
             result.responseRootId ?? run.id, result.publishToChat === true);
-        } else if (age > 2 * 3600_000) {
+        } else if (executionAge() > 2 * 3600_000) {
           await request(endpoint, token, `/runs/${run.id}/cancel`, "POST");
           await finish("interrupted", null, "Task deadline reached. It was not replayed.");
         } else if (result.status === "needs_input") {
@@ -338,7 +349,8 @@ export async function tick(sql: ReservedSQL, hooks: ExecutorHooks = {}, lifecycl
           } catch (repairError) { if (repairError instanceof SQL.SQLError || repairError instanceof ExecutionStopped) throw repairError; }
         }
         // Network failures stay observable and bounded. Never include provider payloads.
-        if (age > (!run.dispatched ? 5 * 60_000 : 10 * 60_000)) {
+        const stalledAge=run.prepared_at?executionAge():age;
+        if (stalledAge > (!run.dispatched ? 5 * 60_000 : 10 * 60_000)) {
           await finish(run.dispatched ? "interrupted" : "failed", null, "The machine did not respond. This task was not replayed.");
           await execution.checkpoint(async tx=>tx`UPDATE companions SET status='error',error='Machine unavailable.',endpoint_secret=null WHERE id=${run.companion_id}`);
         }

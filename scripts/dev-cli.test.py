@@ -123,6 +123,18 @@ time.sleep(60)
         with self.assertRaisesRegex(RuntimeError, 'Live mode needs'):
             cli.validate_model_env({'AGENT_TEST_MODE': '0'})
 
+    def test_shared_box_account_never_enables_local_snapshot_publication(self):
+        for live in (False, True):
+            with patch.dict(cli.os.environ, {'BOX_API_KEY': 'shared-account', 'BOX_TEMPLATE': 'existing-image',
+                                            'BOX_MANAGED_TEMPLATE': '1', 'BOX_MANAGED_TEMPLATE_PUBLISH': '1',
+                                            'NODE_ENV': 'production'}, clear=True):
+                env = cli.local_env(live=live)
+            self.assertEqual(env['BOX_API_KEY'], 'shared-account')
+            self.assertEqual(env['BOX_TEMPLATE'], 'existing-image')
+            self.assertEqual(env['BOX_MANAGED_TEMPLATE'], '0')
+            self.assertEqual(env['BOX_MANAGED_TEMPLATE_PUBLISH'], '0')
+            self.assertEqual(env['NODE_ENV'], 'development')
+
     def test_runtime_inheritance_is_filtered_and_overridable(self):
         with tempfile.TemporaryDirectory() as directory:
             main = Path(directory) / 'main'; main.mkdir()

@@ -1,3 +1,4 @@
+import {runtimeVersion} from "./runtime-version";
 import { timingSafeEqual } from "node:crypto";
 import { join } from "node:path";
 import { RunJournal } from "./journal";
@@ -13,6 +14,8 @@ export class AgentDaemon {
   private readonly cancelling = new Set<string>();
   private readonly parkedRuns = new Set<string>();
   private resumingBackground = false;
+  private maintenance = false;
+  private mutations = 0;
   private readonly initializing = new Map<string, { controller: AbortController; done: Promise<unknown> }>();
   private readonly initialization: InitializationRunner;
 
@@ -30,9 +33,21 @@ export class AgentDaemon {
     if (!authorized(request.headers.get("authorization"), this.token)) return json({ error: "UNAUTHORIZED" }, 401);
     const url = new URL(request.url);
     if (request.method === "GET" && url.pathname === "/health") {
-      return json({ ready: true, version: "0.2.0", desktopBoundaryVersion:this.desktopBoundaryVersion, activeRunId: this.activeRuns.main, activeRuns: this.activeRuns, parkedRuns: [...this.parkedRuns] });
+      return json({ ready: true, version: "0.2.0", runtimeVersion, maintenanceSupported:true, maintenance:this.maintenance, maintenanceReady:this.mutations===0&&this.initializing.size===0, desktopBoundaryVersion:this.desktopBoundaryVersion, activeRunId: this.activeRuns.main, activeRuns: this.activeRuns, parkedRuns: [...this.parkedRuns] });
     }
-    const handled = await this.handleRequest?.(request);
+    if(request.method==='POST'&&url.pathname==='/maintenance'){
+      if(this.mutations||this.initializing.size||this.activeRuns.main||this.activeRuns.background||this.parkedRuns.size||this.resumingBackground||this.cancelling.size)return json({error:'AGENT_BUSY'},409);
+      this.maintenance=true;
+      return json({maintenance:true});
+    }
+    if(request.method==='DELETE'&&url.pathname==='/maintenance'){
+      this.maintenance=false;return json({maintenance:false});
+    }
+    if(this.maintenance&&request.method!=='GET'&&!url.pathname.startsWith('/runs/'))return json({error:'AGENT_MAINTENANCE'},503);
+    const mutating=request.method!=='GET';
+    if(mutating)this.mutations++;
+    let handled:Response|null|undefined;
+    try{handled=await this.handleRequest?.(request);}finally{if(mutating)this.mutations--;}
     if (handled) return handled;
     const match = url.pathname.match(/^\/runs\/([^/]+)(\/cancel|\/suspend|\/resume)?$/);
     if (!match || !UUID.test(match[1])) return json({ error: "NOT_FOUND" }, 404);
@@ -76,6 +91,7 @@ export class AgentDaemon {
       const accepted = this.journal.accept(id, input);
       return accepted.kind === "conflict" ? json({ error: "IDEMPOTENCY_CONFLICT" }, 409) : json(accepted.run);
     }
+    if(this.maintenance)return json({error:"AGENT_MAINTENANCE"},503);
     const lane = input.lane ?? "main";
     // Pi has no accepting root before execute(), but initialization already owns
     // this machine. Leave new requests unaccepted so either lane can retry safely.

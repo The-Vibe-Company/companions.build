@@ -1,3 +1,4 @@
+import {runtimeRelease} from "../packages/box/runtime-release";
 import { cpSync, mkdirSync, renameSync, symlinkSync, existsSync, lstatSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { requirePinnedBun } from "./lib/pinned-bun";
 import { canonicalJson, normalizedSoftwareBuildConfig, readBoundedFile, softwareDistributionDescriptorPayload } from "../packages/box/software-distribution";
@@ -27,7 +28,7 @@ if (softwareConfig) {
     "packages/box/software-builder-cli.ts", "--outfile", `${output}/companion-software-builder`], { stdout: "inherit", stderr: "inherit" });
   if (await builder.exited) process.exit(1);
 }
-cpSync("packages/box/linux", output, { recursive: true });
+cpSync("packages/box/linux", output, { recursive: true, filter:source=>!source.split(/[\\/]/).includes("__pycache__")&&!source.endsWith(".pyc") });
 
 // Pi resolves these resources relative to the compiled executable at runtime.
 cpSync("node_modules/@silvia-odwyer/photon-node/photon_rs_bg.wasm", `${output}/photon_rs_bg.wasm`);
@@ -39,6 +40,7 @@ if (softwareConfig && softwareKeyring) {
   descriptorPayload = softwareDistributionDescriptorPayload(softwareConfig, softwareKeyring, builder);
   // The immutable identity binds the capability inputs but excludes its own digest.
 }
+writeFileSync(`${output}/runtime-release.json`, JSON.stringify(runtimeRelease(output))+"\n");
 const releaseDigest=calculateAgentReleaseDigest(output, descriptorPayload && softwareKeyring ? {
   builder: readFileSync(`${output}/companion-software-builder`), descriptorPayload, keyring: softwareKeyring,
 } : undefined);

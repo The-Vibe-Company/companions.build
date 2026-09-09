@@ -1,0 +1,21 @@
+apps/server/src/managed-base-image.ts
+  s_3a42cadc2a06c2::t_12ea7bbcbd4665 336-337
+apps/server/test/managed-base-image.test.ts
+  s_3a42cadc2a06c2::t_12ea7bbcbd4665 207-224
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "2abb58bc999d15b505de09389eb1c502b1a7d428",
+  "prompts": {},
+  "sessions": {
+    "s_3a42cadc2a06c2": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a085f7-65e6-7543-9909-16542d8e4ac4",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "StanGirard <stan@quivr.app>"
+    }
+  }
+}

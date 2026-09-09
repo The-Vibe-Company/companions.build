@@ -12,7 +12,7 @@ export async function deferRejectedBoxStart(sql:any,companionId:string,error:unk
   await tx`SELECT pg_advisory_xact_lock(721440140)`;
   await tx`UPDATE machine_provider_limits SET cooldown_until=GREATEST(COALESCE(cooldown_until,'-infinity'),now()+interval '60 seconds') WHERE singleton=true`;
   await tx`UPDATE machine_admission_requests SET state='queued',waiting_reason='provider_cooldown',admitted_at=null,start_counted=false WHERE companion_id=${companionId} AND state='admitted'`;
-  await tx`UPDATE companions SET preparation_started_at=null,create_started_at=CASE WHEN box_id IS NULL THEN NULL ELSE create_started_at END,error='Waiting for provider capacity.' WHERE id=${companionId}`;
+  await tx`UPDATE companions SET create_started_at=CASE WHEN box_id IS NULL THEN NULL ELSE create_started_at END,error='Waiting for provider capacity.' WHERE id=${companionId}`;
  });
  return true;
 }

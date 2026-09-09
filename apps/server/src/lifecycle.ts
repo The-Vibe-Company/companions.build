@@ -9,7 +9,7 @@ import {handoffDelegationFiles} from './files';
 import { z } from 'zod';
 import { db } from './store';
 import { config, decrypt, encrypt } from './config';
-import { prepareBox, prepareLocal, agentRequest, environmentDigest, pauseMachine, archiveMachine, ExecutionStopped, type EffectGuard, type DesktopMachineState } from './machines';
+import { prepareBox, prepareLocal, agentRequest, environmentDigest, pauseMachine, archiveMachine, machinePreparationReady, ExecutionStopped, MachineError, type EffectGuard, type DesktopMachineState } from './machines';
 import { BoxClient, BoxError } from '../../../packages/box/client';
 import { adoptTemplate, allowTemplate, listTemplates, saveTemplate, recordTemplateRevision, LifecycleConflict } from './templates';
 import { spawnChild, delegateTask } from './delegation';
@@ -38,6 +38,7 @@ export interface LifecycleHooks {
 }
 export interface LifecycleMachines {
  archivedSpecialistImages?:boolean;
+ preparationReady?(companion:any):Promise<boolean>;
  prepare(companion:any,checkpoint:(id:string)=>Promise<void>,configured:()=>Promise<void>,beforeEffect?:EffectGuard):Promise<string|null>;
  health(endpoint:string,token:string):Promise<any>;
  pause(companion:any,paused:boolean,beforeEffect?:EffectGuard):Promise<DesktopMachineState|void>;
@@ -49,6 +50,7 @@ export interface LifecycleMachines {
 const machines:LifecycleMachines={
  archivedSpecialistImages:true,
  ...specialistBoxMachines(provider),
+ preparationReady:machinePreparationReady,
  prepare:(companion,checkpoint,configured,beforeEffect)=>companion.provider==='local'?prepareLocal(companion,true,beforeEffect):prepareBox(companion,checkpoint,configured,beforeEffect),
  health:(endpoint,token)=>agentRequest(endpoint,token,'/health'),pause:pauseMachine,archive:archiveMachine,
  async cancel(companion,runId,beforeEffect){
@@ -168,6 +170,7 @@ export async function progressLifecycle(sql:any=db,hooks:LifecycleHooks={},machi
  }));
  const failed=preparation.find(result=>result.status==='rejected');if(failed?.status==='rejected')throw failed.reason;
  async function prepare(companion:any){
+  let machinePreparationActive=false;
   async function beforePrepareEffect(){
    await assertLeader();
    const [latest]=await sql`SELECT owner_id,box_id,desktop_paused_at,retired_at,archive_requested_at,
@@ -198,11 +201,18 @@ export async function progressLifecycle(sql:any=db,hooks:LifecycleHooks={},machi
    // is settled. GUI coordination below remains available while work continues.
    const [activity]=companion.prepare_requested?await sql`SELECT EXISTS(SELECT 1 FROM runs WHERE companion_id=${companion.id} AND dispatched AND status IN ('preparing','running','needs_input')) AS active`: [{active:false}];
    if(companion.prepare_requested&&!companion.archive_requested_at&&!activity.active){
-    if(!companion.preparation_started_at){
-     await checkpoint(async(tx:any)=>{await tx`UPDATE companions SET preparation_started_at=now(),create_started_at=COALESCE(create_started_at,now()),status=CASE WHEN ${reusable} THEN status ELSE 'preparing' END,error=null WHERE id=${companion.id}`;if(!reusable)await usage(tx,companion,'starting');});
-     companion.preparation_started_at=new Date();
+    machinePreparationActive=true;
+    if(machine.preparationReady&&!await machine.preparationReady(companion)){
+     await checkpoint(async(tx:any)=>{await tx`UPDATE companions SET status='preparing',error='Base image publication is pending.' WHERE id=${companion.id}`;});return;
     }
-    if(Date.now()-new Date(companion.preparation_started_at).getTime()>5*60_000){await checkpoint(async(tx:any)=>{await tx`UPDATE companions SET prepare_requested=false,preparation_started_at=null,status='error',error='Machine preparation timed out. Request preparation to retry.' WHERE id=${companion.id}`;});return;}
+    if(!companion.preparation_started_at){
+     const started=await checkpoint(async(tx:any)=>{const [value]=await tx`UPDATE companions SET preparation_started_at=now(),create_started_at=COALESCE(create_started_at,now()),status=CASE WHEN ${reusable} THEN status ELSE 'preparing' END,error=null WHERE id=${companion.id} RETURNING preparation_started_at,create_started_at`;if(!reusable)await usage(tx,companion,'starting');return value;});
+     companion.preparation_started_at=started.preparation_started_at;companion.create_started_at=started.create_started_at;
+    }
+    if(Date.now()-new Date(companion.preparation_started_at).getTime()>5*60_000){await checkpoint(async(tx:any)=>{
+     await tx`UPDATE companions SET prepare_requested=false,preparation_started_at=null,status='error',error='Machine preparation timed out. Request preparation to retry.' WHERE id=${companion.id}`;
+     await tx`UPDATE runs SET status='failed',finished_at=now(),error='Preparation timed out. Send a new message to retry.' WHERE companion_id=${companion.id} AND status IN ('queued','preparing') AND NOT dispatched`;
+    });return;}
     await checkpoint(async()=>{}); // Fence each provider attempt, including subsequent readiness polls.
     const endpoint=reusable?decrypt(companion.endpoint_secret):await machine.prepare(companion,async id=>{await checkpoint(async(tx:any)=>{await tx`UPDATE companions SET box_id=${id} WHERE id=${companion.id}`;});companion.box_id=id;},async()=>{await checkpoint(async(tx:any)=>{await tx`UPDATE companions SET config_digest=${digest} WHERE id=${companion.id}`;});},beforePrepareEffect);
     if(!endpoint)return;
@@ -236,6 +246,7 @@ export async function progressLifecycle(sql:any=db,hooks:LifecycleHooks={},machi
      if(!reusable)await usage(tx,companion,'ready');
     }));
     companion.endpoint_secret=encrypt(endpoint);companion.status='ready';
+    machinePreparationActive=false;
    }
    if((companion.desktop_taken||companion.desktop_boundary_version===1)&&companion.endpoint_secret&&companion.status==='ready'&&!companion.archive_requested_at){
     async function desktopGuard(){
@@ -252,7 +263,23 @@ export async function progressLifecycle(sql:any=db,hooks:LifecycleHooks={},machi
       desktop_observed_generation=${observed.generation},desktop_broker_boot_id=${observed.bootId},desktop_checked_at=now(),error=null
       WHERE id=${companion.id} AND desktop_generation=${observed.generation} AND desktop_taken=${observed.taken}`;});
    }
-  }catch(error){if(error instanceof ExecutionStopped)throw error;await assertLeader();if(await deferRejectedBoxStart(sql,companion.id,error))return;await checkpoint(async(tx:any)=>{await tx`UPDATE companions SET desktop_checked_at=now(),error=${companion.desktop_taken?'Desktop takeover could not be confirmed. Desktop interactions may still be active.':'Machine preparation is temporarily unavailable.'} WHERE id=${companion.id} AND desktop_generation=${companion.desktop_generation}`;});}
+  }catch(error){
+   if(error instanceof ExecutionStopped)throw error;
+   await assertLeader();if(await deferRejectedBoxStart(sql,companion.id,error))return;
+   const terminalBoxFailure=machinePreparationActive&&companion.provider==='box'&&(error instanceof BoxError||error instanceof MachineError);
+   if(terminalBoxFailure){
+    const message=error instanceof BoxError&&error.code==='box_not_found'&&!companion.box_id
+     ?'Machine image is unavailable. Request preparation to retry.'
+     :!companion.box_id&&companion.create_started_at
+      ?'Machine creation could not be confirmed. Request preparation to retry.'
+      :'Machine preparation failed. Request preparation to retry.';
+    await checkpoint(async(tx:any)=>{
+     await tx`UPDATE companions SET prepare_requested=false,preparation_started_at=null,status='error',error=${message} WHERE id=${companion.id}`;
+     await tx`UPDATE runs SET status='failed',finished_at=now(),error=${message} WHERE companion_id=${companion.id} AND status IN ('queued','preparing') AND NOT dispatched`;
+    });return;
+   }
+   await checkpoint(async(tx:any)=>{await tx`UPDATE companions SET desktop_checked_at=now(),error=${companion.desktop_taken?'Desktop takeover could not be confirmed. Desktop interactions may still be active.':'Machine preparation is temporarily unavailable.'} WHERE id=${companion.id} AND desktop_generation=${companion.desktop_generation}`;});
+  }
  }
  // A submitted snapshot name is only observed on recovery; an ambiguous POST is never repeated.
  for(const candidate of await sql`SELECT k.*,c.box_id,c.provider,c.owner_id FROM template_candidates k JOIN companions c ON c.id=k.source_companion_id WHERE (${companionId}::uuid IS NULL OR c.id=${companionId}) AND k.status IN ('queued','capturing','ready') AND c.retired_at IS NULL AND NOT c.desktop_taken AND c.desktop_paused_at IS NULL ORDER BY k.requested_at LIMIT 50`){

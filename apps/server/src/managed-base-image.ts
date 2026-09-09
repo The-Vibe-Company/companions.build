@@ -227,7 +227,7 @@ export class ManagedBaseImageCoordinator{
  constructor(options:CoordinatorOptions={}){
   this.database=options.database??db;this.now=options.now??Date.now;this.artifact=options.artifact??(()=>managedBaseImageArtifact(options.directory));
   this.box=Object.hasOwn(options,'box')?options.box!:(config.boxKey?new BoxClient(config.boxKey) as unknown as ManagedBox:null);
-  this.enabled=options.enabled??((config as typeof config&{managedBoxTemplate?:boolean}).managedBoxTemplate===true);
+  this.enabled=options.enabled??(config.managedBoxTemplate&&config.publishManagedBoxTemplate);
  }
  get active(){return !!this.job;}
  async schedule(leader:SQLLike){

@@ -5,6 +5,7 @@ import {manifestDigest,type DistributionManifest} from '../../../scripts/lib/dis
 import {acquireExecutor} from '../src/executor';
 import {ManagedBaseImageCoordinator} from '../src/managed-base-image';
 import {createCompanion,db,migrate} from '../src/store';
+import {config} from '../src/config';
 
 const owner='00000000-0000-4000-8000-000000000001';
 const companions:string[]=[];
@@ -78,6 +79,19 @@ class FakeBox {
 function coordinator(box:FakeBox,value:ReturnType<typeof artifact>,now:()=>number=Date.now){
  return new ManagedBaseImageCoordinator({database:db,box:box as any,artifact:async()=>value,now,enabled:true});
 }
+
+test('consuming managed images without publication permission makes no provider or database effects',async()=>{
+ const previous={managed:config.managedBoxTemplate,publish:config.publishManagedBoxTemplate};
+ config.managedBoxTemplate=true;config.publishManagedBoxTemplate=false;
+ let artifacts=0;
+ const value=artifact('shared-account'),box=new FakeBox(value.manifest);
+ const publisher=new ManagedBaseImageCoordinator({box:box as any,artifact:async()=>{artifacts++;return value;}});
+ try{
+  await publisher.schedule((()=>{throw Error('Unexpected database access');}) as any);
+  expect(publisher.active).toBe(false);expect(artifacts).toBe(0);
+  expect(box.creates).toHaveLength(0);expect(box.deletes).toHaveLength(0);expect(box.stops).toHaveLength(0);
+ }finally{await publisher.close();config.managedBoxTemplate=previous.managed;config.publishManagedBoxTemplate=previous.publish;}
+});
 
 test('concurrent coordinators publish one verified image and archive both owned Boxes',async()=>{
  const value=artifact('release-one'),box=new FakeBox(value.manifest),lock=await leader();

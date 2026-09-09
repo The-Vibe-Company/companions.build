@@ -1,0 +1,50 @@
+apps/server/test/model-gateway-token.test.ts
+  s_bb9e58995254c6::t_f87e280d7bb68c 59
+  s_bb9e58995254c6::t_438a42edc9715d 34,39,43,53-58,60-63
+  s_bb9e58995254c6::t_9218e51a5c79dd 64-66
+apps/server/src/machines.ts
+  s_bb9e58995254c6::t_f87e280d7bb68c 10,57-59
+  s_bb9e58995254c6::t_2bd41f0780c840 44-45,52-54
+  s_bb9e58995254c6::t_aed97c4d6f6775 60
+packages/agent/src/azure-foundry.ts
+  s_bb9e58995254c6::t_188e759c712bc0 18,21
+  s_bb9e58995254c6::t_47314e20357027 19,25
+  s_bb9e58995254c6::t_47abf77cf21abd 1-17,20,22-24,26-27,29-30
+  s_bb9e58995254c6::t_e13cfc5ec201e8 28
+apps/server/src/models.ts
+  s_bb9e58995254c6::t_47abf77cf21abd 2,5-6,10-11
+packages/agent/test/initialization.test.ts
+  s_bb9e58995254c6::t_e13cfc5ec201e8 6,104-106,115-119,125
+  s_bb9e58995254c6::t_2dc4c28dbeae85 107-114,120-124
+  s_bb9e58995254c6::t_a386d3004e0835 126
+apps/server/test/azure-openai.test.ts
+  s_bb9e58995254c6::t_2dc4c28dbeae85 1-13
+apps/server/src/model-gateway.ts
+  s_bb9e58995254c6::t_2bd41f0780c840 18,25,76,86,173-176,179
+  s_bb9e58995254c6::t_aece3a4a878447 196
+  s_bb9e58995254c6::t_f87e280d7bb68c 5,90-92
+apps/server/test/model-gateway.test.ts
+  s_bb9e58995254c6::t_438a42edc9715d 5,15,22,26,29,34,38-39,49-52
+  s_bb9e58995254c6::t_aece3a4a878447 37,130
+  s_bb9e58995254c6::t_521e8363f87e8f 53-55
+apps/server/src/azure-openai.ts
+  s_bb9e58995254c6::t_f87e280d7bb68c 1-11
+packages/agent/src/pi-executor.ts
+  s_bb9e58995254c6::t_47abf77cf21abd 11,69
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "17cf30c776e362c8fa6143e2adb8735ec90b18fc",
+  "prompts": {},
+  "sessions": {
+    "s_bb9e58995254c6": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a085e6-9aa3-7b13-b800-e0a61261aee5",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "StanGirard <stan@quivr.app>"
+    }
+  }
+}

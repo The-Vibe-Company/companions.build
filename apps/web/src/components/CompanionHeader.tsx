@@ -46,7 +46,8 @@ export function CompanionHeader({ detail, section, refreshVersion, onSection, on
   return <header className="companion-header">
     <Button className="mobile-menu" variant="ghost" size="icon" onClick={onMenu} aria-label="Open navigation"><Menu/></Button>
     <button className="companion-header-identity" aria-label="Discussion" aria-current={section==="chat"?"page":undefined} title="Back to discussion" onClick={()=>onSection("chat")}>
-      <h1>{companion.name}</h1><span>{finished?"Finished specialist":companion.instructions}</span>
+      <CompanionAvatar name={companion.name} avatar={companion.avatar} sleeping={companion.status==="archived"} size={32}/>
+      <div className="companion-header-text"><h1>{companion.name}</h1><span>{finished?"Finished specialist":companion.instructions}</span></div>
     </button>
     <nav ref={navigation} className="companion-header-links" aria-label="Companion sections">
       {!finished&&<>

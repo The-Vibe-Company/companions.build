@@ -552,6 +552,8 @@ svg { width: 1rem; height: 1rem; stroke-width: 1.8; }
 .markdown-body h1, .markdown-body h2, .markdown-body h3 { margin: 1.25em 0 .45em; line-height: 1.25; letter-spacing: -.02em; }
 .markdown-body h1 { font-size: 1.2rem; } .markdown-body h2 { font-size: 1.08rem; } .markdown-body h3 { font-size: 1rem; }
 .markdown-body ul, .markdown-body ol { margin: .55em 0 .8em; padding-left: 1.35em; }
+.markdown-body ul { list-style-type: disc; }
+.markdown-body ol { list-style-type: decimal; }
 .markdown-body li + li { margin-top: .28em; }
 .markdown-body a { color: oklch(.43 .13 245); text-decoration-thickness: 1px; text-underline-offset: 3px; }
 .markdown-body code { border-radius: 5px; padding: .12em .32em; background: var(--secondary); font-family: ui-monospace, "SFMono-Regular", Consolas, monospace; font-size: .9em; }
@@ -681,3 +683,8 @@ svg { width: 1rem; height: 1rem; stroke-width: 1.8; }
   .filter-read { grid-template-columns: 1fr 1fr 36px; padding: 10px 0; border-top: 1px solid var(--border); }
   .filter-read select[aria-label$="account"], .filter-read input[aria-label$="path"] { grid-column: span 2; }
 }
+
+.pending-files > .pending-image { position: relative; flex: 0 0 112px; flex-direction: column; align-items: stretch; padding: 6px; }
+.pending-image > img { width: 98px; height: 72px; object-fit: contain; border-radius: 4px; }
+.pending-file-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pending-files > .pending-image > button { position: absolute; top: 4px; right: 4px; border-radius: 50%; background: var(--background); color: var(--foreground); }

@@ -226,6 +226,25 @@ function Sidebar({
   );
 }
 
+const CHAT_IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/webp", "image/gif"]);
+
+function PendingFile({ file, onRemove }: { file: File; onRemove: () => void }) {
+  const [image, setImage] = useState<{ file: File; url: string }>();
+  const preview = image?.file === file ? image.url : undefined;
+  useEffect(() => {
+    if (!CHAT_IMAGE_TYPES.has(file.type)) return;
+    const url = URL.createObjectURL(file);
+    setImage({ file, url });
+    return () => URL.revokeObjectURL(url);
+  }, [file]);
+
+  return <span className={preview ? "pending-image" : undefined}>
+    {preview ? <img src={preview} alt={`Preview of ${file.name}`} /> : <FileText />}
+    <span className="pending-file-name">{file.name}</span>
+    <button type="button" onClick={onRemove} aria-label={`Remove ${file.name}`}><X /></button>
+  </span>;
+}
+
 function Chat({ detail, onRefresh, onUnauthorized, onOpenCompanion, specialistTemplateId, specialistCards, specialistHistory = [], readOnly = false, onOpenRoutine }: { onOpenRoutine?: (id: string) => void; detail: CompanionDetail; onRefresh: () => Promise<void>; onUnauthorized: () => void; onOpenCompanion: (id: string) => void; specialistTemplateId?: string | null; specialistCards?: ReactNode; specialistHistory?: Array<{id:string;runId?:string;createdAt:string;content:ReactNode}>; readOnly?: boolean }) {
   const [draft, setDraft] = useState("");
   const [routineRunIds, setRoutineRunIds] = useState<string[]>([]);
@@ -456,7 +475,7 @@ function Chat({ detail, onRefresh, onUnauthorized, onOpenCompanion, specialistTe
       {!readOnly && <form className={cn("composer-wrap", dragActive && "composer-wrap--drop")} onSubmit={send} onDragEnter={dragEnter} onDragOver={dragOver} onDragLeave={dragLeave} onDrop={drop}>
         <span className="sr-only" aria-live="polite">{fileNotice}</span>
         {actionError && <p className="composer-error" role="alert">{actionError}</p>}
-        {files.length > 0 && <div className="pending-files">{files.map((file, index) => <span key={`${file.name}-${file.lastModified}`}><FileText />{file.name}<button type="button" onClick={() => setFiles((current) => current.filter((_, item) => item !== index))} aria-label={`Remove ${file.name}`}><X /></button></span>)}</div>}
+        {files.length > 0 && <div className="pending-files">{files.map((file, index) => <PendingFile key={index} file={file} onRemove={() => setFiles(current => current.filter((_, item) => item !== index))} />)}</div>}
         <div className="composer">
           {dragActive && <div className="drop-indicator" aria-hidden="true"><Paperclip />Drop files here</div>}
           {paletteOpen && <div className="skill-palette" role="listbox" id={`skill-palette-${detail.companion.id}`} aria-label="Skills">
@@ -492,6 +511,14 @@ function Chat({ detail, onRefresh, onUnauthorized, onOpenCompanion, specialistTe
               if (dismissed && dismissed.value === input.value && dismissed.start === input.selectionStart && dismissed.end === input.selectionEnd) return;
               dismissedSelection.current = null;
               updateCommandToken(input.value, input.selectionStart);
+            }}
+            onPaste={(event) => {
+              const images = Array.from(event.clipboardData.items)
+                .filter(item => item.kind === "file" && CHAT_IMAGE_TYPES.has(item.type))
+                .map(item => item.getAsFile())
+                .filter((file): file is File => file !== null);
+              addFiles(images);
+              // Keep native text insertion, including mixed text/image clipboard content.
             }}
             onKeyDown={(event) => {
               if (event.nativeEvent.isComposing) return;

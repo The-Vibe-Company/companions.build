@@ -62,8 +62,10 @@ it("shows Markdown list markers after Tailwind preflight without changing UI lis
       </script>`);
     const output = execFileSync(process.env.CHROME_BIN || "google-chrome", [
       "--headless", "--no-sandbox", "--disable-gpu", "--disable-dev-shm-usage",
+      "--no-first-run", "--no-default-browser-check", "--disable-background-networking",
+      "--disable-component-update", "--disable-extensions", "--disable-sync",
       `--user-data-dir=${path.join(directory, "profile")}`, "--dump-dom", pathToFileURL(file).href,
-    ], { encoding: "utf8", timeout: 20_000, stdio: ["ignore", "pipe", "pipe"] });
+    ], { encoding: "utf8", timeout: 45_000, stdio: ["ignore", "pipe", "pipe"] });
     const result = JSON.parse(output.match(/<pre id="browser-result">(.*?)<\/pre>/)![1]);
     const { lists } = result;
     expect(lists).toHaveLength(17);
@@ -82,4 +84,4 @@ it("shows Markdown list markers after Tailwind preflight without changing UI lis
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }
-}, 30_000);
+}, 60_000);

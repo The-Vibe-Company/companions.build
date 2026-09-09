@@ -19,7 +19,10 @@ export function preparationState(companionId:string,phase:PreparationPhase,outco
  if(enabled(companionId,phase))emit(companionId,phase,performance.now(),outcome);
 }
 export async function tracePreparation<T>(companionId:string,phase:PreparationPhase,operation:()=>Promise<T>,resultOutcome?:(value:T)=>Outcome,runId?:string):Promise<T>{
- if(!enabled(companionId,phase))return operation();
+ if(!enabled(companionId,phase)){
+  try{return await operation();}
+  catch(error){if(uuid.test(companionId)&&phases.includes(phase))emit(companionId,phase,performance.now(),'error',runId);throw error;}
+ }
  const startedMs=performance.now();
  try{const value=await operation();emit(companionId,phase,startedMs,resultOutcome?.(value)??'ok',runId);return value;}
  catch(error){emit(companionId,phase,startedMs,'error',runId);throw error;}

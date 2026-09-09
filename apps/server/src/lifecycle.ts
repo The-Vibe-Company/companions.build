@@ -266,7 +266,12 @@ export async function progressLifecycle(sql:any=db,hooks:LifecycleHooks={},machi
   }catch(error){
    if(error instanceof ExecutionStopped)throw error;
    await assertLeader();if(await deferRejectedBoxStart(sql,companion.id,error))return;
-   const terminalBoxFailure=machinePreparationActive&&companion.provider==='box'&&(error instanceof BoxError||error instanceof MachineError);
+   // Once creation is checkpointed, readiness/configuration retries target the
+   // same Box and remain bounded by the existing preparation deadline. In
+   // particular, private preview registration can lag a successful service start.
+   // An unconfirmed create still stops immediately rather than consuming starts.
+   const terminalBoxFailure=machinePreparationActive&&companion.provider==='box'&&
+    (error instanceof MachineError||(error instanceof BoxError&&!companion.box_id));
    if(terminalBoxFailure){
     const message=error instanceof BoxError&&error.code==='box_not_found'&&!companion.box_id
      ?'Machine image is unavailable. Request preparation to retry.'

@@ -7,10 +7,13 @@ import subprocess
 MODEL_KEYS = {
     'google': ['GOOGLE_API_KEY', 'GEMINI_API_KEY'],
     'anthropic': ['ANTHROPIC_API_KEY'], 'openai': ['OPENAI_API_KEY'],
+    'azure': ['AZURE_OPENAI_API_KEY'],
     'openrouter': ['OPENROUTER_API_KEY'], 'zai': ['ZAI_API_KEY'],
     'zai-coding-cn': ['ZAI_CODING_CN_API_KEY'],
 }
-RUNTIME_KEYS = frozenset(['MODEL_PROVIDER', 'MODEL_ID', 'BOX_API_KEY', 'BOX_TEMPLATE', 'LOCAL_RUNTIME',
+MODEL_SETTINGS = {'azure': ['AZURE_OPENAI_BASE_URL']}
+RUNTIME_KEYS = frozenset(['DEV_LIVE_MODEL', 'MODEL_PROVIDER', 'MODEL_ID', 'BOX_API_KEY', 'BOX_TEMPLATE', 'LOCAL_RUNTIME',
+                          *[key for keys in MODEL_SETTINGS.values() for key in keys],
                           *[key for keys in MODEL_KEYS.values() for key in keys]])
 
 
@@ -47,5 +50,5 @@ def runtime_environment(root, environ=None):
     values.update({key: value for key, value in (os.environ if environ is None else environ).items()
                    if key in RUNTIME_KEYS})
     provider = values.get('MODEL_PROVIDER', 'google')
-    allowed = ['MODEL_PROVIDER', 'MODEL_ID', 'BOX_API_KEY', 'BOX_TEMPLATE', 'LOCAL_RUNTIME', *MODEL_KEYS.get(provider, [])]
+    allowed = ['DEV_LIVE_MODEL', *MODEL_SETTINGS.get(provider, []), 'MODEL_PROVIDER', 'MODEL_ID', 'BOX_API_KEY', 'BOX_TEMPLATE', 'LOCAL_RUNTIME', *MODEL_KEYS.get(provider, [])]
     return {key: values[key] for key in allowed if values.get(key)}

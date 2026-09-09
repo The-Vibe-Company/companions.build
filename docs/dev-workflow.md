@@ -154,7 +154,7 @@ messages or journals, or automatically replay ambiguous work as part of rollback
 Database and storage remain local; agent computers use Box when its key and template are configured.
 The worktree remembers this choice without writing credentials to its options file.
 `./dev restart --scripted` restores deterministic test responses. The default for a new
-worktree is scripted mode; `Scripted response.` indicates that mode, not an AI answer.
+worktree is scripted mode unless the shared `.env` sets `DEV_LIVE_MODEL=1`; `Scripted response.` indicates that mode, not an AI answer.
 Existing messages are retained when switching modes. Send a new message to use the real model.
 
 ### Shared runtime settings from the main checkout
@@ -162,14 +162,37 @@ Existing messages are retained when switching modes. Send a new message to use t
 In live mode, the launcher reads runtime settings from the main checkout’s `.env`
 (found through Git’s common directory), then this worktree’s `.env`, then the shell.
 It reads them again on each startup; secrets are not copied into worktree options.
-Only `MODEL_PROVIDER`, `MODEL_ID`, the selected provider’s API key, `BOX_API_KEY`
-and `BOX_TEMPLATE` are inherited. Database, storage, authentication, email and ports
+Only `MODEL_PROVIDER`, `MODEL_ID`, the selected provider’s API key and endpoint,
+`DEV_LIVE_MODEL`, `LOCAL_RUNTIME`, `BOX_API_KEY` and `BOX_TEMPLATE` are inherited. Database, storage, authentication, email and ports
 remain local. Scripted mode does not inherit these external credentials.
 
 Use `./dev restart --live --direct` to apply changes. With both Box settings present,
 new specialists use Box; existing Docker specialists retain their provider.
 For ZAI Coding Plan, use `MODEL_PROVIDER=zai` and `MODEL_ID=glm-5.3-flash` in the
 main `.env`. Pi’s `zai` provider uses `https://api.z.ai/api/coding/paas/v4`.
+
+For Azure Foundry, configure the main checkout’s ignored `.env`:
+
+```dotenv
+MODEL_PROVIDER=azure
+MODEL_ID=gpt-5.6-luna
+AZURE_OPENAI_BASE_URL=https://YOUR-RESOURCE.services.ai.azure.com/api/projects/YOUR-PROJECT/openai/v1
+AZURE_OPENAI_API_KEY=<your-key>
+DEV_LIVE_MODEL=1
+```
+
+`MODEL_ID` is the Azure deployment name. The base URL also accepts a full
+`/responses` endpoint. Azure uses the Responses protocol through the same run-scoped
+gateway, preserving native streaming, function tools, images, reasoning and token usage.
+In production, set the key and endpoint on the API; API, executor and worker use the
+same provider and model defaults. The global key must never reach a Box.
+The [Microsoft Responses reference](https://learn.microsoft.com/en-us/rest/api/aifoundry/azureopenai/responses)
+describes this API.
+
+`DEV_LIVE_MODEL=1` makes local startup use the shared model unless the worktree has
+an explicit mode saved. `./dev restart --live` overrides a previous scripted choice;
+`./dev restart --scripted` remains deterministic. A worktree `.env` model override
+still takes precedence over the main checkout and must be removed to follow it.
 
 ### Herdr worktree `.env` copy
 

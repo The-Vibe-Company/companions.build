@@ -83,10 +83,14 @@ class VerifyTest(unittest.TestCase):
     @mock.patch.object(verify, "source_evidence", return_value={"commit": "abc", "dirty": False, "fingerprint": "123"})
     def test_provider_credentials_are_removed_from_child_environment(self, _evidence):
         with mock.patch.dict(os.environ, {"OPENAI_API_KEY": "secret", "BOX_API_KEY": "secret",
-                                              "CUSTOM_PROVIDER_TOKEN": "secret", "SAFE_VALUE": "kept"}, clear=True):
+                                              "AZURE_OPENAI_API_KEY": "secret", "AZURE_OPENAI_BASE_URL": "https://example.services.ai.azure.com/openai/v1",
+                                              "DEV_LIVE_MODEL": "1", "CUSTOM_PROVIDER_TOKEN": "secret", "SAFE_VALUE": "kept"}, clear=True):
             runner = verify.Verifier(arguments(profile="agent"))
         self.assertNotIn("OPENAI_API_KEY", runner.env)
         self.assertNotIn("BOX_API_KEY", runner.env)
+        self.assertNotIn("AZURE_OPENAI_API_KEY", runner.env)
+        self.assertNotIn("AZURE_OPENAI_BASE_URL", runner.env)
+        self.assertNotIn("DEV_LIVE_MODEL", runner.env)
         self.assertNotIn("CUSTOM_PROVIDER_TOKEN", runner.env)
         self.assertEqual(runner.env["SAFE_VALUE"], "kept")
         latest = runner.latest_payload("running")

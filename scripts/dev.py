@@ -36,8 +36,9 @@ env.setdefault("WEB_PORT", env.get("PORT", str(base)) if env.get("PORTLESS_URL")
 env.setdefault("API_PORT", str(base + 1))
 env.setdefault("APP_URL", env.get("PORTLESS_URL", f"http://127.0.0.1:{env['WEB_PORT']}"))
 env.setdefault("BETTER_AUTH_URL", env["APP_URL"])
-env.setdefault("AGENT_TEST_MODE", "0" if read_json(ROOT / ".local/dev-options.json").get("liveModel", False) else "1")
-for key, value in runtime_environment(ROOT).items():
+runtime_settings = runtime_environment(ROOT)
+env.setdefault("AGENT_TEST_MODE", "0" if read_json(ROOT / ".local/dev-options.json").get("liveModel", runtime_settings.get("DEV_LIVE_MODEL") == "1") else "1")
+for key, value in runtime_settings.items():
     if env["AGENT_TEST_MODE"] != "1" or key in {"BOX_API_KEY", "BOX_TEMPLATE", "LOCAL_RUNTIME"}:
         env.setdefault(key, value)
 env.setdefault("LOCAL_RUNTIME", "0")

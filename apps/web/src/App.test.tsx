@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "./App";
@@ -311,17 +311,22 @@ describe("first Companion flow", () => {
   });
 
   it("presents an archived persistent Companion as sleeping", async () => {
+    window.history.replaceState({}, "", "/companions/ada");
     const sleeping = { ...companion, status: "archived" as const };
     const fetchMock = vi.fn((input: RequestInfo | URL) => {
       const path = String(input);
       if (path === "/api/me") return response(me);
       if (path === "/api/config") return response(config);
       if (path === "/api/companions") return response({ companions: [sleeping] });
+      if (path === "/api/companions/ada") return response({ companion: sleeping, messages: [], runs: [], activity: [] });
       throw new Error(`Unexpected request: ${path}`);
     });
     vi.stubGlobal("fetch", fetchMock);
     render(<App />);
     expect(await screen.findByRole("button", { name: /Ada, Companion · Sleeping/ })).toBeInTheDocument();
+    const identity = await screen.findByRole("button", { name: "Discussion" });
+    expect(within(identity).getByRole("img", { name: "Ada, Companion" })).toBeInTheDocument();
+    expect(identity).not.toHaveTextContent("Finished specialist");
   });
 
   it("keeps send available during active work and clears drafts when switching Companions", async () => {
@@ -371,7 +376,8 @@ describe("first Companion flow", () => {
     await user.click(await screen.findByRole("button", {name:/Review the report/}));
     expect(window.location.search).toBe("?view=activity");
     expect(await screen.findByRole("link", { name: "report.md" })).toHaveAttribute("href", "/api/companions/ada/files/report");
-    await user.click(screen.getByRole("button", { name: "Discussion" }));
+    screen.getByRole("button", { name: "Discussion" }).focus();
+    await user.keyboard("{Enter}");
     expect(screen.getByRole("textbox", { name: "Message Ada" })).toHaveValue("Queue this next");
     await user.click(screen.getByRole("button", { name: "Settings" }));
     expect(screen.getByRole("region", { name: "Companion settings" })).toBeInTheDocument();
@@ -513,7 +519,7 @@ describe("first Companion flow", () => {
     const specialistLink = screen.getByRole("button", { name: "Open Researcher's chat" });
     expect(specialistLink).toHaveTextContent("Researcher");
     expect(specialistLink).toHaveTextContent("Finished");
-    expect(screen.getAllByRole("img", { name: "Ada, Companion" })).toHaveLength(1);
+    expect(within(screen.getByRole("button", { name: "Discussion" })).getByRole("img", { name: "Ada, Companion" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Researcher.*Sleeping/ })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Open Analyst's chat" })).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Activity" }));

@@ -46,6 +46,19 @@ test('all providers retain native paths and terminal usage, with durable claim b
  }
 });
 
+test('Azure message blocks gain a discriminator without changing tool outputs or reasoning',async()=>{
+ const f=await fixture('azure');let forwarded:any;
+ const input=[{role:'developer',content:'Follow instructions'},
+  {role:'user',content:[{type:'input_text',text:'Inspect image'},{type:'input_image',image_url:'data:image/png;base64,fixture'}]},
+  {type:'reasoning',id:'rs_fixture',summary:[]},
+  {type:'function_call',call_id:'call_fixture',name:'bash',arguments:'{}'},
+  {type:'function_call_output',call_id:'call_fixture',output:'ok'}];
+ const g=gateway((_url,init)=>{forwarded=JSON.parse(String(init.body));return upstream('azure');});
+ const response=await g.handle(request(f,undefined,{model:'fixture-model',stream:true,input}));
+ expect(response!.status).toBe(200);await response!.text();await g.drain();
+ expect(forwarded.input).toEqual(input.map((item,index)=>index<2?{...item,type:'message'}:item));
+});
+
 test('Azure provider URLs are confined to supported Azure Responses endpoints',async()=>{
  for(const value of ['https://attacker.invalid/openai/v1/responses','http://resource.services.ai.azure.com/openai/v1/responses','https://resource.services.ai.azure.com/other/responses','https://resource.services.ai.azure.com/openai/v1/responses?target=other']){
   const f=await fixture('azure');let calls=0;const g=gateway(()=>{calls++;return upstream('azure');},{azureBaseUrl:value});

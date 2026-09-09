@@ -90,7 +90,12 @@ function target(provider:keyof typeof routes,api:string,suffix:string,url:URL,bo
  let base:string;
  if(provider==='azure'){try{base=normalizeAzureOpenAIBaseUrl(azureBaseUrl);}catch{fail('model_provider_unavailable',503);}}
  else base=provider==='openrouter'&&api==='anthropic-messages'?'https://openrouter.ai/api':route.base;
- return {url:base+path,body:sanitizeBody(body,api as Api,model),api:api as Api};
+ const normalized=sanitizeBody(body,api as Api,model);
+ // Foundry's project endpoint requires the message discriminator for content arrays.
+ if(provider==='azure'&&Array.isArray(normalized.input))for(const item of normalized.input){
+  if(item&&typeof item==='object'&&item.type===undefined&&['system','developer','user','assistant'].includes(item.role))item.type='message';
+ }
+ return {url:base+path,body:normalized,api:api as Api};
 }
 function count(value:unknown):number{if(!Number.isSafeInteger(value)||Number(value)<0)throw Error('model_usage_invalid');return Number(value);}
 function usage(api:Api,value:any):GatewayUsage{

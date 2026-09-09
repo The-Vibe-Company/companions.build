@@ -169,6 +169,37 @@ for(const failure of [new BoxError('box_not_found',404),new BoxError('box_unreac
  }finally{await lock.close();}
 });
 
+test('a transient Box failure after create checkpoint retries the same machine within the original deadline',async()=>{
+ const id=await parent(),f=fake(),lock=await leader();let attempts=0,creates=0;
+ f.machine.prepare=async(companion,checkpoint)=>{
+  attempts++;
+  if(!companion.box_id){creates++;await checkpoint('box-checkpointed');throw new BoxError('box_unreachable');}
+  expect(companion.box_id).toBe('box-checkpointed');return 'http://recovered.local';
+ };
+ try{
+  await db`UPDATE companions SET prepare_requested=true WHERE id=${id}`;
+  await progressLifecycle(lock.sql,{},f.machine);
+  const [waiting]=await db`SELECT box_id,status,prepare_requested,error,preparation_started_at FROM companions WHERE id=${id}`;
+  expect(waiting).toMatchObject({box_id:'box-checkpointed',status:'preparing',prepare_requested:true,error:'Machine preparation is temporarily unavailable.',preparation_started_at:expect.any(Date)});
+  await progressLifecycle(lock.sql,{},f.machine);
+  expect({attempts,creates}).toEqual({attempts:2,creates:1});
+  expect((await db`SELECT status,prepare_requested,box_id,error FROM companions WHERE id=${id}`)[0]).toMatchObject({status:'ready',prepare_requested:false,box_id:'box-checkpointed',error:null});
+ }finally{await lock.close();}
+});
+
+test('a checkpointed Box retry still stops at the original preparation deadline',async()=>{
+ const id=await parent(),f=fake(),lock=await leader();let attempts=0;
+ f.machine.prepare=async(companion,checkpoint)=>{attempts++;if(!companion.box_id)await checkpoint('box-bounded');throw new BoxError('box_unreachable');};
+ try{
+  await db`UPDATE companions SET prepare_requested=true WHERE id=${id}`;
+  await progressLifecycle(lock.sql,{},f.machine);expect(attempts).toBe(1);
+  await db`UPDATE companions SET preparation_started_at=now()-interval '6 minutes' WHERE id=${id}`;
+  await progressLifecycle(lock.sql,{},f.machine);
+  expect(attempts).toBe(1);
+  expect((await db`SELECT status,prepare_requested,box_id,error FROM companions WHERE id=${id}`)[0]).toMatchObject({status:'error',prepare_requested:false,box_id:'box-bounded',error:'Machine preparation timed out. Request preparation to retry.'});
+ }finally{await lock.close();}
+});
+
 test('snapshot recovery observes its durable name and activates only after ready',async()=>{
  const {id,template}=await setup(),child=await spawnChild(owner,id,null,crypto.randomUUID(),{templateId:template.id,prompt:'Install software'});
  await db`UPDATE companions SET box_id='snapshot-source',prepare_requested=false WHERE id=${child.companionId}`;

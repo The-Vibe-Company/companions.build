@@ -1,5 +1,12 @@
 import {userSystemctl} from '../../packages/box/layout';
 
+/** Loading the executable must reach the no-credentials guard, without starting work. */
+export const runtimeProbeScript=`set -eu
+runtime_probe="$(mktemp)"
+trap 'rm -f "$runtime_probe"' EXIT
+if env -u AGENT_TOKEN /opt/companions/companion-agent >"$runtime_probe" 2>&1; then exit 1; fi
+test "$(cat "$runtime_probe")" = MISSING_AGENT_TOKEN`;
+
 /** Used only on an owned distribution-build Box, never on a Companion's wake path. */
 export function templateInstallScript(directory:string,digest:string){
  if(!/^[a-f0-9]{64}$/.test(digest)||directory!==`/tmp/companions-${digest.slice(0,16)}`)throw Error('INVALID_DISTRIBUTION_STAGING');
@@ -51,5 +58,6 @@ if (target/'desktop-boundary.version').read_text().strip()!='1':
 # the obsolete legacy executable copy. Pi state and user files are never touched.
 if staged.exists(): shutil.rmtree(staged)
 if legacy.exists(): shutil.rmtree(legacy)
-INSTALL`;
+INSTALL
+${runtimeProbeScript}`;
 }

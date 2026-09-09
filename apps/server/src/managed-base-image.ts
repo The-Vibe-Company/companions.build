@@ -4,7 +4,7 @@ import {BoxClient,BoxError} from '../../../packages/box/client';
 import {config} from './config';
 import {db} from './store';
 import {distributionManifest,manifestDigest,publishDistribution,verifyDistribution,type DistributionBoxes,type DistributionJournal,type DistributionManifest} from '../../../scripts/lib/distribution-verification';
-import {templateInstallScript} from '../../../scripts/lib/template-install';
+import {templateInstallScript,runtimeProbeScript} from '../../../scripts/lib/template-install';
 
 /** The executor leader and image publisher are session locks; registry changes use
  * a separate transaction lock so a long publication never stalls Companion starts. */
@@ -170,7 +170,7 @@ async function cleanupOne(sql:SQLLike,box:ManagedBox,row:any,now:()=>number){
     await sql`UPDATE managed_base_images SET retry_at=${new Date(now()+RETRY_MS)},error_code=${safeCode(error)},updated_at=now() WHERE id=${row.id}`;return false;
    }
   }
-  if(row.delete_intent_at){await sql`UPDATE managed_base_images SET status='deleted',deleted_at=now(),updated_at=now() WHERE id=${row.id}`;return true;}
+  if(row.delete_intent_at){await sql`UPDATE managed_base_images SET status=CASE WHEN status='blocked' THEN 'blocked' ELSE 'deleted' END,deleted_at=now(),updated_at=now() WHERE id=${row.id}`;return true;}
  }
  const marked=await sql.begin(async(tx:SQLLike)=>{
   await tx`SELECT pg_advisory_xact_lock(${MANAGED_BASE_IMAGE_REGISTRY_LOCK_ID})`;
@@ -179,16 +179,20 @@ async function cleanupOne(sql:SQLLike,box:ManagedBox,row:any,now:()=>number){
   await tx`UPDATE managed_base_images SET delete_intent_at=${iso(now)},updated_at=now() WHERE id=${row.id}`;return true;
  });
  if(!marked)return false;
- try{await box.deleteSnapshot(row.snapshot_name);await sql`UPDATE managed_base_images SET status='deleted',deleted_at=now(),error_code=null,updated_at=now() WHERE id=${row.id}`;return true;}
+ try{await box.deleteSnapshot(row.snapshot_name);await sql`UPDATE managed_base_images SET status=CASE WHEN status='blocked' THEN 'blocked' ELSE 'deleted' END,deleted_at=now(),error_code=CASE WHEN status='blocked' THEN error_code ELSE null END,updated_at=now() WHERE id=${row.id}`;return true;}
  catch(error){
-  if(error instanceof BoxError&&(error.status===404)){await sql`UPDATE managed_base_images SET status='deleted',deleted_at=now(),updated_at=now() WHERE id=${row.id}`;return true;}
+  if(error instanceof BoxError&&(error.status===404)){await sql`UPDATE managed_base_images SET status=CASE WHEN status='blocked' THEN 'blocked' ELSE 'deleted' END,deleted_at=now(),updated_at=now() WHERE id=${row.id}`;return true;}
   if(error instanceof BoxError&&error.status===409){await sql`UPDATE managed_base_images SET delete_intent_at=null,retry_at=now()+interval '60 seconds',error_code=${safeCode(error)},updated_at=now() WHERE id=${row.id}`;return false;}
   await sql`UPDATE managed_base_images SET retry_at=${new Date(now()+RETRY_MS)},error_code='managed_image_delete_unresolved',updated_at=now() WHERE id=${row.id}`;return false;
  }
 }
 
 async function cleanupObsolete(sql:SQLLike,box:ManagedBox,now:()=>number){
- const rows=await sql`SELECT id,snapshot_name,deleted_at,delete_intent_at FROM managed_base_images WHERE status IN ('retired','missing','failed') AND deleted_at IS NULL
+ const rows=await sql`SELECT id,snapshot_name,deleted_at,delete_intent_at FROM managed_base_images WHERE
+   (status IN ('retired','missing','failed') OR (status='blocked'
+     AND jsonb_exists(journal,'snapshotRequestedAt') AND jsonb_exists(journal,'sourceArchivedAt')
+     AND jsonb_exists(journal->'verification','boxId') AND jsonb_exists(journal->'verification','archivedAt')))
+   AND deleted_at IS NULL
    AND (retry_at IS NULL OR retry_at<=now()) ORDER BY created_at`;
  let count=0;for(const row of rows)if(await cleanupOne(sql,box,row,now))count++;
  return count;
@@ -251,14 +255,17 @@ export class ManagedBaseImageCoordinator{
     const state=item.journal as ManagedJournal;
     const save=async(value:ManagedJournal)=>{await guard();await sql`UPDATE managed_base_images SET journal=${value}::jsonb,updated_at=now() WHERE id=${item.id}`;};
     const archived=await archiveOwnedBoxes(managedProvider(this.box!,state,save,guard,this.now),state,save,this.now);
-    await sql`UPDATE managed_base_images SET retry_at=${new Date(this.now()+(archived?24*3600_000:RETRY_MS))},updated_at=now() WHERE id=${item.id}`;
+    const captured=archived&&!!state.snapshotRequestedAt&&!!state.sourceArchivedAt&&!!state.verification?.boxId&&!!state.verification.archivedAt;
+    await sql`UPDATE managed_base_images SET retry_at=${captured?null:new Date(this.now()+(archived?24*3600_000:RETRY_MS))},updated_at=now() WHERE id=${item.id}`;
    }
    const [ready]=await sql`SELECT id,snapshot_name,provider_checked_at FROM managed_base_images WHERE release_digest=${artifact.releaseDigest} AND status='ready' LIMIT 1`;
    if(ready&&(!ready.provider_checked_at||this.now()-new Date(ready.provider_checked_at).getTime()>=CHECK_MS)){
     try{
      const observed=await box.getSnapshot(ready.snapshot_name),status=snapshotStatus(observed);
-     if(status!=='ready')await sql`UPDATE managed_base_images SET status=${status==='failed'?'failed':'missing'},error_code='managed_image_snapshot_missing',provider_checked_at=now(),updated_at=now() WHERE id=${ready.id}`;
-     else await sql`UPDATE managed_base_images SET provider_checked_at=now(),error_code=null,updated_at=now() WHERE id=${ready.id}`;
+     if(status==='failed')await sql`UPDATE managed_base_images SET status='failed',error_code='managed_image_snapshot_failed',provider_checked_at=now(),updated_at=now() WHERE id=${ready.id}`;
+     else if(status==='ready')await sql`UPDATE managed_base_images SET provider_checked_at=now(),error_code=null,updated_at=now() WHERE id=${ready.id}`;
+     else if(status==='pending')await sql`UPDATE managed_base_images SET provider_checked_at=now(),updated_at=now() WHERE id=${ready.id}`;
+     else throw Error('MANAGED_IMAGE_SNAPSHOT_STATUS_INVALID');
     }catch(error){if(error instanceof BoxError&&error.status===404)await sql`UPDATE managed_base_images SET status='missing',error_code='managed_image_snapshot_missing',provider_checked_at=now(),updated_at=now() WHERE id=${ready.id}`;else throw error;}
    }
    // Finish one already persisted publication from any release before considering
@@ -292,7 +299,7 @@ export class ManagedBaseImageCoordinator{
     await publishDistribution(state,{box:provider,save,now:this.now,install:async id=>{
      if(state.installIntentAt){
       // Observe an interrupted installation rather than execute its commands twice.
-      try{await verifyDistribution(provider,id,state.manifest);return;}
+      try{await verifyDistribution(provider,id,state.manifest);await provider.command(id,runtimeProbeScript);return;}
       catch{throw Error('MANAGED_IMAGE_INSTALL_UNRESOLVED');}
      }
      state.installIntentAt=iso(this.now);await save(state);

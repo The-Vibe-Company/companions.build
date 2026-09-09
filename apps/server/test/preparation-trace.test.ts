@@ -5,14 +5,17 @@ const runId='00000000-0000-4000-8000-000000000002';
 const original=process.env.COMPANIONS_TRACE_PREPARATION;
 let output:ReturnType<typeof spyOn>|undefined;
 afterEach(()=>{output?.mockRestore();output=undefined;if(original===undefined)delete process.env.COMPANIONS_TRACE_PREPARATION;else process.env.COMPANIONS_TRACE_PREPARATION=original;});
-test('disabled by default: no output and operation result/error are preserved',async()=>{
+test('default diagnostics record only failed phases and preserve operation results/errors',async()=>{
  delete process.env.COMPANIONS_TRACE_PREPARATION;
  output=spyOn(console,'info').mockImplementation(()=>{});
  const value={endpoint:'https://private.example/?token=secret'};
  expect(await tracePreparation(companionId,'box_host',async()=>value)).toBe(value);
  const error=Error('SECRET_PROVIDER_PAYLOAD');
  await expect(tracePreparation(companionId,'box_get',async()=>{throw error;})).rejects.toBe(error);
- preparationState(companionId,'box_setup','ready');expect(output).not.toHaveBeenCalled();
+ preparationState(companionId,'box_setup','ready');expect(output).toHaveBeenCalledTimes(1);
+ const line=output.mock.calls[0]![0] as string;
+ expect(JSON.parse(line)).toMatchObject({companionId,phase:'box_get',outcome:'error'});
+ expect(line).not.toContain('SECRET');expect(line).not.toContain('private.example');
 });
 test('enabled output has only validated IDs, fixed phases/outcomes, and monotonic timings',async()=>{
  process.env.COMPANIONS_TRACE_PREPARATION='1';const lines:string[]=[];

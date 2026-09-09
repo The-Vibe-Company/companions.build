@@ -25,6 +25,15 @@ export function configureAzureFoundry(runtime:ModelRuntime,rawBaseUrl:string,fet
  }) as typeof fetch;
  runtime.registerProvider('azure-openai-responses',{
   baseUrl,api:'azure-openai-responses',
-  streamSimple:(model,context,options)=>azureOpenAIResponses(model as any,context,{...options,env:{...options?.env,AZURE_OPENAI_BASE_URL:baseUrl},fetch:foundryFetch}),
+  streamSimple:(model,context,options)=>azureOpenAIResponses(model as any,context,{
+   ...options,env:{...options?.env,AZURE_OPENAI_BASE_URL:baseUrl},fetch:foundryFetch,
+   onPayload:async(payload:any,target:any)=>{
+    const customized=await options?.onPayload?.(payload,target),body=customized??payload;
+    // Foundry project endpoints require the protocol discriminator on message input
+    // items, while the OpenAI and classic Azure endpoints accept it as implicit.
+    if(!Array.isArray(body?.input))return body;
+    return {...body,input:body.input.map((item:any)=>item&&typeof item==='object'&&item.role&&!item.type?{type:'message',...item}:item)};
+   },
+  }),
  });
 }

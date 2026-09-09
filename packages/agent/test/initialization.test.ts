@@ -117,10 +117,11 @@ test('Azure Foundry configuration normalizes the Responses endpoint and preserve
   baseUrl:'https://resource.services.ai.azure.com/api/projects/project/openai/v1',reasoning:true,input:['text','image'],maxTokens:128000,
  });
  expect(models.getRegisteredProviderConfig('azure-openai-responses')?.streamSimple).toBeFunction();
- const result=await models.streamSimple(model,{messages:[message],tools:[{name:'bash',description:'Run a command',parameters:{type:'object',properties:{}}} as any]},{reasoning:'medium',maxRetries:0}).result();
+ const result=await models.streamSimple(model,{systemPrompt:'Follow the instructions.',messages:[message],tools:[{name:'bash',description:'Run a command',parameters:{type:'object',properties:{}}} as any]},{reasoning:'medium',maxRetries:0}).result();
  expect(result.stopReason).toBe('stop');
  expect(requestUrl).toBe('https://resource.services.ai.azure.com/api/projects/project/openai/v1/responses');
  expect(requestHeaders.get('api-key')).toBe('synthetic-azure-key');expect(new URL(requestUrl).search).toBe('');
  expect(requestBody).toMatchObject({model:'gpt-5.6-luna',stream:true,store:false,reasoning:{effort:'medium'},tools:[{type:'function',name:'bash'}]});
+ expect(requestBody.input.map((item:any)=>({type:item.type,role:item.role}))).toEqual([{type:'message',role:'developer'},{type:'message',role:'user'}]);
  expect(()=>normalizeAzureFoundryBaseUrl('https://attacker.invalid/openai/v1/responses')).toThrow('INVALID_AZURE_OPENAI_BASE_URL');
 });

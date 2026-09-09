@@ -121,12 +121,12 @@ def _service_action(action, name):
 
 def local_env(live=None):
     # Keep infrastructure local; model credentials require an explicit live choice.
+    runtime = runtime_environment(ROOT)
     if live is None:
-        live = read_json(LOCAL / "dev-options.json").get("liveModel", False)
+        live = read_json(LOCAL / "dev-options.json").get("liveModel", runtime.get("DEV_LIVE_MODEL") == "1")
     result = {key: value for key, value in os.environ.items() if key in
               {'PATH', 'HOME', 'USER', 'LOGNAME', 'SHELL', 'TMPDIR', 'LANG', 'TERM'}
               or key.startswith(('LC_', 'DOCKER_', 'HERDR_'))}
-    runtime = runtime_environment(ROOT)
     result.update({key: value for key, value in runtime.items() if key in {"BOX_API_KEY", "BOX_TEMPLATE", "BOX_MANAGED_TEMPLATE"}})
     result.update(COMPANIONS_DEV_LOCAL='1', AGENT_TEST_MODE='1', BILLING_TEST_MODE='1',
                   LOCAL_RUNTIME=runtime.get('LOCAL_RUNTIME', '0'), EMAIL_PROVIDER='smtp', NODE_ENV='development',
@@ -300,7 +300,7 @@ def main():
     args = parser.parse_args()
     if args.command in ('up', 'restart') and (args.live or args.scripted):
         validate_model_env(local_env(live=args.live))
-        if args.command == 'up' and alive(status()) and read_json(LOCAL / 'dev-options.json').get('liveModel', False) != args.live:
+        if args.command == 'up' and alive(status()) and (local_env()['AGENT_TEST_MODE'] == '0') != args.live:
             raise RuntimeError('The stack is running. Use ./dev restart --live or --scripted to change its model mode.')
         options = read_json(LOCAL / 'dev-options.json'); options['liveModel'] = args.live
         write_json(LOCAL / 'dev-options.json', options)

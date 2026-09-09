@@ -144,6 +144,38 @@ time.sleep(60)
                 self.assertNotIn('ZAI_API_KEY', env)
                 self.assertEqual(env['GOOGLE_API_KEY'], 'shell-key')
 
+    def test_azure_settings_follow_parent_and_exclude_other_providers(self):
+        with tempfile.TemporaryDirectory() as directory:
+            main = Path(directory) / 'main'; main.mkdir()
+            worktree = Path(directory) / 'worktree'; worktree.mkdir()
+            (main / '.env').write_text('MODEL_PROVIDER=azure\nMODEL_ID=gpt-5.6-luna\nAZURE_OPENAI_API_KEY=test-key\nAZURE_OPENAI_BASE_URL=https://example.services.ai.azure.com/openai/v1\nDEV_LIVE_MODEL=1\nOPENAI_API_KEY=other-key\nDATABASE_URL=hosted\n')
+            with patch.object(dev_environment, 'primary_checkout', return_value=main):
+                env = dev_environment.runtime_environment(worktree, {})
+                self.assertEqual(env['AZURE_OPENAI_API_KEY'], 'test-key')
+                self.assertEqual(env['MODEL_ID'], 'gpt-5.6-luna')
+                self.assertIn('AZURE_OPENAI_BASE_URL', env)
+                self.assertNotIn('OPENAI_API_KEY', env)
+                self.assertNotIn('DATABASE_URL', env)
+                env = dev_environment.runtime_environment(worktree, {'MODEL_PROVIDER': 'google'})
+                self.assertNotIn('AZURE_OPENAI_API_KEY', env)
+                self.assertNotIn('AZURE_OPENAI_BASE_URL', env)
+
+    def test_shared_live_default_preserves_explicit_scripted_choice(self):
+        runtime = {'DEV_LIVE_MODEL': '1', 'MODEL_PROVIDER': 'azure', 'AZURE_OPENAI_API_KEY': 'test-key',
+                   'AZURE_OPENAI_BASE_URL': 'https://example.services.ai.azure.com/openai/v1'}
+        with patch.object(cli, 'runtime_environment', return_value=runtime), patch.object(cli, 'read_json', return_value={}):
+            env = cli.local_env()
+            self.assertEqual(env['AGENT_TEST_MODE'], '0')
+            self.assertEqual(env['AZURE_OPENAI_API_KEY'], 'test-key')
+            cli.validate_model_env(env)
+        with patch.object(cli, 'runtime_environment', return_value=runtime), patch.object(cli, 'read_json', return_value={'liveModel': False}):
+            env = cli.local_env()
+            self.assertEqual(env['AGENT_TEST_MODE'], '1')
+            self.assertNotIn('AZURE_OPENAI_API_KEY', env)
+            self.assertNotIn('AZURE_OPENAI_BASE_URL', env)
+        with self.assertRaisesRegex(RuntimeError, 'Live mode needs'):
+            cli.validate_model_env({'AGENT_TEST_MODE': '0', 'AZURE_OPENAI_BASE_URL': runtime['AZURE_OPENAI_BASE_URL']})
+
     def test_local_runtime_is_explicitly_opted_in(self):
         with patch.object(cli, 'runtime_environment', return_value={}):
             self.assertEqual(cli.local_env(live=False)['LOCAL_RUNTIME'], '0')

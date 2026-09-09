@@ -8,6 +8,7 @@ import { clearProviderSecrets, takeProviderApiKey } from "./environment";
 import { SharedMemory } from "./memory";
 import { configureModelGateway, withModelGatewayRequest } from "./model-gateway";
 import type { RunExecutor, RunInput, RunLane, RunMessage, RunProgress } from "./types";
+import {configureAzureFoundry} from './azure-foundry';
 
 type Session = Awaited<ReturnType<typeof createAgentSession>>["session"];
 type ActiveExecution = {
@@ -65,6 +66,7 @@ export class PiExecutor implements RunExecutor {
       credentials: new InMemoryCredentialStore(), modelsPath: null,
       modelsStorePath: join(stateDir, "models.json"), allowModelNetwork: false, refreshOnCreate: false,
     });
+    if(provider==='azure-openai-responses')configureAzureFoundry(modelRuntime,requiredEnvironment('AZURE_OPENAI_BASE_URL'));
     if (testMode) {
       modelRuntime.registerProvider(provider, {
         api: "openai-completions", apiKey: "test-only", baseUrl: "http://127.0.0.1:1", streamSimple: scriptedModel,

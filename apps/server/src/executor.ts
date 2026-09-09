@@ -50,8 +50,14 @@ export async function waitForExecutor(options:ExecutorWaitOptions={}):Promise<Re
  }
  return null;
 }
+function routinePublicationInstructions(mode: string) {
+  if (mode === "always") return "Routine publication policy: every successful final answer is automatically posted to the main conversation. Write the final answer for the user; publish_to_chat is optional.";
+  if (mode === "silent") return "Routine publication policy: results stay in this task's history. Do not call publish_to_chat; publication requests are suppressed. You can still ask the human a necessary question.";
+  return "Routine publication policy: call publish_to_chat only if the result is useful to the user according to the routine's instructions. Otherwise the final answer stays in task history.";
+}
 async function settle(sql: any, run: any, status: string, text: string | null, error: string | null,
   rootId = run.id, publishToChat = false, leaderPid?:number) {
+  publishToChat = status === "succeeded" && !!text && (run.publication_mode === "silent" ? false : run.publication_mode === "always" || publishToChat);
   await sql`WITH settled AS (
     UPDATE runs SET status=${status},error=${error},finished_at=now(),result_text=${text},publish_to_chat=${publishToChat},
       response_root_id=COALESCE((SELECT id FROM runs root WHERE root.id=${rootId} AND root.companion_id=${run.companion_id}),id)
@@ -179,7 +185,7 @@ export async function tick(sql: ReservedSQL, hooks: ExecutorHooks = {}, lifecycl
     AND NOT EXISTS(SELECT 1 FROM runs r WHERE r.companion_id=c.id AND r.dispatched AND r.status IN ('running','preparing','needs_input'))`;
   if(lifecycle)await lifecycle.schedule(sql,hooks);
   else await progressLifecycle(sql, {...hooks.lifecycle,canStartWork:hooks.canStartWork??hooks.lifecycle?.canStartWork??ownerMayStartWork}, hooks.lifecycleMachines);
-  const runs = await sql`SELECT r.id,r.companion_id,r.client_message_id,r.content,r.status,r.dispatched,r.cancel_requested,r.error,r.created_at,r.started_at,r.finished_at,r.prepared_at,r.lane,r.source,r.response_root_id,r.result_text,r.publish_to_chat,r.routine_id,r.scheduled_for,r.resume_requested_at,r.attachment_count,c.provider,c.box_id,c.create_key,c.create_started_at,c.agent_secret,c.endpoint_secret,c.instructions,c.specialist_draft_id,c.init_script,c.config_digest,c.snapshot_name,c.template_id,c.template_revision,c.model_id,c.owner_id
+  const runs = await sql`SELECT r.id,r.companion_id,r.client_message_id,r.content,r.status,r.dispatched,r.cancel_requested,r.error,r.created_at,r.started_at,r.finished_at,r.prepared_at,r.lane,r.source,r.response_root_id,r.result_text,r.publish_to_chat,r.routine_id,r.routine_name,r.publication_mode,r.scheduled_for,r.resume_requested_at,r.attachment_count,c.provider,c.box_id,c.create_key,c.create_started_at,c.agent_secret,c.endpoint_secret,c.instructions,c.specialist_draft_id,c.init_script,c.config_digest,c.snapshot_name,c.template_id,c.template_revision,c.model_id,c.owner_id
     FROM runs r JOIN companions c ON c.id=r.companion_id WHERE r.status IN ('preparing','running','needs_input') AND c.retired_at IS NULL AND c.archive_requested_at IS NULL ORDER BY r.created_at`;
   const progressSql=coordinator?db:sql;
   const groups=[...Map.groupBy(runs as any[],run=>`${run.companion_id}:${runJobKind(run)}`).entries()];
@@ -285,7 +291,7 @@ export async function tick(sql: ReservedSQL, hooks: ExecutorHooks = {}, lifecycl
             RETURNING id`;
           if (!dispatch) return;
           await execution.checkpoint(async tx=>tx`UPDATE companions SET status='ready',error=null WHERE id=${run.companion_id}`);
-          const accepted = await tracePreparation(run.companion_id,'admission_put',()=>request(endpoint!, token, `/runs/${run.id}`, "PUT", { content: run.content, instructions: run.specialist_draft_id ? specialistConfigurationInstructions : run.instructions, lane: run.lane,
+          const accepted = await tracePreparation(run.companion_id,'admission_put',()=>request(endpoint!, token, `/runs/${run.id}`, "PUT", { content: run.content, instructions: [run.specialist_draft_id ? specialistConfigurationInstructions : run.instructions, run.source === "routine" ? routinePublicationInstructions(run.publication_mode) : ""].filter(Boolean).join("\n\n"), lane: run.lane,
             ...(run.init_script?{initScript:run.init_script,initTimeoutMs:600_000}:{}),
             ...(run.model_id ? {modelId: run.model_id} : {}),
             ...(useGateway?{modelGateway:{token:mintModelGatewayToken(run.companion_id,run.id,run.agent_secret,undefined,run.endpoint_secret)}}:{}) }),undefined,run.id);

@@ -107,7 +107,7 @@ export async function detail(ownerId: string, id: string) {
   if (!companion) return null;
   const [messages, runs, specialists] = await Promise.all([
     db`SELECT id,role,content,sequence,complete,created_at AS "createdAt",run_id AS "runId" FROM messages WHERE companion_id=${id} ORDER BY created_at,sequence,id`,
-    db`SELECT id,status,error,lane,source,result_text AS "resultText",preview_text AS "previewText",message_version AS "messageVersion",thinking_text AS "thinkingText",publish_to_chat AS "publishToChat",response_root_id AS "responseRootId",created_at AS "createdAt",prepared_at AS "preparedAt",finished_at AS "finishedAt" FROM runs WHERE companion_id=${id} ORDER BY created_at,id`,
+    db`SELECT id,status,error,lane,source,routine_id AS "routineId",routine_name AS "routineName",publication_mode AS "publicationMode",scheduled_for AS "scheduledFor",started_at AS "startedAt",result_text AS "resultText",preview_text AS "previewText",message_version AS "messageVersion",thinking_text AS "thinkingText",publish_to_chat AS "publishToChat",response_root_id AS "responseRootId",created_at AS "createdAt",prepared_at AS "preparedAt",finished_at AS "finishedAt" FROM runs WHERE companion_id=${id} ORDER BY created_at,id`,
     db`SELECT d.id AS "delegationId",d.parent_run_id AS "parentRunId",d.run_id AS "childRunId",
       jsonb_build_object('id',child.id,'name',child.name,'avatar',child.avatar,'status',child.status,'retiredAt',child.retired_at) AS companion
       FROM delegations d

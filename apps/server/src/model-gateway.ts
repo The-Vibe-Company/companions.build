@@ -2,6 +2,7 @@ import {createHash} from 'node:crypto';
 import {db} from './store';
 import {requireHostedActivation} from './activation';
 import {verifyModelGatewayToken,type ModelGatewayClaims} from './model-gateway-token';
+import {normalizeAzureOpenAIBaseUrl} from './azure-openai';
 
 export const MODEL_GATEWAY_MAX_REQUEST_BYTES=96*1024*1024;
 export const MODEL_GATEWAY_BODY_BUDGET_BYTES=128*1024*1024;
@@ -14,13 +15,14 @@ const uuid=/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i;
 const routes={
  google:{api:'google-generative-ai',base:'https://generativelanguage.googleapis.com/v1beta',key:['GOOGLE_API_KEY','GEMINI_API_KEY']},
  anthropic:{api:'anthropic-messages',base:'https://api.anthropic.com',key:['ANTHROPIC_API_KEY']},
+ azure:{api:'openai-responses',base:'',key:['AZURE_OPENAI_API_KEY']},
  openai:{api:'openai-responses',base:'https://api.openai.com/v1',key:['OPENAI_API_KEY']},
  openrouter:{api:'openai-completions',base:'https://openrouter.ai/api/v1',key:['OPENROUTER_API_KEY']},
  zai:{api:'openai-completions',base:'https://api.z.ai/api/coding/paas/v4',key:['ZAI_API_KEY']},
 } as const;
 type Api=typeof routes[keyof typeof routes]['api'];
 export type GatewayUsage={input:number;output:number;cacheRead:number;cacheWrite:number;totalTokens:number};
-type Dependencies={sql?:any;fetch?:typeof fetch;modelApi?:(provider:string,id:string)=>Promise<string|undefined>;authorize?:(ownerId:string,sql:any)=>Promise<void>;key?:(provider:string)=>string|undefined;deadlineMs?:number;bodyDeadlineMs?:number;maxConcurrent?:number;bodyBudgetBytes?:number};
+type Dependencies={sql?:any;fetch?:typeof fetch;modelApi?:(provider:string,id:string)=>Promise<string|undefined>;authorize?:(ownerId:string,sql:any)=>Promise<void>;key?:(provider:string)=>string|undefined;azureBaseUrl?:string;deadlineMs?:number;bodyDeadlineMs?:number;maxConcurrent?:number;bodyBudgetBytes?:number};
 class GatewayError extends Error{constructor(readonly code:string,readonly status=400){super(code);}}
 function fail(code:string,status=400):never{throw new GatewayError(code,status);}
 function problem(code:string,status:number){return Response.json({error:{type:'model_gateway_error',code,message:code}},{status,headers:{'cache-control':'no-store'}});}
@@ -71,7 +73,7 @@ function sanitizeBody(body:any,api:Api,model:string){
  for(const key of ['container','mcp_servers','context_management','prompt','vector_store_ids'])if(body[key]!=null)fail('model_remote_state_forbidden',403);
  return body;
 }
-function target(provider:keyof typeof routes,api:string,suffix:string,url:URL,body:any,model:string){
+function target(provider:keyof typeof routes,api:string,suffix:string,url:URL,body:any,model:string,azureBaseUrl?:string){
  const route=routes[provider];if(api!==route.api&&!(provider==='openrouter'&&api==='anthropic-messages'))fail('model_protocol_mismatch',403);
  let path:string;
  if(provider==='google'){
@@ -81,12 +83,19 @@ function target(provider:keyof typeof routes,api:string,suffix:string,url:URL,bo
   if([...url.searchParams].some(([key,value])=>key!=='alt'||value!=='sse')||url.searchParams.getAll('alt').length>1||(!streaming&&url.search))fail('model_path_forbidden',403);
   path=suffix+(streaming?'?alt=sse':'');
  }else{
-  const expected=api==='anthropic-messages'?'/v1/messages':provider==='openai'?'/responses':'/chat/completions';
+  const expected=api==='anthropic-messages'?'/v1/messages':api==='openai-responses'?'/responses':'/chat/completions';
   if(suffix!==expected)fail('model_path_forbidden',403);
   if(url.search&&!(api==='anthropic-messages'&&url.search==='?beta=true'))fail('model_path_forbidden',403);path=expected+url.search;
  }
- const base=provider==='openrouter'&&api==='anthropic-messages'?'https://openrouter.ai/api':route.base;
- return {url:base+path,body:sanitizeBody(body,api as Api,model),api:api as Api};
+ let base:string;
+ if(provider==='azure'){try{base=normalizeAzureOpenAIBaseUrl(azureBaseUrl);}catch{fail('model_provider_unavailable',503);}}
+ else base=provider==='openrouter'&&api==='anthropic-messages'?'https://openrouter.ai/api':route.base;
+ const normalized=sanitizeBody(body,api as Api,model);
+ // Foundry's project endpoint requires the message discriminator for content arrays.
+ if(provider==='azure'&&Array.isArray(normalized.input))for(const item of normalized.input){
+  if(item&&typeof item==='object'&&item.type===undefined&&['system','developer','user','assistant'].includes(item.role))item.type='message';
+ }
+ return {url:base+path,body:normalized,api:api as Api};
 }
 function count(value:unknown):number{if(!Number.isSafeInteger(value)||Number(value)<0)throw Error('model_usage_invalid');return Number(value);}
 function usage(api:Api,value:any):GatewayUsage{
@@ -166,12 +175,13 @@ export function createModelGateway(deps:Dependencies={}){
    const id=request.headers.get('x-companions-model-request-id')??'',runId=request.headers.get('x-companions-run-id');
    if(!claims||claims.runId!==runId||!uuid.test(id))fail('model_authentication_required',401);
    if(admitted>=(deps.maxConcurrent??8))fail('model_gateway_busy',503);admitted++;release=()=>{admitted--;};
-   const run=await allowed(claims),parts=url.pathname.slice(prefix.length).split('/'),provider=parts.shift() as keyof typeof routes,api=parts.shift()??'',suffix='/'+parts.join('/');
-   if(!Object.hasOwn(routes,provider)||provider!==run.model_provider)fail('model_selection_mismatch',403);
-   if(await lookup(provider,run.model_id)!==api)fail('model_protocol_mismatch',403);
+   const run=await allowed(claims),parts=url.pathname.slice(prefix.length).split('/'),wireProvider=parts.shift() as keyof typeof routes,api=parts.shift()??'',suffix='/'+parts.join('/');
+   const provider=run.model_provider as keyof typeof routes;
+   if(!Object.hasOwn(routes,provider)||!Object.hasOwn(routes,wireProvider)||(wireProvider!==provider&&!(provider==='azure'&&wireProvider==='openai')))fail('model_selection_mismatch',403);
+   if(await lookup(wireProvider,run.model_id)!==api)fail('model_protocol_mismatch',403);
    const key=deps.key?deps.key(provider):routes[provider].key.map(name=>process.env[name]).find(Boolean);if(!key)fail('model_provider_unavailable',503);
    let body=await boundedBody(request,reserveBody,deps.bodyDeadlineMs);
-   const wire=target(provider,api,suffix,url,body,run.model_id);
+   const wire=target(provider,api,suffix,url,body,run.model_id,deps.azureBaseUrl??process.env.AZURE_OPENAI_BASE_URL);
    let encoded=JSON.stringify(wire.body);const encodedBytes=Buffer.byteLength(encoded);
    if(encodedBytes>MODEL_GATEWAY_MAX_REQUEST_BYTES)fail('model_request_too_large',413);
    if(encodedBytes>bodyBytes)reserveBody(encodedBytes-bodyBytes);
@@ -188,6 +198,7 @@ export function createModelGateway(deps:Dependencies={}){
    await allowed(claims);
    const headers=new Headers({'content-type':'application/json','accept':streaming?'text/event-stream':'application/json'});
    if(provider==='google')headers.set('x-goog-api-key',key);
+   else if(provider==='azure')headers.set('api-key',key);
    else if(wire.api==='anthropic-messages'){
     headers.set(provider==='anthropic'?'x-api-key':'authorization',provider==='anthropic'?key:'Bearer '+key);headers.set('anthropic-version','2023-06-01');
     const beta=request.headers.get('anthropic-beta');if(beta&&/^[a-zA-Z0-9,._-]{1,1024}$/.test(beta))headers.set('anthropic-beta',beta);

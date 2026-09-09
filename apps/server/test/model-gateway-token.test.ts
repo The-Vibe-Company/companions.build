@@ -31,21 +31,36 @@ test('separate API and executor clocks tolerate small skew without extending exp
 
 test('gateway Box environment contains no global provider credential for every supported provider',()=>{
  const previous={testMode:config.testMode,modelGatewayUrl:config.modelGatewayUrl,modelProvider:config.modelProvider};
- const keys=['GOOGLE_API_KEY','GEMINI_API_KEY','ANTHROPIC_API_KEY','OPENAI_API_KEY','OPENROUTER_API_KEY','ZAI_API_KEY'];
+ const keys=['GOOGLE_API_KEY','GEMINI_API_KEY','ANTHROPIC_API_KEY','AZURE_OPENAI_API_KEY','OPENAI_API_KEY','OPENROUTER_API_KEY','ZAI_API_KEY'];
  const original=Object.fromEntries(keys.map(key=>[key,process.env[key]]));
  try{
   config.testMode=false;config.modelGatewayUrl='https://fixture.invalid/api/model-gateway';
   for(const key of keys)process.env[key]='synthetic-platform-key';
-  for(const provider of ['google','anthropic','openai','openrouter','zai']){
+  for(const provider of ['google','anthropic','azure','openai','openrouter','zai']){
    config.modelProvider=provider;
    const env=modelEnvironment('synthetic-agent-secret');
    expect(env.MODEL_GATEWAY_URL).toBe(config.modelGatewayUrl);
+   expect(env.MODEL_PROVIDER).toBe(provider==='azure'?'openai':provider);
    expect(Object.keys(env).some(key=>key.endsWith('API_KEY'))).toBe(false);
    expect(JSON.stringify(env)).not.toContain('synthetic-platform-key');
   }
  }finally{
   Object.assign(config,previous);
   for(const [key,value] of Object.entries(original)){if(value===undefined)delete process.env[key];else process.env[key]=value;}
+ }
+});
+
+test('direct local Azure execution uses the SDK native provider and required endpoint',()=>{
+ const previous={testMode:config.testMode,modelGatewayUrl:config.modelGatewayUrl,modelProvider:config.modelProvider},nodeEnv=process.env.NODE_ENV;
+ const apiKey=process.env.AZURE_OPENAI_API_KEY,baseUrl=process.env.AZURE_OPENAI_BASE_URL;
+ try{
+  config.testMode=false;config.modelGatewayUrl=undefined;config.modelProvider='azure';process.env.NODE_ENV='development';
+  process.env.AZURE_OPENAI_API_KEY='synthetic-azure-key';process.env.AZURE_OPENAI_BASE_URL='https://resource.services.ai.azure.com/api/projects/project/openai/v1/responses';
+  expect(modelEnvironment('synthetic-agent-secret')).toMatchObject({MODEL_PROVIDER:'azure-openai-responses',AZURE_OPENAI_API_KEY:'synthetic-azure-key',AZURE_OPENAI_BASE_URL:'https://resource.services.ai.azure.com/api/projects/project/openai/v1'});
+ }finally{
+  Object.assign(config,previous);if(nodeEnv===undefined)delete process.env.NODE_ENV;else process.env.NODE_ENV=nodeEnv;
+  if(apiKey===undefined)delete process.env.AZURE_OPENAI_API_KEY;else process.env.AZURE_OPENAI_API_KEY=apiKey;
+  if(baseUrl===undefined)delete process.env.AZURE_OPENAI_BASE_URL;else process.env.AZURE_OPENAI_BASE_URL=baseUrl;
  }
 });
 

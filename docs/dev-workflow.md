@@ -123,13 +123,38 @@ the old unique constraint after multi-message runs exist requires a separately r
 migration; do not delete conversation rows to make an old binary start. This change cannot
 recover intermediate messages that older runtimes never saved.
 
+### Routine publication mode rollout
+
+This release requires a coordinated update of API, worker and executor. The new columns are
+additive, but old executors ignore `publication_mode` and old workers admit scheduled runs with
+the default mode. Applying the migration alone does not stop an existing executor leader.
+Do not expose the new settings while any old application role remains running.
+
+1. Pause automatic deployments for all three application services **before merging** this release.
+   Build the release image and its agent distribution before deployment.
+2. Stop the old API to stop new admissions, then stop the old worker and executor. Verify all
+   three old roles have stopped before running the migration. Preserve agent journals, durable
+   request IDs, Boxes and disks; stopping the services is not permission to replay agent work.
+3. Run `migrate` from the new image. Start the updated executor and worker, verify startup and
+   recovery, then start the updated API from that same image and restore user access. Resume
+   automatic deployments only after every role is on the new version.
+
+For rollback, stop admission through the API and stop the worker first. Keep the updated
+executor until all accepted `always` and `silent` executions have settled under their recorded
+policy, including queued and waiting-for-input work. If this cannot be completed, retain the
+updated release; do not downgrade a pending publication decision. Before downgrading, change
+future routine modes to `auto` through the updated control/API in an operator-only maintenance
+window, with the worker still stopped, then stop all application roles. Retain the additive
+columns and deploy the previous compatible image to all roles together. Do not delete runs,
+messages or journals, or automatically replay ambiguous work as part of rollback.
+
 ### Real model or scripted responses
 
 `./dev restart --live` uses the selected runtime settings described below.
 Database and storage remain local; agent computers use Box when its key and template are configured.
 The worktree remembers this choice without writing credentials to its options file.
 `./dev restart --scripted` restores deterministic test responses. The default for a new
-worktree is scripted mode; `Scripted response.` indicates that mode, not an AI answer.
+worktree is scripted mode unless the shared `.env` sets `DEV_LIVE_MODEL=1`; `Scripted response.` indicates that mode, not an AI answer.
 Existing messages are retained when switching modes. Send a new message to use the real model.
 
 ### Shared runtime settings from the main checkout
@@ -137,14 +162,45 @@ Existing messages are retained when switching modes. Send a new message to use t
 In live mode, the launcher reads runtime settings from the main checkout’s `.env`
 (found through Git’s common directory), then this worktree’s `.env`, then the shell.
 It reads them again on each startup; secrets are not copied into worktree options.
-Only `MODEL_PROVIDER`, `MODEL_ID`, the selected provider’s API key, `BOX_API_KEY`
-and `BOX_TEMPLATE` are inherited. Database, storage, authentication, email and ports
+Only `MODEL_PROVIDER`, `MODEL_ID`, the selected provider’s API key and endpoint,
+`DEV_LIVE_MODEL`, `LOCAL_RUNTIME`, `BOX_API_KEY` and `BOX_TEMPLATE` are inherited. Database, storage, authentication, email and ports
 remain local. Scripted mode does not inherit these external credentials.
 
 Use `./dev restart --live --direct` to apply changes. With both Box settings present,
 new specialists use Box; existing Docker specialists retain their provider.
 For ZAI Coding Plan, use `MODEL_PROVIDER=zai` and `MODEL_ID=glm-5.3-flash` in the
 main `.env`. Pi’s `zai` provider uses `https://api.z.ai/api/coding/paas/v4`.
+
+For Azure Foundry, configure the main checkout’s ignored `.env`:
+
+```dotenv
+MODEL_PROVIDER=azure
+MODEL_ID=gpt-5.6-luna
+AZURE_OPENAI_BASE_URL=https://YOUR-RESOURCE.services.ai.azure.com/api/projects/YOUR-PROJECT/openai/v1
+AZURE_OPENAI_API_KEY=<your-key>
+DEV_LIVE_MODEL=1
+```
+
+`MODEL_ID` is the Azure deployment name. The base URL also accepts a full
+`/responses` endpoint. Azure uses the Responses protocol through the same run-scoped
+gateway, preserving native streaming, function tools, images, reasoning and token usage.
+In production, set the key and endpoint on the API; API, executor and worker use the
+same provider and model defaults. The production key remains on the API.
+Existing hosted agents use the OpenAI Responses wire format; the gateway selects Azure
+from the persisted run provider. Direct development agents use the Azure adapter,
+which removes the legacy `api-version` query rejected by Foundry v1 endpoints.
+Direct agents using a project endpoint need a freshly built distribution (or an
+updated Box template). For existing direct agents, the resource inference endpoint
+`https://YOUR-RESOURCE.services.ai.azure.com/openai/v1` also accepts the legacy SDK
+query and message format. It uses the same Azure resource and deployment; this
+allows local adoption without replacing existing Box images.
+The [Microsoft Responses reference](https://learn.microsoft.com/en-us/rest/api/aifoundry/azureopenai/responses)
+describes this API.
+
+`DEV_LIVE_MODEL=1` makes local startup use the shared model unless the worktree has
+an explicit mode saved. `./dev restart --live` overrides a previous scripted choice;
+`./dev restart --scripted` remains deterministic. A worktree `.env` model override
+still takes precedence over the main checkout and must be removed to follow it.
 
 ### Herdr worktree `.env` copy
 

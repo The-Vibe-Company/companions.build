@@ -1,9 +1,10 @@
 import { afterEach, beforeAll, expect, test } from "bun:test";
-import { db, migrate, createCompanion, acceptMessage } from "../src/store";
+import { db, migrate, createCompanion, acceptMessage, detail } from "../src/store";
 import { acquireExecutor, claimQueuedRuns, tick } from "../src/executor";
 import { createRoutine, updateRoutine, deleteRoutine, listRoutines, routineHistory, scheduleDueRoutines,
   migrateAutomations, testRoutine, enqueueBackground, nextRoutineFire, requestRunResume, AutomationConflict } from "../src/automations";
 import { encrypt } from "../src/config";
+import { handleTasks } from "../src/tasks";
 import { handleAutomations } from "../src/automation-routes";
 
 const owner="00000000-0000-4000-8000-000000000001";
@@ -250,4 +251,54 @@ test('answering a question preserves its displayed context across resume and dup
   expect((await answer())!.status).toBe(200);
   const [saved] = await db`SELECT answer,context_text FROM task_questions WHERE id=${questionId}`;
   expect(saved).toMatchObject({answer:'French',context_text:'I have prepared the role. Choose a language.'});
+});
+
+test('routine publication settings preserve omitted patches and admission snapshots including manual history', async () => {
+  const id = await companion();
+  const routine = await createRoutine(id, {name:'Original',prompt:'Check',cron:'0 * * * *',timezone:'UTC',enabled:true,publicationMode:'always'}, db, new Date('2026-01-01T06:00:00Z'));
+  const key = crypto.randomUUID();
+  const manual = await testRoutine(id,routine.id,key);
+  const other = await createRoutine(id,{name:'Other',prompt:'Check',cron:'0 * * * *',timezone:'UTC',enabled:false});
+  await expect(testRoutine(id,other.id,key)).rejects.toBeInstanceOf(AutomationConflict);
+  await scheduleDueRoutines(db,new Date('2026-01-01T07:00:00Z'));
+  expect((await updateRoutine(id,routine.id,{name:'Renamed'})).publicationMode).toBe('always');
+  await updateRoutine(id,routine.id,{publicationMode:'silent'});
+  await deleteRoutine(id,routine.id);
+  const history = await routineHistory(id,routine.id);
+  expect(history!.runs).toHaveLength(2);
+  for(const run of history!.runs) expect(run).toMatchObject({routineId:routine.id,routineName:'Original',publicationMode:'always'});
+  expect(history!.runs.find((run:any)=>run.id===manual).scheduledFor).toBeNull();
+  const snapshot={routineId:routine.id,routineName:'Original',publicationMode:'always',scheduledFor:null};
+  expect((await detail(owner,id))!.runs.find((run:any)=>run.id===manual)).toMatchObject(snapshot);
+  const response=await handleTasks(new Request(`http://local/api/companions/${id}/tasks/${manual}`),owner);
+  expect((await response!.json()).task).toMatchObject(snapshot);
+  await expect(createRoutine(id,{name:'Invalid',prompt:'Check',cron:'0 * * * *',timezone:'UTC',publicationMode:'invalid' as any})).rejects.toThrow();
+});
+
+test('routine publication modes settle once on recovered success and preserve private results', async () => {
+  const id = await companion();
+  let publish = false, puts = 0;
+  const daemon = Bun.serve({hostname:'127.0.0.1',port:0,fetch(req){
+    if(req.method==='PUT')puts++;
+    return Response.json({status:'succeeded',text:'Useful result',publishToChat:publish});
+  }});
+  const lock = await leader();
+  try {
+    await db`UPDATE companions SET endpoint_secret=${encrypt(`http://127.0.0.1:${daemon.port}`)} WHERE id=${id}`;
+    for(const mode of ['auto','always','silent'] as const){
+      for(const requested of [false,true]){
+        publish=requested;
+        const routine=await createRoutine(id,{name:mode,prompt:'Check',cron:'0 * * * *',timezone:'UTC',enabled:false,publicationMode:mode});
+        const run=await testRoutine(id,routine.id,crypto.randomUUID());
+        // A later edit must not change the policy of already accepted work.
+        await updateRoutine(id,routine.id,{publicationMode:mode==='silent'?'always':'silent'});
+        await db`UPDATE runs SET status='running',dispatched=true,started_at=now() WHERE id=${run}`;
+        await tick(lock.sql);await tick(lock.sql);
+        const expected=mode==='always'||mode==='auto'&&requested;
+        expect((await db`SELECT result_text,publish_to_chat,status FROM runs WHERE id=${run}`)[0]).toMatchObject({status:'succeeded',result_text:'Useful result',publish_to_chat:expected});
+        expect(await db`SELECT id FROM messages WHERE run_id=${run}`).toHaveLength(expected?1:0);
+      }
+    }
+    expect(puts).toBe(0);
+  } finally {await lock.close();daemon.stop(true);}
 });

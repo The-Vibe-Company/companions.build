@@ -29,10 +29,20 @@ acceptance("compiled Linux daemon uses real Pi tools, persists output, rejects u
     expect((await fetch(`${base}/runs/${writeId}`, { method: "PUT", headers: headers(token), body: JSON.stringify({ content: "write-note", instructions: "Use the available tools." }) })).status).toBe(202);
     const written = await waitTerminal(base, token, writeId);
     expect(written).toMatchObject({ id: writeId, status: "succeeded", text: "The note was written and read back.", error: null });
-    expect(written.messages).toEqual([{sequence:1,text:"The note was written and read back.",createdAt:expect.any(String),complete:true}]);
+    expect(written.messages).toEqual([{order:expect.any(Number),sequence:1,text:"The note was written and read back.",createdAt:expect.any(String),complete:true}]);
     expect(Number.isNaN(Date.parse(written.messages[0].createdAt))).toBe(false);
     expect(written.messageVersion).toBeGreaterThan(0);
+    expect(written.events.filter((event:any)=>event.kind==='tool')).toEqual(expect.arrayContaining([
+      expect.objectContaining({toolName:'write',status:'succeeded'}),expect.objectContaining({toolName:'read',status:'succeeded'})]));
+    expect(JSON.stringify(written.events)).not.toContain('written by real Pi tools');
     expect(readFileSync(join(state, "workspace", "note.txt"), "utf8")).toBe("written by real Pi tools\n");
+    const thinkingId=crypto.randomUUID();
+    await fetch(`${base}/runs/${thinkingId}`,{method:'PUT',headers:headers(token),body:JSON.stringify({content:'thinking-roundtrip',instructions:''})});
+    const thought=await waitTerminal(base,token,thinkingId);
+    expect(thought.events.filter((e:any)=>e.kind==='thinking').map((e:any)=>e.text)).toEqual(['Checking the requested file.','The file is unavailable; report the observed result.']);
+    expect(thought.events.find((e:any)=>e.kind==='tool')).toMatchObject({toolName:'read',status:'failed'});
+    expect(thought.messages.map((m:any)=>m.text)).toEqual(['I am checking the file.','The requested file was not found.']);
+    expect(JSON.stringify(thought.events)).not.toContain('fixture-intentionally-missing.txt');
     const slowId = crypto.randomUUID();
     await fetch(`${base}/runs/${slowId}`, { method: "PUT", headers: headers(token), body: JSON.stringify({ content: "slow-write", instructions: "" }) });
     await Bun.sleep(300);

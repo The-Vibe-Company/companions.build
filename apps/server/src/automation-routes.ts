@@ -9,10 +9,10 @@ export async function handleAutomations(request:Request,ownerId:string):Promise<
   const companionId=z.string().uuid().parse(question[1]);const id=z.string().uuid().parse(question[2]);
   const {answer}=z.object({answer:z.string().trim().min(1).max(5000)}).parse(await request.json());
   return db.begin(async tx=>{
-   const [row]=await tx`SELECT q.*,r.status FROM task_questions q JOIN companions c ON c.id=q.companion_id JOIN runs r ON r.id=q.run_id WHERE q.id=${id} AND c.id=${companionId} AND c.owner_id=${ownerId} FOR UPDATE OF q`;
+   const [row]=await tx`SELECT q.*,r.status,r.cancel_requested FROM task_questions q JOIN companions c ON c.id=q.companion_id JOIN runs r ON r.id=q.run_id WHERE q.id=${id} AND c.id=${companionId} AND c.owner_id=${ownerId} FOR UPDATE OF r,q`;
    if(!row)return json({error:'Question not found.'},404);
    if(row.answer)return row.answer===answer?json({ok:true}):json({error:'This question already has an answer.'},409);
-   if(!['running','needs_input'].includes(row.status))return json({error:'This task is no longer waiting.'},409);
+   if(row.cancel_requested||!['running','needs_input'].includes(row.status))return json({error:'This task is no longer waiting.'},409);
    await tx`UPDATE task_questions SET answer=${answer},answered_at=now(),context_text=(SELECT preview_text FROM runs WHERE id=task_questions.run_id) WHERE id=${id}`;
    await requestRunResume(companionId,row.run_id,tx);return json({ok:true});
   });

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Clock3, Menu } from "lucide-react";
+import { Bell, Clock3, Menu } from "lucide-react";
 import { isActiveRun, workspaceApi, type AgentTemplate, type CompanionDetail } from "@/api";
 import { CompanionAvatar } from "./CompanionAvatar";
 import { Button } from "./ui/button";
@@ -8,9 +8,10 @@ import "./CompanionHeader.css";
 export type CompanionSection = "chat" | "team" | "automations" | "activity" | "applications" | "computer" | "settings";
 type Summary = { team: { count:number; avatars:AgentTemplate[] } | null; automations: { count:number; next:string|null } | null };
 
-export function CompanionHeader({ detail, section, refreshVersion, onSection, onMenu }: {
+export function CompanionHeader({ detail, section, refreshVersion, onSection, onMenu, notificationCounts, onNotifications = () => {} }: {
   detail:CompanionDetail; section:CompanionSection; refreshVersion:number;
   onSection:(section:CompanionSection)=>void; onMenu:()=>void;
+  notificationCounts?:{unread:number;needsInput:number}; onNotifications?:()=>void;
 }) {
   const [storedSummary,setSummary]=useState<Summary & {companionId:string}>({companionId:detail.companion.id,team:null,automations:null});
   const summary=storedSummary.companionId===detail.companion.id?storedSummary:{team:null,automations:null};
@@ -44,7 +45,7 @@ export function CompanionHeader({ detail, section, refreshVersion, onSection, on
   const activity=finished?"Finished":detail.questions?.some(question=>question.answer==null&&(!question.runStatus||['running','needs_input','preparing'].includes(question.runStatus)))||run?.status==="needs_input"?"Needs you":run?.status==="running"?`${companion.name} · working`:run?.status==="preparing"?"Preparing":run?"Queued":"Idle";
   const next=summary.automations?.next?new Intl.DateTimeFormat(undefined,{weekday:"short",hour:"numeric",minute:"2-digit"}).format(new Date(summary.automations.next)):null;
   return <header className="companion-header">
-    <Button className="mobile-menu" variant="ghost" size="icon" onClick={onMenu} aria-label="Open navigation"><Menu/></Button>
+    <Button className={`mobile-menu${notificationCounts?.needsInput ? " mobile-menu--attention" : ""}`} variant="ghost" size="icon" onClick={onMenu} aria-label={notificationCounts?.needsInput ? "Open navigation, notifications need attention" : "Open navigation"}><Menu/></Button>
     <button className="companion-header-identity" aria-label="Discussion" aria-current={section==="chat"?"page":undefined} title="Back to discussion" onClick={()=>onSection("chat")}>
       <h1>{companion.name}</h1><span>{finished?"Finished specialist":companion.instructions}</span>
     </button>
@@ -58,6 +59,8 @@ export function CompanionHeader({ detail, section, refreshVersion, onSection, on
           <Clock3/><strong>Automations</strong>{summary.automations&&<span className="header-pill-detail" title={`${summary.automations.count} enabled automations`}>{summary.automations.count}{next&&` · next ${next}`}</span>}
         </button>
       </>}
+      <button className={`companion-info-pill companion-notifications${notificationCounts?.needsInput ? " companion-notifications--attention" : ""}`} aria-label={`Notifications${notificationCounts?.unread ? `, ${notificationCounts.unread} unread` : ""}${notificationCounts?.needsInput ? `, ${notificationCounts.needsInput} need your input` : ""}`} onClick={onNotifications}><Bell/><strong>Notifications</strong>{Boolean(notificationCounts?.unread) && <span className="header-pill-detail">{notificationCounts!.unread}</span>}</button>
+      {Boolean(notificationCounts?.needsInput) && <button className="companion-needs-you" onClick={onNotifications}>Needs you · {notificationCounts!.needsInput}</button>}
       <button className="companion-info-pill" aria-label="Activity" aria-current={section==="activity"?"page":undefined} onClick={()=>onSection("activity")}>
         <span aria-hidden="true" className={`header-activity-dot${activity==="Needs you"?" header-activity-dot--attention":run?.status==="running"?" header-activity-dot--working":""}`}/><strong>Activity</strong><span className="header-pill-detail">{activity}</span>
       </button>

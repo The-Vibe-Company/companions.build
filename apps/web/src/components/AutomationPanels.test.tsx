@@ -181,7 +181,7 @@ it.each(['auto', 'always', 'silent'])("persists the %s publication mode when cre
   await user.click(screen.getByRole('button', { name: 'New routine' }));
   await user.type(screen.getByRole('textbox', { name: 'Name' }), 'Bonjour');
   await user.type(screen.getByRole('textbox', { name: 'What should happen?' }), 'Say hello');
-  await user.selectOptions(screen.getByRole('combobox', { name: 'Chat messages' }), mode);
+  await user.selectOptions(screen.getByRole('combobox', { name: 'Notifications' }), mode);
   await user.click(screen.getByRole('button', { name: 'Add routine' }));
   await waitFor(() => expect(created).toMatchObject({ name: 'Bonjour', publicationMode: mode }));
 });
@@ -195,14 +195,14 @@ it('opens the linked routine and preserves publication edits on save failure', a
     return response({ routines: [routine] });
   }));
   render(<RoutineSettings companionId="c1" initialRoutineId="r1"/>);
-  await screen.findByText('Chat messages: Silent');
+  await screen.findByText('Notifications: Silent');
   await screen.findByText('No runs yet.');
   const user = userEvent.setup();
   await user.click(screen.getByText('Edit routine'));
-  await user.selectOptions(screen.getByRole('combobox', { name: 'Chat messages' }), 'always');
+  await user.selectOptions(screen.getByRole('combobox', { name: 'Notifications' }), 'always');
   await user.click(screen.getByRole('button', { name: 'Save changes' }));
   expect(await screen.findByRole('alert')).toHaveTextContent('Could not save');
-  expect(screen.getByText('Chat messages: Silent')).toBeVisible();
-  expect(screen.getByRole('combobox', { name: 'Chat messages' })).toHaveValue('always');
+  expect(screen.getByText('Notifications: Silent')).toBeVisible();
+  expect(screen.getByRole('combobox', { name: 'Notifications' })).toHaveValue('always');
   expect(patch).toMatchObject({ publicationMode: 'always' });
 });

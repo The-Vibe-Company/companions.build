@@ -34,7 +34,7 @@ function RoutinePanel({ companionId, initialRoutineId }: { companionId: string; 
     if (loading || !initialRoutineId || openedInitial.current === initialRoutineId) return;
     openedInitial.current = initialRoutineId;
     if (items.some(item => item.id === initialRoutineId)) { setOpenId(initialRoutineId); void loadHistory(initialRoutineId); }
-    else setError("This routine is no longer available. Its executions remain in the chat and activity.");
+    else setError("This routine is no longer available. Its executions remain in notifications and activity.");
   }, [loading, initialRoutineId, items]);
   async function change(id: string, action: () => Promise<unknown>) {
     setBusy(id); setError("");
@@ -59,7 +59,7 @@ function RoutinePanel({ companionId, initialRoutineId }: { companionId: string; 
       </div>
       {openId === item.id && <div id={`routine-detail-${item.id}`} className="automation-expanded">
         <p className="automation-prompt">{item.prompt}</p>
-        <p className="automation-caption">Chat messages: {publicationLabels[item.publicationMode ?? "auto"]}</p>
+        <p className="automation-caption">Notifications: {publicationLabels[item.publicationMode ?? "auto"]}</p>
         <p className="automation-caption">{item.enabled && item.nextFireAt ? `Next run ${shortDate(item.nextFireAt)}` : item.enabled ? "Schedule enabled" : "Schedule paused"}</p>
         <div className="detail-actions"><Button variant="outline" size="sm" disabled={!!busy} onClick={() => void test(item.id)} aria-label={`Run ${item.name} now`}>{busy === `test:${item.id}` ? <LoaderCircle className="spin" /> : <Play />}Run now</Button><Button variant="ghost" size="sm" disabled={!!busy} onClick={() => void loadHistory(item.id)}><RotateCw />Refresh history</Button></div>
         <details className="automation-section"><summary>Edit routine</summary><AutomationEditor key={`${item.name}:${item.prompt}:${item.cron}:${item.timezone}:${item.publicationMode}`} item={item} busy={!!busy} onSave={value => change(`edit:${item.id}`, () => workspaceApi.updateRoutine(companionId, item.id, value))} /></details>
@@ -185,9 +185,9 @@ function AutomationEditor({ item, busy, onSave }: { item: Routine | Trigger; bus
 const publicationLabels: Record<RoutinePublicationMode, string> = { auto: "If useful", always: "After every success", silent: "Silent" };
 const publicationHelp: Record<RoutinePublicationMode, string> = {
   auto: "Your companion decides using the instructions. Add when it should speak up, for example: only if something needs attention.",
-  always: "Every successful execution posts its result in the chat. Frequent routines can create many messages.",
-  silent: "Results stay in execution details. Activity and requests for your help remain visible in the chat.",
+  always: "Every successful execution creates a notification. Frequent routines can create many updates.",
+  silent: "Results stay in execution details. Activity and requests for your help remain available.",
 };
 function RoutinePublicationField({ id, value, onChange, disabled }: { id: string; value: RoutinePublicationMode; onChange: (value: RoutinePublicationMode) => void; disabled: boolean }) {
-  return <div className="field"><label htmlFor={id}>Chat messages</label><select id={id} value={value} disabled={disabled} aria-describedby={`${id}-help`} onChange={event => onChange(event.target.value as RoutinePublicationMode)}>{Object.entries(publicationLabels).map(([mode, label]) => <option value={mode} key={mode}>{label}</option>)}</select><p id={`${id}-help`} className="automation-caption">{publicationHelp[value]} Changes apply to future executions.</p></div>;
+  return <div className="field"><label htmlFor={id}>Notifications</label><select id={id} value={value} disabled={disabled} aria-describedby={`${id}-help`} onChange={event => onChange(event.target.value as RoutinePublicationMode)}>{Object.entries(publicationLabels).map(([mode, label]) => <option value={mode} key={mode}>{label}</option>)}</select><p id={`${id}-help`} className="automation-caption">{publicationHelp[value]} Changes apply to future executions.</p></div>;
 }

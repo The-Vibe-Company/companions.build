@@ -297,6 +297,7 @@ test('routine publication modes settle once on recovered success and preserve pr
         const expected=mode==='always'||mode==='auto'&&requested;
         expect((await db`SELECT result_text,publish_to_chat,status FROM runs WHERE id=${run}`)[0]).toMatchObject({status:'succeeded',result_text:'Useful result',publish_to_chat:expected});
         expect(await db`SELECT id FROM messages WHERE run_id=${run}`).toHaveLength(expected?1:0);
+        expect(await db`SELECT id FROM routine_notifications WHERE run_id=${run} AND kind='result' AND read_at IS NULL`).toHaveLength(expected?1:0);
       }
     }
     expect(puts).toBe(0);

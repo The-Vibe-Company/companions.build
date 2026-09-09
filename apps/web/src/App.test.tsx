@@ -1,7 +1,7 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { App } from "./App";
+import { App, ChatEventView, stableChatTimeline } from "./App";
 
 beforeEach(() => window.sessionStorage.clear());
 
@@ -17,6 +17,36 @@ const companion = {
   createdAt: "2026-09-06T12:00:00.000Z",
   avatar: { shape: 1, color: 2, face: 0 },
 };
+
+it("orders durable chat entries by numeric position and keeps legacy timestamps stable",()=>{
+  expect(stableChatTimeline([
+    {id:"tool-10",position:"10",createdAt:"2026-09-09T10:00:00Z"},
+    {id:"tool-2",position:"2",createdAt:"2026-09-09T11:00:00Z"},
+  ]).map(item=>item.id)).toEqual(["tool-2","tool-10"]);
+  const entries=stableChatTimeline([
+    {id:"legacy-a",createdAt:"2026-09-09T09:00:00Z"},
+    {id:"legacy-b",createdAt:"2026-09-09T09:00:00Z"},
+  ]);
+  expect(entries.map(item=>item.id)).toEqual(["legacy-a","legacy-b"]);
+});
+
+it("anchors mixed legacy thinking after its first run entry without disabling durable position order",()=>{
+  const snapshot=[
+    {id:"position-10",runId:"run",position:"10",createdAt:"2026-09-09T09:00:00Z"},
+    {id:"legacy-thinking",runId:"run",createdAt:"2026-09-09T08:00:00Z"},
+    {id:"position-2",runId:"run",position:"2",createdAt:"2026-09-09T11:00:00Z"},
+  ];
+  expect(stableChatTimeline(snapshot).map(item=>item.id)).toEqual(["position-2","legacy-thinking","position-10"]);
+  expect(stableChatTimeline(snapshot.map(item=>({...item}))).map(item=>item.id)).toEqual(["position-2","legacy-thinking","position-10"]);
+});
+
+it("shows a safe failed MCP event without exposing provider payloads",()=>{
+  render(<ChatEventView event={{id:"event",runId:"run",kind:"tool",position:"4",createdAt:"2026-09-09T10:00:00Z",toolName:"search_issues",application:{name:"Linear",provider:"linear"},status:"failed"}}/>);
+  expect(screen.getAllByText("Linear")[0]).toBeVisible();
+  expect(screen.getAllByText("search_issues")[0]).toBeVisible();
+  expect(screen.getByText("Failed")).toBeVisible();
+  expect(screen.queryByText(/arguments|response|payload/i)).not.toBeInTheDocument();
+});
 
 class FakeEventSource extends EventTarget {
   static instances: FakeEventSource[] = [];
@@ -1010,7 +1040,7 @@ it("keeps creation on screen until selected accounts finish saving", async () =>
 });
 
 
-it.each(['2026-09-08T10:00:30.000Z','2026-09-08T10:03:00.000Z'])('keeps resumed thinking after the conversation and choice card dated %s',async(questionAt)=>{
+it.each(['2026-09-08T10:00:30.000Z','2026-09-08T10:03:00.000Z'])('uses persisted timestamps as the stable fallback for legacy chat entries dated %s',async(questionAt)=>{
  window.history.replaceState({},'', '/companions/ada');
  const ready={...companion,status:'ready'};
  vi.stubGlobal('fetch',vi.fn((input:RequestInfo|URL)=>{
@@ -1027,11 +1057,11 @@ it.each(['2026-09-08T10:00:30.000Z','2026-09-08T10:03:00.000Z'])('keeps resumed 
  render(<App/>);
  const preview=await screen.findByText('New streaming response');
  const earlier=screen.getByText('Earlier answer');
- expect(earlier.compareDocumentPosition(preview)&Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
- expect(screen.getByText('Continue please').compareDocumentPosition(preview)&Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
- expect(earlier.compareDocumentPosition(screen.getByText('Current reasoning'))&Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+ expect(preview.compareDocumentPosition(earlier)&Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+ expect(preview.compareDocumentPosition(screen.getByText('Continue please'))&Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+ expect(screen.getByText('Current reasoning').compareDocumentPosition(preview)&Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
  const question=screen.getByText('Which repository?'),thinking=screen.getByText('Current reasoning');
- expect(question.compareDocumentPosition(thinking)&(questionAt<'2026-09-08T10:02:00.000Z'?Node.DOCUMENT_POSITION_FOLLOWING:Node.DOCUMENT_POSITION_PRECEDING)).toBeTruthy();
+ expect(thinking.compareDocumentPosition(question)&Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
 });
 
 
@@ -1052,7 +1082,7 @@ it('keeps a completed specialist turn ordered as thinking, answer, then its inte
  const answer=screen.getByText('I need GitHub and Linear.');
  const thought=screen.getByText('Configuration reasoning');
  expect(thought.compareDocumentPosition(answer)&Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
- expect(answer.compareDocumentPosition(card)&Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+ expect(card.compareDocumentPosition(answer)&Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
 });
 
 
@@ -1101,7 +1131,7 @@ it('keeps an interrupted assistant message and a closed question without claimin
  expect(screen.queryByRole('button',{name:'Simple'})).not.toBeInTheDocument();
 });
 
-it('replaces a persisted routine trace with its attributed message while keeping silent questions visible', async () => {
+it('keeps routine executions, publications, and questions out of the chat', async () => {
   window.history.replaceState({}, '', '/companions/ada');
   FakeEventSource.instances = [];
   vi.stubGlobal('EventSource', FakeEventSource);
@@ -1119,14 +1149,12 @@ it('replaces a persisted routine trace with its attributed message while keeping
   }));
   try {
     render(<App/>);
-    expect(await screen.findByRole('button', { name: 'View Bonjour: Needs you' })).toBeVisible();
-    expect(screen.getByRole('region', { name: 'Waiting for your answer' })).toHaveTextContent('Who should I greet?');
+    expect(await screen.findByRole('textbox', { name: 'Message Ada' })).toBeVisible();
+    expect(screen.queryByText('Who should I greet?')).not.toBeInTheDocument();
     expect(screen.getByRole('textbox', { name: 'Message Ada' })).toBeEnabled();
     published = true;
     act(() => { for (const stream of FakeEventSource.instances) stream.emit('invalidate'); });
-    expect(await screen.findByText('Bonjour Stan!')).toBeVisible();
-    expect(screen.getByRole('button', { name: 'View execution of Bonjour' })).toBeVisible();
-    expect(screen.queryByRole('button', { name: 'View Bonjour: Needs you' })).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'View Bonjour: Posted in chat' })).not.toBeInTheDocument();
+    await waitFor(()=>expect(screen.queryByText('Bonjour Stan!')).not.toBeInTheDocument());
+    expect(screen.queryByText('Who should I greet?')).not.toBeInTheDocument();
   } finally { vi.unstubAllGlobals(); }
 });

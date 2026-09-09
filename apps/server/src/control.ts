@@ -6,7 +6,7 @@ import {controlHelp} from './control-help';
 import {availableModels,validateModel} from './models';
 import { z } from 'zod';
 import {encrypt,decrypt} from './config';
-import { db, Conflict } from './store';
+import { db, Conflict, acceptMessage } from './store';
 import type { ControlOperation } from '../../../packages/control/agent';
 export type ControlContext={ownerId:string;companionId:string;runId:string;commandId:string;isChild:boolean};
 export type ControlHandler=(context:ControlContext,input:unknown)=>Promise<unknown>;
@@ -28,7 +28,7 @@ export async function applyControl(companionId:string,raw:unknown,execution?:Run
   }
   let result:unknown;
   try {
-    if(['companion_create','routine_save','routine_test','trigger_save','trigger_test','prepare','software_prepare','spawn','delegate','adopt_template','desktop_takeover'].includes(command.operation))await requireHostedActivation(actor.owner_id);
+    if(['notify_agent','companion_create','routine_save','routine_test','trigger_save','trigger_test','prepare','software_prepare','spawn','delegate','adopt_template','desktop_takeover'].includes(command.operation))await requireHostedActivation(actor.owner_id);
     await execution?.assertActive();
     const handle=controlHandlers[command.operation as ControlOperation];
     if(!handle) result={error:'This operation is not available.'};
@@ -55,6 +55,11 @@ export async function configureCompanion(ownerId:string,id:string,input:unknown,
   return row??null;
 }
 registerControl({
+  notify_agent:async(context,input)=>{
+    const {text}=z.object({text:z.string().trim().min(1).max(50_000)}).parse(input);
+    const runId=await acceptMessage(context.ownerId,context.companionId,context.commandId,text,0,context.runId);
+    return runId?{runId,status:'accepted'}:{error:'Companion not available.'};
+  },
   history_search:async(context,input)=>{
     const value=z.object({query:z.string().trim().min(2).max(200),limit:z.number().int().min(1).max(10).default(5)}).parse(input);
     const matches=await db`SELECT r.id AS "runId",r.lane,r.status,r.created_at AS "createdAt",

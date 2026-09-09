@@ -53,6 +53,9 @@ export function scriptedModel(model: any, context: any) {
   } else if (text === "control-identity") {
     if (results.length === 0) tool("companion_control", { operation: "identity", input: {} });
     else message.content = [{type:"text",text:JSON.stringify(results.at(-1)?.content).includes("companionId") ? "Control verified" : "Control failed"}];
+  } else if (text === "thinking-roundtrip") {
+    if(results.length===0){tool('read',{path:'fixture-intentionally-missing.txt'});message.content.unshift({type:'thinking',thinking:'Checking the requested file.'},{type:'text',text:'I am checking the file.'});}
+    else message.content=[{type:'thinking',thinking:'The file is unavailable; report the observed result.'},{type:'text',text:'The requested file was not found.'}];
   } else if (text === "write-note") {
     if (results.length === 0) tool("write", { path: "note.txt", content: "written by real Pi tools\n" });
     else if (results.length === 1) tool("read", { path: "note.txt" });
@@ -110,6 +113,9 @@ export function scriptedModel(model: any, context: any) {
       ? "MINIO_INPUT_BYTES -> agent output\n" : "attachment input missing\n" });
     else if (results.length === 2) tool("send_file", { path: "attachment-result.txt" });
     else message.content = [{ type: "text", text: lastResult().includes("queued for attachment") ? "Attachment roundtrip verified" : "Attachment roundtrip failed" }];
+  } else if (text === "control-notify-agent") {
+    if(results.length===0)tool('companion_control',{operation:'notify_agent',input:{text:'steered-result'}});
+    else message.content=[{type:'text',text:lastResult().includes('accepted')?'Main agent notified':'Notification failed'}];
   } else if (text === "control-create-routine") {
     if (results.length === 0) tool("companion_control", { operation: "routine_save", input: {
       name: "Daily acceptance", prompt: "Check the acceptance fixture", cron: "17 9 * * 1-5", timezone: "Europe/Paris", enabled: true,

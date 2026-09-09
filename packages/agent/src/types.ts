@@ -5,8 +5,9 @@ export type RunLane = "main" | "background";
 export type TerminalRunStatus = Exclude<RunStatus, "running" | "needs_input">;
 
 export interface RunUsage {input:number;output:number;cacheRead:number;cacheWrite:number;totalTokens:number;costUsd:number}
-export interface RunMessage {sequence:number;text:string;createdAt:string;complete:boolean}
-export interface RunProgress {thinkingText?:string;previewText:string;usage:RunUsage;messages?:RunMessage[];messageVersion?:number}
+export interface RunMessage {order?:number;sequence:number;text:string;createdAt:string;complete:boolean}
+export interface RunEvent {sequence:number;kind:"thinking"|"tool";createdAt:string;text?:string;toolName?:string;application?:{name:string;provider:string};status?:"running"|"succeeded"|"failed"|"unknown"}
+export interface RunProgress {events?:RunEvent[];thinkingText?:string;previewText:string;usage:RunUsage;messages?:RunMessage[];messageVersion?:number}
 
 export interface RunRecord {
   id: string;
@@ -19,6 +20,7 @@ export interface RunRecord {
   previewText?:string;
   thinkingText?:string;
   usage?:RunUsage;
+  events?:RunEvent[];
   messages?:RunMessage[];
   messageVersion?:number;
   initWarning?: string;

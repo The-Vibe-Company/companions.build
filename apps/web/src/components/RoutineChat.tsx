@@ -12,7 +12,7 @@ const time = (value: string) => new Intl.DateTimeFormat(undefined, { hour: "nume
 export const routineRunName = (run: Pick<Run, "routineName">) => run.routineName || "Routine";
 const statuses: Record<RunStatus, string> = { queued: "Queued", preparing: "Preparing", running: "Running", needs_input: "Needs you", succeeded: "Completed", failed: "Failed", interrupted: "Interrupted", cancelled: "Cancelled" };
 export function routineRunLabel(run: Pick<Run, "status" | "publishToChat">) {
-  return run.status === "succeeded" ? run.publishToChat ? "Posted in chat" : "Completed · No message" : statuses[run.status];
+  return run.status === "succeeded" ? run.publishToChat ? "Notification sent" : "Completed · No notification" : statuses[run.status];
 }
 
 // Messages, questions and other conversation entries are grouping boundaries. Only
@@ -94,7 +94,7 @@ export function RoutineRunSheet({ companionId, runs, onClose, onOpenRoutine }: {
           : task ? <>
             <div className={`routine-sheet-outcome${["failed", "interrupted", "needs_input"].includes(task.status) ? " routine-sheet-outcome--attention" : ""}`}>{routineRunLabel(task)}</div>
             <dl className="routine-sheet-facts"><div><dt>Requested</dt><dd>{date(task.createdAt)}</dd></div>{task.scheduledFor && <div><dt>Scheduled for</dt><dd>{date(task.scheduledFor)}</dd></div>}{task.startedAt && <div><dt>Started</dt><dd>{date(task.startedAt)}</dd></div>}{task.finishedAt && <div><dt>Finished</dt><dd>{date(task.finishedAt)}</dd></div>}{duration != null && <div><dt>Duration</dt><dd>{duration < 60 ? `${duration}s` : `${Math.floor(duration / 60)}m ${duration % 60}s`}</dd></div>}</dl>
-            {task.status === "needs_input" && <div className="routine-sheet-next"><p>Your companion needs an answer in the chat.</p><Button variant="outline" onClick={onClose}>Back to the conversation</Button></div>}
+            {task.status === "needs_input" && <div className="routine-sheet-next"><p>Your companion needs an answer in notifications.</p></div>}
             {task.error && <section className="routine-sheet-error"><h3>What happened</h3><p>{task.error}</p></section>}
             {task.resultText && <section><h3>Result</h3><MessageResponse>{task.resultText}</MessageResponse></section>}
             {!!result.files.length && <section><h3>Files</h3><div className="routine-sheet-files">{result.files.map(file => <a key={file.id} href={file.url} target="_blank" rel="noreferrer"><FileText/><span>{file.name}</span></a>)}</div></section>}

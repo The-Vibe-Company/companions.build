@@ -2,6 +2,13 @@
 
 Mis à jour le **6 septembre 2026**.
 
+**Évolution validée le 9 septembre 2026 :** la [spécification chat et notifications de
+routines](specs/chat-and-routine-notifications.md) remplace les règles ci-dessous qui
+placent chaque exécution et les publications humaines des routines dans le chat. Le
+fil conserve les échanges avec l'agent principal ; les notifications humaines et les
+questions des routines disposent d'un panneau distinct. Cette décision est un cadrage,
+pas une déclaration de livraison.
+
 Ce document rassemble les décisions de Stan et les fonctionnalités discutées pour **un nouveau
 projet**, companions.build. Il constitue la référence produit pour poursuivre le cadrage. Il ne
 décrit pas le fonctionnement du dépôt Companion actuel et ne vaut pas encore spécification

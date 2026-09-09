@@ -30,7 +30,7 @@ export async function startAgent() {
   const desktopSocket = process.env.DESKTOP_BOUNDARY_VERSION === "1" ? process.env.DESKTOP_AGENT_SOCKET : undefined;
   executor.toolsFactory = async context => {
     const product = await control.toolsFactory(context);
-    return {tools:[...product.tools,...files.tools(context.runId),...(desktopSocket?desktopTools({socketPath:desktopSocket,runId:context.runId}):[])],close:product.close};
+    return {tools:[...product.tools,...files.tools(context.runId),...(desktopSocket?desktopTools({socketPath:desktopSocket,runId:context.runId}):[])],describeTool:product.describeTool,close:product.close};
   };
   const daemon = new AgentDaemon(stateDir, token, executor, async request => {
     if(desktopSocket && request.method==='GET' && new URL(request.url).pathname==='/desktop') {

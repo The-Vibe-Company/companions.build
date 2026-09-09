@@ -35,6 +35,9 @@ export interface Companion {
 export interface AccountUser { id: string; email: string; name: string }
 
 export interface ChatMessage {
+  position?: string;
+  source?: string;
+  sourceName?: string;
   sequence?: number;
   complete?: boolean;
   id: string;
@@ -94,7 +97,8 @@ export interface TaskDetail extends TaskSummary {
 
 export interface CompanionDetail {
   files?: ThreadFile[];
-  questions?: Array<{id:string;runId:string;question:string;options:string[];answer:string|null;createdAt?:string;contextText?:string|null;runStatus?:string}>;
+  questions?: Array<{id:string;runId:string;question:string;options:string[];answer:string|null;createdAt?:string;contextText?:string|null;runStatus?:string;position?:string}>;
+  events?: ChatEvent[];
   specialists?: Array<{
     delegationId: string;
     parentRunId: string;
@@ -105,6 +109,49 @@ export interface CompanionDetail {
   messages: ChatMessage[];
   runs: Run[];
   activity: unknown[];
+}
+
+export interface ChatEvent {
+  id: string;
+  runId: string;
+  kind: "thinking" | "tool";
+  position: string;
+  createdAt: string;
+  text?: string;
+  toolName?: string;
+  application?: { name: string; provider?: string };
+  status?: "running" | "succeeded" | "failed" | "unknown";
+}
+
+export interface RoutineNotificationQuestion {
+  id: string;
+  runId: string;
+  question: string;
+  options: string[];
+  answer: string | null;
+  runStatus: RunStatus;
+  createdAt: string;
+  contextText?: string | null;
+}
+
+export interface RoutineNotification {
+  id: string;
+  runId: string;
+  kind: "result" | "question" | "failure";
+  routineId: string | null;
+  routineName: string;
+  createdAt: string;
+  groupDate: string;
+  readAt: string | null;
+  questionId: string | null;
+  text: string;
+  runStatus: RunStatus;
+  actionable: boolean;
+  question?: RoutineNotificationQuestion;
+}
+
+export interface NotificationSummary {
+  companions: Array<{ companionId: string; unread: number; needsInput: number }>;
 }
 
 export interface AppConfig {
@@ -214,6 +261,11 @@ export const api = {
   getConfig: () => request<AppConfig>("/api/config"),
   getCompanions: () => request<{ companions: Companion[] }>("/api/companions"),
   getCompanion: (id: string) => request<CompanionDetail>(`/api/companions/${id}`),
+  getNotifications: (id: string, cursor?: string) =>
+    request<{ notifications: RoutineNotification[]; nextCursor: string | null }>(`/api/companions/${id}/notifications?limit=20${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`),
+  readNotification: (id: string, notificationId: string) =>
+    request<{ read: true }>(`/api/companions/${id}/notifications/${notificationId}/read`, { method: "POST" }),
+  notificationSummary: () => request<NotificationSummary>("/api/notifications/summary"),
   deleteCompanion: (id: string) => request<{ deleted: true; companionIds?: string[] }>(`/api/companions/${id}`, { method: "DELETE" }),
   companionEvents: (id: string) => new EventSource(`/api/companions/${id}/events`),
   taskHistory: (id: string, before?: string) =>
@@ -321,7 +373,7 @@ export interface SpecialistPublication {
 export interface SpecialistDraft {
   identityRevision?: number;
   guidance?: NonNullable<SpecialistDraft['nextStep']>[];
-  nextStep?: { id: string; runId?: string; kind: "profile" | "connections" | "test" | "publish"; message: string; providers: string[]; createdAt: string; respondedAt?: string | null } | null;
+  nextStep?: { id: string; runId?: string; position?:string; kind: "profile" | "connections" | "test" | "publish"; message: string; providers: string[]; createdAt: string; respondedAt?: string | null } | null;
   avatar?: CompanionAvatarValue;
   templateId: string;
   companionId: string;

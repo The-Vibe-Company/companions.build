@@ -110,6 +110,7 @@ svg { width: 1rem; height: 1rem; stroke-width: 1.8; }
 .sidebar-close { display: none; }
 .sidebar-label { padding: 14px 10px 8px; color: var(--muted-foreground); font-size: .72rem; font-weight: 600; }
 .companion-list { display: flex; flex: 1; min-height: 0; flex-direction: column; gap: 3px; overflow-y: auto; }
+.companion-link-row { position: relative; }
 .companion-link {
   display: grid;
   width: 100%;
@@ -126,6 +127,14 @@ svg { width: 1rem; height: 1rem; stroke-width: 1.8; }
   cursor: pointer;
   transition: background-color 160ms ease-out;
 }
+.companion-link-row .companion-link { padding-right: 45px; }
+.rail-notifications { position:absolute; z-index:1; top:50%; right:7px; display:grid; width:34px; height:34px; place-items:center; transform:translateY(-50%); border-radius:50%; color:var(--muted-foreground); }
+.rail-notifications:hover { background:var(--card); color:var(--foreground); }
+.rail-notifications svg { width:15px; }
+.rail-notifications span { position:absolute; top:0; right:0; display:grid; min-width:16px; height:16px; place-items:center; border:2px solid var(--sidebar); border-radius:999px; padding:0 3px; background:var(--foreground); color:var(--card); font-size:.56rem; font-weight:700; }
+.rail-notifications--attention span { background:oklch(.54 .16 48); }
+.mobile-menu--attention { position:relative; }
+.mobile-menu--attention::after { content:""; position:absolute; top:7px; right:7px; width:8px; height:8px; border:2px solid var(--background); border-radius:50%; background:oklch(.54 .16 48); }
 .companion-link:hover { background: color-mix(in oklch, var(--sidebar-accent) 70%, transparent); }
 .companion-link:active, .companion-link--active { background: var(--sidebar-accent); }
 .companion-avatar {

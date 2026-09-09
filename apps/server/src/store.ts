@@ -4,7 +4,7 @@ import { config, encrypt } from "./config";
 import { requireSoftwareReady, SoftwareReadinessError } from "./software-readiness";
 import {requestMachineAdmissionInTransaction} from './admission';
 export const db = new SQL(config.databaseUrl, { max: 8, connectionTimeout: 10 });
-const migrationNames = ["schema.sql", "auth-schema.sql", "product.sql", "plugins.sql", "storage-schema.sql", "automations.sql", "triggers.sql", "lifecycle.sql", "software.sql", "desktop.sql", "box-observation.sql", "billing.sql", "delivery.sql", "maintenance.sql", "delivery-skills.sql", "software-results.sql", "events.sql", "model-gateway.sql", "specialist-drafts.sql", "admission.sql", "conversation.sql", "managed-base-image.sql"] as const;
+const migrationNames = ["schema.sql", "auth-schema.sql", "product.sql", "plugins.sql", "storage-schema.sql", "automations.sql", "triggers.sql", "lifecycle.sql", "software.sql", "desktop.sql", "box-observation.sql", "billing.sql", "delivery.sql", "maintenance.sql", "delivery-skills.sql", "software-results.sql", "events.sql", "model-gateway.sql", "specialist-drafts.sql", "admission.sql", "conversation.sql", "managed-base-image.sql", "chat-notifications.sql"] as const;
 
 async function migrationFiles() {
   return Promise.all(migrationNames.map(async name => ({ name, sql: await Bun.file(new URL(`./${name}`, import.meta.url)).text() })));
@@ -102,13 +102,13 @@ export async function createCompanion(ownerId: string, input: { name: string; in
     return (await sql.unsafe(`SELECT ${companionColumns} FROM companions WHERE id=$1 AND owner_id=$2`, [id, ownerId]))[0];
   });
 }
-export async function detail(ownerId: string, id: string) {
-  const [companion] = await db.unsafe(`SELECT ${companionColumns} FROM companions WHERE id=$1 AND owner_id=$2`, [id, ownerId]);
+export async function detail(ownerId: string, id: string, sql:any=db) {
+  const [companion] = await sql.unsafe(`SELECT ${companionColumns} FROM companions WHERE id=$1 AND owner_id=$2`, [id, ownerId]);
   if (!companion) return null;
   const [messages, runs, specialists] = await Promise.all([
-    db`SELECT id,role,content,sequence,complete,created_at AS "createdAt",run_id AS "runId" FROM messages WHERE companion_id=${id} ORDER BY created_at,sequence,id`,
-    db`SELECT id,status,error,lane,source,routine_id AS "routineId",routine_name AS "routineName",publication_mode AS "publicationMode",scheduled_for AS "scheduledFor",started_at AS "startedAt",result_text AS "resultText",preview_text AS "previewText",message_version AS "messageVersion",thinking_text AS "thinkingText",publish_to_chat AS "publishToChat",response_root_id AS "responseRootId",created_at AS "createdAt",prepared_at AS "preparedAt",finished_at AS "finishedAt" FROM runs WHERE companion_id=${id} ORDER BY created_at,id`,
-    db`SELECT d.id AS "delegationId",d.parent_run_id AS "parentRunId",d.run_id AS "childRunId",
+    sql`SELECT id,role,content,sequence,complete,position::text,source,source_name AS "sourceName",created_at AS "createdAt",run_id AS "runId" FROM messages WHERE companion_id=${id} ORDER BY messages.position`,
+    sql`SELECT id,status,error,lane,source,routine_id AS "routineId",routine_name AS "routineName",publication_mode AS "publicationMode",scheduled_for AS "scheduledFor",started_at AS "startedAt",result_text AS "resultText",preview_text AS "previewText",message_version AS "messageVersion",thinking_text AS "thinkingText",publish_to_chat AS "publishToChat",response_root_id AS "responseRootId",created_at AS "createdAt",prepared_at AS "preparedAt",finished_at AS "finishedAt" FROM runs WHERE companion_id=${id} ORDER BY created_at,id`,
+    sql`SELECT d.id AS "delegationId",d.parent_run_id AS "parentRunId",d.run_id AS "childRunId",
       jsonb_build_object('id',child.id,'name',child.name,'avatar',child.avatar,'status',child.status,'retiredAt',child.retired_at) AS companion
       FROM delegations d
       JOIN companions parent ON parent.id=d.parent_id AND parent.owner_id=${ownerId}
@@ -120,12 +120,18 @@ export async function detail(ownerId: string, id: string) {
   return { companion, messages, runs, specialists, activity: runs.filter((run:any)=>run.lane === "background") };
 }
 export class Conflict extends Error {}
-export async function acceptMessage(ownerId: string, companionId: string, clientMessageId: string, content: string, attachmentCount = 0) {
+export async function acceptMessage(ownerId: string, companionId: string, clientMessageId: string, content: string, attachmentCount = 0, routineSourceRunId?:string) {
   return db.begin(async sql => {
     // Lock companion to serialize duplicate admission with cancellation and FIFO claims.
     await sql`SELECT pg_advisory_xact_lock(721440140)`;
     const [companion] = await sql`SELECT id FROM companions WHERE id=${companionId} AND owner_id=${ownerId} AND retired_at IS NULL AND archive_requested_at IS NULL FOR UPDATE`;
     if (!companion) return null;
+    let routineName:string|null=null;
+    if(routineSourceRunId){
+      const [source]=await sql`SELECT routine_name,status,cancel_requested FROM runs WHERE id=${routineSourceRunId} AND companion_id=${companionId} AND lane='background' AND source='routine' FOR UPDATE`;
+      if(!source||source.cancel_requested||!['running','needs_input'].includes(source.status))throw new Conflict('This routine can no longer send to the main conversation.');
+      routineName=source.routine_name??'Routine';
+    }
     const [existing] = await sql`SELECT id,content,attachment_count FROM runs WHERE companion_id=${companionId} AND client_message_id=${clientMessageId}`;
     if (existing) {
       if (existing.content !== content || existing.attachment_count !== attachmentCount) throw new Conflict("This message identifier was already used with different content or attachments.");
@@ -144,7 +150,7 @@ export async function acceptMessage(ownerId: string, companionId: string, client
     }
     const id = crypto.randomUUID();
     await sql`INSERT INTO runs (id,companion_id,client_message_id,content,attachment_count) VALUES (${id},${companionId},${clientMessageId},${content},${attachmentCount})`;
-    await sql`INSERT INTO messages (id,companion_id,run_id,role,content) VALUES (${crypto.randomUUID()},${companionId},${id},'user',${content})`;
+    await sql`INSERT INTO messages (id,companion_id,run_id,role,content,source,source_name) VALUES (${crypto.randomUUID()},${companionId},${id},'user',${content},${routineSourceRunId?'routine_agent':null},${routineName})`;
     return id;
   });
 }

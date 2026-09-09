@@ -204,7 +204,7 @@ test('snapshot capacity retries the same source and journal after the cooldown',
  }finally{await lock.close();}
 });
 
-test('release cleanup deletes only unreferenced managed snapshots',async()=>{
+test('release cleanup deletes only unreferenced managed snapshots and preserves an in-flight fallback pin',async()=>{
  const old=artifact('old-release'),box=new FakeBox(old.manifest),lock=await leader();
  try{
   const first=coordinator(box,old);await first.schedule(lock.sql);await settled(first);await first.close();
@@ -217,8 +217,8 @@ test('release cleanup deletes only unreferenced managed snapshots',async()=>{
   await db`INSERT INTO managed_base_images(id,release_digest,generation,snapshot_name,archive,journal,status,retired_at)
    VALUES(${protectedId},${protectedRelease},1,${protectedName},${Buffer.from('protected')},${{version:1}}::jsonb,'retired',now())`;
   box.snapshots.add(protectedName);
-  const pending=await createCompanion(owner,{name:'Pending fork',provider:'box',prepare:false});companions.push(pending.id);
-  await db`UPDATE companions SET snapshot_name=${protectedName},box_id=null,create_started_at=null WHERE id=${pending.id}`;
+  const fallbackPin=await createCompanion(owner,{name:'Pending fallback fork',provider:'box',prepare:false});companions.push(fallbackPin.id);
+  await db`UPDATE companions SET snapshot_name=${protectedName},box_id=null,create_started_at=now() WHERE id=${fallbackPin.id}`;
   const unrelated=`outside-${crypto.randomUUID().replaceAll('-','').slice(0,12)}`;box.snapshots.add(unrelated);
 
   const replacement=artifact('replacement-release');box.manifest=replacement.manifest;

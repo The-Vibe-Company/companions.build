@@ -2,7 +2,7 @@ import {beforeAll,afterEach,test,expect} from 'bun:test';
 import {db,migrate,createCompanion} from '../src/store';
 import {config} from '../src/config';
 import {prepareBox,machinePreparationReady} from '../src/machines';
-import {managedBaseImageReleaseDigest} from '../src/managed-base-image';
+import {managedBaseImageReleaseDigest,pinManagedBaseImage,resolveManagedBaseImage} from '../src/managed-base-image';
 import {BoxError} from '../../../packages/box/client';
 const owner='00000000-0000-4000-8000-000000000001';
 const originalManaged=config.managedBoxTemplate;
@@ -14,6 +14,41 @@ afterEach(async()=>{
  await db`DELETE FROM managed_base_images`;
 });
 async function companion(){const row=await createCompanion(owner,{name:'Managed image race',provider:'box'});owned.push(row.id);return row;}
+async function image(releaseDigest:string,status:string,options:{deleteIntent?:boolean;deleted?:boolean;readyAt?:Date}={}){
+ const id=crypto.randomUUID(),name=`cb-test-${id.replaceAll('-','').slice(0,16)}`;
+ await db`INSERT INTO managed_base_images(id,release_digest,generation,snapshot_name,archive,journal,status,ready_at,delete_intent_at,deleted_at)
+  VALUES(${id},${releaseDigest},1,${name},${Buffer.from('test')},${{version:1}}::jsonb,${status},${options.readyAt??new Date()},${options.deleteIntent?new Date():null},${options.deleted?new Date():null})`;
+ return {id,name};
+}
+
+test('last verified image carries new companions through publication and quarantine, then current wins',async()=>{
+ const current=await managedBaseImageReleaseDigest(),previous='a'.repeat(64);
+ const fallback=await image(previous,'ready',{readyAt:new Date(Date.now()-60_000)}),candidate=await image(current,'publishing');
+ const inFlight=await companion();
+ expect(await resolveManagedBaseImage()).toBe(fallback.name);
+ expect(await pinManagedBaseImage(inFlight.id)).toBe(fallback.name);
+
+ await db`UPDATE managed_base_images SET status='blocked',error_code='distribution_content_mismatch' WHERE id=${candidate.id}`;
+ expect(await resolveManagedBaseImage()).toBe(fallback.name);
+ await db`UPDATE companions SET create_started_at=now() WHERE id=${inFlight.id}`;
+ await db`UPDATE managed_base_images SET status='retired',retired_at=now() WHERE id=${fallback.id}`;
+ await db`UPDATE managed_base_images SET status='ready',ready_at=now(),error_code=null WHERE id=${candidate.id}`;
+
+ expect(await resolveManagedBaseImage()).toBe(candidate.name);
+ expect(await pinManagedBaseImage(inFlight.id)).toBe(fallback.name);
+ const fresh=await companion();expect(await pinManagedBaseImage(fresh.id)).toBe(candidate.name);
+});
+
+test('quarantined, missing and deleting images are never fallback candidates',async()=>{
+ const current=await managedBaseImageReleaseDigest();
+ await image(current,'blocked');
+ await image('b'.repeat(64),'missing');
+ await image('c'.repeat(64),'failed');
+ await image('d'.repeat(64),'ready',{deleteIntent:true});
+ await image('e'.repeat(64),'retired',{deleted:true});
+ expect(await resolveManagedBaseImage()).toBeNull();
+ const row=await companion();expect(await pinManagedBaseImage(row.id)).toBeNull();
+});
 
 test('missing managed snapshot between pin and create waits for republication without replaying starts',async()=>{
  config.managedBoxTemplate=true;

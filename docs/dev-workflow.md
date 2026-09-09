@@ -123,6 +123,31 @@ the old unique constraint after multi-message runs exist requires a separately r
 migration; do not delete conversation rows to make an old binary start. This change cannot
 recover intermediate messages that older runtimes never saved.
 
+### Routine publication mode rollout
+
+This release requires a coordinated update of API, worker and executor. The new columns are
+additive, but old executors ignore `publication_mode` and old workers admit scheduled runs with
+the default mode. Applying the migration alone does not stop an existing executor leader.
+Do not expose the new settings while any old application role remains running.
+
+1. Pause automatic deployments for all three application services **before merging** this release.
+   Build the release image and its agent distribution before deployment.
+2. Stop the old API to stop new admissions, then stop the old worker and executor. Verify all
+   three old roles have stopped before running the migration. Preserve agent journals, durable
+   request IDs, Boxes and disks; stopping the services is not permission to replay agent work.
+3. Run `migrate` from the new image. Start the updated executor and worker, verify startup and
+   recovery, then start the updated API from that same image and restore user access. Resume
+   automatic deployments only after every role is on the new version.
+
+For rollback, stop admission through the API and stop the worker first. Keep the updated
+executor until all accepted `always` and `silent` executions have settled under their recorded
+policy, including queued and waiting-for-input work. If this cannot be completed, retain the
+updated release; do not downgrade a pending publication decision. Before downgrading, change
+future routine modes to `auto` through the updated control/API in an operator-only maintenance
+window, with the worker still stopped, then stop all application roles. Retain the additive
+columns and deploy the previous compatible image to all roles together. Do not delete runs,
+messages or journals, or automatically replay ambiguous work as part of rollback.
+
 ### Real model or scripted responses
 
 `./dev restart --live` uses the selected runtime settings described below.

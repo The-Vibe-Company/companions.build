@@ -42,7 +42,7 @@ test('cursor pagination preserves timestamp microseconds, ties and stable bounda
  const expected=(await db`SELECT id FROM runs WHERE companion_id=${id} ORDER BY created_at DESC,id DESC`).map((r:any)=>r.id);
  const defaults=await body(await request(alice,id));expect(defaults.tasks).toHaveLength(20);expect(defaults.nextCursor).toBeTruthy();
  let page=await body(await request(alice,id,'?limit=2')),cursor=page.nextCursor;const seen=page.tasks.map((t:any)=>t.id);
- expect(Object.keys(page.tasks[0]).sort()).toEqual(['id','status','lane','source','createdAt','finishedAt','title'].sort());
+ expect(Object.keys(page.tasks[0]).sort()).toEqual(['id','status','lane','source','createdAt','finishedAt','title','routineId','routineName','publicationMode','scheduledFor'].sort());
  await task(id,{createdAt:'2026-09-08T00:00:00.000001Z'});
  while(cursor){page=await body(await request(alice,id,'?limit=2&before='+cursor));seen.push(...page.tasks.map((t:any)=>t.id));cursor=page.nextCursor;}
  expect(seen).toEqual(expected);expect(new Set(seen).size).toBe(23);

@@ -48,6 +48,14 @@ export interface ChatMessage {
 export interface ThreadFile { id: string; runId: string; kind: "user_upload" | "agent_output"; name: string; mimeType: string; size: number; url: string }
 
 export interface Run {
+  routineId?: string | null;
+  routineName?: string | null;
+  publicationMode?: RoutinePublicationMode;
+  scheduledFor?: string | null;
+  startedAt?: string | null;
+  preparedAt?: string | null;
+  finishedAt?: string | null;
+  publishToChat?: boolean;
   lane?: "main"|"background";
   source?: string;
   resultText?: string|null;
@@ -61,6 +69,10 @@ export interface Run {
 }
 
 export interface TaskSummary {
+  routineId?: string | null;
+  routineName?: string | null;
+  publicationMode?: RoutinePublicationMode;
+  scheduledFor?: string | null;
   id: string;
   status: RunStatus;
   lane: "main" | "background";
@@ -268,8 +280,9 @@ export interface PluginsResponse { catalog: PluginServer[]; accounts: PluginAcco
 export type CustomPluginInput =
   | { label: string; transport: "http"; url: string; headers: Record<string, string> }
   | { label: string; transport: "stdio"; command: string; args: string[]; env: Record<string, string> };
-export interface Routine { id: string; name: string; prompt: string; cron: string; timezone: string; enabled: boolean; nextFireAt?: string | null; createdAt?: string; updatedAt?: string }
-export interface RoutineHistory { runs: Array<{ id: string; status: RunStatus; resultText: string | null; error: string | null; scheduledFor: string; acceptedAt: string }>; missed: Array<{ firstScheduledFor: string; lastScheduledFor: string; cron: string; timezone: string }> }
+export type RoutinePublicationMode = "auto" | "always" | "silent";
+export interface Routine { id: string; name: string; prompt: string; cron: string; timezone: string; enabled: boolean; publicationMode?: RoutinePublicationMode; nextFireAt?: string | null; createdAt?: string; updatedAt?: string }
+export interface RoutineHistory { runs: Array<{ id: string; status: RunStatus; resultText: string | null; error: string | null; scheduledFor: string | null; acceptedAt: string }>; missed: Array<{ firstScheduledFor: string; lastScheduledFor: string; cron: string; timezone: string }> }
 export interface TriggerFilterRequest { key: string; provider: "github" | "sentry"; connectionId?: string; path: string }
 export interface TriggerTarget { repo?: string; branch?: string; organization?: string; project?: string; events?: string[] }
 export interface Trigger { id: string; name: string; prompt: string; source: "generic" | "github" | "sentry"; mode: "direct" | "filter"; filter?: string | null; filterRequests?: TriggerFilterRequest[]; problemPath?: string | null; providerAccountId?: string | null; target?: TriggerTarget | null; enabled: boolean; registrationStatus?: "manual" | "registered" | "needs_connection" | "error"; registrationError?: string | null; url?: string | null; lastDeliveryAt?: string | null }

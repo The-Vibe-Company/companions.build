@@ -5,7 +5,7 @@ import { cn } from "@/lib/utils";
 import type { UIMessage } from "ai";
 import { ArrowDownIcon, DownloadIcon } from "lucide-react";
 import type { ComponentProps } from "react";
-import { useCallback } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { StickToBottom, useStickToBottomContext } from "use-stick-to-bottom";
 
 export type ConversationProps = ComponentProps<typeof StickToBottom>;
@@ -69,13 +69,21 @@ export const ConversationEmptyState = ({
   </div>
 );
 
-export type ConversationScrollButtonProps = ComponentProps<typeof Button>;
+export type ConversationScrollButtonProps = ComponentProps<typeof Button> & { latestMessageId?: string };
 
 export const ConversationScrollButton = ({
   className,
+  latestMessageId,
   ...props
 }: ConversationScrollButtonProps) => {
   const { isAtBottom, scrollToBottom } = useStickToBottomContext();
+  const previousMessage = useRef(latestMessageId);
+  const [hasNewMessage, setHasNewMessage] = useState(false);
+  useEffect(() => {
+    if (isAtBottom) setHasNewMessage(false);
+    else if (latestMessageId && latestMessageId !== previousMessage.current) setHasNewMessage(true);
+    previousMessage.current = latestMessageId;
+  }, [latestMessageId, isAtBottom]);
 
   const handleScrollToBottom = useCallback(() => {
     scrollToBottom();
@@ -93,8 +101,11 @@ export const ConversationScrollButton = ({
         type="button"
         variant="outline"
         {...props}
+        aria-label={hasNewMessage ? "New message · Scroll to latest" : props["aria-label"]}
+        style={hasNewMessage ? { width: "auto", paddingInline: 12, gap: 6 } : undefined}
       >
         <ArrowDownIcon className="size-4" />
+        {hasNewMessage && <span>New message</span>}
       </Button>
     )
   );

@@ -1100,3 +1100,33 @@ it('keeps an interrupted assistant message and a closed question without claimin
  expect(screen.queryByText('Needs you')).not.toBeInTheDocument();
  expect(screen.queryByRole('button',{name:'Simple'})).not.toBeInTheDocument();
 });
+
+it('replaces a persisted routine trace with its attributed message while keeping silent questions visible', async () => {
+  window.history.replaceState({}, '', '/companions/ada');
+  FakeEventSource.instances = [];
+  vi.stubGlobal('EventSource', FakeEventSource);
+  const run = { id: 'routine-run', routineId: 'r1', routineName: 'Bonjour', publicationMode: 'silent', source: 'routine', lane: 'background', status: 'needs_input', error: null, createdAt: '2026-09-09T10:00:00Z' };
+  let published = false;
+  vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL) => {
+    const path = String(input);
+    if (path === '/api/me') return response(me);
+    if (path === '/api/config') return response(config);
+    if (path === '/api/companions') return response({ companions: [{ ...companion, status: 'ready' }] });
+    if (path === '/api/companions/ada') return response({ companion: { ...companion, status: 'ready' }, messages: published ? [{ id: 'routine-message', runId: run.id, role: 'assistant', content: 'Bonjour Stan!', createdAt: '2026-09-09T10:01:00Z' }] : [], runs: [{ ...run, status: published ? 'succeeded' : 'needs_input', publishToChat: published }], questions: published ? [] : [{ id: 'q1', runId: run.id, question: 'Who should I greet?', options: [], answer: null, runStatus: 'needs_input', createdAt: '2026-09-09T10:00:30Z' }], activity: [] });
+    if (path.endsWith('/specialist-improvements')) return response({ improvements: [] });
+    if (path.endsWith('/plugins')) return response({ accounts: [] });
+    return response({ tasks: [], files: [], templates: [], proposals: [], routines: [], triggers: [] });
+  }));
+  try {
+    render(<App/>);
+    expect(await screen.findByRole('button', { name: 'View Bonjour: Needs you' })).toBeVisible();
+    expect(screen.getByRole('region', { name: 'Waiting for your answer' })).toHaveTextContent('Who should I greet?');
+    expect(screen.getByRole('textbox', { name: 'Message Ada' })).toBeEnabled();
+    published = true;
+    act(() => { for (const stream of FakeEventSource.instances) stream.emit('invalidate'); });
+    expect(await screen.findByText('Bonjour Stan!')).toBeVisible();
+    expect(screen.getByRole('button', { name: 'View execution of Bonjour' })).toBeVisible();
+    expect(screen.queryByRole('button', { name: 'View Bonjour: Needs you' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'View Bonjour: Posted in chat' })).not.toBeInTheDocument();
+  } finally { vi.unstubAllGlobals(); }
+});

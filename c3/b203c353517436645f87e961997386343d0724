@@ -1,0 +1,21 @@
+README.md
+  s_47f7b0b3b7db48::t_7b472fb036a279 96-100
+docs/dev-workflow.md
+  s_47f7b0b3b7db48::t_7b472fb036a279 126-150
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "c3b203c353517436645f87e961997386343d0724",
+  "prompts": {},
+  "sessions": {
+    "s_47f7b0b3b7db48": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0853b-7495-7410-ac2f-86d71157acc9",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "StanGirard <stan@quivr.app>"
+    }
+  }
+}

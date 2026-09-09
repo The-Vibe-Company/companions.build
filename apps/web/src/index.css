@@ -199,6 +199,14 @@ svg { width: 1rem; height: 1rem; stroke-width: 1.8; }
   transition: border-color 160ms ease-out, box-shadow 160ms ease-out;
 }
 .composer:focus-within { border-color: var(--ring); box-shadow: 0 0 0 3px color-mix(in oklch, var(--ring) 15%, transparent); }
+.skill-palette { position: absolute; z-index: 4; left: 0; right: 0; bottom: calc(100% + 8px); max-height: min(320px, 45vh); overflow-y: auto; border: 1px solid var(--border); border-radius: 11px; padding: 5px; background: var(--popover); color: var(--popover-foreground); box-shadow: 0 12px 32px oklch(0.2 0.02 70 / .14); }
+.skill-palette > p { margin: 0; padding: 12px; color: var(--muted-foreground); font-size: .78rem; }
+.skill-palette button { display: flex; width: 100%; flex-direction: column; gap: 3px; border: 0; border-radius: 7px; padding: 9px 10px; background: transparent; color: inherit; text-align: left; cursor: pointer; }
+.skill-palette button:hover, .skill-palette .skill-option--active { background: var(--accent); color: var(--accent-foreground); }
+.skill-palette button > span { display: flex; width: 100%; align-items: baseline; justify-content: space-between; gap: 12px; }
+.skill-palette strong { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: .78rem; font-weight: 650; }
+.skill-palette small { color: var(--muted-foreground); font-size: .66rem; }
+.skill-palette button p { margin: 0; color: var(--muted-foreground); font-size: .72rem; line-height: 1.4; }
 .composer-wrap--drop .composer { border-color: var(--ring); box-shadow: 0 0 0 3px color-mix(in oklch, var(--ring) 16%, transparent); }
 .drop-indicator { position: absolute; z-index: 2; inset: 0; display: flex; align-items: center; justify-content: center; gap: 8px; border: 1px dashed var(--ring); border-radius: 13px; background: color-mix(in oklab, var(--card) 94%, transparent); color: var(--foreground); font-size: .78rem; font-weight: 650; pointer-events: none; }
 .composer textarea { min-height: 56px; max-height: 180px; resize: none; border: 0; box-shadow: none; background: transparent; padding: 13px 14px 4px; }

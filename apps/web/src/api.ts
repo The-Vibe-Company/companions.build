@@ -119,6 +119,12 @@ export interface AppConfig {
   models?: Array<{ id: string; name: string }>;
 }
 
+export interface CompanionSkill {
+  name: string;
+  description: string;
+  source?: string;
+}
+
 export class ApiError extends Error {
   constructor(
     message: string,
@@ -218,6 +224,7 @@ export const api = {
   getConfig: () => request<AppConfig>("/api/config"),
   getCompanions: () => request<{ companions: Companion[] }>("/api/companions"),
   getCompanion: (id: string) => request<CompanionDetail>(`/api/companions/${id}`),
+  getCompanionSkills: (id: string) => request<{ skills: CompanionSkill[]; enabled: boolean }>(`/api/companions/${id}/skills`),
   deleteCompanion: (id: string) => request<{ deleted: true; companionIds?: string[] }>(`/api/companions/${id}`, { method: "DELETE" }),
   companionEvents: (id: string) => new EventSource(`/api/companions/${id}/events`),
   taskHistory: (id: string, before?: string) =>

@@ -39,6 +39,7 @@ import {
   type AccountUser,
   type Companion,
   type CompanionDetail,
+  type CompanionSkill,
   type CustomPluginInput,
   isActiveRun,
   type RunStatus,
@@ -254,9 +255,94 @@ function Chat({ detail, onRefresh, onUnauthorized, onOpenCompanion, specialistTe
   const [actionError, setActionError] = useState("");
   const [fileNotice, setFileNotice] = useState("");
   const [dragActive, setDragActive] = useState(false);
+  const [skills, setSkills] = useState<CompanionSkill[]>([]);
+  const [skillCommandsEnabled, setSkillCommandsEnabled] = useState<boolean | null>(null);
+  const [skillsUnavailable, setSkillsUnavailable] = useState(false);
+  const [commandToken, setCommandToken] = useState<{ start: number; end: number; query: string } | null>(null);
+  const [activeSkillIndex, setActiveSkillIndex] = useState(0);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const suppressCommandDetection = useRef(false);
+  const dismissedSelection = useRef<{ value: string; start: number; end: number } | null>(null);
+  const skillsCompanion = useRef<string | null>(null);
+  const skillsRequest = useRef(0);
+  const activeCommandStart = useRef<number | null>(null);
   const dragDepth = useRef(0);
   const activeRun = detail.runs.find((run) => run.lane !== "background" && isActiveRun(run.status));
+  const visibleSkills = commandToken
+    ? skills.filter(skill => skill.name.toLocaleLowerCase().includes(commandToken.query.toLocaleLowerCase().replace(/^skill:/, "")))
+    : [];
+  const paletteOpen = Boolean(commandToken && skillCommandsEnabled !== false);
+  const activeSkill = visibleSkills[Math.min(activeSkillIndex, Math.max(visibleSkills.length - 1, 0))];
+
+  useEffect(() => {
+    if (!paletteOpen || !activeSkill) return;
+    document.getElementById(`skill-option-${detail.companion.id}-${Math.min(activeSkillIndex, visibleSkills.length - 1)}`)
+      ?.scrollIntoView?.({ block: "nearest" });
+  }, [activeSkill, activeSkillIndex, detail.companion.id, paletteOpen, visibleSkills.length]);
+
+  useEffect(() => {
+    skillsCompanion.current = null;
+    skillsRequest.current += 1;
+    activeCommandStart.current = null;
+    dismissedSelection.current = null;
+    setSkills([]);
+    setSkillCommandsEnabled(null);
+    setSkillsUnavailable(false);
+  }, [detail.companion.id]);
+
+  function discoverSkills() {
+    const companionId = detail.companion.id;
+    skillsCompanion.current = companionId;
+    const request = ++skillsRequest.current;
+    setSkills([]);
+    setSkillsUnavailable(false);
+    setSkillCommandsEnabled(null);
+    void api.getCompanionSkills(companionId).then(result => {
+      if (request !== skillsRequest.current || skillsCompanion.current !== companionId) return;
+      setSkills(result.skills);
+      setSkillCommandsEnabled(result.enabled);
+    }).catch(() => {
+      if (request !== skillsRequest.current || skillsCompanion.current !== companionId) return;
+      setSkillsUnavailable(true);
+      setSkillCommandsEnabled(true);
+    });
+  }
+
+  function findCommandToken(value: string, caret: number | null) {
+    if (caret == null) return null;
+    const separator = /[\s,;!?()[\]{}<>"'`]/;
+    let start = caret - 1;
+    while (start >= 0 && !separator.test(value[start]) && value[start] !== "/") start -= 1;
+    if (start < 0 || value[start] !== "/") return null;
+    let end = caret;
+    while (end < value.length && !separator.test(value[end])) end += 1;
+    return { start, end, query: value.slice(start + 1, end) };
+  }
+
+  function updateCommandToken(value: string, caret: number | null) {
+    const token = findCommandToken(value, caret);
+    setCommandToken(token);
+    if (token && activeCommandStart.current !== token.start) discoverSkills();
+    activeCommandStart.current = token?.start ?? null;
+    setActiveSkillIndex(0);
+  }
+
+  function insertSkill(skill: CompanionSkill) {
+    if (!commandToken) return;
+    const command = `/skill:${skill.name}`;
+    const nextDraft = draft.slice(0, commandToken.start) + command + draft.slice(commandToken.end);
+    const nextCaret = commandToken.start + command.length;
+    setDraft(nextDraft);
+    setCommandToken(null);
+    activeCommandStart.current = null;
+    suppressCommandDetection.current = true;
+    dismissedSelection.current = { value: nextDraft, start: nextCaret, end: nextCaret };
+    requestAnimationFrame(() => {
+      textareaRef.current?.focus();
+      textareaRef.current?.setSelectionRange(nextCaret, nextCaret);
+      suppressCommandDetection.current = false;
+    });
+  }
   const activePreview = activeRun
     && activeRun.messageVersion == null
     && (activeRun.status === "running" || activeRun.status === "needs_input")
@@ -298,6 +384,8 @@ function Chat({ detail, onRefresh, onUnauthorized, onOpenCompanion, specialistTe
     try {
       await api.sendMessage(detail.companion.id, content, files);
       setDraft("");
+      setCommandToken(null);
+      activeCommandStart.current = null;
       setFiles([]);
       setFileNotice("");
       await onRefresh();
@@ -390,10 +478,40 @@ function Chat({ detail, onRefresh, onUnauthorized, onOpenCompanion, specialistTe
         {files.length > 0 && <div className="pending-files">{files.map((file, index) => <PendingFile key={index} file={file} onRemove={() => setFiles(current => current.filter((_, item) => item !== index))} />)}</div>}
         <div className="composer">
           {dragActive && <div className="drop-indicator" aria-hidden="true"><Paperclip />Drop files here</div>}
+          {paletteOpen && <div className="skill-palette" role="listbox" id={`skill-palette-${detail.companion.id}`} aria-label="Skills">
+            {skillCommandsEnabled == null ? <p role="status">Loading skills…</p>
+              : skillsUnavailable ? <p>Skills are unavailable. You can still send your message.</p>
+              : skills.length === 0 ? <p>No skills available.</p>
+              : visibleSkills.length === 0 ? <p>No matching skills.</p>
+              : visibleSkills.map((skill, index) => <button
+                type="button"
+                role="option"
+                id={`skill-option-${detail.companion.id}-${index}`}
+                aria-selected={index === activeSkillIndex}
+                className={cn(index === activeSkillIndex && "skill-option--active")}
+                key={skill.name}
+                onMouseDown={event => event.preventDefault()}
+                onMouseEnter={() => setActiveSkillIndex(index)}
+                onClick={() => insertSkill(skill)}
+              >
+                <span><strong>/skill:{skill.name}</strong>{skill.source && <small>{skill.source}</small>}</span>
+                {skill.description && <p>{skill.description}</p>}
+              </button>)}
+          </div>}
           <Textarea
             ref={textareaRef}
             value={draft}
-            onChange={(event) => setDraft(event.target.value)}
+            onChange={(event) => { dismissedSelection.current = null; setDraft(event.target.value); updateCommandToken(event.target.value, event.target.selectionStart); }}
+            onClick={(event) => { dismissedSelection.current = null; updateCommandToken(event.currentTarget.value, event.currentTarget.selectionStart); }}
+            onSelect={(event) => {
+              if (suppressCommandDetection.current) return;
+              const input = event.currentTarget, dismissed = dismissedSelection.current;
+              // setSelectionRange queues a native select event after the animation frame.
+              // Keep the inserted/dismissed token closed until the user edits or moves the caret.
+              if (dismissed && dismissed.value === input.value && dismissed.start === input.selectionStart && dismissed.end === input.selectionEnd) return;
+              dismissedSelection.current = null;
+              updateCommandToken(input.value, input.selectionStart);
+            }}
             onPaste={(event) => {
               const images = Array.from(event.clipboardData.items)
                 .filter(item => item.kind === "file" && CHAT_IMAGE_TYPES.has(item.type))
@@ -403,6 +521,26 @@ function Chat({ detail, onRefresh, onUnauthorized, onOpenCompanion, specialistTe
               // Keep native text insertion, including mixed text/image clipboard content.
             }}
             onKeyDown={(event) => {
+              if (event.nativeEvent.isComposing) return;
+              if (paletteOpen && event.key === "Escape") {
+                event.preventDefault();
+                dismissedSelection.current = { value: event.currentTarget.value, start: event.currentTarget.selectionStart, end: event.currentTarget.selectionEnd };
+                setCommandToken(null);
+                activeCommandStart.current = null;
+                return;
+              }
+              if (paletteOpen && visibleSkills.length && (event.key === "ArrowDown" || event.key === "ArrowUp")) {
+                event.preventDefault();
+                setActiveSkillIndex(current => event.key === "ArrowDown"
+                  ? (current + 1) % visibleSkills.length
+                  : (current - 1 + visibleSkills.length) % visibleSkills.length);
+                return;
+              }
+              if (paletteOpen && activeSkill && event.key === "Enter") {
+                event.preventDefault();
+                insertSkill(activeSkill);
+                return;
+              }
               if (event.key === "Enter" && !event.shiftKey) {
                 event.preventDefault();
                 event.currentTarget.form?.requestSubmit();
@@ -410,6 +548,10 @@ function Chat({ detail, onRefresh, onUnauthorized, onOpenCompanion, specialistTe
             }}
             placeholder={`Message ${detail.companion.name}`}
             aria-label={`Message ${detail.companion.name}`}
+            aria-autocomplete="list"
+            aria-expanded={paletteOpen}
+            aria-controls={paletteOpen ? `skill-palette-${detail.companion.id}` : undefined}
+            aria-activedescendant={paletteOpen && activeSkill ? `skill-option-${detail.companion.id}-${Math.min(activeSkillIndex, visibleSkills.length - 1)}` : undefined}
             rows={2}
           />
           <div className="composer-actions">

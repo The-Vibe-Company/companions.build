@@ -1,10 +1,83 @@
 import { afterEach, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { AgentSkills, type SkillManifest } from "../../control/skills";
 import {AgentControl} from "../../control/agent";
+import { DefaultResourceLoader, SettingsManager } from "@earendil-works/pi-coding-agent";
+import { runtimeSettings, skillCommands } from "../src/skill-commands";
+import { AgentDaemon } from "../src/daemon";
+import { PiExecutor } from "../src/pi-executor";
+
+test("command discovery uses native Pi names and safe source metadata, including explicit-only skills", async () => {
+  const directory = state();
+  putSkill(join(directory, "pi", "skills"), "folder", { "SKILL.md": "---\nname: native-name\ndescription: Native description\ndisable-model-invocation: true\n---\nPRIVATE SKILL BODY" });
+  const settings = runtimeSettings();
+  const loader = new DefaultResourceLoader({ cwd: join(directory, "workspace"), agentDir: join(directory, "pi"), settingsManager: settings });
+  await loader.reload();
+  expect(skillCommands(loader, settings)).toEqual({ enabled: true, skills: [
+    { name: "native-name", description: "Native description", source: "user · top-level" },
+  ] });
+  expect(JSON.stringify(skillCommands(loader, settings))).not.toContain(directory);
+  expect(JSON.stringify(skillCommands(loader, settings))).not.toContain("PRIVATE SKILL BODY");
+  expect(skillCommands(loader, SettingsManager.inMemory({ enableSkillCommands: false }))).toEqual({ enabled: false, skills: [] });
+});
+
+test("runtime command discovery is authenticated, refreshes idle Pi skills and exposes empty lists", async () => {
+  const directory = state();
+  const previous = process.env.AGENT_TEST_MODE;
+  process.env.AGENT_TEST_MODE = "1";
+  let executor: PiExecutor;
+  try { executor = await PiExecutor.create(directory); }
+  finally { if (previous === undefined) delete process.env.AGENT_TEST_MODE; else process.env.AGENT_TEST_MODE = previous; }
+  const daemon = new AgentDaemon(directory, "fixture-token", executor);
+  const get = (authorized = true) => daemon.fetch(new Request("http://agent/skill-commands", { headers: authorized ? { authorization: "Bearer fixture-token" } : {} }));
+  try {
+    expect((await get(false)).status).toBe(401);
+    expect(await (await get()).json()).toEqual({ enabled: true, skills: [] });
+    putSkill(join(directory, "workspace", ".pi", "skills"), "writer", { "SKILL.md": "---\nname: writer\ndescription: Write well\n---\nPrivate instructions" });
+    expect(await (await get()).json()).toEqual({ enabled: true, skills: [{ name: "writer", description: "Write well", source: "project · top-level" }] });
+    expect(daemon.active).toBeNull();
+  } finally { daemon.close(); }
+});
+
+test("command discovery failures return a safe error without breaking the daemon", async () => {
+  const daemon = new AgentDaemon(state(), "fixture-token", {
+    async listSkillCommands() { throw new Error("private filesystem/provider detail"); },
+    async execute() { return { text: "ok" }; }, async cancel() {},
+  });
+  const get = (path: string) => daemon.fetch(new Request(`http://agent${path}`, { headers: { authorization: "Bearer fixture-token" } }));
+  try {
+    const response = await get("/skill-commands");
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual({ error: "SKILLS_UNAVAILABLE" });
+    expect((await get("/health")).status).toBe(200);
+  } finally { daemon.close(); }
+});
+
+test("Pi alone expands leading native skill commands and preserves mid-message and unknown commands", async () => {
+  const directory = state();
+  putSkill(join(directory, "pi", "skills"), "writer", { "SKILL.md": "---\nname: writer\ndescription: Write well\ndisable-model-invocation: true\n---\nNative expansion fixture instructions." });
+  const previous = process.env.AGENT_TEST_MODE;
+  process.env.AGENT_TEST_MODE = "1";
+  let executor: PiExecutor;
+  try { executor = await PiExecutor.create(directory); }
+  finally { if (previous === undefined) delete process.env.AGENT_TEST_MODE; else process.env.AGENT_TEST_MODE = previous; }
+  for (const content of ["/skill:writer arguments", "Some prose /skill:writer arguments", "/unknown arguments"]) {
+    const id = crypto.randomUUID();
+    await executor.execute(id, { content, instructions: "", lane: "background" });
+    const sessionDir = join(directory, "sessions", "background", id);
+    const transcript = readFileSync(join(sessionDir, readdirSync(sessionDir).find(name => name.endsWith(".jsonl"))!), "utf8");
+    const messages = transcript.trim().split("\n").map(line => JSON.parse(line));
+    const user = messages.find(entry => entry.type === "message" && entry.message.role === "user").message;
+    const text = typeof user.content === "string" ? user.content : user.content.filter((part: any) => part.type === "text").map((part: any) => part.text).join("");
+    if (content.startsWith("/skill:")) {
+      expect(text).toContain("Native expansion fixture instructions.");
+      expect(text).toContain("arguments");
+    } else expect(text).toBe(content);
+  }
+});
 
 const roots: string[] = [];
 afterEach(() => { while (roots.length) rmSync(roots.pop()!, { recursive: true, force: true }); });

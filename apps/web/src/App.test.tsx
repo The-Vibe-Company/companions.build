@@ -1269,3 +1269,199 @@ it('replaces a persisted routine trace with its attributed message while keeping
     expect(screen.queryByRole('button', { name: 'View Bonjour: Posted in chat' })).not.toBeInTheDocument();
   } finally { vi.unstubAllGlobals(); }
 });
+
+describe("Pi skill commands", () => {
+  const ready = { ...companion, status: "ready" as const };
+  const skillList = [
+    { name: "review", description: "Review a change before it ships", source: "project" },
+    { name: "deploy", description: "Deploy the current application", source: "user" },
+  ];
+
+  function skillFetch(result: { skills: Array<{ name: string; description: string; source?: string }>; enabled: boolean } | "unavailable", messageBodies: unknown[] = []) {
+    return vi.fn((input: RequestInfo | URL, options?: RequestInit) => {
+      const path = String(input);
+      if (path === "/api/me") return response(me);
+      if (path === "/api/config") return response(config);
+      if (path === "/api/companions") return response({ companions: [ready] });
+      if (path === "/api/companions/ada") return response({ companion: ready, messages: [], runs: [], activity: [] });
+      if (path === "/api/companions/ada/skills") return result === "unavailable"
+        ? response({ error: "Runtime unavailable" }, 503)
+        : response(result);
+      if (path === "/api/companions/ada/messages" && options?.method === "POST") {
+        messageBodies.push(JSON.parse(String(options.body)));
+        return response({ runId: "run-skill" }, 202);
+      }
+      if (path.endsWith("/specialist-improvements")) return response({ improvements: [] });
+      return response({ accounts: [], catalog: [], templates: [], tasks: [], files: [], proposals: [], routines: [], triggers: [] });
+    });
+  }
+
+  beforeEach(() => window.history.replaceState({}, "", "/companions/ada"));
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("filters Pi metadata and replaces only the command token at the caret", async () => {
+    vi.stubGlobal("fetch", skillFetch({ skills: skillList, enabled: true }));
+    const user = userEvent.setup();
+    render(<App />);
+    const composer = await screen.findByRole("textbox", { name: "Message Ada" }) as HTMLTextAreaElement;
+    expect(fetch).not.toHaveBeenCalledWith("/api/companions/ada/skills", expect.anything());
+
+    await user.type(composer, "Keep /dep, then continue");
+    composer.setSelectionRange(9, 9);
+    fireEvent.select(composer);
+    await waitFor(() => expect(fetch).toHaveBeenCalledWith(
+      "/api/companions/ada/skills",
+      expect.objectContaining({ credentials: "same-origin" }),
+    ));
+
+    const palette = screen.getByRole("listbox", { name: "Skills" });
+    expect(composer).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByRole("option", { name: /\/skill:deploy.*user.*Deploy the current application/i })).toBeInTheDocument();
+    expect(screen.queryByRole("option", { name: /\/skill:review/ })).not.toBeInTheDocument();
+    await user.click(screen.getByRole("option", { name: /\/skill:deploy/ }));
+
+    expect(composer).toHaveValue("Keep /skill:deploy, then continue");
+    expect(composer).toHaveFocus();
+    expect(composer).toHaveAttribute("aria-expanded", "false");
+    expect(palette).not.toBeInTheDocument();
+    await waitFor(() => expect(composer.selectionStart).toBe("Keep /skill:deploy".length));
+    // A browser may dispatch select after restoring a caret before trailing prose.
+    fireEvent.select(composer);
+    expect(screen.queryByRole("listbox", { name: "Skills" })).not.toBeInTheDocument();
+    await user.type(composer, " /");
+    expect(screen.getByRole("listbox", { name: "Skills" })).toBeInTheDocument();
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("listbox", { name: "Skills" })).not.toBeInTheDocument();
+  });
+
+  it("uses Enter for palette selection and sends the native command only on the next Enter", async () => {
+    const messageBodies: unknown[] = [];
+    vi.stubGlobal("fetch", skillFetch({ skills: skillList, enabled: true }, messageBodies));
+    const user = userEvent.setup();
+    render(<App />);
+    const composer = await screen.findByRole("textbox", { name: "Message Ada" });
+
+    await user.type(composer, "/");
+    expect(await screen.findAllByRole("option")).toHaveLength(2);
+    fireEvent.keyDown(composer, { key: "Enter", code: "Enter", isComposing: true });
+    expect(composer).toHaveValue("/");
+    expect(messageBodies).toHaveLength(0);
+    await user.keyboard("{ArrowDown}{Enter}");
+    expect(composer).toHaveValue("/skill:deploy");
+    expect(messageBodies).toHaveLength(0);
+
+    // Native select can arrive after setSelectionRange's animation frame completes.
+    await waitFor(() => expect((composer as HTMLTextAreaElement).selectionStart).toBe("/skill:deploy".length));
+    fireEvent.select(composer);
+    expect(screen.queryByRole("listbox", { name: "Skills" })).not.toBeInTheDocument();
+
+    await user.keyboard("{Enter}");
+    await waitFor(() => expect(messageBodies).toHaveLength(1));
+    expect(messageBodies[0]).toMatchObject({ content: "/skill:deploy" });
+  });
+
+  it("leaves unknown commands unchanged when commands are disabled", async () => {
+    const messageBodies: unknown[] = [];
+    vi.stubGlobal("fetch", skillFetch({ skills: skillList, enabled: false }, messageBodies));
+    const user = userEvent.setup();
+    render(<App />);
+    const composer = await screen.findByRole("textbox", { name: "Message Ada" });
+    await user.type(composer, "/unknown");
+    await waitFor(() => expect(screen.queryByRole("listbox", { name: "Skills" })).not.toBeInTheDocument());
+    await user.keyboard("{Enter}");
+    await waitFor(() => expect(messageBodies).toHaveLength(1));
+    expect(messageBodies[0]).toMatchObject({ content: "/unknown" });
+  });
+
+  it.each([
+    [{ skills: [], enabled: true }, "No skills available."],
+    ["unavailable" as const, "Skills are unavailable. You can still send your message."],
+  ])("keeps chat usable for %s discovery", async (result, statusText) => {
+    const messageBodies: unknown[] = [];
+    vi.stubGlobal("fetch", skillFetch(result, messageBodies));
+    const user = userEvent.setup();
+    render(<App />);
+    const composer = await screen.findByRole("textbox", { name: "Message Ada" });
+    await user.type(composer, "/unknown");
+    expect(await screen.findByText(statusText)).toBeInTheDocument();
+    await user.keyboard("{Enter}");
+    await waitFor(() => expect(messageBodies).toHaveLength(1));
+    expect(messageBodies[0]).toMatchObject({ content: "/unknown" });
+  });
+
+  it("sends an unmatched command unchanged and keeps Shift+Enter available", async () => {
+    const messageBodies: unknown[] = [];
+    vi.stubGlobal("fetch", skillFetch({ skills: skillList, enabled: true }, messageBodies));
+    const user = userEvent.setup();
+    render(<App />);
+    const composer = await screen.findByRole("textbox", { name: "Message Ada" });
+    await user.type(composer, "/unknown");
+    expect(await screen.findByText("No matching skills.")).toBeInTheDocument();
+    await user.keyboard("{Shift>}{Enter}{/Shift}");
+    expect(composer).toHaveValue("/unknown\n");
+    expect(messageBodies).toHaveLength(0);
+    await user.type(composer, "details");
+    await user.keyboard("{Enter}");
+    await waitFor(() => expect(messageBodies).toHaveLength(1));
+    expect(messageBodies[0]).toMatchObject({ content: "/unknown\ndetails" });
+  });
+
+  it("keeps a late skill response isolated to its Companion", async () => {
+    const browser = { ...ready, id: "browser", name: "Browser" };
+    let releaseAda: ((value: Response) => void) | undefined;
+    vi.stubGlobal("fetch", vi.fn((input: RequestInfo | URL) => {
+      const path = String(input);
+      if (path === "/api/me") return response(me);
+      if (path === "/api/config") return response(config);
+      if (path === "/api/companions") return response({ companions: [ready, browser] });
+      if (path === "/api/companions/ada") return response({ companion: ready, messages: [], runs: [], activity: [] });
+      if (path === "/api/companions/browser") return response({ companion: browser, messages: [], runs: [], activity: [] });
+      if (path === "/api/companions/ada/skills") return new Promise<Response>(resolve => { releaseAda = resolve; });
+      if (path === "/api/companions/browser/skills") return response({ skills: [{ name: "browse", description: "Browse the web" }], enabled: true });
+      if (path.endsWith("/specialist-improvements")) return response({ improvements: [] });
+      return response({ accounts: [], catalog: [], templates: [], tasks: [], files: [], proposals: [], routines: [], triggers: [] });
+    }));
+    const user = userEvent.setup();
+    render(<App />);
+    await user.type(await screen.findByRole("textbox", { name: "Message Ada" }), "/");
+    expect(screen.getByText("Loading skills…")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /Browser, Companion/ }));
+    const browserComposer = await screen.findByRole("textbox", { name: "Message Browser" });
+    await user.type(browserComposer, "/");
+    expect(await screen.findByRole("option", { name: /\/skill:browse/ })).toBeInTheDocument();
+
+    await act(async () => releaseAda?.(new Response(JSON.stringify({ skills: skillList, enabled: true }), { headers: { "content-type": "application/json" } })));
+    expect(screen.getByRole("option", { name: /\/skill:browse/ })).toBeInTheDocument();
+    expect(screen.queryByRole("option", { name: /\/skill:review/ })).not.toBeInTheDocument();
+  });
+
+  it("refreshes discovery when a new palette opens after an unavailable result", async () => {
+    let skillRequests = 0;
+    vi.stubGlobal("fetch", vi.fn((input: RequestInfo | URL) => {
+      const path = String(input);
+      if (path === "/api/me") return response(me);
+      if (path === "/api/config") return response(config);
+      if (path === "/api/companions") return response({ companions: [ready] });
+      if (path === "/api/companions/ada") return response({ companion: ready, messages: [], runs: [], activity: [] });
+      if (path === "/api/companions/ada/skills") {
+        skillRequests += 1;
+        return skillRequests === 1
+          ? response({ error: "Runtime unavailable" }, 503)
+          : response({ skills: [{ name: "new-skill", description: "Installed during chat" }], enabled: true });
+      }
+      if (path.endsWith("/specialist-improvements")) return response({ improvements: [] });
+      return response({ accounts: [], catalog: [], templates: [], tasks: [], files: [], proposals: [], routines: [], triggers: [] });
+    }));
+    const user = userEvent.setup();
+    render(<App />);
+    const composer = await screen.findByRole("textbox", { name: "Message Ada" });
+    await user.type(composer, "/");
+    expect(await screen.findByText("Skills are unavailable. You can still send your message.")).toBeInTheDocument();
+    await user.keyboard("{Escape}");
+    await user.clear(composer);
+    await user.type(composer, "/");
+    expect(await screen.findByRole("option", { name: /\/skill:new-skill/ })).toBeInTheDocument();
+    expect(skillRequests).toBe(2);
+  });
+});

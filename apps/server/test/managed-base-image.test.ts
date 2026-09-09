@@ -43,6 +43,9 @@ class FakeBox {
  rateLimits=0;
  ambiguousCreates=0;
  snapshotLimits=0;
+ snapshotState='ready';
+ mismatchVerification=false;
+ deleteSawArchived:boolean[]=[];
  constructor(public manifest:DistributionManifest){}
  async create(key:string,template?:string){
   this.creates.push({key,template});
@@ -53,15 +56,23 @@ class FakeBox {
  async get(id:string){const box=this.boxes.get(id);if(!box)throw new BoxError('box_not_found',404);return {...box};}
  async resume(id:string){const box=this.boxes.get(id);if(!box)throw new BoxError('box_not_found',404);box.state='ready';}
  async command(_id:string,command:string){
-  if(command.includes('expected=json.loads')){this.verificationCount++;return JSON.stringify(this.manifest);}
+  if(command.includes('expected=json.loads')){
+   this.verificationCount++;
+   if(this.mismatchVerification&&this.verificationCount===2)return JSON.stringify({...this.manifest,files:this.manifest.files.map(file=>({...file,size:file.size+1}))});
+   return JSON.stringify(this.manifest);
+  }
   if(command.includes("printf fresh"))return 'fresh';
   return '';
  }
  async snapshot(_id:string,name:string){if(this.snapshotLimits>0){this.snapshotLimits--;throw new BoxError('box_snapshot_limit',409);}this.snapshots.add(name);return {};}
- async getSnapshot(name:string){if(!this.snapshots.has(name))throw new BoxError('box_not_found',404);return {status:'ready'};}
+ async getSnapshot(name:string){if(!this.snapshots.has(name))throw new BoxError('box_not_found',404);return {status:this.snapshotState};}
  async stop(id:string){const box=this.boxes.get(id);if(!box)throw new BoxError('box_not_found',404);box.state='archived';this.stops.push(id);}
  async writeFile(){return {};}
- async deleteSnapshot(name:string){if(!this.snapshots.has(name))throw new BoxError('box_not_found',404);this.snapshots.delete(name);this.deletes.push(name);return {};}
+ async deleteSnapshot(name:string){
+  if(!this.snapshots.has(name))throw new BoxError('box_not_found',404);
+  this.deleteSawArchived.push([...this.boxes.values()].every(box=>box.state==='archived'));
+  this.snapshots.delete(name);this.deletes.push(name);return {};
+ }
 }
 
 function coordinator(box:FakeBox,value:ReturnType<typeof artifact>,now:()=>number=Date.now){
@@ -126,6 +137,37 @@ test('a deleted ready snapshot is republished once as the next generation',async
   expect(rows).toHaveLength(2);expect(rows[0]).toMatchObject({id:original.id,generation:1,status:'deleted'});expect(rows[1]).toMatchObject({generation:2,status:'ready'});
   const stable=coordinator(box,value);await stable.schedule(lock.sql);await settled(stable);await stable.close();
   expect(await db`SELECT id FROM managed_base_images WHERE release_digest=${value.releaseDigest}`).toHaveLength(2);
+ }finally{await lock.close();}
+});
+
+test('a pending observation keeps the verified generation ready',async()=>{
+ const value=artifact('pending-observation-release'),box=new FakeBox(value.manifest),lock=await leader();
+ try{
+  const initial=coordinator(box,value);await initial.schedule(lock.sql);await settled(initial);await initial.close();
+  const [published]=await db`SELECT id,generation,snapshot_name FROM managed_base_images WHERE release_digest=${value.releaseDigest}`;
+  box.snapshotState='pending';
+  await db`UPDATE managed_base_images SET provider_checked_at=now()-interval '2 minutes' WHERE id=${published.id}`;
+  const observed=coordinator(box,value);await observed.schedule(lock.sql);await settled(observed);await observed.close();
+  const rows=await db`SELECT id,generation,status,deleted_at FROM managed_base_images WHERE release_digest=${value.releaseDigest}`;
+  expect(rows).toEqual([{id:published.id,generation:1,status:'ready',deleted_at:null}]);
+  expect(box.deletes).toEqual([]);expect(box.creates).toHaveLength(2);
+ }finally{await lock.close();}
+});
+
+test('a captured snapshot blocked by verifier failure is reclaimed after owned Boxes archive',async()=>{
+ const value=artifact('blocked-verifier-release'),box=new FakeBox(value.manifest),lock=await leader();box.mismatchVerification=true;
+ try{
+  const failed=coordinator(box,value);await failed.schedule(lock.sql);await settled(failed);await failed.close();
+  const [blocked]=await db`SELECT id,snapshot_name,status,error_code,journal FROM managed_base_images WHERE release_digest=${value.releaseDigest}`;
+  expect(blocked).toMatchObject({status:'blocked',error_code:'distribution_content_mismatch',journal:{snapshotRequestedAt:expect.any(String),sourceArchivedAt:expect.any(String),verification:{boxId:expect.any(String),archivedAt:expect.any(String)}}});
+  expect(box.snapshots.has(blocked.snapshot_name)).toBe(true);
+
+  box.mismatchVerification=false;box.verificationCount=0;
+  const recovered=coordinator(box,value);await recovered.schedule(lock.sql);await settled(recovered);await recovered.close();
+  const rows=await db`SELECT id,generation,status,deleted_at FROM managed_base_images WHERE release_digest=${value.releaseDigest} ORDER BY generation`;
+  expect(rows).toHaveLength(2);expect(rows[0]).toMatchObject({id:blocked.id,generation:1,status:'deleted',deleted_at:expect.any(Date)});
+  expect(rows[1]).toMatchObject({generation:2,status:'ready'});
+  expect(box.deletes).toContain(blocked.snapshot_name);expect(box.deleteSawArchived).toEqual([true]);
  }finally{await lock.close();}
 });
 

@@ -188,7 +188,11 @@ async function cleanupOne(sql:SQLLike,box:ManagedBox,row:any,now:()=>number){
 }
 
 async function cleanupObsolete(sql:SQLLike,box:ManagedBox,now:()=>number){
- const rows=await sql`SELECT id,snapshot_name,deleted_at,delete_intent_at FROM managed_base_images WHERE status IN ('retired','missing','failed') AND deleted_at IS NULL
+ const rows=await sql`SELECT id,snapshot_name,deleted_at,delete_intent_at FROM managed_base_images WHERE
+   (status IN ('retired','missing','failed') OR (status='blocked'
+     AND jsonb_exists(journal,'snapshotRequestedAt') AND jsonb_exists(journal,'sourceArchivedAt')
+     AND jsonb_exists(journal->'verification','boxId') AND jsonb_exists(journal->'verification','archivedAt')))
+   AND deleted_at IS NULL
    AND (retry_at IS NULL OR retry_at<=now()) ORDER BY created_at`;
  let count=0;for(const row of rows)if(await cleanupOne(sql,box,row,now))count++;
  return count;
@@ -251,14 +255,17 @@ export class ManagedBaseImageCoordinator{
     const state=item.journal as ManagedJournal;
     const save=async(value:ManagedJournal)=>{await guard();await sql`UPDATE managed_base_images SET journal=${value}::jsonb,updated_at=now() WHERE id=${item.id}`;};
     const archived=await archiveOwnedBoxes(managedProvider(this.box!,state,save,guard,this.now),state,save,this.now);
-    await sql`UPDATE managed_base_images SET retry_at=${new Date(this.now()+(archived?24*3600_000:RETRY_MS))},updated_at=now() WHERE id=${item.id}`;
+    const captured=archived&&!!state.snapshotRequestedAt&&!!state.sourceArchivedAt&&!!state.verification?.boxId&&!!state.verification.archivedAt;
+    await sql`UPDATE managed_base_images SET retry_at=${captured?null:new Date(this.now()+(archived?24*3600_000:RETRY_MS))},updated_at=now() WHERE id=${item.id}`;
    }
    const [ready]=await sql`SELECT id,snapshot_name,provider_checked_at FROM managed_base_images WHERE release_digest=${artifact.releaseDigest} AND status='ready' LIMIT 1`;
    if(ready&&(!ready.provider_checked_at||this.now()-new Date(ready.provider_checked_at).getTime()>=CHECK_MS)){
     try{
      const observed=await box.getSnapshot(ready.snapshot_name),status=snapshotStatus(observed);
-     if(status!=='ready')await sql`UPDATE managed_base_images SET status=${status==='failed'?'failed':'missing'},error_code='managed_image_snapshot_missing',provider_checked_at=now(),updated_at=now() WHERE id=${ready.id}`;
-     else await sql`UPDATE managed_base_images SET provider_checked_at=now(),error_code=null,updated_at=now() WHERE id=${ready.id}`;
+     if(status==='failed')await sql`UPDATE managed_base_images SET status='failed',error_code='managed_image_snapshot_failed',provider_checked_at=now(),updated_at=now() WHERE id=${ready.id}`;
+     else if(status==='ready')await sql`UPDATE managed_base_images SET provider_checked_at=now(),error_code=null,updated_at=now() WHERE id=${ready.id}`;
+     else if(status==='pending')await sql`UPDATE managed_base_images SET provider_checked_at=now(),updated_at=now() WHERE id=${ready.id}`;
+     else throw Error('MANAGED_IMAGE_SNAPSHOT_STATUS_INVALID');
     }catch(error){if(error instanceof BoxError&&error.status===404)await sql`UPDATE managed_base_images SET status='missing',error_code='managed_image_snapshot_missing',provider_checked_at=now(),updated_at=now() WHERE id=${ready.id}`;else throw error;}
    }
    // Finish one already persisted publication from any release before considering

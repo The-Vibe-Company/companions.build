@@ -3,6 +3,7 @@ import {db,migrate,createCompanion,acceptMessage} from '../src/store';
 import {acquireExecutor,tick} from '../src/executor';
 import {handleLifecycle,progressLifecycle,type LifecycleMachines} from '../src/lifecycle';
 import {pauseMachine,ExecutionStopped} from '../src/machines';
+import {BoxError} from '../../../packages/box/client';
 import {AgentDaemon} from '../../../packages/agent/src/daemon';
 import {decrypt} from '../src/config';
 import {mkdtempSync} from 'node:fs';
@@ -67,5 +68,39 @@ test('machine adapter performs no desktop mutation if authority is lost during o
  let active=true;const commands:string[]=[];
  const client={async command(_id:string,command:string){commands.push(command);active=false;return JSON.stringify({generation:0,taken:false,confirmed:true,bootId:'boot'});}} as any;
  await expect(pauseMachine({provider:'box',box_id:'owned',desktop_boundary_version:1,desktop_generation:1},true,async()=>{if(!active)throw new ExecutionStopped('lost');},client)).rejects.toBeInstanceOf(ExecutionStopped);
+ expect(commands).toEqual(['sudo -n /usr/local/bin/companions-desktop-state']);
+});
+
+test('machine adapter provisions a lazy Box desktop before its first broker reconciliation',async()=>{
+ const effects:string[]=[];let provisioning=true;
+ const client={
+  async desktop(id:string){effects.push(`desktop:${id}`);if(provisioning)throw new BoxError('desktop_preparing');return 'https://fixture.on.ascii.dev/vnc.html?_token=synthetic';},
+  async command(_id:string,command:string){
+   effects.push(command);
+   if(!command.includes(' 0 false'))return JSON.stringify({generation:0,taken:true,confirmed:false,bootId:'boot'});
+   return JSON.stringify({generation:0,taken:false,confirmed:true,bootId:'boot'});
+  },
+ } as any;
+ const companion={provider:'box',box_id:'owned',desktop_boundary_version:1,desktop_generation:0,desktop_observed_generation:null};
+ await expect(pauseMachine(companion,false,undefined,client)).rejects.toThrow('desktop_preparing');
+ expect(effects).toEqual(['sudo -n /usr/local/bin/companions-desktop-state','desktop:owned']);
+
+ provisioning=false;effects.length=0;
+ await expect(pauseMachine(companion,false,undefined,client)).resolves.toMatchObject({generation:0,taken:false,confirmed:true});
+ expect(effects).toEqual([
+  'sudo -n /usr/local/bin/companions-desktop-state',
+  'desktop:owned',
+  'sudo -n /usr/local/bin/companions-desktop-state 0 false',
+ ]);
+});
+
+test('machine adapter rechecks executor authority after lazy desktop provisioning',async()=>{
+ let active=true;const commands:string[]=[];
+ const client={
+  async desktop(){active=false;return 'https://fixture.on.ascii.dev/vnc.html?_token=synthetic';},
+  async command(_id:string,command:string){commands.push(command);return JSON.stringify({generation:0,taken:true,confirmed:false,bootId:'boot'});},
+ } as any;
+ const companion={provider:'box',box_id:'owned',desktop_boundary_version:1,desktop_generation:0,desktop_observed_generation:null};
+ await expect(pauseMachine(companion,false,async()=>{if(!active)throw new ExecutionStopped('lost');},client)).rejects.toBeInstanceOf(ExecutionStopped);
  expect(commands).toEqual(['sudo -n /usr/local/bin/companions-desktop-state']);
 });

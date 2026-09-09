@@ -92,7 +92,11 @@ branch with the root `Dockerfile`. Each role keeps its own start command:
 `/app/scripts/container-entrypoint.sh api`, `worker`, or `executor`. The API uses
 `/app/scripts/container-entrypoint.sh migrate` as its pre-deploy command and `/health` as its
 readiness check. Pushes to `main` deploy all three application services; PostgreSQL and MinIO
-retain their independent images and persistent volumes. No GitHub Actions workflow is required.
+retain their independent images and persistent volumes. The executor automatically publishes
+and verifies a base named snapshot from the bundled agent distribution, recreates it if missing,
+and removes unreferenced older managed images after replacement. `BOX_TEMPLATE` is only needed
+when opting out with `BOX_MANAGED_TEMPLATE=0`. See [the image lifecycle](docs/dev-workflow.md#backend-managed-base-named-snapshot).
+No GitHub Actions workflow is required.
 Set `APP_URL` and `BETTER_AUTH_URL` consistently to the public HTTPS domain on all three roles;
 map the Railway custom domain to the actual service port, rather than assuming the Docker default.
 

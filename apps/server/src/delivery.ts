@@ -147,7 +147,7 @@ export async function acceptDelivery(ownerId: string, deliveryId: string, grantM
     const profile = z.object({ name: z.string().min(1).max(80), instructions: z.string().max(20_000), avatar: z.unknown().nullable(), modelId:z.string().max(200).nullable().optional() }).parse(delivery.profile_snapshot);
     const companionId = crypto.randomUUID();
     const provider = software.size ? "box" : config.defaultProvider;
-    if (provider === "box" && !config.boxTemplate && !mainSoftware) throw new DeliveryConflict("The fresh Box base template is not configured.");
+    if (provider === "box" && !config.managedBoxTemplate && !config.boxTemplate && !mainSoftware) throw new DeliveryConflict("The fresh Box base template is not configured.");
     const [mainBundle]=await sql`SELECT bundle_id FROM portable_skill_exports WHERE delivery_id=${deliveryId} AND target_kind='delivery_main' AND status='ready'`;
     await sql`INSERT INTO companions (id,owner_id,name,instructions,provider,create_key,agent_secret,prepare_requested,skill_bundle_id,model_id,snapshot_name,software_result_id) VALUES (${companionId},${ownerId},${profile.name},${profile.instructions},${provider},${crypto.randomUUID()},${encrypt(randomBytes(32).toString("hex"))},true,${mainBundle?.bundle_id??null},${profile.modelId??null},${mainSoftware?.snapshot??null},${mainSoftware?.id??null})`;
     const [{ avatar_column }] = await sql`SELECT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='companions' AND column_name='avatar') AS avatar_column`;

@@ -38,7 +38,7 @@ export interface LifecycleHooks {
 }
 export interface LifecycleMachines {
  archivedSpecialistImages?:boolean;
- preparationReady?(companion:any):Promise<boolean>;
+ preparationReady?(companion:any,beforeEffect?:EffectGuard):Promise<boolean>;
  prepare(companion:any,checkpoint:(id:string)=>Promise<void>,configured:()=>Promise<void>,beforeEffect?:EffectGuard):Promise<string|null>;
  health(endpoint:string,token:string):Promise<any>;
  pause(companion:any,paused:boolean,beforeEffect?:EffectGuard):Promise<DesktopMachineState|void>;
@@ -202,8 +202,8 @@ export async function progressLifecycle(sql:any=db,hooks:LifecycleHooks={},machi
    const [activity]=companion.prepare_requested?await sql`SELECT EXISTS(SELECT 1 FROM runs WHERE companion_id=${companion.id} AND dispatched AND status IN ('preparing','running','needs_input')) AS active`: [{active:false}];
    if(companion.prepare_requested&&!companion.archive_requested_at&&!activity.active){
     machinePreparationActive=true;
-    if(machine.preparationReady&&!await machine.preparationReady(companion)){
-     await checkpoint(async(tx:any)=>{await tx`UPDATE companions SET status='preparing',error='Base image publication is pending.' WHERE id=${companion.id}`;});return;
+    if(machine.preparationReady&&!await machine.preparationReady(companion,beforePrepareEffect)){
+     await checkpoint(async(tx:any)=>{await tx`UPDATE companions SET status='preparing',error=${companion.baseImageError?'Base image publication is blocked: '+companion.baseImageError:'Base image publication is pending.'} WHERE id=${companion.id}`;});return;
     }
     if(!companion.preparation_started_at){
      const started=await checkpoint(async(tx:any)=>{const [value]=await tx`UPDATE companions SET preparation_started_at=now(),create_started_at=COALESCE(create_started_at,now()),status=CASE WHEN ${reusable} THEN status ELSE 'preparing' END,error=null WHERE id=${companion.id} RETURNING preparation_started_at,create_started_at`;if(!reusable)await usage(tx,companion,'starting');return value;});

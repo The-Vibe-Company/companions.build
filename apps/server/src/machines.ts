@@ -4,9 +4,11 @@ import { mkdirSync, writeFileSync, unlinkSync, realpathSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { createHash } from "node:crypto";
 import { config, dataDir, decrypt } from "./config";
-import { BoxClient } from "../../../packages/box/client";
+import { BoxClient, BoxError } from "../../../packages/box/client";
 import { userSystemctl } from "../../../packages/box/layout";
 import { fetchAgent } from "../../../packages/box/transport";
+import {pinManagedBaseImage,managedBaseImageError,MANAGED_BASE_IMAGE_REGISTRY_LOCK_ID} from './managed-base-image';
+import {db} from './store';
 
 const box = config.boxKey ? new BoxClient(config.boxKey) : null;
 const workspace = createHash("sha256").update(dataDir).digest("hex").slice(0, 10);
@@ -60,7 +62,7 @@ function localUser():string {
 }
 export const environmentDigest = (secret: string, provider = "box") => createHash("sha256")
   .update(JSON.stringify(modelEnvironment(decrypt(secret))))
-  .update(provider === "local" ? realpathSync(resolve("dist/agent")) : config.boxTemplate ?? "")
+  .update(provider === "local" ? realpathSync(resolve("dist/agent")) : config.managedBoxTemplate ? "managed-base-image" : config.boxTemplate ?? "")
   .update(provider === "local" ? JSON.stringify({user:localUser(),home:'/state'}) : '')
   .digest("hex");
 export async function prepareLocal(companion: any, refreshConfig = true, beforeEffect:EffectGuard=unguarded) {
@@ -102,15 +104,51 @@ export async function prepareLocal(companion: any, refreshConfig = true, beforeE
   if (!/^127\.0\.0\.1:\d+$/.test(port)) throw new MachineError("local_endpoint_invalid");
   return `http://${port}`;
 }
+/** The executor publisher owns image creation. Companions only pin a verified image. */
+export async function machinePreparationReady(companion:any,beforeEffect:EffectGuard=unguarded):Promise<boolean> {
+  if (companion.provider !== 'box' || companion.box_id || !config.managedBoxTemplate) return true;
+  const name = await pinManagedBaseImage(companion.id,db,beforeEffect);
+  if (!name) { companion.baseImageError = await managedBaseImageError(); return false; }
+  companion.snapshot_name = name;
+  return true;
+}
 export async function prepareBox(companion: any, checkpoint: (boxId: string) => Promise<void>, configured: () => Promise<void>, beforeEffect:EffectGuard=unguarded, client:BoxClient|null=box): Promise<string | null> {
   const box=client;
   await beforeEffect();
-  if (!box || !config.boxTemplate) throw new MachineError("box_not_configured");
+  if (!box || (!config.managedBoxTemplate && !config.boxTemplate && !companion.snapshot_name)) throw new MachineError("box_not_configured");
+  if (!companion.snapshot_name && !await machinePreparationReady(companion,beforeEffect)) return null;
   let id = companion.box_id;
   if (!id) {
     if (companion.create_started_at && Date.now() - new Date(companion.create_started_at).getTime() > 23 * 3600_000) throw new MachineError("box_creation_needs_reconciliation");
     await beforeEffect();
-    const created = await tracePreparation(companion.id,'box_create',()=>box.create(companion.create_key, companion.snapshot_name ?? config.boxTemplate));
+    let created;
+    try { created = await tracePreparation(companion.id,'box_create',()=>box.create(companion.create_key, companion.snapshot_name ?? config.boxTemplate)); }
+    catch (error) {
+      // A definitive missing-image rejection did not create a machine. Invalidate
+      // only registered base images; unknown create outcomes retain their identity.
+      if (config.managedBoxTemplate && companion.snapshot_name && error instanceof BoxError && error.status === 404) {
+        await beforeEffect();
+        let missing = false;
+        try { await box.getSnapshot(companion.snapshot_name); }
+        catch (observation) { if (observation instanceof BoxError && observation.status === 404) missing = true; }
+        if (missing) {
+          await beforeEffect();
+          const invalidated = await db.begin(async tx => {
+            await beforeEffect();
+            await tx`SELECT pg_advisory_xact_lock(${MANAGED_BASE_IMAGE_REGISTRY_LOCK_ID})`;
+            const [registered] = await tx`UPDATE managed_base_images SET status='missing',error_code='managed_image_snapshot_missing',updated_at=now()
+              WHERE snapshot_name=${companion.snapshot_name} AND status IN ('ready','retired','missing') RETURNING id`;
+            if (!registered) return false;
+            await tx`UPDATE companions SET snapshot_name=null,create_started_at=null,preparation_started_at=null,error='Base image publication is pending.'
+              WHERE id=${companion.id} AND box_id IS NULL AND snapshot_name=${companion.snapshot_name}`;
+            await beforeEffect();
+            return true;
+          });
+          if (invalidated) return null;
+        }
+      }
+      throw error;
+    }
     id = created.id;
     await checkpoint(id);
   }

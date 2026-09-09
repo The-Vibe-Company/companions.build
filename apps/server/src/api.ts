@@ -159,13 +159,13 @@ export async function handler(request: Request): Promise<Response> {
     if(automationResponse) return automationResponse;
     const pluginResponse = await handlePlugins(request,ownerId);
     if(pluginResponse) return pluginResponse;
-    if (request.method === "GET" && url.pathname === "/api/config") return json({ models:await availableModels(),localAvailable: config.localAvailable, defaultProvider: config.defaultProvider, boxAvailable: !!(config.boxKey && config.boxTemplate), model: config.testMode ? "Local test model" : `${config.modelProvider}/${config.modelId}` });
+    if (request.method === "GET" && url.pathname === "/api/config") return json({ models:await availableModels(),localAvailable: config.localAvailable, defaultProvider: config.defaultProvider, boxAvailable: !!(config.boxKey && (config.managedBoxTemplate || config.boxTemplate)), model: config.testMode ? "Local test model" : `${config.modelProvider}/${config.modelId}` });
     if (url.pathname === "/api/companions") {
       if (request.method === "GET") return json({ companions: await listCompanions(ownerId) });
       if (request.method === "POST") {
         if(privateBetaEmails() !== null || billingConfiguration().mode === "stripe" || process.env.NODE_ENV === "production") await requireProductActivation(ownerId);
         const input = z.object({ clientCreationId:idSchema.optional(),prepare:z.boolean().default(true),name: z.string().trim().min(1).max(80), instructions: z.string().max(20_000).optional(), provider: z.enum(["local", "box"]).default(config.defaultProvider), avatar: avatarSchema.optional(), templateId:idSchema.optional(), templateRevision:z.number().int().positive().optional() }).parse(await request.json());
-        if (input.provider === "box" && (!config.boxKey || !config.boxTemplate)) return json({ error: "Box needs an API key and a prepared template." }, 409);
+        if (input.provider === "box" && (!config.boxKey || (!config.managedBoxTemplate && !config.boxTemplate))) return json({ error: "Box needs an API key and a prepared template." }, 409);
         if (input.provider === "local" && !config.localAvailable) return json({ error: "Local runtime is disabled." }, 409);
         return json({ companion: await createCompanion(ownerId, input) }, 201);
       }

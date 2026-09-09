@@ -185,3 +185,14 @@ test('hosting reconciles the firewall after provider registration and propagates
  await expect(client.host('owned-box',NaN)).rejects.toThrow('box_host_port_invalid');
  expect(commands).toHaveLength(2);
 });
+
+test('named snapshot cleanup targets only the named snapshot endpoint', async()=>{
+ const calls:Array<{url:string;method:string|undefined}>=[];
+ const client=new BoxClient('test-only',(async(url:any,init:any)=>{
+  calls.push({url:String(url),method:init.method});return Response.json({ok:true});
+ }) as typeof fetch);
+ await client.deleteSnapshot('companions-base-owned-release');
+ expect(calls).toEqual([{url:'https://ascii.dev/api/box/v1/named-snapshots/companions-base-owned-release',method:'DELETE'}]);
+ await expect(client.deleteSnapshot('../boxes/bx_other')).rejects.toThrow('box_snapshot_name_invalid');
+ expect(calls).toHaveLength(1);
+});

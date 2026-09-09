@@ -189,7 +189,11 @@ same provider and model defaults. The production key remains on the API.
 Existing hosted agents use the OpenAI Responses wire format; the gateway selects Azure
 from the persisted run provider. Direct development agents use the Azure adapter,
 which removes the legacy `api-version` query rejected by Foundry v1 endpoints.
-Those direct agents need a freshly built distribution (or an updated Box template).
+Direct agents using a project endpoint need a freshly built distribution (or an
+updated Box template). For existing direct agents, the resource inference endpoint
+`https://YOUR-RESOURCE.services.ai.azure.com/openai/v1` also accepts the legacy SDK
+query and message format. It uses the same Azure resource and deployment; this
+allows local adoption without replacing existing Box images.
 The [Microsoft Responses reference](https://learn.microsoft.com/en-us/rest/api/aifoundry/azureopenai/responses)
 describes this API.
 

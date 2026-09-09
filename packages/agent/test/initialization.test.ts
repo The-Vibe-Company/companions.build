@@ -3,6 +3,7 @@ import { InMemoryCredentialStore } from "@earendil-works/pi-ai";
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { guardedInitialization } from "../src/pi-executor";
 import { configureModelGateway, modelGatewayStream, modelGatewayUrl, withModelGatewayRequest } from "../src/model-gateway";
+import {configureAzureFoundry,normalizeAzureFoundryBaseUrl} from '../src/azure-foundry';
 
 test("a cancelled late initializer is disposed and cannot return a prompt-capable session", async () => {
   let resolve!: (value: { dispose(): void }) => void;
@@ -99,4 +100,28 @@ test("gateway URLs fail closed outside the explicit local development hosts",()=
  expect(modelGatewayUrl("http://host.docker.internal:4311/api/model-gateway",true)).toBe("http://host.docker.internal:4311/api/model-gateway");
  for(const value of ["http://public.invalid/api/model-gateway","https://models.companions.build/other","https://user:pass@models.companions.build/api/model-gateway"])
   expect(()=>modelGatewayUrl(value,true)).toThrow("INVALID_MODEL_GATEWAY_URL");
+});
+
+test('Azure Foundry configuration normalizes the Responses endpoint and preserves native model capabilities',async()=>{
+ const models=await runtime();
+ let requestUrl='',requestHeaders=new Headers(),requestBody:any;
+ const transport=(async(input:RequestInfo|URL,init?:RequestInit)=>{
+  requestUrl=input instanceof Request?input.url:String(input);requestHeaders=new Headers(init?.headers??(input instanceof Request?input.headers:undefined));requestBody=JSON.parse(String(init?.body));
+  const completed={id:'resp_azure',object:'response',created_at:1,status:'completed',error:null,incomplete_details:null,instructions:null,max_output_tokens:null,model:'gpt-5.6-luna',output:[],parallel_tool_calls:true,previous_response_id:null,reasoning:{effort:'medium',summary:null},store:false,temperature:1,text:{format:{type:'text'},verbosity:'medium'},tool_choice:'auto',tools:[],top_p:1,truncation:'disabled',usage:{input_tokens:4,input_tokens_details:{cached_tokens:0},output_tokens:2,output_tokens_details:{reasoning_tokens:2},total_tokens:6},user:null,metadata:{}};
+  return new Response(`data: ${JSON.stringify({type:'response.completed',response:completed})}\n\n`,{headers:{'content-type':'text/event-stream'}});
+ }) as unknown as typeof fetch;
+ configureAzureFoundry(models,'https://resource.services.ai.azure.com/api/projects/project/openai/v1/responses',transport);
+ await models.setRuntimeApiKey('azure-openai-responses','synthetic-azure-key');
+ const model=models.getModel('azure-openai-responses','gpt-5.6-luna')!;
+ expect({baseUrl:model.baseUrl,reasoning:model.reasoning,input:model.input,maxTokens:model.maxTokens}).toEqual({
+  baseUrl:'https://resource.services.ai.azure.com/api/projects/project/openai/v1',reasoning:true,input:['text','image'],maxTokens:128000,
+ });
+ expect(models.getRegisteredProviderConfig('azure-openai-responses')?.streamSimple).toBeFunction();
+ const result=await models.streamSimple(model,{systemPrompt:'Follow the instructions.',messages:[message],tools:[{name:'bash',description:'Run a command',parameters:{type:'object',properties:{}}} as any]},{reasoning:'medium',maxRetries:0}).result();
+ expect(result.stopReason).toBe('stop');
+ expect(requestUrl).toBe('https://resource.services.ai.azure.com/api/projects/project/openai/v1/responses');
+ expect(requestHeaders.get('api-key')).toBe('synthetic-azure-key');expect(new URL(requestUrl).search).toBe('');
+ expect(requestBody).toMatchObject({model:'gpt-5.6-luna',stream:true,store:false,reasoning:{effort:'medium'},tools:[{type:'function',name:'bash'}]});
+ expect(requestBody.input.map((item:any)=>({type:item.type,role:item.role}))).toEqual([{type:'message',role:'developer'},{type:'message',role:'user'}]);
+ expect(()=>normalizeAzureFoundryBaseUrl('https://attacker.invalid/openai/v1/responses')).toThrow('INVALID_AZURE_OPENAI_BASE_URL');
 });

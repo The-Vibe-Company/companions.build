@@ -12,7 +12,7 @@ MODEL_KEYS = {
     'zai-coding-cn': ['ZAI_CODING_CN_API_KEY'],
 }
 MODEL_SETTINGS = {'azure': ['AZURE_OPENAI_BASE_URL']}
-RUNTIME_KEYS = frozenset(['DEV_LIVE_MODEL', 'MODEL_PROVIDER', 'MODEL_ID', 'BOX_API_KEY', 'BOX_TEMPLATE', 'LOCAL_RUNTIME',
+RUNTIME_KEYS = frozenset(['DEV_LIVE_MODEL', 'MODEL_PROVIDER', 'MODEL_ID', 'BOX_API_KEY', 'BOX_TEMPLATE', 'BOX_MANAGED_TEMPLATE', 'LOCAL_RUNTIME',
                           *[key for keys in MODEL_SETTINGS.values() for key in keys],
                           *[key for keys in MODEL_KEYS.values() for key in keys]])
 
@@ -50,5 +50,5 @@ def runtime_environment(root, environ=None):
     values.update({key: value for key, value in (os.environ if environ is None else environ).items()
                    if key in RUNTIME_KEYS})
     provider = values.get('MODEL_PROVIDER', 'google')
-    allowed = ['DEV_LIVE_MODEL', *MODEL_SETTINGS.get(provider, []), 'MODEL_PROVIDER', 'MODEL_ID', 'BOX_API_KEY', 'BOX_TEMPLATE', 'LOCAL_RUNTIME', *MODEL_KEYS.get(provider, [])]
+    allowed = ['DEV_LIVE_MODEL', *MODEL_SETTINGS.get(provider, []), 'MODEL_PROVIDER', 'MODEL_ID', 'BOX_API_KEY', 'BOX_TEMPLATE', 'BOX_MANAGED_TEMPLATE', 'LOCAL_RUNTIME', *MODEL_KEYS.get(provider, [])]
     return {key: values[key] for key in allowed if values.get(key)}

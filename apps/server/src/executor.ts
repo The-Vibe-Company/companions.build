@@ -1,3 +1,4 @@
+import {ManagedBaseImageCoordinator} from './managed-base-image';
 import { SoftwareBuildCoordinator, type SoftwareRuntimeHooks } from './software-runtime';
 import {specialistConfigurationInstructions} from './specialist-drafts';
 import {tracePreparation} from './preparation-trace';
@@ -418,10 +419,11 @@ if (import.meta.main) {
   if (!sql) { await db.close(); process.exit(0); }
   console.log("Executor ready");
   const { productHooks } = await import("./runtime-product");
+  const baseImage=new ManagedBaseImageCoordinator();
   const lifecycle=new LifecycleCoordinator();
   const observations=new BoxObserver();
   const runs=new RunCoordinator();
   const software=new SoftwareBuildCoordinator();
-  try { while(!shutdown.signal.aborted) { if(productHooks.software)await software.schedule(sql,productHooks.software); await observations.schedule(sql); await tick(sql, productHooks,lifecycle,runs); await Bun.sleep(500); } }
-  finally { await Promise.allSettled([lifecycle.close(),observations.close(),runs.close(),software.close()]); sql.release(); await db.close(); }
+  try { while(!shutdown.signal.aborted) { await baseImage.schedule(sql); if(productHooks.software)await software.schedule(sql,productHooks.software); await observations.schedule(sql); await tick(sql, productHooks,lifecycle,runs); await Bun.sleep(500); } }
+  finally { await Promise.allSettled([baseImage.close(),lifecycle.close(),observations.close(),runs.close(),software.close()]); sql.release(); await db.close(); }
 }

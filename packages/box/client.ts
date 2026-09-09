@@ -112,5 +112,9 @@ export class BoxClient {
     }
     return this.request(`/named-snapshots/${encodeURIComponent(name)}`);
   }
+  async deleteSnapshot(name: string) {
+    if (!/^[a-z0-9-]{1,60}$/.test(name)) throw new BoxError('box_snapshot_name_invalid');
+    return this.request(`/named-snapshots/${encodeURIComponent(name)}`, 'DELETE');
+  }
   async stop(id: string) { await this.request(`/boxes/${encodeURIComponent(id)}/stop`, "POST", { force: false }); }
 }

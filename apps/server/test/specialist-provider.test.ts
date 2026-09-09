@@ -12,7 +12,10 @@ test('an explicit rejected start returns to its original queue position and resp
  await requestMachineAdmission(owner,{requestId:command,companionId:c.id,kind:'configuration'});
  const client=new BoxClient('synthetic', (async()=>new Response('private provider body',{status:429})) as any);
  let rejection:unknown;try{await client.create('stable-key');}catch(error){rejection=error;}
+ const started=new Date(Date.now()-4*60_000);await db`UPDATE companions SET preparation_started_at=${started},create_started_at=now() WHERE id=${c.id}`;
  expect(await deferRejectedBoxStart(db,c.id,rejection)).toBe(true);
+ const [deferred]=await db`SELECT preparation_started_at,create_started_at FROM companions WHERE id=${c.id}`;
+ expect(new Date(deferred.preparation_started_at).getTime()).toBe(started.getTime());expect(deferred.create_started_at).toBeNull();
  await progressMachineAdmissions(db);
  expect((await db`SELECT state,waiting_reason FROM machine_admission_requests WHERE id=${command}`)[0]).toMatchObject({state:'queued',waiting_reason:'provider_cooldown'});
  await db`UPDATE machine_provider_limits SET cooldown_until=now()-interval '1 second'`;

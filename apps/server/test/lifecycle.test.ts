@@ -10,6 +10,7 @@ import {join} from 'node:path';
 import {migrateDeliverySkills,type DeliverySkillDependencies} from '../src/delivery-skills';
 import {createHash} from 'node:crypto';
 import {configureOfferMachineLimits} from '../src/admission';
+import {BoxError} from '../../../packages/box/client';
 const owner='00000000-0000-4000-8000-000000000001',other='lifecycle-other-owner';
 const owned:string[]=[];
 beforeAll(async()=>{await migrate();await migrateLifecycle();await migrateDeliverySkills();await configureOfferMachineLimits(owner,{active:100,startsPerHour:1000,queue:100});await db`INSERT INTO "user"(id,name,email,"emailVerified") VALUES(${other},'Other','lifecycle-other@example.test',true) ON CONFLICT DO NOTHING`;});
@@ -96,6 +97,16 @@ test('unconfirmed GUI quiescence is never projected as a confirmed takeover',asy
  }finally{await lock.close();}
 });
 
+test('a Box desktop failure does not fail the ready machine',async()=>{
+ const id=await parent(),f=fake(true),lock=await leader();
+ try{
+  await db`UPDATE companions SET status='ready',prepare_requested=false,box_id='ready-box',endpoint_secret=${encrypt('http://ready')},desktop_boundary_version=1 WHERE id=${id}`;
+  f.machine.pause=async()=>{throw new BoxError('box_unreachable');};
+  await handleLifecycle({operation:'desktop_takeover',companionId:id},owner);await progressLifecycle(lock.sql,{},f.machine);
+  expect((await db`SELECT status,prepare_requested,error FROM companions WHERE id=${id}`)[0]).toMatchObject({status:'ready',prepare_requested:false,error:'Desktop takeover could not be confirmed. Desktop interactions may still be active.'});
+ }finally{await lock.close();}
+});
+
 test('portable skills are imported before a cold Companion becomes ready',async()=>{
  const id=await parent(),bundle=await portableBundle(owner,id),f=fake(),lock=await leader();let statusAtImport='';
  f.deliverySkills.storage!.put=async()=>{};f.deliverySkills.storage!.get=async()=>new Blob([bundle.bytes]);
@@ -115,6 +126,46 @@ test('a failed portable-skill import stays visible and eventually stops retrying
   expect((await db`SELECT error,prepare_requested FROM companions WHERE id=${id}`)[0]).toMatchObject({error:'Machine preparation is temporarily unavailable.',prepare_requested:true});
   await db`UPDATE companions SET preparation_started_at=now()-interval '6 minutes' WHERE id=${id}`;await progressLifecycle(lock.sql,{deliverySkills:f.deliverySkills},f.machine);
   expect((await db`SELECT error,prepare_requested FROM companions WHERE id=${id}`)[0]).toMatchObject({error:'Machine preparation timed out. Request preparation to retry.',prepare_requested:false});expect(imports).toBe(1);
+ }finally{await lock.close();}
+});
+
+test('a preparation deadline fails pending work so the executor cannot rearm it',async()=>{
+ const id=await parent(),f=fake(),lock=await leader();
+ try{
+  await db`UPDATE companions SET prepare_requested=true,preparation_started_at=now()-interval '6 minutes' WHERE id=${id}`;
+  const run=await acceptMessage(owner,id,crypto.randomUUID(),'Do not replay');
+  await progressLifecycle(lock.sql,{},f.machine);
+  expect(f.calls.filter(call=>call.startsWith('prepare '))).toHaveLength(0);
+  expect((await db`SELECT status,prepare_requested FROM companions WHERE id=${id}`)[0]).toMatchObject({status:'error',prepare_requested:false});
+  expect((await db`SELECT status,error,dispatched FROM runs WHERE id=${run}`)[0]).toMatchObject({status:'failed',error:'Preparation timed out. Send a new message to retry.',dispatched:false});
+ }finally{await lock.close();}
+});
+
+test('managed base image publication waits without starting the machine timeout',async()=>{
+ const id=await parent(),f=fake(),lock=await leader();let ready=false,checks=0;
+ f.machine.preparationReady=async()=>{checks++;return ready;};
+ try{
+  await db`UPDATE companions SET prepare_requested=true WHERE id=${id}`;
+  await progressLifecycle(lock.sql,{},f.machine);
+  expect(checks).toBe(1);expect(f.calls.filter(call=>call.startsWith('prepare '))).toHaveLength(0);
+  expect((await db`SELECT status,error,preparation_started_at,create_started_at FROM companions WHERE id=${id}`)[0]).toMatchObject({status:'preparing',error:'Base image publication is pending.',preparation_started_at:null,create_started_at:null});
+  ready=true;await progressLifecycle(lock.sql,{},f.machine);
+  expect(f.calls.filter(call=>call.startsWith('prepare '))).toHaveLength(1);
+  expect((await db`SELECT status,prepare_requested,error FROM companions WHERE id=${id}`)[0]).toMatchObject({status:'ready',prepare_requested:false,error:null});
+ }finally{await lock.close();}
+});
+
+for(const failure of [new BoxError('box_not_found',404),new BoxError('box_unreachable')] as const)test(`a ${failure.code} Box create failure stops automatic preparation replay`,async()=>{
+ const id=await parent(),f=fake(),lock=await leader();let attempts=0;
+ f.machine.prepare=async()=>{attempts++;throw failure;};
+ try{
+  const run=await acceptMessage(owner,id,crypto.randomUUID(),'Start once');
+  await db`UPDATE companions SET prepare_requested=true WHERE id=${id}`;
+  await progressLifecycle(lock.sql,{},f.machine);await progressLifecycle(lock.sql,{},f.machine);
+  expect(attempts).toBe(1);
+  const expected=failure.status===404?'Machine image is unavailable. Request preparation to retry.':'Machine creation could not be confirmed. Request preparation to retry.';
+  expect((await db`SELECT status,prepare_requested,error,preparation_started_at,create_started_at FROM companions WHERE id=${id}`)[0]).toMatchObject({status:'error',prepare_requested:false,error:expected,preparation_started_at:null,create_started_at:expect.any(Date)});
+  expect((await db`SELECT status,error,dispatched FROM runs WHERE id=${run}`)[0]).toMatchObject({status:'failed',error:expected,dispatched:false});
  }finally{await lock.close();}
 });
 

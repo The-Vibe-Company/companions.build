@@ -31,6 +31,7 @@ COPY --chown=bun:bun --from=build /app/apps/server ./apps/server
 COPY --chown=bun:bun --from=build /app/apps/web/dist ./apps/web/dist
 COPY --chown=bun:bun --from=build /app/packages ./packages
 COPY --chown=bun:bun --from=build /app/dist ./dist
+COPY --chown=bun:bun scripts/lib/distribution-verification.ts scripts/lib/template-install.ts ./scripts/lib/
 COPY --chown=bun:bun scripts/container-entrypoint.sh ./scripts/container-entrypoint.sh
 RUN mkdir -p /data && chown bun:bun /data
 USER bun

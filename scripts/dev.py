@@ -39,7 +39,7 @@ env.setdefault("BETTER_AUTH_URL", env["APP_URL"])
 runtime_settings = runtime_environment(ROOT)
 env.setdefault("AGENT_TEST_MODE", "0" if read_json(ROOT / ".local/dev-options.json").get("liveModel", runtime_settings.get("DEV_LIVE_MODEL") == "1") else "1")
 for key, value in runtime_settings.items():
-    if env["AGENT_TEST_MODE"] != "1" or key in {"BOX_API_KEY", "BOX_TEMPLATE", "LOCAL_RUNTIME"}:
+    if env["AGENT_TEST_MODE"] != "1" or key in {"BOX_API_KEY", "BOX_TEMPLATE", "BOX_MANAGED_TEMPLATE", "LOCAL_RUNTIME"}:
         env.setdefault(key, value)
 env.setdefault("LOCAL_RUNTIME", "0")
 env.setdefault("COMPANIONS_DATA_DIR", str(ROOT / ".local"))

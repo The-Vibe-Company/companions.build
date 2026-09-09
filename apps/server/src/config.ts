@@ -56,6 +56,8 @@ export const config = {
   webDist: process.env.WEB_DIST,
   boxKey: process.env.BOX_API_KEY ?? process.env.COMPANION_BOX_API_KEY,
   boxTemplate: process.env.BOX_TEMPLATE,
+  // Hosted executors publish the bundled distribution; local live canaries opt in.
+  managedBoxTemplate: process.env.BOX_MANAGED_TEMPLATE === '1' || (process.env.NODE_ENV === 'production' && process.env.BOX_MANAGED_TEMPLATE !== '0'),
   modelProvider: process.env.MODEL_PROVIDER ?? "google",
   modelId: process.env.MODEL_ID ?? "gemini-2.5-flash",
   modelGatewayUrl:modelGatewayUrl(),

@@ -127,7 +127,7 @@ def local_env(live=None):
     result = {key: value for key, value in os.environ.items() if key in
               {'PATH', 'HOME', 'USER', 'LOGNAME', 'SHELL', 'TMPDIR', 'LANG', 'TERM'}
               or key.startswith(('LC_', 'DOCKER_', 'HERDR_'))}
-    result.update({key: value for key, value in runtime.items() if key in {"BOX_API_KEY", "BOX_TEMPLATE"}})
+    result.update({key: value for key, value in runtime.items() if key in {"BOX_API_KEY", "BOX_TEMPLATE", "BOX_MANAGED_TEMPLATE"}})
     result.update(COMPANIONS_DEV_LOCAL='1', AGENT_TEST_MODE='1', BILLING_TEST_MODE='1',
                   LOCAL_RUNTIME=runtime.get('LOCAL_RUNTIME', '0'), EMAIL_PROVIDER='smtp', NODE_ENV='development',
                   COMPANIONS_DATA_DIR=str(LOCAL), COMPANIONS_DEV_WATCH=os.environ.get('COMPANIONS_DEV_WATCH', '1'))

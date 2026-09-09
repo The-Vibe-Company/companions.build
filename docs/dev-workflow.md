@@ -248,6 +248,33 @@ The command builds first, verifies every file on an independent fork, archives b
 owned Boxes, and prints the `BOX_TEMPLATE=box:<id>` setting for the worktree `.env`.
 
 
+### Backend-managed base named snapshot
+
+Hosted executors publish the already-built `dist/agent` distribution as a named
+snapshot. A changed distribution produces a new image; a missing image triggers
+publication again. PostgreSQL records ownership, publication intent and verification
+state. One publisher runs at a time, independently of companion execution. Agents
+never install dependencies or build the distribution when waking.
+
+Publication creates a clean Box, installs the bundled archive, captures the image,
+and verifies every distribution file on an independent Box. Both owned Boxes are
+archived with their disks retained. Companions wait for a verified image before their
+own preparation timeout starts. Unknown creation outcomes remain blocked for
+reconciliation; they are never automatically replayed.
+
+Only snapshots registered as managed base images are eligible for automatic cleanup.
+After switching to a verified replacement, unreferenced older managed snapshots are
+removed. Pending creations and specialist/software references protect their sources.
+Unrelated snapshots are never removed to make room: a full account without an eligible
+managed image leaves publication visibly pending or blocked until capacity is freed.
+Existing Boxes keep their disks when their original base named snapshot is removed.
+
+`BOX_MANAGED_TEMPLATE=1` opts local live development into this behavior.
+Hosted mode enables it by default; `BOX_MANAGED_TEMPLATE=0` retains the explicit
+operator-managed `BOX_TEMPLATE` path. Specialist sealed-Box images remain independent
+of the common base named snapshot. The production container builds its distribution
+before deployment; backend publication does not compile source at runtime.
+
 ### Box by default; opt-in local testing
 
 The product does not expose a local/cloud computer picker. New companions and
@@ -259,5 +286,6 @@ For fast Docker-backed local testing, set `LOCAL_RUNTIME=1` in the worktree `.en
 or shell and restart with `./dev restart`. Remove it or set `LOCAL_RUNTIME=0` to
 return to Box. This setting is independent of model selection: `--scripted` controls
 the test model, while `--live` uses configured model credentials. Live Box development
-still requires `BOX_API_KEY` and `BOX_TEMPLATE`. Deterministic verification explicitly
+requires `BOX_API_KEY` and either `BOX_MANAGED_TEMPLATE=1` or an explicit
+`BOX_TEMPLATE`. Deterministic verification explicitly
 enables the local runtime in its isolated test environment.

@@ -1,0 +1,71 @@
+apps/server/src/managed-base-image.sql
+  s_3a42cadc2a06c2::t_940ba48417ca7d 1-36
+apps/server/src/delivery.ts
+  s_3a42cadc2a06c2::t_ff48c527bdb73f 150
+.env.example
+  s_3a42cadc2a06c2::t_e5b87f8f5f99b0 13-16
+packages/box/client.ts
+  s_3a42cadc2a06c2::t_f9c4451c4679de 115-118
+scripts/dev-cli.py
+  s_3a42cadc2a06c2::t_d1ad67ef8771bd 130
+apps/server/src/lifecycle.ts
+  s_3a42cadc2a06c2::t_2193d1d637eb6a 206
+  s_3a42cadc2a06c2::t_ae73222597c6c3 41,205
+scripts/dev.py
+  s_3a42cadc2a06c2::t_d1ad67ef8771bd 41
+docs/dev-workflow.md
+  s_3a42cadc2a06c2::t_a0828b312a352e 195-221,233-234
+scripts/dev_environment.py
+  s_3a42cadc2a06c2::t_d1ad67ef8771bd 13,50
+apps/server/test/managed-base-image-integration.test.ts
+  s_3a42cadc2a06c2::t_9a3fceef4baba4 1-45
+apps/server/src/managed-base-image.ts
+  s_3a42cadc2a06c2::t_e116a4001b17e7 321-329,331
+  s_3a42cadc2a06c2::t_c1c2e163bea671 191,256,266,287,309,315
+  s_3a42cadc2a06c2::t_051222bf687df5 252,281,289
+  s_3a42cadc2a06c2::t_940ba48417ca7d 1-5,7-73,75-78,80-82,84,87-92,94-128,130-139,145-166,174-185,187-190,192-198,200-201,203-207,209,211-246,248,257-265,267,269,271-273,275-280,282-286,288,290-292,299-306,308,310,316-320,330,334-340
+  s_3a42cadc2a06c2::t_19752b775900b7 270,274,333
+  s_3a42cadc2a06c2::t_595d8d5c6cc134 332
+  s_3a42cadc2a06c2::t_ae73222597c6c3 6,74,79,93,186,247,293-298
+  s_3a42cadc2a06c2::t_b4dec369a70bef 83,85-86,129,140-144,167-173,199,202,208,210,249-251,253-255,268,307,311-314
+apps/server/src/api.ts
+  s_3a42cadc2a06c2::t_ff48c527bdb73f 162,168
+apps/server/src/executor.ts
+  s_3a42cadc2a06c2::t_36fbf3cfc4ea4f 1,416,421-422
+apps/server/test/box.test.ts
+  s_3a42cadc2a06c2::t_e5b87f8f5f99b0 188-198
+apps/server/src/machines.ts
+  s_3a42cadc2a06c2::t_36fbf3cfc4ea4f 107,109,112-114,118
+  s_3a42cadc2a06c2::t_ae73222597c6c3 108,110,137,144
+  s_3a42cadc2a06c2::t_19752b775900b7 119
+  s_3a42cadc2a06c2::t_2193d1d637eb6a 7,10-11,111,124-136,138-143,145-151
+  s_3a42cadc2a06c2::t_49b70f117076de 65
+Dockerfile
+  s_3a42cadc2a06c2::t_f9c4451c4679de 34
+apps/server/src/store.ts
+  s_3a42cadc2a06c2::t_ff48c527bdb73f 7
+apps/server/src/config.ts
+  s_3a42cadc2a06c2::t_f9c4451c4679de 59-60
+README.md
+  s_3a42cadc2a06c2::t_a0828b312a352e 95-99
+scripts/dev-cli.test.py
+  s_3a42cadc2a06c2::t_d1ad67ef8771bd 130,137
+apps/server/test/managed-base-image.test.ts
+  s_3a42cadc2a06c2::t_5177f89347f95c 1-174
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "700fbace48e3e21b0b1fa59e1553e4ebcce788a8",
+  "prompts": {},
+  "sessions": {
+    "s_3a42cadc2a06c2": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a085f7-65e6-7543-9909-16542d8e4ac4",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "StanGirard <stan@quivr.app>"
+    }
+  }
+}

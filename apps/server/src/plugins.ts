@@ -1,3 +1,5 @@
+import {getAppDefinition} from '../../../packages/plugins/definitions';
+import {appBridge} from '../../../packages/plugins/bridges';
 import { createHash, randomBytes } from 'node:crypto';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
@@ -5,17 +7,15 @@ import { z } from 'zod';
 import { db } from './store';
 import { encrypt, decrypt } from './config';
 import { pluginCatalog, type MachinePlugin } from '../../../packages/plugins/catalog';
-import { beginCompanionPluginOAuth, completeCompanionPluginOAuth, refreshCompanionPluginOAuth, CompanionPluginOAuthError, CompanionPluginOAuthRevokedError, COMPANION_GMAIL_MCP_ALLOWED_TOOLS, type CompanionPluginStoredOAuthCredential } from '../../../packages/plugins/oauth';
+import { beginCompanionPluginOAuth, completeCompanionPluginOAuth, refreshCompanionPluginOAuth, CompanionPluginOAuthError, CompanionPluginOAuthRevokedError, type CompanionPluginStoredOAuthCredential } from '../../../packages/plugins/oauth';
 
 const uuid = z.string().uuid();
 const hash = (value:string) => createHash('sha256').update(value).digest('hex');
 const callback = () => new URL('/api/plugins/callback', process.env.APP_URL ?? 'http://127.0.0.1:4310').href;
-const configuredOAuth:Partial<Record<string,readonly string[]>>={
- 'io.github.github/github-mcp-server':['COMPANION_MCP_GITHUB_CLIENT_ID','COMPANION_MCP_GITHUB_CLIENT_SECRET'],
- 'com.slack/mcp':['COMPANION_MCP_SLACK_CLIENT_ID','COMPANION_MCP_SLACK_CLIENT_SECRET'],
- 'com.google.workspace/gmail':['COMPANION_MCP_GMAIL_CLIENT_ID','COMPANION_MCP_GMAIL_CLIENT_SECRET'],
-};
-export function pluginConnectionAvailable(serverId:string,env:NodeJS.ProcessEnv=process.env) {return (configuredOAuth[serverId]??[]).every(key=>!!env[key]?.trim());}
+export function pluginConnectionAvailable(serverId:string,env:NodeJS.ProcessEnv=process.env) {
+  const client=getAppDefinition(serverId)?.oauth.client;
+  return client?.kind!=='environment'||[client.clientIdEnv,client.clientSecretEnv].every(key=>!!env[key]?.trim());
+}
 export const listPluginCatalog=()=>pluginCatalog.map(provider=>({...provider,available:pluginConnectionAvailable(provider.id)}));
 export async function migratePlugins(sql:any) { await sql.unsafe(await Bun.file(new URL('./plugins.sql',import.meta.url)).text()); }
 export class PluginError extends Error {}
@@ -37,7 +37,7 @@ export async function newPluginAccountLabel(ownerId:string,serverId:string,label
 }
 export async function startPluginConnection(ownerId:string, serverId:string, label:string,env:NodeJS.ProcessEnv=process.env) {
   const provider = pluginCatalog.find(p => p.id === serverId);
-  if(!provider) throw new PluginError('Choose an available plugin.');
+  if(!provider) throw new PluginError('Choose an available App.');
   if(!pluginConnectionAvailable(serverId,env))throw new PluginError(`${provider.name} connection is unavailable in this deployment.`);
   const accountName=await newPluginAccountLabel(ownerId,serverId,label);
   const state=randomBytes(32).toString('base64url');
@@ -110,12 +110,7 @@ export interface PluginHealthDependencies {
 }
 
 async function discoverPlugin(plugin:MachinePlugin,signal:AbortSignal) {
-  if(plugin.transport==='slack') {
-    const result=await fetch('https://slack.com/api/auth.test',{method:'POST',headers:plugin.headers,signal});
-    const body=await result.json().catch(()=>null) as {ok?:boolean}|null;
-    if(!result.ok||body?.ok!==true)throw Error('PLUGIN_CONNECTION_FAILED');
-    return;
-  }
+  const bridge=appBridge(plugin);if(bridge)return bridge.check(plugin,signal);
   if(plugin.transport!=='http'||!plugin.url)throw Error('PLUGIN_CONFIGURATION_INVALID');
   const client=new Client({name:'companions.build-health',version:'0.2.0'});
   const transport=new StreamableHTTPClientTransport(new URL(plugin.url),{requestInit:{headers:plugin.headers}});
@@ -150,7 +145,7 @@ export async function checkPluginAccount(ownerId:string,accountId:string,deps:Pl
       }
       const provider=pluginCatalog.find(item=>item.id===row.server_id);
       if(!provider)throw Error('PLUGIN_CONFIGURATION_INVALID');
-      return{custom:false as const,plugin:{id:row.id,name:row.label,provider:provider.provider,transport:provider.transport as 'http'|'slack',url:provider.url,headers:{Authorization:`Bearer ${credential.accessToken}`},...(provider.provider==='gmail'?{allowedTools:[...COMPANION_GMAIL_MCP_ALLOWED_TOOLS]}:{})} satisfies MachinePlugin};
+      return{custom:false as const,plugin:projectAccount(row,credential) satisfies MachinePlugin};
     });
     if(!prepared)return null;
     if(prepared.custom){early='requires_agent';earlyCode='agent_check_required';}
@@ -167,8 +162,17 @@ export async function checkPluginAccount(ownerId:string,accountId:string,deps:Pl
   const [saved]=await db`UPDATE plugin_accounts SET health_status=${healthStatus},health_code=${healthCode},health_checked_at=${now} WHERE id=${accountId} AND owner_id=${ownerId} RETURNING id,health_status,health_code,health_checked_at`;
   return saved?healthProjection(saved):null;
 }
+function projectAccount(row:any,credential:CompanionPluginStoredOAuthCredential):MachinePlugin {
+  const definition=getAppDefinition(row.server_id);
+  if(!definition)throw new PluginError('Connection requires an update.');
+  return {id:row.id,name:row.label,provider:definition.provider,serverId:definition.id,transport:definition.mcp.transport,url:definition.mcp.url,
+    headers:{Authorization:`Bearer ${credential.accessToken}`},
+    ...(credential.accessExpiresAt?{credentialExpiresAt:Date.parse(credential.accessExpiresAt)}:{}),
+    ...(definition.capabilities?.allowedTools?{allowedTools:[...definition.capabilities.allowedTools]}:{}),
+    capabilities:{gitCredentials:definition.capabilities?.gitCredentials,bridge:definition.capabilities?.bridge}};
+}
 /** Executor-only projection. Commit each refresh before another provider can fail. */
-export async function machinePlugins(companionId:string,deps:Pick<PluginHealthDependencies,'refresh'>={}):Promise<MachinePlugin[]> {
+export async function machinePlugins(companionId:string,deps:Pick<PluginHealthDependencies,'refresh'>&{refreshCredentials?:boolean;accountId?:string}={}):Promise<MachinePlugin[]> {
   const accounts=await db`SELECT p.id FROM companion_plugins cp JOIN plugin_accounts p ON p.id=cp.account_id JOIN companions c ON c.id=cp.companion_id WHERE c.id=${companionId} AND c.owner_id=p.owner_id ORDER BY p.id`;
   const result:MachinePlugin[]=[];
   for(const account of accounts) {
@@ -181,11 +185,12 @@ export async function machinePlugins(companionId:string,deps:Pick<PluginHealthDe
       if(credential.kind==='custom')return {id:row.id,name:row.label,provider:'custom',...credential} as MachinePlugin;
       const provider=pluginCatalog.find(p=>p.id===row.server_id);
       if(!provider) throw new PluginError('Connection requires an update.');
-      if(credential.accessExpiresAt && Date.parse(credential.accessExpiresAt)<Date.now()+60_000) {
-        credential=await (deps.refresh??refreshCompanionPluginOAuth)({credential:credential as CompanionPluginStoredOAuthCredential});
+      const shouldRefresh=deps.accountId?row.id===deps.accountId:deps.refreshCredentials!==false||!!getAppDefinition(row.server_id)?.capabilities?.gitCredentials;
+      if(shouldRefresh && credential.accessExpiresAt && Date.parse(credential.accessExpiresAt)<Date.now()+60_000) {
+        credential=await (deps.refresh??refreshCompanionPluginOAuth)({credential:credential as CompanionPluginStoredOAuthCredential,signal:AbortSignal.timeout(10_000)});
         await tx`UPDATE plugin_accounts SET credential_secret=${encrypt(JSON.stringify(credential))} WHERE id=${row.id}`;
       }
-      return {id:row.id,name:row.label,provider:provider.provider,transport:provider.transport as 'http'|'slack',url:provider.url,headers:{Authorization:`Bearer ${credential.accessToken}`},...(provider.provider==='gmail'?{allowedTools:[...COMPANION_GMAIL_MCP_ALLOWED_TOOLS]}:{})} satisfies MachinePlugin;
+      return projectAccount(row,credential) satisfies MachinePlugin;
     });
     if(plugin)result.push(plugin);
   }

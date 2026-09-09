@@ -137,3 +137,22 @@ test('account cards list only owned active companion grants and follow revocatio
  await attachPlugin(ownerId,nova.id,account.id,false);
  expect((await listPluginAccounts(ownerId))[0].usedBy).toEqual([]);
 });
+
+test('labelled Railway accounts attach independently and unused OAuth accounts do not refresh',async()=>{
+ const first=await createCompanion(owner,{name:'Railway first',instructions:'',provider:'local'}),second=await createCompanion(owner,{name:'Railway second',instructions:'',provider:'local'});
+ const ids:string[]=[];
+ for(const label of ['Production','Sandbox']){
+  const id=crypto.randomUUID();ids.push(id);
+  const credential={...oauthCredential(new Date(0).toISOString()),serverName:'com.railway/mcp',resource:'https://mcp.railway.com',tokenEndpoint:'https://backboard.railway.com/token'};
+  await db`INSERT INTO plugin_accounts(id,owner_id,provider,label,server_id,credential_secret) VALUES(${id},${owner},'railway',${label},'com.railway/mcp',${encrypt(JSON.stringify(credential))})`;
+ }
+ await attachPlugin(owner,first.id,ids[0]!,true);await attachPlugin(owner,first.id,ids[1]!,true);await attachPlugin(owner,second.id,ids[1]!,true);
+ let refreshes=0;const refresh=async({credential}:{credential:CompanionPluginStoredOAuthCredential})=>{refreshes++;return {...credential,accessToken:'rotated',accessExpiresAt:new Date(Date.now()+3600_000).toISOString()};};
+ const lazy=await machinePlugins(first.id,{refreshCredentials:false,refresh});expect(refreshes).toBe(0);
+ expect(lazy.map(p=>p.name).sort()).toEqual(['Production','Sandbox']);expect(lazy.every(p=>p.url==='https://mcp.railway.com'&&!p.allowedTools)).toBe(true);
+ await machinePlugins(first.id,{accountId:ids[0],refresh});expect(refreshes).toBe(1);
+ const [unrefreshed]=await db`SELECT credential_secret FROM plugin_accounts WHERE id=${ids[1]!}`;expect(JSON.parse(decrypt(unrefreshed.credential_secret)).accessToken).toBe('private-access');
+ await attachPlugin(owner,first.id,ids[1]!,false);
+ expect((await machinePlugins(first.id,{refreshCredentials:false})).map(p=>p.id)).toEqual([ids[0]!]);
+ expect((await machinePlugins(second.id,{refreshCredentials:false})).map(p=>p.id)).toEqual([ids[1]!]);
+});

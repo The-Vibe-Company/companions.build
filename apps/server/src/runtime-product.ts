@@ -25,7 +25,7 @@ async function owner(run:any){
 async function syncConfiguration(run:any,endpoint:string,token:string,observedGeneration?:string,execution?:RunExecution){
  const request=execution?.requestAgent??agentRequest;
  await db.begin((tx:any)=>synchronizeSpecialistConnections(run.companion_id,tx));
- const plugins=await machinePlugins(run.companion_id);const generation=hash(JSON.stringify(plugins));
+ const plugins=await machinePlugins(run.companion_id,{refreshCredentials:false});const generation=hash(JSON.stringify(plugins));
  if(configured.get(endpoint)!==generation||observedGeneration!==undefined&&observedGeneration!==generation){
   await request(endpoint,token,'/configuration','PUT',{generation,plugins});configured.set(endpoint,generation);
  }
@@ -64,6 +64,7 @@ export const productHooks:ExecutorHooks={
    await syncConfiguration(run,endpoint,token,control.generation,execution);
    for(const command of control.requests??[]){
     const result=await applyControl(run.companion_id,command,execution) as any;
+    if(command.operation==='app_refresh'&&result.refreshed===true)await syncConfiguration(run,endpoint,token,undefined,execution);
     if(result.pendingQuestionId){
      const [question]=await db`SELECT answer FROM task_questions WHERE id=${result.pendingQuestionId} AND run_id=${command.runId}`;
      if(!question?.answer){
@@ -107,6 +108,13 @@ import {listPluginAccounts,selectedPlugins,attachPlugin} from './plugins';
 import {listRoutines,createRoutine,updateRoutine,deleteRoutine,routineInput,routinePatchInput,requestRunResume} from './automations';
 import {z} from 'zod';
 registerControl({
+ app_refresh:async(context,input)=>{
+  const {connectionId}=z.object({connectionId:z.string().uuid()}).parse(input);
+  const selected=await selectedPlugins(context.ownerId,context.companionId);
+  if(!selected.some((account:any)=>account.id===connectionId))throw Error('APP_NOT_SELECTED');
+  await machinePlugins(context.companionId,{accountId:connectionId});
+  return {refreshed:true};
+ },
  routines:context=>listRoutines(context.companionId),
  routine_save:async(context,raw)=>{
   const input=z.object({id:z.string().uuid().optional()}).passthrough().parse(raw);const {id,...value}=input;

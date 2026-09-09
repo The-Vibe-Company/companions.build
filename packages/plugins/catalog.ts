@@ -1,6 +1,30 @@
-import { COMPANION_PLUGIN_OAUTH_SERVERS } from './oauth';
-export const pluginCatalog = Object.entries(COMPANION_PLUGIN_OAUTH_SERVERS).map(([id, server]) => ({
-  id, provider: server.provider, name: ({github:'GitHub',linear:'Linear',notion:'Notion',conductor:'Conductor',sentry:'Sentry',slack:'Slack',gmail:'Gmail'} as Record<string,string>)[server.provider],
-  transport: server.provider === 'slack' ? 'slack' : 'http', url: server.remoteUrl,
+import { appDefinitions } from "./definitions";
+
+/** Compatibility catalog derived from the declarative App definitions. */
+export const pluginCatalog = appDefinitions.map((definition) => ({
+  id: definition.id,
+  provider: definition.provider,
+  name: definition.name,
+  transport: definition.mcp.transport,
+  url: definition.mcp.url,
+  capabilities: definition.capabilities,
 }));
-export type MachinePlugin = { id: string; name: string; provider: string; transport: 'http'|'stdio'|'slack'; url?: string; command?: string; args?: string[]; env?: Record<string,string>; headers?: Record<string,string>; allowedTools?: string[] };
+
+export type MachinePlugin = {
+  id: string;
+  serverId?: string;
+  name: string;
+  provider: string;
+  transport: "http" | "stdio" | "slack";
+  url?: string;
+  command?: string;
+  args?: string[];
+  env?: Record<string, string>;
+  headers?: Record<string, string>;
+  allowedTools?: string[];
+  credentialExpiresAt?: number;
+  capabilities?: {
+    gitCredentials?: true;
+    bridge?: "slack";
+  };
+};

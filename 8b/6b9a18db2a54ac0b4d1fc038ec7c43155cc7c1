@@ -1,0 +1,33 @@
+apps/server/src/automations.sql
+  s_47f7b0b3b7db48::t_0a1ca0a29a4d79 57-63
+apps/server/src/automations.ts
+  s_47f7b0b3b7db48::t_4bf6de454bde56 13,16-17,35,49-50,60,64,81,84,92-94,101,110,113,117-118,149-150
+apps/server/src/control-help.ts
+  s_47f7b0b3b7db48::t_fe5d6d5251732a 10
+apps/server/src/executor.ts
+  s_47f7b0b3b7db48::t_c397041079d7c1 52-56,59,187,293
+apps/server/src/store.ts
+  s_47f7b0b3b7db48::t_81d85d92252005 110
+apps/server/src/tasks.ts
+  s_47f7b0b3b7db48::t_7e913e6ee6fdcf 7,27
+apps/server/test/automations.test.ts
+  s_47f7b0b3b7db48::t_0a3e4e81bf61db 2,7,255-304
+packages/agent/src/companion-instructions.ts
+  s_47f7b0b3b7db48::t_68cd2c2616d8cb 15
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "8b6b9a18db2a54ac0b4d1fc038ec7c43155cc7c1",
+  "prompts": {},
+  "sessions": {
+    "s_47f7b0b3b7db48": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0853b-7495-7410-ac2f-86d71157acc9",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "StanGirard <stan@quivr.app>"
+    }
+  }
+}

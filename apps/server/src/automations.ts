@@ -10,10 +10,11 @@ export const routineInput = z.object({
   name: z.string().trim().min(1).max(100), prompt: z.string().trim().min(1).max(50_000),
   cron: z.string().trim().min(1).max(100), timezone: z.string().trim().min(1).max(100),
   enabled: z.boolean().default(true),
+  publicationMode: z.enum(["auto", "always", "silent"]).default("auto"),
 }).strict();
 // Patch omission must preserve the stored enabled state; creation defaults are not patch values.
-export const routinePatchInput = routineInput.partial().extend({enabled: z.boolean().optional()});
-export type RoutineInput = z.infer<typeof routineInput>;
+export const routinePatchInput = routineInput.partial().extend({enabled: z.boolean().optional(), publicationMode: z.enum(["auto", "always", "silent"]).optional()});
+export type RoutineInput = z.input<typeof routineInput>;
 
 export async function migrateAutomations(sql: Database = db) {
   const migration = await Bun.file(new URL("./automations.sql", import.meta.url)).text();
@@ -31,7 +32,7 @@ export function nextRoutineFire(cron: string, timezone: string, after = new Date
   catch { throw new Error("Choose a valid cron schedule."); }
 }
 
-const routineColumns = `id,companion_id AS "companionId",name,prompt,cron,timezone,enabled,
+const routineColumns = `id,companion_id AS "companionId",name,prompt,cron,timezone,enabled,publication_mode AS "publicationMode",
   next_fire_at AS "nextFireAt",created_at AS "createdAt",updated_at AS "updatedAt"`;
 
 /** Callers authorize the Companion first; every query still carries its exact identity. */
@@ -45,8 +46,8 @@ export async function createRoutine(companionId: string, value: RoutineInput, sq
   return sql.begin(async tx => {
     const [companion] = await tx`SELECT id FROM companions WHERE id=${companionId} AND retired_at IS NULL AND archive_requested_at IS NULL FOR UPDATE`;
     if (!companion) return null;
-    await tx`INSERT INTO routines(id,companion_id,name,prompt,cron,timezone,enabled,next_fire_at)
-      VALUES(${id},${companionId},${input.name},${input.prompt},${input.cron},${input.timezone},${input.enabled},${input.enabled ? next : null})`;
+    await tx`INSERT INTO routines(id,companion_id,name,prompt,cron,timezone,enabled,publication_mode,next_fire_at)
+      VALUES(${id},${companionId},${input.name},${input.prompt},${input.cron},${input.timezone},${input.enabled},${input.publicationMode},${input.enabled ? next : null})`;
     return (await tx.unsafe(`SELECT ${routineColumns} FROM routines WHERE companion_id=$1 AND id=$2`, [companionId,id]))[0];
   });
 }
@@ -56,11 +57,11 @@ export async function updateRoutine(companionId: string, id: string, value: Part
     const [current] = await tx`SELECT * FROM routines WHERE companion_id=${companionId} AND id=${id} AND deleted_at IS NULL FOR UPDATE`;
     if (!current) return null;
     const input = routineInput.parse({ name: current.name, prompt: current.prompt, cron: current.cron, timezone: current.timezone,
-      enabled: current.enabled, ...patch });
+      enabled: current.enabled, publicationMode: current.publication_mode, ...patch });
     const next = nextRoutineFire(input.cron, input.timezone, now);
     const rescheduled = input.cron !== current.cron || input.timezone !== current.timezone || input.enabled !== current.enabled;
     await tx`UPDATE routines SET name=${input.name},prompt=${input.prompt},cron=${input.cron},timezone=${input.timezone},
-      enabled=${input.enabled},next_fire_at=${input.enabled ? (rescheduled ? next : current.next_fire_at) : null},updated_at=${now}
+      enabled=${input.enabled},publication_mode=${input.publicationMode},next_fire_at=${input.enabled ? (rescheduled ? next : current.next_fire_at) : null},updated_at=${now}
       WHERE companion_id=${companionId} AND id=${id}`;
     return (await tx.unsafe(`SELECT ${routineColumns} FROM routines WHERE companion_id=$1 AND id=$2`, [companionId,id]))[0];
   });
@@ -77,10 +78,10 @@ export async function testRoutine(companionId: string, routineId: string, client
     // Companion first, matching retirement and ordinary background admission.
     const [companion] = await tx`SELECT id FROM companions WHERE id=${companionId} AND retired_at IS NULL AND archive_requested_at IS NULL FOR UPDATE`;
     if (!companion) return null;
-    const [routine] = await tx`SELECT prompt FROM routines WHERE companion_id=${companionId}
+    const [routine] = await tx`SELECT prompt,name,publication_mode FROM routines WHERE companion_id=${companionId}
       AND id=${routineId} AND deleted_at IS NULL FOR UPDATE`;
     if (!routine) return null;
-    return enqueueBackgroundInTransaction({companionId, clientMessageId, content: routine.prompt, source: 'routine'}, tx);
+    return enqueueBackgroundInTransaction({companionId, clientMessageId, content: routine.prompt, source: 'routine', routineId, routineName: routine.name, publicationMode: routine.publication_mode}, tx);
   });
 }
 
@@ -88,16 +89,16 @@ export async function routineHistory(companionId: string, id: string, sql: Datab
   const [routine] = await sql`SELECT id FROM routines WHERE companion_id=${companionId} AND id=${id}`;
   if (!routine) return null;
   const [runs, missed] = await Promise.all([
-    sql`SELECT r.id,r.status,r.result_text AS "resultText",r.error,o.scheduled_for AS "scheduledFor",o.accepted_at AS "acceptedAt"
-      FROM routine_occurrences o JOIN runs r ON r.id=o.run_id WHERE o.routine_id=${id} AND r.companion_id=${companionId}
-      ORDER BY o.scheduled_for DESC LIMIT 100`,
+    sql`SELECT r.id,r.status,r.result_text AS "resultText",r.error,r.routine_id AS "routineId",r.routine_name AS "routineName",r.publication_mode AS "publicationMode",r.scheduled_for AS "scheduledFor",r.created_at AS "acceptedAt"
+      FROM runs r WHERE r.routine_id=${id} AND r.companion_id=${companionId}
+      ORDER BY r.created_at DESC,r.id DESC LIMIT 100`,
     sql`SELECT first_scheduled_for AS "firstScheduledFor",last_scheduled_for AS "lastScheduledFor",cron,timezone
       FROM routine_missed_windows WHERE routine_id=${id} ORDER BY first_scheduled_for DESC LIMIT 100`,
   ]);
   return { runs, missed };
 }
 
-export type BackgroundInput={companionId:string;clientMessageId:string;content:string;source:'routine'|'trigger'|'delegation'};
+export type BackgroundInput={companionId:string;clientMessageId:string;content:string;source:'routine'|'trigger'|'delegation';routineId?:string;routineName?:string;publicationMode?:'auto'|'always'|'silent'};
 export async function enqueueBackground(input:BackgroundInput,sql:Database=db):Promise<string|null>{
  return sql.begin(tx=>enqueueBackgroundInTransaction(input,tx));
 }
@@ -106,15 +107,15 @@ export async function enqueueBackgroundInTransaction(input:BackgroundInput,tx:Da
  if(!input.content.trim()||input.content.length>50_000)throw Error('Task content is invalid.');
     const [companion] = await tx`SELECT id FROM companions WHERE id=${input.companionId} AND retired_at IS NULL AND archive_requested_at IS NULL FOR UPDATE`;
     if (!companion) return null;
-    const [existing] = await tx`SELECT id,content,lane,source FROM runs
+    const [existing] = await tx`SELECT id,content,lane,source,routine_id FROM runs
       WHERE companion_id=${input.companionId} AND client_message_id=${input.clientMessageId}`;
     if (existing) {
-      if (existing.content !== input.content || existing.lane !== "background" || existing.source !== input.source) throw new AutomationConflict("Task identifier is already used.");
+      if (existing.content !== input.content || existing.lane !== "background" || existing.source !== input.source || (existing.routine_id ?? null) !== (input.routineId ?? null)) throw new AutomationConflict("Task identifier is already used.");
       return existing.id;
     }
     const id = crypto.randomUUID();
-    await tx`INSERT INTO runs(id,companion_id,client_message_id,content,lane,source)
-      VALUES(${id},${input.companionId},${input.clientMessageId},${input.content},'background',${input.source})`;
+    await tx`INSERT INTO runs(id,companion_id,client_message_id,content,lane,source,routine_id,routine_name,publication_mode)
+      VALUES(${id},${input.companionId},${input.clientMessageId},${input.content},'background',${input.source},${input.routineId??null},${input.routineName??null},${input.publicationMode??'auto'})`;
     return id;
 }
 
@@ -145,8 +146,8 @@ export async function scheduleDueRoutines(sql: Database = db, now = new Date()):
           VALUES(${routine.id},${first},${lastMissed},${routine.cron},${routine.timezone},${now}) ON CONFLICT DO NOTHING`;
       }
       const runId = routineRunId(routine.id, latest);
-      await tx`INSERT INTO runs(id,companion_id,client_message_id,content,lane,source,routine_id,scheduled_for)
-        VALUES(${runId},${routine.companion_id},${runId},${routine.prompt},'background','routine',${routine.id},${latest})
+      await tx`INSERT INTO runs(id,companion_id,client_message_id,content,lane,source,routine_id,routine_name,publication_mode,scheduled_for)
+        VALUES(${runId},${routine.companion_id},${runId},${routine.prompt},'background','routine',${routine.id},${routine.name},${routine.publication_mode},${latest})
         ON CONFLICT(companion_id,client_message_id) DO NOTHING`;
       await tx`INSERT INTO routine_occurrences(routine_id,scheduled_for,run_id,prompt,cron,timezone,accepted_at)
         VALUES(${routine.id},${latest},${runId},${routine.prompt},${routine.cron},${routine.timezone},${now}) ON CONFLICT DO NOTHING`;

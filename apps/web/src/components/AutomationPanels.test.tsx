@@ -123,7 +123,7 @@ describe("progressive automation settings", () => {
     await user.clear(screen.getByRole("textbox", { name: "Instructions" }));
     await user.type(screen.getByRole("textbox", { name: "Instructions" }), "Review recent issues");
     await user.click(screen.getByRole("button", { name: "Save changes" }));
-    await waitFor(() => expect(patch).toEqual({ name: "Review", prompt: "Review recent issues", cron: "15 11 * * 2", timezone: "Europe/Paris" }));
+    await waitFor(() => expect(patch).toEqual({ name: "Review", prompt: "Review recent issues", cron: "15 11 * * 2", timezone: "Europe/Paris", publicationMode: "auto" }));
     expect(screen.getByRole("switch", { name: "Enable Review" })).not.toBeChecked();
   });
 
@@ -167,4 +167,42 @@ describe("progressive automation settings", () => {
     await user.click(screen.getByRole("button", { name: "New routine" }));
     expect(screen.getByRole("textbox", { name: "Name" })).toHaveValue("");
   });
+});
+
+it.each(['auto', 'always', 'silent'])("persists the %s publication mode when creating a routine", async mode => {
+  let created: Record<string, unknown> | undefined;
+  vi.stubGlobal('fetch', vi.fn((_input: RequestInfo | URL, options?: RequestInit) => {
+    if (options?.method === 'POST') { created = JSON.parse(String(options.body)); return response({ routine: { id: 'r1', ...created } }); }
+    return response({ routines: created ? [{ id: 'r1', ...created }] : [] });
+  }));
+  const user = userEvent.setup();
+  render(<RoutineSettings companionId="c1"/>);
+  await screen.findByText(/A morning brief/);
+  await user.click(screen.getByRole('button', { name: 'New routine' }));
+  await user.type(screen.getByRole('textbox', { name: 'Name' }), 'Bonjour');
+  await user.type(screen.getByRole('textbox', { name: 'What should happen?' }), 'Say hello');
+  await user.selectOptions(screen.getByRole('combobox', { name: 'Chat messages' }), mode);
+  await user.click(screen.getByRole('button', { name: 'Add routine' }));
+  await waitFor(() => expect(created).toMatchObject({ name: 'Bonjour', publicationMode: mode }));
+});
+
+it('opens the linked routine and preserves publication edits on save failure', async () => {
+  const routine = { id: 'r1', name: 'Bonjour', prompt: 'Say hello', cron: '0 9 * * *', timezone: 'Europe/Paris', enabled: true, publicationMode: 'silent' };
+  let patch: Record<string, unknown> | undefined;
+  vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL, options?: RequestInit) => {
+    if (options?.method === 'PATCH') { patch = JSON.parse(String(options.body)); return response({ error: 'Could not save' }, 503); }
+    if (String(input).endsWith('/history')) return response({ runs: [], missed: [] });
+    return response({ routines: [routine] });
+  }));
+  render(<RoutineSettings companionId="c1" initialRoutineId="r1"/>);
+  await screen.findByText('Chat messages: Silent');
+  await screen.findByText('No runs yet.');
+  const user = userEvent.setup();
+  await user.click(screen.getByText('Edit routine'));
+  await user.selectOptions(screen.getByRole('combobox', { name: 'Chat messages' }), 'always');
+  await user.click(screen.getByRole('button', { name: 'Save changes' }));
+  expect(await screen.findByRole('alert')).toHaveTextContent('Could not save');
+  expect(screen.getByText('Chat messages: Silent')).toBeVisible();
+  expect(screen.getByRole('combobox', { name: 'Chat messages' })).toHaveValue('always');
+  expect(patch).toMatchObject({ publicationMode: 'always' });
 });

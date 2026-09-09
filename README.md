@@ -93,6 +93,11 @@ branch with the root `Dockerfile`. Each role keeps its own start command:
 `/app/scripts/container-entrypoint.sh migrate` as its pre-deploy command and `/health` as its
 readiness check. Pushes to `main` deploy all three application services; PostgreSQL and MinIO
 retain their independent images and persistent volumes. No GitHub Actions workflow is required.
+The routine publication-mode release requires a coordinated rollout instead of independent
+automatic deployments: pause those deployments before merging, stop the old API, worker and
+executor, then migrate and start all roles from the updated image, with the API last.
+Follow the mandatory [routine publication rollout and rollback procedure](docs/dev-workflow.md#routine-publication-mode-rollout)
+before enabling admissions again; an old executor does not enforce the new publication modes.
 Set `APP_URL` and `BETTER_AUTH_URL` consistently to the public HTTPS domain on all three roles;
 map the Railway custom domain to the actual service port, rather than assuming the Docker default.
 

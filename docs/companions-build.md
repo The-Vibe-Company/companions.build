@@ -275,8 +275,21 @@ peuvent préciser ce qui mérite une publication.
 
 La décision de publier concerne le message dans le chat. L'exécution conserve son état, son
 résultat ou son échec dans l'activité, même sans publication. Une tâche interrompue avant de
-choisir reste donc observable. Le mécanisme précis permettant à la tâche d'exprimer ce choix
-reste à définir dans le contrat d'exécution.
+choisir reste donc observable. L'outil `publish_to_chat` sélectionne le résultat à publier
+lorsque la tâche réussit.
+
+**Complément validé le 9 septembre 2026 :** les routines proposent trois modes : **Si utile**
+(décision du Companion, par défaut), **À chaque réussite** et **Silencieux**. Le nom et le mode
+sont figés à l'admission de chaque exécution ; modifier ou supprimer une routine ne réécrit
+pas les exécutions déjà acceptées. Une demande d'aide reste visible dans tous les modes.
+
+Chaque exécution apparaît dans le chat sous forme d'une ligne discrète avec son état réel.
+Les réussites sans message d'une même routine sont regroupées lorsqu'elles sont consécutives
+dans la conversation et dans la même journée. Un échange, une question ou une autre routine
+sépare les groupes ; erreurs et interventions restent individuelles. Un message publié porte
+le nom de la routine et remplace sa ligne. Un panneau latéral donne accès aux exécutions du
+groupe, aux horaires, à la durée, aux consignes, au résultat, aux fichiers et à la routine.
+Les publications nouvelles ne forcent pas le défilement lorsque l'utilisateur lit plus haut.
 
 ## 6. Triggers : réagir aux webhooks sans gaspiller des appels LLM
 

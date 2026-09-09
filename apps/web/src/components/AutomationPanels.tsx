@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { ChevronDown, FlaskConical, History, LoaderCircle, Play, Plus, RotateCw, Trash2, X } from "lucide-react";
-import { workspaceApi, type PluginAccount, type Routine, type RoutineHistory, type Trigger, type TriggerDelivery, type TriggerFilterRequest } from "@/api";
+import { workspaceApi, type PluginAccount, type Routine, type RoutineHistory, type RoutinePublicationMode, type Trigger, type TriggerDelivery, type TriggerFilterRequest } from "@/api";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
@@ -10,12 +10,14 @@ const errorText = (value: unknown) => value instanceof Error ? value.message : "
 const shortDate = (value?: string | null) => value ? new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }).format(new Date(value)) : "";
 const scheduleLabel = (cron: string) => cron === "0 9 * * 1-5" ? "Weekdays at 9:00" : cron === "0 9 * * *" ? "Daily at 9:00" : cron === "0 9 * * 1" ? "Mondays at 9:00" : cron;
 
-export function RoutineSettings({ companionId }: { companionId: string }) {
-  return <RoutinePanel key={companionId} companionId={companionId} />;
+export function RoutineSettings({ companionId, initialRoutineId }: { companionId: string; initialRoutineId?: string }) {
+  return <RoutinePanel key={companionId} companionId={companionId} initialRoutineId={initialRoutineId} />;
 }
 
-function RoutinePanel({ companionId }: { companionId: string }) {
+function RoutinePanel({ companionId, initialRoutineId }: { companionId: string; initialRoutineId?: string }) {
   const [items, setItems] = useState<Routine[]>([]);
+  const [publicationMode, setPublicationMode] = useState<RoutinePublicationMode>("auto");
+  const openedInitial = useRef<string | undefined>(undefined);
   const [history, setHistory] = useState<Record<string, RoutineHistory>>({});
   const [creating, setCreating] = useState(false);
   const createButton = useRef<HTMLButtonElement>(null);
@@ -28,6 +30,12 @@ function RoutinePanel({ companionId }: { companionId: string }) {
   const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
   const load = useCallback(async () => { try { setItems((await workspaceApi.routines(companionId)).routines); setError(""); } catch (cause) { setError(errorText(cause)); } finally { setLoading(false); } }, [companionId]);
   useEffect(() => { void load(); }, [load]);
+  useEffect(() => {
+    if (loading || !initialRoutineId || openedInitial.current === initialRoutineId) return;
+    openedInitial.current = initialRoutineId;
+    if (items.some(item => item.id === initialRoutineId)) { setOpenId(initialRoutineId); void loadHistory(initialRoutineId); }
+    else setError("This routine is no longer available. Its executions remain in the chat and activity.");
+  }, [loading, initialRoutineId, items]);
   async function change(id: string, action: () => Promise<unknown>) {
     setBusy(id); setError("");
     try { await action(); await load(); return true; }
@@ -37,7 +45,7 @@ function RoutinePanel({ companionId }: { companionId: string }) {
   async function loadHistory(id: string) { setBusy(`history:${id}`); try { const value = await workspaceApi.routineHistory(companionId, id); setHistory(current => ({ ...current, [id]: value })); } catch (cause) { setError(errorText(cause)); } finally { setBusy(""); } }
   async function inspect(id: string) { const next = openId === id ? "" : id; setOpenId(next); if (next) await loadHistory(id); }
   async function test(id: string) { setBusy(`test:${id}`); setError(""); testIntents.current[id] ??= crypto.randomUUID(); try { await workspaceApi.testRoutine(companionId, id, testIntents.current[id]); delete testIntents.current[id]; await loadHistory(id); setOpenId(id); } catch (cause) { setError(errorText(cause)); } finally { setBusy(""); } }
-  async function create(event: FormEvent) { event.preventDefault(); setBusy("create"); setError(""); try { await workspaceApi.createRoutine(companionId, { name: name.trim(), prompt: prompt.trim(), cron, timezone, enabled: true }); setName(""); setPrompt(""); closeCreation(); await load(); } catch (cause) { setError(errorText(cause)); } finally { setBusy(""); } }
+  async function create(event: FormEvent) { event.preventDefault(); setBusy("create"); setError(""); try { await workspaceApi.createRoutine(companionId, { name: name.trim(), prompt: prompt.trim(), cron, timezone, publicationMode, enabled: true }); setName(""); setPrompt(""); setPublicationMode("auto"); closeCreation(); await load(); } catch (cause) { setError(errorText(cause)); } finally { setBusy(""); } }
   return <div className="settings-stack automation-settings">
     <div className="automation-heading"><div><h3>Routines</h3><p>Work on a schedule.</p></div><Button variant="outline" size="sm" ref={createButton} disabled={!!busy} aria-expanded={creating} aria-controls="routine-create" onClick={() => setCreating(!creating)}><Plus />New routine</Button></div>
     {error && <p className="field-error" role="alert">{error}</p>}
@@ -51,21 +59,22 @@ function RoutinePanel({ companionId }: { companionId: string }) {
       </div>
       {openId === item.id && <div id={`routine-detail-${item.id}`} className="automation-expanded">
         <p className="automation-prompt">{item.prompt}</p>
+        <p className="automation-caption">Chat messages: {publicationLabels[item.publicationMode ?? "auto"]}</p>
         <p className="automation-caption">{item.enabled && item.nextFireAt ? `Next run ${shortDate(item.nextFireAt)}` : item.enabled ? "Schedule enabled" : "Schedule paused"}</p>
         <div className="detail-actions"><Button variant="outline" size="sm" disabled={!!busy} onClick={() => void test(item.id)} aria-label={`Run ${item.name} now`}>{busy === `test:${item.id}` ? <LoaderCircle className="spin" /> : <Play />}Run now</Button><Button variant="ghost" size="sm" disabled={!!busy} onClick={() => void loadHistory(item.id)}><RotateCw />Refresh history</Button></div>
-        <details className="automation-section"><summary>Edit routine</summary><AutomationEditor key={`${item.name}:${item.prompt}:${item.cron}:${item.timezone}`} item={item} busy={!!busy} onSave={value => change(`edit:${item.id}`, () => workspaceApi.updateRoutine(companionId, item.id, value))} /></details>
+        <details className="automation-section"><summary>Edit routine</summary><AutomationEditor key={`${item.name}:${item.prompt}:${item.cron}:${item.timezone}:${item.publicationMode}`} item={item} busy={!!busy} onSave={value => change(`edit:${item.id}`, () => workspaceApi.updateRoutine(companionId, item.id, value))} /></details>
         <RoutineHistoryView value={history[item.id]} loading={busy === `history:${item.id}`} />
         <DeleteAutomation name={item.name} busy={!!busy} onDelete={() => change(`delete:${item.id}`, () => workspaceApi.deleteRoutine(companionId, item.id))} />
       </div>}
     </section>)}</div>
-    {creating && <form id="routine-create" className="inline-create" onSubmit={create}><h3>New routine</h3><div className="field"><label htmlFor="routine-name">Name</label><input autoFocus id="routine-name" value={name} onChange={event => setName(event.target.value)} placeholder="Morning brief" /></div><div className="field"><label htmlFor="routine-prompt">What should happen?</label><Textarea id="routine-prompt" value={prompt} onChange={event => setPrompt(event.target.value)} rows={3} /></div><div className="field"><label htmlFor="routine-time">When</label><select id="routine-time" value={cron} onChange={event => setCron(event.target.value)}><option value="0 9 * * 1-5">Weekdays at 9:00</option><option value="0 9 * * *">Every day at 9:00</option><option value="0 9 * * 1">Mondays at 9:00</option></select></div><Button type="submit" disabled={!name.trim() || !prompt.trim() || busy === "create"}>{busy === "create" ? <LoaderCircle className="spin" /> : <Plus />}Add routine</Button><Button type="button" variant="ghost" disabled={busy === "create"} onClick={closeCreation}>Cancel</Button></form>}
+    {creating && <form id="routine-create" className="inline-create" onSubmit={create}><h3>New routine</h3><div className="field"><label htmlFor="routine-name">Name</label><input autoFocus id="routine-name" value={name} onChange={event => setName(event.target.value)} placeholder="Morning brief" /></div><div className="field"><label htmlFor="routine-prompt">What should happen?</label><Textarea id="routine-prompt" value={prompt} onChange={event => setPrompt(event.target.value)} rows={3} /></div><div className="field"><label htmlFor="routine-time">When</label><select id="routine-time" value={cron} onChange={event => setCron(event.target.value)}><option value="0 9 * * 1-5">Weekdays at 9:00</option><option value="0 9 * * *">Every day at 9:00</option><option value="0 9 * * 1">Mondays at 9:00</option></select></div><RoutinePublicationField id="routine-publication" value={publicationMode} onChange={setPublicationMode} disabled={!!busy}/><Button type="submit" disabled={!name.trim() || !prompt.trim() || busy === "create"}>{busy === "create" ? <LoaderCircle className="spin" /> : <Plus />}Add routine</Button><Button type="button" variant="ghost" disabled={busy === "create"} onClick={closeCreation}>Cancel</Button></form>}
   </div>;
 }
 
 function RoutineHistoryView({ value, loading }: { value?: RoutineHistory; loading: boolean }) {
   if (loading && !value) return <div className="automation-detail muted-copy"><LoaderCircle className="spin" />Loading history…</div>;
   if (!value && !loading) return <p className="automation-caption">History is unavailable.</p>;
-  return <div className="automation-detail"><div className="detail-label"><History />Recent runs</div>{value?.runs.length ? value.runs.slice(0, 5).map(run => <div className="history-row" key={run.id}><span className={`history-dot history-dot--${run.status}`} /><div><strong>{run.status.replaceAll("_", " ")}</strong><small>{shortDate(run.scheduledFor)}{run.error ? ` · ${run.error}` : ""}</small>{run.resultText && <p>{run.resultText}</p>}</div></div>) : <p className="settings-empty">No runs yet.</p>}{value?.missed.length ? <p className="missed-copy">{value.missed.length} missed window{value.missed.length === 1 ? "" : "s"} recorded</p> : null}</div>;
+  return <div className="automation-detail"><div className="detail-label"><History />Recent runs</div>{value?.runs.length ? value.runs.slice(0, 5).map(run => <div className="history-row" key={run.id}><span className={`history-dot history-dot--${run.status}`} /><div><strong>{run.status.replaceAll("_", " ")}</strong><small>{shortDate(run.scheduledFor ?? run.acceptedAt)}{run.error ? ` · ${run.error}` : ""}</small>{run.resultText && <p>{run.resultText}</p>}</div></div>) : <p className="settings-empty">No runs yet.</p>}{value?.missed.length ? <p className="missed-copy">{value.missed.length} missed window{value.missed.length === 1 ? "" : "s"} recorded</p> : null}</div>;
 }
 
 const initialPayload = (source: Trigger["source"]) => source === "github" ? '{\n  "action": "completed",\n  "workflow_run": { "head_branch": "main", "conclusion": "failure" }\n}' : source === "sentry" ? JSON.stringify({ group: { id: "123", firstSeen: new Date().toISOString() }, event: { eventID: "replace-with-event-id" } }, null, 2) : '{\n  "event": "example"\n}';
@@ -146,15 +155,16 @@ function DeleteAutomation({ name, busy, onDelete }: { name: string; busy: boolea
   </div>;
 }
 
-function AutomationEditor({ item, busy, onSave }: { item: Routine | Trigger; busy: boolean; onSave: (value: { name: string; prompt: string; cron?: string; timezone?: string }) => Promise<boolean> }) {
+function AutomationEditor({ item, busy, onSave }: { item: Routine | Trigger; busy: boolean; onSave: (value: { name: string; prompt: string; cron?: string; timezone?: string; publicationMode?: RoutinePublicationMode }) => Promise<boolean> }) {
   const [name, setName] = useState(item.name);
+  const [publicationMode, setPublicationMode] = useState<RoutinePublicationMode>("cron" in item ? item.publicationMode ?? "auto" : "auto");
   const [prompt, setPrompt] = useState(item.prompt);
   const [cron, setCron] = useState("cron" in item ? item.cron : "");
   const [timezone, setTimezone] = useState("timezone" in item ? item.timezone : "");
   async function save(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const disclosure = event.currentTarget.closest("details");
-    const saved = await onSave({ name: name.trim(), prompt: prompt.trim(), ...("cron" in item ? { cron, timezone } : {}) });
+    const saved = await onSave({ name: name.trim(), prompt: prompt.trim(), ...("cron" in item ? { cron, timezone, publicationMode } : {}) });
     if (saved && disclosure) { disclosure.open = false; disclosure.querySelector("summary")?.focus(); }
   }
   return <form className="automation-edit" onSubmit={save}>
@@ -167,6 +177,17 @@ function AutomationEditor({ item, busy, onSave }: { item: Routine | Trigger; bus
       </select></div>
       <div className="field"><label htmlFor={`edit-timezone-${item.id}`}>Time zone</label><input id={`edit-timezone-${item.id}`} value={timezone} onChange={event => setTimezone(event.target.value)} required /></div>
     </div>}
+    {"cron" in item && <RoutinePublicationField id={`edit-publication-${item.id}`} value={publicationMode} onChange={setPublicationMode} disabled={busy}/>}
     <Button type="submit" size="sm" disabled={busy || !name.trim() || !prompt.trim() || ("cron" in item && !timezone.trim())}>Save changes</Button>
   </form>;
+}
+
+const publicationLabels: Record<RoutinePublicationMode, string> = { auto: "If useful", always: "After every success", silent: "Silent" };
+const publicationHelp: Record<RoutinePublicationMode, string> = {
+  auto: "Your companion decides using the instructions. Add when it should speak up, for example: only if something needs attention.",
+  always: "Every successful execution posts its result in the chat. Frequent routines can create many messages.",
+  silent: "Results stay in execution details. Activity and requests for your help remain visible in the chat.",
+};
+function RoutinePublicationField({ id, value, onChange, disabled }: { id: string; value: RoutinePublicationMode; onChange: (value: RoutinePublicationMode) => void; disabled: boolean }) {
+  return <div className="field"><label htmlFor={id}>Chat messages</label><select id={id} value={value} disabled={disabled} aria-describedby={`${id}-help`} onChange={event => onChange(event.target.value as RoutinePublicationMode)}>{Object.entries(publicationLabels).map(([mode, label]) => <option value={mode} key={mode}>{label}</option>)}</select><p id={`${id}-help`} className="automation-caption">{publicationHelp[value]} Changes apply to future executions.</p></div>;
 }

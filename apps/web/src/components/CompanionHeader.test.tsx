@@ -29,3 +29,14 @@ it('does not invent counts when summary reads fail',async()=>{
  expect(screen.getByRole('button',{name:'Team'})).toHaveTextContent(/^Team$/);
  expect(screen.getByRole('button',{name:'Automations'})).toHaveTextContent(/^Automations$/);
 });
+
+it('signals unread updates from another Companion in mobile navigation',()=>{
+ const retired={...detail,companion:{...detail.companion,retiredAt:'2026-09-09T12:00:00Z'}};
+ const props={detail:retired,section:'chat' as const,refreshVersion:0,onSection:vi.fn(),onMenu:vi.fn(),notificationCounts:{unread:0,needsInput:0}};
+ const view=render(<CompanionHeader {...props} navigationNeedsAttention/>);
+ expect(screen.getByRole('button',{name:'Open navigation, notifications need attention'})).toHaveClass('mobile-menu--attention');
+ view.rerender(<CompanionHeader {...props} navigationNeedsAttention={false}/>);
+ expect(screen.getByRole('button',{name:'Open navigation'})).not.toHaveClass('mobile-menu--attention');
+ view.rerender(<CompanionHeader {...props} notificationCounts={{unread:1,needsInput:0}}/>);
+ expect(screen.getByRole('button',{name:'Open navigation, notifications need attention'})).toHaveClass('mobile-menu--attention');
+});

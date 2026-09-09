@@ -8,10 +8,10 @@ import "./CompanionHeader.css";
 export type CompanionSection = "chat" | "team" | "automations" | "activity" | "applications" | "computer" | "settings";
 type Summary = { team: { count:number; avatars:AgentTemplate[] } | null; automations: { count:number; next:string|null } | null };
 
-export function CompanionHeader({ detail, section, refreshVersion, onSection, onMenu, notificationCounts, onNotifications = () => {} }: {
+export function CompanionHeader({ detail, section, refreshVersion, onSection, onMenu, notificationCounts, navigationNeedsAttention, onNotifications = () => {} }: {
   detail:CompanionDetail; section:CompanionSection; refreshVersion:number;
   onSection:(section:CompanionSection)=>void; onMenu:()=>void;
-  notificationCounts?:{unread:number;needsInput:number}; onNotifications?:()=>void;
+  navigationNeedsAttention?:boolean; notificationCounts?:{unread:number;needsInput:number}; onNotifications?:()=>void;
 }) {
   const [storedSummary,setSummary]=useState<Summary & {companionId:string}>({companionId:detail.companion.id,team:null,automations:null});
   const summary=storedSummary.companionId===detail.companion.id?storedSummary:{team:null,automations:null};
@@ -44,8 +44,9 @@ export function CompanionHeader({ detail, section, refreshVersion, onSection, on
   const run=detail.runs.find(item=>isActiveRun(item.status));
   const activity=finished?"Finished":detail.questions?.some(question=>question.answer==null&&(!question.runStatus||['running','needs_input','preparing'].includes(question.runStatus)))||run?.status==="needs_input"?"Needs you":run?.status==="running"?`${companion.name} · working`:run?.status==="preparing"?"Preparing":run?"Queued":"Idle";
   const next=summary.automations?.next?new Intl.DateTimeFormat(undefined,{weekday:"short",hour:"numeric",minute:"2-digit"}).format(new Date(summary.automations.next)):null;
+  const needsAttention=navigationNeedsAttention ?? Boolean(notificationCounts?.needsInput || notificationCounts?.unread);
   return <header className="companion-header">
-    <Button className={`mobile-menu${notificationCounts?.needsInput ? " mobile-menu--attention" : ""}`} variant="ghost" size="icon" onClick={onMenu} aria-label={notificationCounts?.needsInput ? "Open navigation, notifications need attention" : "Open navigation"}><Menu/></Button>
+    <Button className={`mobile-menu${needsAttention ? " mobile-menu--attention" : ""}`} variant="ghost" size="icon" onClick={onMenu} aria-label={needsAttention ? "Open navigation, notifications need attention" : "Open navigation"}><Menu/></Button>
     <button className="companion-header-identity" aria-label="Discussion" aria-current={section==="chat"?"page":undefined} title="Back to discussion" onClick={()=>onSection("chat")}>
       <h1>{companion.name}</h1><span>{finished?"Finished specialist":companion.instructions}</span>
     </button>

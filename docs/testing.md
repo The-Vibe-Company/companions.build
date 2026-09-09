@@ -72,6 +72,11 @@ python3 scripts/bun.py run --cwd apps/web typecheck
 python3 scripts/bun.py run --cwd apps/web build
 ```
 
+The web suite includes a headless Chrome regression for Markdown list markers using
+the compiled Tailwind styles and the real `MessageResponse` renderer. It requires
+`google-chrome` on `PATH`, or `CHROME_BIN` pointing to a Chrome/Chromium executable.
+Each run uses a temporary browser profile and removes it on completion or failure.
+
 The root verifier remains authoritative because several server behaviors require its fresh
 PostgreSQL and MinIO configuration. Direct file-storage acceptance can be requested with
 `RUN_STORAGE_ACCEPTANCE=1`, but the root verifier already enables it against a private bucket.

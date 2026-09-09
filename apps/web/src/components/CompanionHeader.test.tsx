@@ -3,6 +3,9 @@ import userEvent from '@testing-library/user-event';
 import { afterEach, expect, it, vi } from 'vitest';
 import { workspaceApi, type CompanionDetail } from '@/api';
 import { CompanionHeader } from './CompanionHeader';
+import { AVATAR_COLORS, DEFAULT_AVATAR } from './CompanionAvatar';
+import { readFileSync } from 'node:fs';
+const headerCss=readFileSync('src/components/CompanionHeader.css','utf8');
 const detail:CompanionDetail={companion:{id:'ada',name:'Ada',instructions:'Research questions',provider:'box',status:'ready',error:null,createdAt:'2026-09-06T12:00:00Z'},messages:[],runs:[],activity:[]};
 afterEach(()=>vi.restoreAllMocks());
 it('uses persisted summaries and keeps discussion and settings reachable',async()=>{
@@ -42,4 +45,72 @@ it('shows persisted update maintenance while keeping saved messages and navigati
  await userEvent.click(screen.getByRole('button',{name:'Activity'}));expect(onSection).toHaveBeenCalledWith('activity');
  view.rerender(<CompanionHeader detail={{...detail,companion:{...detail.companion,runtimeUpdateStatus:'current'}}} section="activity" refreshVersion={0} onSection={onSection} onMenu={vi.fn()}/>);
  expect(screen.getByRole('button',{name:'Activity'})).toHaveTextContent('Idle');
+});
+
+it('shows the saved avatar and keeps the entire identity keyboard and click accessible',async()=>{
+ vi.spyOn(workspaceApi,'companionTemplates').mockResolvedValue({templates:[]});
+ vi.spyOn(workspaceApi,'templates').mockResolvedValue({templates:[]});
+ vi.spyOn(workspaceApi,'routines').mockResolvedValue({routines:[]});
+ vi.spyOn(workspaceApi,'triggers').mockResolvedValue({triggers:[]});
+ const onSection=vi.fn(),onMenu=vi.fn(),user=userEvent.setup();
+ render(<CompanionHeader detail={{...detail,companion:{...detail.companion,avatar:{shape:2,color:4,face:0}}}} section="settings" refreshVersion={0} onSection={onSection} onMenu={onMenu}/>);
+ const identity=screen.getByRole('button',{name:'Discussion'});
+ const avatar=within(identity).getByRole('img',{name:'Ada, Companion'});
+ expect(avatar).toHaveAttribute('width','32');
+ expect(avatar).toHaveAttribute('height','32');
+ expect(avatar.querySelector('g')).toHaveAttribute('fill',AVATAR_COLORS[4]);
+ expect(avatar.querySelector('rect')).toBeInTheDocument();
+ expect(within(identity).getByRole('heading',{name:'Ada'})).toBeInTheDocument();
+ expect(within(identity).getByText('Research questions')).toBeInTheDocument();
+ await user.click(avatar);
+ expect(onSection).toHaveBeenLastCalledWith('chat');
+ await user.click(screen.getByRole('button',{name:'Open navigation'}));
+ expect(onMenu).toHaveBeenCalledOnce();
+ await user.tab();
+ expect(identity).toHaveFocus();
+ await user.keyboard('{Enter}');
+ expect(onSection).toHaveBeenCalledTimes(2);
+ await user.keyboard(' ');
+ expect(onSection).toHaveBeenCalledTimes(3);
+ expect(onSection).toHaveBeenLastCalledWith('chat');
+});
+
+it('keeps long identity text contained with a single-line description and room for navigation',()=>{
+ vi.spyOn(workspaceApi,'companionTemplates').mockResolvedValue({templates:[]});
+ vi.spyOn(workspaceApi,'templates').mockResolvedValue({templates:[]});
+ vi.spyOn(workspaceApi,'routines').mockResolvedValue({routines:[]});
+ vi.spyOn(workspaceApi,'triggers').mockResolvedValue({triggers:[]});
+ // jsdom does not lay out flex boxes; check the applied containment rules.
+ const style=document.createElement('style');
+ style.textContent=headerCss;
+ document.head.append(style);
+ try {
+  const instructions='A very long description with more research questions. '.repeat(30);
+  render(<CompanionHeader detail={{...detail,companion:{...detail.companion,instructions}}} section="chat" refreshVersion={0} onSection={vi.fn()} onMenu={vi.fn()}/>);
+  const identity=screen.getByRole('button',{name:'Discussion'});
+  const description=within(identity).getByText(instructions.trim());
+  expect(within(identity).getByRole('heading',{name:'Ada'})).toBeInTheDocument();
+  expect(getComputedStyle(identity).minWidth).toBe('0');
+  expect(getComputedStyle(identity).display).toBe('flex');
+  expect(getComputedStyle(description.parentElement!).minWidth).toBe('0');
+  expect(getComputedStyle(description).whiteSpace).toBe('nowrap');
+  expect(getComputedStyle(description).overflow).toBe('hidden');
+  expect(getComputedStyle(description).textOverflow).toBe('ellipsis');
+  expect(getComputedStyle(screen.getByRole('navigation',{name:'Companion sections'})).flexShrink).toBe('0');
+ } finally { style.remove(); }
+});
+
+it('uses the fallback avatar and sleeping appearance while preserving finished text',()=>{
+ const view=render(<CompanionHeader detail={{...detail,companion:{...detail.companion,avatar:null,status:'archived',retiredAt:'2026-09-07T12:00:00Z'}}} section="chat" refreshVersion={0} onSection={vi.fn()} onMenu={vi.fn()}/>);
+ const identity=screen.getByRole('button',{name:'Discussion'});
+ const avatar=within(identity).getByRole('img',{name:'Ada, Companion'});
+ expect(avatar.querySelector('g')).toHaveAttribute('fill',AVATAR_COLORS[DEFAULT_AVATAR.color]);
+ expect(avatar.querySelectorAll('circle')).toHaveLength(0);
+ expect(identity).toHaveTextContent('AdaFinished specialist');
+ expect(identity).toHaveAttribute('aria-current','page');
+ expect(screen.getByRole('button',{name:'Activity'})).toHaveTextContent('Finished');
+ expect(screen.queryByRole('button',{name:'Settings'})).not.toBeInTheDocument();
+ view.rerender(<CompanionHeader detail={{...detail,companion:{...detail.companion,retiredAt:'2026-09-07T12:00:00Z'}}} section="activity" refreshVersion={0} onSection={vi.fn()} onMenu={vi.fn()}/>);
+ expect(within(identity).getByRole('img').querySelectorAll('circle[r="6.5"]')).toHaveLength(2);
+ expect(identity).not.toHaveAttribute('aria-current');
 });

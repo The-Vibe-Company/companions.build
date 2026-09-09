@@ -4,7 +4,7 @@ import { config, encrypt } from "./config";
 import { requireSoftwareReady, SoftwareReadinessError } from "./software-readiness";
 import {requestMachineAdmissionInTransaction} from './admission';
 export const db = new SQL(config.databaseUrl, { max: 8, connectionTimeout: 10 });
-const migrationNames = ["schema.sql", "auth-schema.sql", "product.sql", "plugins.sql", "storage-schema.sql", "automations.sql", "triggers.sql", "lifecycle.sql", "software.sql", "desktop.sql", "box-observation.sql", "billing.sql", "delivery.sql", "maintenance.sql", "delivery-skills.sql", "software-results.sql", "events.sql", "model-gateway.sql", "specialist-drafts.sql", "admission.sql", "conversation.sql", "managed-base-image.sql"] as const;
+const migrationNames = ["schema.sql", "auth-schema.sql", "product.sql", "plugins.sql", "storage-schema.sql", "automations.sql", "triggers.sql", "lifecycle.sql", "software.sql", "desktop.sql", "box-observation.sql", "billing.sql", "delivery.sql", "maintenance.sql", "delivery-skills.sql", "software-results.sql", "events.sql", "model-gateway.sql", "specialist-drafts.sql", "admission.sql", "conversation.sql", "managed-base-image.sql", "runtime-updates.sql"] as const;
 
 async function migrationFiles() {
   return Promise.all(migrationNames.map(async name => ({ name, sql: await Bun.file(new URL(`./${name}`, import.meta.url)).text() })));
@@ -67,7 +67,7 @@ export async function migrateForService(sql = db) {
   }
   await migrate(sql);
 }
-export const companionColumns = `id,name,instructions,avatar,model_id AS "modelId",provider,status,error,desktop_taken AS "desktopTaken",desktop_paused_at AS "desktopPausedAt",prepare_requested AS "prepareRequested",ready_at AS "readyAt",parent_id AS "parentId",template_id AS "templateId",template_revision AS "templateRevision",software_build_id AS "softwareBuildId",software_result_id AS "softwareResultId",retired_at AS "retiredAt",temporary,box_id AS "boxId",created_at AS "createdAt"`;
+export const companionColumns = `runtime_version AS "runtimeVersion",runtime_update_target AS "runtimeUpdateTarget",runtime_update_status AS "runtimeUpdateStatus",runtime_update_error AS "runtimeUpdateError",id,name,instructions,avatar,model_id AS "modelId",provider,status,error,desktop_taken AS "desktopTaken",desktop_paused_at AS "desktopPausedAt",prepare_requested AS "prepareRequested",ready_at AS "readyAt",parent_id AS "parentId",template_id AS "templateId",template_revision AS "templateRevision",software_build_id AS "softwareBuildId",software_result_id AS "softwareResultId",retired_at AS "retiredAt",temporary,box_id AS "boxId",created_at AS "createdAt"`;
 export async function listCompanions(ownerId: string) { return db.unsafe(`SELECT ${companionColumns} FROM companions WHERE owner_id=$1 AND retired_at IS NULL AND NOT temporary AND specialist_draft_id IS NULL ORDER BY created_at,id`, [ownerId]); }
 export async function createCompanion(ownerId: string, input: { name: string; instructions?: string; provider?: "local" | "box"; prepare?:boolean; avatar?: {shape:number;color:number;face:number}; templateId?:string; templateRevision?:number; clientCreationId?:string }) {
   input={...input,provider:input.provider??config.defaultProvider};

@@ -315,3 +315,33 @@ test('legacy progress remains unversioned and accepts successive previews',async
  expect(run.messageVersion).toBeUndefined();
  expect(run.messages).toBeUndefined();
 });
+
+test('maintenance rejects new work without accepting its request and preserves duplicate history',async()=>{
+ const app=daemon();
+ expect((await app.daemon.fetch(request('/maintenance',{method:'POST'}))).status).toBe(200);
+ const body=JSON.stringify({content:'durable message',instructions:''});
+ expect((await app.daemon.fetch(request(`/runs/${id}`,{method:'PUT',body}))).status).toBe(503);
+ expect(app.daemon.journal.get(id)).toBeNull();
+ expect(app.executor.calls).toHaveLength(0);
+ await app.daemon.fetch(request('/maintenance',{method:'DELETE'}));
+ expect((await app.daemon.fetch(request(`/runs/${id}`,{method:'PUT',body}))).status).toBe(202);
+ expect((await app.daemon.fetch(request('/maintenance',{method:'POST'}))).status).toBe(409);
+ await app.daemon.fetch(request(`/runs/${id}/suspend`,{method:'POST'}));
+ expect((await app.daemon.fetch(request('/maintenance',{method:'POST'}))).status).toBe(409);
+ await app.daemon.fetch(request(`/runs/${id}/cancel`,{method:'POST'}));
+ expect((await app.daemon.fetch(request('/maintenance',{method:'POST'}))).status).toBe(200);
+ expect((await app.daemon.fetch(request(`/runs/${id}`,{method:'PUT',body}))).status).not.toBe(503);
+ expect(app.executor.calls).toHaveLength(1);
+});
+
+test('maintenance waits for in-flight configuration/file mutations and rejects later mutations',async()=>{
+ let release!:()=>void;const pending=new Promise<void>(resolve=>{release=resolve;});let began=false;
+ const app=new AgentDaemon(mkdtempSync(join(tmpdir(),'companion-update-')),token,new ControlledExecutor(),async()=>{began=true;await pending;return Response.json({ok:true});});open.push(app);
+ const mutation=app.fetch(request('/files/inbox/fixture/0',{method:'PUT',body:'fixture'}));
+ while(!began)await Bun.sleep(1);
+ expect((await app.fetch(request('/maintenance',{method:'POST'}))).status).toBe(409);
+ expect((await (await app.fetch(request('/health'))).json()).maintenanceReady).toBe(false);
+ release();await mutation;
+ expect((await app.fetch(request('/maintenance',{method:'POST'}))).status).toBe(200);
+ expect((await app.fetch(request('/configuration',{method:'PUT',body:'{}'}))).status).toBe(503);
+});

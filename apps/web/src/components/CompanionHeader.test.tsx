@@ -29,3 +29,17 @@ it('does not invent counts when summary reads fail',async()=>{
  expect(screen.getByRole('button',{name:'Team'})).toHaveTextContent(/^Team$/);
  expect(screen.getByRole('button',{name:'Automations'})).toHaveTextContent(/^Automations$/);
 });
+
+it('shows persisted update maintenance while keeping saved messages and navigation available',async()=>{
+ vi.spyOn(workspaceApi,'companionTemplates').mockResolvedValue({templates:[]});
+ vi.spyOn(workspaceApi,'templates').mockResolvedValue({templates:[]});
+ vi.spyOn(workspaceApi,'routines').mockResolvedValue({routines:[]});
+ vi.spyOn(workspaceApi,'triggers').mockResolvedValue({triggers:[]});
+ const onSection=vi.fn();
+ const view=render(<CompanionHeader detail={{...detail,companion:{...detail.companion,runtimeUpdateStatus:'updating'}}} section="chat" refreshVersion={0} onSection={onSection} onMenu={vi.fn()}/>);
+ expect(screen.getByRole('button',{name:'Activity'})).toHaveTextContent('Updating');
+ expect(screen.getByRole('button',{name:'Activity'})).toHaveAttribute('title',expect.stringContaining('messages are saved'));
+ await userEvent.click(screen.getByRole('button',{name:'Activity'}));expect(onSection).toHaveBeenCalledWith('activity');
+ view.rerender(<CompanionHeader detail={{...detail,companion:{...detail.companion,runtimeUpdateStatus:'current'}}} section="activity" refreshVersion={0} onSection={onSection} onMenu={vi.fn()}/>);
+ expect(screen.getByRole('button',{name:'Activity'})).toHaveTextContent('Idle');
+});

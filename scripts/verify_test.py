@@ -116,7 +116,7 @@ class VerifyTest(unittest.TestCase):
             subprocess.run(["git", "config", "user.name", "Test"], cwd=root, check=True)
             (root / "tracked").write_text("one")
             subprocess.run(["git", "add", "tracked"], cwd=root, check=True)
-            subprocess.run(["git", "commit", "-qm", "initial"], cwd=root, check=True)
+            subprocess.run(["git", "-c", "commit.gpgsign=false", "commit", "-qm", "initial"], cwd=root, check=True)
             clean = evidence.source_evidence(root)
             (root / "new").write_text("first")
             first = evidence.source_evidence(root)

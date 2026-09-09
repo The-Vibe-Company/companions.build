@@ -1,3 +1,4 @@
+import {progressRuntimeUpdate} from "./runtime-updates";
 import {refreshSpecialistProviderLimits,renewSpecialistProviderLifetime,deferRejectedBoxStart} from './specialist-provider';
 import {progressSpecialistDrafts} from './specialist-runtime';
 import {specialistBoxMachines} from './specialist-box';
@@ -130,6 +131,7 @@ export async function progressLifecycle(sql:any=db,hooks:LifecycleHooks={},machi
   if(!lock.owned)throw Error('Executor ownership required');
  }
  await assertLeader();
+ if(companionId&&await progressRuntimeUpdate(sql,companionId,()=>assertLeader()))return;
  await refreshSpecialistProviderLimits(sql,provider);
  await renewSpecialistProviderLifetime(sql,provider,companionId,()=>assertLeader());
  await progressMachineAdmissions(sql,{eligible:async(request,connection=sql)=>{

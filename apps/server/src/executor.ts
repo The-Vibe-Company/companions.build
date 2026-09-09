@@ -1,4 +1,5 @@
 import {ManagedBaseImageCoordinator} from './managed-base-image';
+import {runtimeUpdateMachine} from "./runtime-updates";
 import { SoftwareBuildCoordinator, type SoftwareRuntimeHooks } from './software-runtime';
 import {specialistConfigurationInstructions} from './specialist-drafts';
 import {tracePreparation} from './preparation-trace';
@@ -128,7 +129,7 @@ export function runExecution(run:any,leaderPid:number):RunExecution {
  }
  async function check(sql:any=db,generation=false){
   const [state]=await sql`SELECT c.id,c.endpoint_secret,c.box_id,EXISTS(SELECT 1 FROM pg_locks WHERE locktype='advisory' AND pid=${leaderPid} AND objid=721440139 AND granted) AS owned
-   FROM companions c WHERE c.id=${run.companion_id} AND c.owner_id=${run.owner_id} AND c.retired_at IS NULL AND c.archive_requested_at IS NULL`;
+   FROM companions c WHERE c.id=${run.companion_id} AND c.owner_id=${run.owner_id} AND c.retired_at IS NULL AND c.archive_requested_at IS NULL AND c.runtime_update_status NOT IN ('updating','blocked')`;
   if(!state?.owned||generation&&((run.endpoint_secret&&state.endpoint_secret!==run.endpoint_secret)||(run.box_id&&state.box_id!==run.box_id)))throw new ExecutionStopped('Execution authority changed');
  }
  return {assertActive:()=>check(db,true),
@@ -155,9 +156,12 @@ export interface ExecutorHooks {
 export async function claimQueuedRuns(sql: ReservedSQL) {
   // Main sends keep their durable IDs but join Pi's native active response. Only preparation
   // is serialized per lane; background always keeps one exclusive execution slot.
-  await sql`UPDATE runs r SET status='preparing',started_at=COALESCE(started_at,now()) WHERE r.id IN (
+  await sql`WITH available AS (
+    SELECT id FROM companions WHERE retired_at IS NULL AND archive_requested_at IS NULL
+     AND runtime_update_status NOT IN ('updating','blocked') FOR UPDATE SKIP LOCKED
+   ) UPDATE runs r SET status='preparing',started_at=COALESCE(started_at,now()) WHERE r.id IN (
     SELECT DISTINCT ON (q.companion_id,q.lane) q.id FROM runs q WHERE (q.status='queued' OR (q.status='needs_input' AND q.resume_requested_at IS NOT NULL))
-      AND EXISTS (SELECT 1 FROM companions c WHERE c.id=q.companion_id AND c.retired_at IS NULL AND c.archive_requested_at IS NULL)
+      AND EXISTS (SELECT 1 FROM available c WHERE c.id=q.companion_id)
       AND NOT EXISTS (SELECT 1 FROM machine_admission_requests m WHERE m.companion_id=q.companion_id AND m.state IN ('queued','cancelling'))
       AND NOT EXISTS (SELECT 1 FROM runs a WHERE a.companion_id=q.companion_id AND a.lane=q.lane
         AND (a.status='preparing' OR (q.lane='background' AND a.status='running')))
@@ -394,7 +398,12 @@ export class LifecycleCoordinator {
   const [identity]=await leader`SELECT pg_backend_pid() AS pid,EXISTS(SELECT 1 FROM pg_locks WHERE locktype='advisory' AND pid=pg_backend_pid() AND objid=721440139 AND granted) AS owned`;
   if(!identity.owned||(this.leaderPid!==null&&this.leaderPid!==identity.pid))throw Error('Executor ownership lost');
   this.leaderPid=identity.pid;
+  const targetRuntime=runtimeUpdateMachine()?.release.id??null;
   const pending=await leader`SELECT c.id FROM companions c WHERE
+   EXISTS(SELECT 1 FROM runtime_updates u WHERE u.companion_id=c.id AND u.finished_at IS NULL)
+   OR (${targetRuntime}::text IS NOT NULL AND c.provider='box' AND c.box_id IS NOT NULL AND c.status='ready' AND c.archived_at IS NULL AND c.retired_at IS NULL AND NOT c.temporary AND c.specialist_draft_id IS NULL
+    AND (c.runtime_update_target IS DISTINCT FROM ${targetRuntime} OR (c.runtime_update_status IN ('pending','deferred') AND (c.runtime_update_checked_at IS NULL OR c.runtime_update_checked_at<now()-interval '5 minutes'))))
+   OR
    (c.retired_at IS NULL AND (c.prepare_requested OR ((c.desktop_boundary_version=1 OR c.desktop_taken) AND c.status='ready' AND c.endpoint_secret IS NOT NULL AND (c.desktop_checked_at IS NULL OR c.desktop_checked_at<now()-interval '30 seconds' OR (c.desktop_observed_generation IS DISTINCT FROM c.desktop_generation AND c.desktop_checked_at<now()-interval '2 seconds'))) OR c.archive_requested_at IS NOT NULL
     OR EXISTS(SELECT 1 FROM machine_admission_requests m WHERE m.companion_id=c.id AND m.state IN ('queued','cancelling'))
     OR ((c.temporary OR c.specialist_draft_id IS NOT NULL) AND c.archived_at IS NULL AND EXISTS(SELECT 1 FROM machine_admission_requests m WHERE m.owner_id=c.owner_id AND m.state='queued' AND m.waiting_reason='active_limit'))

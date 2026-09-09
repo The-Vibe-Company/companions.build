@@ -23,6 +23,10 @@ export interface Companion {
   desktopTaken?: boolean;
   desktopPausedAt?: string | null;
   prepareRequested?: boolean;
+  runtimeVersion?: string | null;
+  runtimeUpdateTarget?: string | null;
+  runtimeUpdateStatus?: 'pending' | 'updating' | 'current' | 'deferred' | 'failed' | 'blocked';
+  runtimeUpdateError?: string | null;
   readyAt?: string | null;
   parentId?: string | null;
   temporary?: boolean;

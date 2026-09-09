@@ -300,3 +300,9 @@ return to Box. This setting is independent of model selection: `--scripted` cont
 the test model, while `--live` uses configured model credentials. Live Box development
 requires `BOX_API_KEY` and an existing `BOX_TEMPLATE`. Deterministic verification explicitly
 enables the local runtime in its isolated test environment.
+
+### Agent runtime updates
+
+See [Background agent runtime updates](runtime-updates.md) for same-Box update eligibility,
+data preservation, recovery, and the coordinated first rollout. Railway deployment and Box
+runtime version are distinct; the executor reconciles compatible runtime releases when safe.

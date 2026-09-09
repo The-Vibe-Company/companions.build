@@ -51,5 +51,12 @@ if (target/'desktop-boundary.version').read_text().strip()!='1':
 # the obsolete legacy executable copy. Pi state and user files are never touched.
 if staged.exists(): shutil.rmtree(staged)
 if legacy.exists(): shutil.rmtree(legacy)
-INSTALL`;
+INSTALL
+runtime_probe="$(mktemp)"
+if env -u AGENT_TOKEN /opt/companions/companion-agent >"$runtime_probe" 2>&1; then
+ rm -f "$runtime_probe"
+ exit 1
+fi
+test "$(cat "$runtime_probe")" = MISSING_AGENT_TOKEN
+rm -f "$runtime_probe"`;
 }

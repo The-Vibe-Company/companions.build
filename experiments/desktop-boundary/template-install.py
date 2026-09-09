@@ -28,7 +28,8 @@ legacy=Path('/home/user/.companions-dist');legacy.mkdir(parents=True)
 workspace=Path('/home/user/.companions/workspace');workspace.mkdir(parents=True)
 (workspace/'keep.txt').write_text('retained user state')
 source=Path('/tmp/distribution');source.mkdir()
-shutil.copy('/usr/bin/true',source/'companion-agent')
+(source/'companion-agent').write_text('#!/bin/sh\nprintf "MISSING_AGENT_TOKEN\\n" >&2\nexit 1\n')
+(source/'companion-agent').chmod(0o755)
 (source/'install-desktop.sh').write_text('set -eu\ntest ! -f /tmp/fail-install\nprintf "1\\n" > /opt/companions/desktop-boundary.version\n')
 archive=Path('/tmp/source.tar.gz')
 with tarfile.open(archive,'w:gz') as output:
@@ -53,7 +54,7 @@ try:
  Path('/tmp/fail-install').unlink()
  result=install();assert result.returncode==0,result.stderr
  assert reader.poll() is None
- assert (old/'companion-agent').read_bytes()==Path('/usr/bin/true').read_bytes()
+ assert (old/'companion-agent').read_bytes()==(source/'companion-agent').read_bytes()
  assert not legacy.exists()
  assert not list(Path('/opt').glob('.companions-build-*'))
  assert (workspace/'keep.txt').read_text()=='retained user state'

@@ -300,7 +300,7 @@ def main():
     args = parser.parse_args()
     if args.command in ('up', 'restart') and (args.live or args.scripted):
         validate_model_env(local_env(live=args.live))
-        if args.command == 'up' and alive(status()) and read_json(LOCAL / 'dev-options.json').get('liveModel', False) != args.live:
+        if args.command == 'up' and alive(status()) and (local_env()['AGENT_TEST_MODE'] == '0') != args.live:
             raise RuntimeError('The stack is running. Use ./dev restart --live or --scripted to change its model mode.')
         options = read_json(LOCAL / 'dev-options.json'); options['liveModel'] = args.live
         write_json(LOCAL / 'dev-options.json', options)

@@ -1,0 +1,91 @@
+packages/agent/test/daemon.test.ts
+  s_fefcc02711a2c2::t_159803f16ceb8a 336-347
+  s_fefcc02711a2c2::t_8d8a2e1d53ccc0 318-335
+apps/server/src/executor.ts
+  s_fefcc02711a2c2::t_fbef91b6c656f1 2,132,159-162,164,389,391-394
+apps/server/test/runtime-updates.test.ts
+  s_fefcc02711a2c2::t_72d02593c81604 5
+  s_fefcc02711a2c2::t_8d8a2e1d53ccc0 1-4,6-31,33-37,39,41-90
+  s_fefcc02711a2c2::t_0437148ff00ffd 32,38,40
+scripts/update_runtime_test.py
+  s_fefcc02711a2c2::t_342fea0b26e29e 250-257,261-262,269-275,293-294
+  s_fefcc02711a2c2::t_8881b854667360 1-4,6-249,295-297
+  s_fefcc02711a2c2::t_c585c8089e5161 5,258-260,263-268,276-292
+apps/server/src/store.ts
+  s_fefcc02711a2c2::t_c66da0a44c669d 7
+  s_fefcc02711a2c2::t_3cc94a70192e27 70
+scripts/build-agent.ts
+  s_fefcc02711a2c2::t_3cc94a70192e27 1,43
+  s_fefcc02711a2c2::t_f008badbcd4263 31
+apps/server/src/runtime-updates.ts
+  s_fefcc02711a2c2::t_dfb4aa3bcdb317 15,65,145-146,158,160
+  s_fefcc02711a2c2::t_82564a6797b845 98
+  s_fefcc02711a2c2::t_e343272fbd339d 22-36
+  s_fefcc02711a2c2::t_3d0f306ef17b1f 71,80,190
+  s_fefcc02711a2c2::t_0aec1f50ccde22 54
+  s_fefcc02711a2c2::t_c66da0a44c669d 115
+  s_fefcc02711a2c2::t_8d8a2e1d53ccc0 102,108,111,156
+  s_fefcc02711a2c2::t_e4592747f74548 1-14,16-21,37-53,55-64,66-70,72-79,81-97,99-101,103-107,109-110,112-114,116-141,147-155,157,159,161-164,169-175,177-181,189,191-204
+  s_fefcc02711a2c2::t_f008badbcd4263 142-144,165-168,176,182-188
+apps/server/src/lifecycle.ts
+  s_fefcc02711a2c2::t_fbef91b6c656f1 1,134
+packages/agent/src/runtime-version.ts
+  s_fefcc02711a2c2::t_3cc94a70192e27 1-10
+apps/server/src/runtime-updates.sql
+  s_fefcc02711a2c2::t_3cc94a70192e27 1-13,15-19
+  s_fefcc02711a2c2::t_f008badbcd4263 14
+apps/server/test/runtime-installer.test.ts
+  s_fefcc02711a2c2::t_0aec1f50ccde22 16,26,30
+  s_fefcc02711a2c2::t_72d02593c81604 1-2,4-15,17-25,27-29,31-44
+  s_fefcc02711a2c2::t_1463c1c20455c4 3
+scripts/lib/agent-release.ts
+  s_fefcc02711a2c2::t_54c6c5a224f3d8 6
+  s_fefcc02711a2c2::t_3cc94a70192e27 5
+scripts/live-runtime-update-canary.ts
+  s_fefcc02711a2c2::t_342fea0b26e29e 29-33,35-36,44,51,59,61-64,66,68
+  s_fefcc02711a2c2::t_3d0f306ef17b1f 1-3,5-7,9-28,34,37,39-43,45-50,52-54,74-90,92-95,97-101
+  s_fefcc02711a2c2::t_775f1033e20153 8
+  s_fefcc02711a2c2::t_f4445648687663 4,91
+  s_fefcc02711a2c2::t_390e1f3688036f 55-57,71-73
+  s_fefcc02711a2c2::t_1f71e9dae0f8b8 58,60,65,67,69-70
+  s_fefcc02711a2c2::t_03f069d14ec12d 38
+  s_fefcc02711a2c2::t_f3d53d4355014a 96
+packages/agent/src/daemon.ts
+  s_fefcc02711a2c2::t_82564a6797b845 18,36,39,46-50
+  s_fefcc02711a2c2::t_3cc94a70192e27 1,17,38,40-45,94
+docs/runtime-updates.md
+  s_fefcc02711a2c2::t_6a35c1de98be4b 1-85
+apps/web/src/api.ts
+  s_fefcc02711a2c2::t_8d8a2e1d53ccc0 26-29
+packages/box/linux/update-runtime.py
+  s_fefcc02711a2c2::t_342fea0b26e29e 185,197-200,207,242-247
+  s_fefcc02711a2c2::t_c585c8089e5161 191,195,209-241
+  s_fefcc02711a2c2::t_8881b854667360 1-155,158-159,163-164,166-174,181-184,186-190,192-194,196,201-206,208,248-753
+  s_fefcc02711a2c2::t_1053b65062cac8 156-157,160-162,165,175-180
+packages/box/runtime-release.ts
+  s_fefcc02711a2c2::t_3cc94a70192e27 1-11
+docs/dev-workflow.md
+  s_fefcc02711a2c2::t_6a35c1de98be4b 292-297
+apps/web/src/components/CompanionHeader.test.tsx
+  s_fefcc02711a2c2::t_8d8a2e1d53ccc0 32-45
+apps/web/src/components/CompanionHeader.tsx
+  s_fefcc02711a2c2::t_8d8a2e1d53ccc0 44,61
+scripts/verify_test.py
+  s_fefcc02711a2c2::t_538cf778fdc7e4 119
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "9b5069773159d9c8ca9785c23618ef74fd9a6182",
+  "prompts": {},
+  "sessions": {
+    "s_fefcc02711a2c2": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a085fb-802b-7df0-bcda-ae21c37d8f3e",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "StanGirard <stan@quivr.app>"
+    }
+  }
+}

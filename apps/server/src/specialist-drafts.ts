@@ -34,7 +34,7 @@ export async function readSpecialistDraft(ownerId:string,templateId:string,sql:a
   WHERE d.template_id=${templateId} AND t.owner_id=${ownerId} AND t.deleted_at IS NULL`;
  if(!draft)return null;
  const operations=await sql`SELECT id,kind,status,generation,prompt,error,assessment,test_companion_id AS "companionId",run_id AS "runId",created_at AS "createdAt",finished_at AS "finishedAt" FROM specialist_operations WHERE template_id=${templateId} AND owner_id=${ownerId} ORDER BY created_at DESC,id DESC`;
- const guidance=await sql`SELECT id,run_id AS "runId",kind,message,providers,created_at AS "createdAt",responded_at AS "respondedAt" FROM specialist_guidance WHERE template_id=${templateId} ORDER BY created_at,id`;
+ const guidance=await sql`SELECT id,run_id AS "runId",kind,message,providers,position::text,created_at AS "createdAt",responded_at AS "respondedAt" FROM specialist_guidance WHERE template_id=${templateId} ORDER BY created_at,id`;
  draft.guidance=guidance;
  draft.nextStep=guidance.at(-1)??null;
  draft.lastTest=operations.find((o:any)=>o.kind==='test')??null;

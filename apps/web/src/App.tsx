@@ -1,5 +1,6 @@
 import {
   ArrowUp,
+  Bell,
   Box,
   Check,
   ChevronRight,
@@ -14,6 +15,7 @@ import {
   PanelLeftClose,
   Paperclip,
   Plus,
+  Repeat2,
   Trash2,
   UserRound,
   Waypoints,
@@ -45,13 +47,14 @@ import {
   workspaceApi,
   type PluginAccount,
   type PluginServer,
+  type NotificationSummary,
 } from "@/api";
 import { Question } from "@/components/Question";
 import { cn } from "@/lib/utils";
 import { CompanionAvatar, DEFAULT_AVATAR, AVATAR_COLORS } from "@/components/CompanionAvatar";
 import { AccountProduct, DesktopSheet } from "@/components/ProductPanels";
 import { RoutineSettings, TriggerSettings } from "@/components/AutomationPanels";
-import { RoutineActivityRow, RoutineProvenance, RoutineRunSheet, withRoutineActivity } from "@/components/RoutineChat";
+import { RoutineNotifications } from "@/components/RoutineNotifications";
 const CreateCompanion = lazy(() => import("@/components/CreateCompanion").then(module => ({ default: module.CreateCompanion })));
 const TaskActivity = lazy(() => import("@/components/TaskActivity").then(module => ({ default: module.TaskActivity })));
 const SpecialistLibrary = lazy(() => import("@/components/SpecialistLibrary").then(module => ({ default: module.SpecialistLibrary })));
@@ -111,6 +114,34 @@ function SpecialistsForRun({ detail, runId, onOpen }: { detail: CompanionDetail;
       </button>;
     })}
   </div>;
+}
+
+type ChatTimelineEntry = { id:string; runId?:string; position?:string; createdAt:string; message?:CompanionDetail["messages"][number]; content?:ReactNode };
+function comparePositions(left: string, right: string) {
+  if (/^\d+$/.test(left) && /^\d+$/.test(right)) return BigInt(left) < BigInt(right) ? -1 : BigInt(left) > BigInt(right) ? 1 : 0;
+  const difference = Number(left) - Number(right);
+  return Number.isFinite(difference) ? difference : left.localeCompare(right, undefined, { numeric:true });
+}
+export function stableChatTimeline(entries: ChatTimelineEntry[]) {
+  const positioned=entries.filter((entry):entry is ChatTimelineEntry&{position:string}=>entry.position!=null)
+    .sort((left,right)=>comparePositions(left.position,right.position));
+  if(!positioned.length)return entries.map((entry,index)=>({entry,index})).sort((left,right)=>(Date.parse(left.entry.createdAt)||0)-(Date.parse(right.entry.createdAt)||0)||left.index-right.index).map(item=>item.entry);
+  const decorated=entries.map((entry,index)=>{
+    if(entry.position!=null)return{entry,index,anchor:entry.position,after:0};
+    const sameRun=entry.runId?positioned.find(item=>item.runId===entry.runId):undefined;
+    if(sameRun)return{entry,index,anchor:sameRun.position,after:1};
+    const createdAt=Date.parse(entry.createdAt)||0;
+    const prior=[...positioned].reverse().find(item=>(Date.parse(item.createdAt)||0)<=createdAt);
+    return prior?{entry,index,anchor:prior.position,after:1}:{entry,index,anchor:positioned[0]!.position,after:-1};
+  });
+  return decorated.sort((left,right)=>comparePositions(left.anchor,right.anchor)||left.after-right.after||((Date.parse(left.entry.createdAt)||0)-(Date.parse(right.entry.createdAt)||0))||left.index-right.index).map(item=>item.entry);
+}
+
+export function ChatEventView({ event }: { event: NonNullable<CompanionDetail["events"]>[number] }) {
+  if(event.kind==="thinking") return event.text ? <details className="thinking-panel"><summary>{event.status==="running" ? "Thinking" : "Thought process"}</summary><div><MessageResponse>{event.text}</MessageResponse></div></details> : null;
+  const application=event.application?.name || "Custom tool";
+  const status=event.status ?? "unknown";
+  return <details className={`tool-event tool-event--${status}`}><summary><ProviderMark provider={event.application?.provider} name={application}/><span><strong>{application}</strong><small>{event.toolName || "Tool call"}</small></span><em>{status === "succeeded" ? "Completed" : status === "failed" ? "Failed" : status === "running" ? "Running" : "Status unknown"}</em><ChevronRight/></summary><dl><div><dt>Application</dt><dd>{application}</dd></div><div><dt>Tool</dt><dd>{event.toolName || "Unavailable"}</dd></div><div><dt>Status</dt><dd>{status}</dd></div><div><dt>Observed</dt><dd>{readableDate(event.createdAt)}</dd></div></dl></details>;
 }
 
 function AccessGate() {
@@ -173,6 +204,8 @@ function Sidebar({
   onClose,
   currentPath,
   locked = false,
+  notificationSummary,
+  onOpenNotifications,
 }: {
   locked?: boolean;
   currentPath: string;
@@ -185,6 +218,8 @@ function Sidebar({
   user: AccountUser;
   open: boolean;
   onClose: () => void;
+  notificationSummary: NotificationSummary["companions"];
+  onOpenNotifications: (id: string) => void;
 }) {
   return (
     <>
@@ -195,9 +230,9 @@ function Sidebar({
           <Button variant="ghost" size="icon" className="sidebar-close" onClick={onClose} aria-label="Close navigation"><PanelLeftClose /></Button>
         </div>
         <nav className="companion-list">
-          {companions.map((companion) => (
-            <button
-              key={companion.id}
+          {companions.map((companion) => {
+            const notifications = notificationSummary.find(item => item.companionId === companion.id);
+            return <div className="companion-link-row" key={companion.id}><button
               className={cn("companion-link", selectedId === companion.id && "companion-link--active")}
               title={companion.name}
               aria-label={`${companion.name}, Companion · ${statusLabel(companion.status)}`}
@@ -211,8 +246,8 @@ function Sidebar({
                 <small>{statusLabel(companion.status)}</small>
               </span>
               <ChevronRight className="companion-chevron" />
-            </button>
-          ))}
+            </button>{notifications && (notifications.unread > 0 || notifications.needsInput > 0) && <button type="button" className={`rail-notifications${notifications.needsInput ? " rail-notifications--attention" : ""}`} aria-label={`${companion.name}: ${notifications.unread} unread notifications, ${notifications.needsInput} need your input`} onClick={() => onOpenNotifications(companion.id)}><Bell/><span>{notifications.needsInput || notifications.unread}</span></button>}</div>;
+          })}
         </nav>
         <div className="rail-create"><details className="create-menu" onBlur={event => { if (!event.currentTarget.contains(event.relatedTarget as Node)) event.currentTarget.open = false; }} onKeyDown={event => { if (event.key === 'Escape') { event.currentTarget.open = false; event.currentTarget.querySelector('summary')?.focus(); } }}><summary aria-label="Create"><Plus /></summary><div className="create-popover"><button onClick={event => { event.currentTarget.closest('details')?.removeAttribute('open'); onCreate(); }}>New Companion</button><button onClick={event => { event.currentTarget.closest('details')?.removeAttribute('open'); onCreateTeam(); }}>Create a team</button></div></details></div>
         <nav className="rail-library" aria-label="Workspace"><button aria-current={currentPath === "/specialists" ? "page" : undefined} onClick={() => onNavigate("/specialists")}><svg viewBox="0 0 60 44" className="rail-specialists-mark" aria-hidden="true"><path d="M18 4a14 14 0 1 0 0 28a14 14 0 1 0 0-28Z" fill="var(--background)" stroke="#242622" strokeWidth="3"/><path d="M30 8h22a6 6 0 0 1 6 6v18a6 6 0 0 1-6 6H30Z" fill="var(--background)" stroke="#242622" strokeWidth="3"/><g fill="#242622"><circle cx="14" cy="17" r="2.2"/><circle cx="22" cy="17" r="2.2"/><circle cx="39" cy="21" r="2.2"/><circle cx="49" cy="21" r="2.2"/></g></svg><span>Specialists</span></button><button aria-current={currentPath === "/connections" ? "page" : undefined} onClick={() => onNavigate("/connections")}><svg className="rail-apps-mark" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true"><rect x="3" y="3" width="7.5" height="7.5" rx="2"/><rect x="13.5" y="3" width="7.5" height="7.5" rx="2"/><rect x="3" y="13.5" width="7.5" height="7.5" rx="2"/><rect x="13.5" y="13.5" width="7.5" height="7.5" rx="2"/></svg><span>Apps</span></button></nav>
@@ -225,10 +260,8 @@ function Sidebar({
   );
 }
 
-function Chat({ detail, onRefresh, onUnauthorized, onOpenCompanion, specialistTemplateId, specialistCards, specialistHistory = [], readOnly = false, onOpenRoutine }: { onOpenRoutine?: (id: string) => void; detail: CompanionDetail; onRefresh: () => Promise<void>; onUnauthorized: () => void; onOpenCompanion: (id: string) => void; specialistTemplateId?: string | null; specialistCards?: ReactNode; specialistHistory?: Array<{id:string;runId?:string;createdAt:string;content:ReactNode}>; readOnly?: boolean }) {
+function Chat({ detail, onRefresh, onUnauthorized, onOpenCompanion, specialistTemplateId, specialistCards, specialistHistory = [], readOnly = false }: { detail: CompanionDetail; onRefresh: () => Promise<void>; onUnauthorized: () => void; onOpenCompanion: (id: string) => void; specialistTemplateId?: string | null; specialistCards?: ReactNode; specialistHistory?: Array<{id:string;runId?:string;position?:string;createdAt:string;content:ReactNode}>; readOnly?: boolean }) {
   const [draft, setDraft] = useState("");
-  const [routineRunIds, setRoutineRunIds] = useState<string[]>([]);
-  const routineRuns = detail.runs.filter(run => routineRunIds.includes(run.id));
   const runsById = new Map(detail.runs.map(run => [run.id, run]));
   const [files, setFiles] = useState<File[]>([]);
   const [sending, setSending] = useState(false);
@@ -247,28 +280,26 @@ function Chat({ detail, onRefresh, onUnauthorized, onOpenCompanion, specialistTe
       ? activeRun.previewText
       : null;
 
-  const timestamp = (value: string | undefined) => value && Number.isFinite(Date.parse(value)) ? Date.parse(value) : 0;
-  const latestConversationAt = Math.max(0,...detail.messages.map(message=>timestamp(message.createdAt)),...specialistHistory.filter(item=>!activeRun||item.runId!==activeRun.id).map(item=>timestamp(item.createdAt)),...(detail.questions??[]).filter(question=>question.answer!=null).map(question=>timestamp(question.createdAt)));
   const pendingQuestion = activeRun ? (detail.questions??[]).find(question=>question.runId===activeRun.id && question.answer==null) : undefined;
-  // A resumed turn may retain an older question/run timestamp; new output stays after prior chat.
-  const streamingAt = Math.max(latestConversationAt+2,timestamp(activeRun?.createdAt)+2,timestamp(pendingQuestion?.createdAt)-1);
-  const timeline = withRoutineActivity([
-    ...detail.messages.map(message => ({ id: message.id, createdAt: message.createdAt, message, content: null as ReactNode })),
-    ...specialistHistory.map(item => ({ ...item, createdAt: detail.runs.some(run => run.id === item.runId && run.messageVersion != null) ? item.createdAt : new Date(Math.max(timestamp(item.createdAt),
-      ...(item.runId ? detail.messages.filter(message=>message.runId===item.runId && message.role==='assistant').map(message=>timestamp(message.createdAt)+1) : []),
-      item.runId && item.runId===activeRun?.id ? streamingAt+1 : 0)).toISOString(), message: null })),
-    ...detail.runs.filter(run => run.thinkingText && run.lane !== 'background').map(run => ({ id: 'thinking-' + run.id, createdAt: new Date(isActiveRun(run.status) ? streamingAt-1 : Math.max(timestamp(run.createdAt), ...detail.messages.filter(message=>message.role==='assistant' && message.runId===run.id).map(message=>timestamp(message.createdAt)-1))).toISOString(), message: null, content: <details className="thinking-panel" ><summary>{isActiveRun(run.status) ? 'Thinking' : 'Thought process'}</summary><div><MessageResponse>{run.thinkingText!}</MessageResponse></div></details> })),
-    ...(activePreview && activeRun ? [{ id: 'preview-' + activeRun.id, message: null, createdAt: new Date(streamingAt).toISOString(), content: <Message from="assistant" className="thread-message message-preview">
+  const conversationMessages = detail.messages.filter(message => message.source === "routine_agent" || (message.source !== "routine" && runsById.get(message.runId)?.source !== "routine"));
+  const conversationQuestions = (detail.questions ?? []).filter(question => runsById.get(question.runId)?.source !== "routine");
+  const conversationEvents = (detail.events ?? []).filter(event => runsById.get(event.runId)?.source !== "routine");
+  const eventThinkingRuns = new Set(conversationEvents.filter(event=>event.kind==="thinking").map(event=>event.runId));
+  const timeline = stableChatTimeline([
+    ...conversationMessages.map(message => ({ id: message.id, runId:message.runId, position:message.position, createdAt: message.createdAt, message })),
+    ...specialistHistory.map(item => ({ ...item })),
+    ...conversationEvents.map(event => ({ id:event.id,runId:event.runId,position:event.position,createdAt:event.createdAt,content:<ChatEventView event={event}/> })),
+    ...detail.runs.filter(run => run.thinkingText && run.lane !== 'background' && run.source !== "routine" && !eventThinkingRuns.has(run.id)).map(run => ({ id: 'thinking-' + run.id, runId:run.id, createdAt:run.createdAt, content: <details className="thinking-panel" ><summary>{isActiveRun(run.status) ? 'Thinking' : 'Thought process'}</summary><div><MessageResponse>{run.thinkingText!}</MessageResponse></div></details> })),
+    ...(activePreview && activeRun ? [{ id: 'preview-' + activeRun.id, runId:activeRun.id, createdAt: activeRun.createdAt, content: <Message from="assistant" className="thread-message message-preview">
               <div className="thread-avatar" aria-hidden="true"><CompanionAvatar name={detail.companion.name} avatar={detail.companion.avatar} size={32} /></div>
               <div className="thread-message-body"><div className="message-meta"><span className="message-author">{detail.companion.name}</span></div>
               <MessageContent className="thread-content"><MessageResponse>{activePreview}</MessageResponse></MessageContent></div>
             </Message> }] : []),
-    ...(detail.questions ?? []).map(question => ({ id: question.id, createdAt: question.createdAt ?? detail.runs.find(run => run.id === question.runId)?.createdAt ?? '', message: null, content: <>
+    ...conversationQuestions.map(question => ({ id: question.id, runId:question.runId, position:question.position, createdAt: question.createdAt ?? detail.runs.find(run => run.id === question.runId)?.createdAt ?? '', content: <>
       {question.contextText && !detail.messages.some(message => message.runId === question.runId && message.content === question.contextText) && <div className="question-context"><MessageResponse>{question.contextText}</MessageResponse></div>}
-      <RoutineProvenance run={runsById.get(question.runId)} onOpen={setRoutineRunIds}/>
       <Question companionId={detail.companion.id} question={question} onAnswered={onRefresh}/>
     </> })),
-  ], detail);
+  ]);
 
   async function send(event: FormEvent) {
     event.preventDefault();
@@ -342,11 +373,11 @@ function Chat({ detail, onRefresh, onUnauthorized, onOpenCompanion, specialistTe
               <p>{specialistTemplateId ? "Describe its role, then prepare its tools together." : `Make room for what matters. ${detail.companion.name} can help.`}</p>
               {!readOnly && !specialistTemplateId && <div className="chat-suggestions">{(specialistTemplateId ? ['Set up GitHub & Linear', 'Prepare my repositories', 'Help me test this specialist'] : ['Plan my day', 'Help with a project', 'Set up a routine']).map(prompt=><button type="button" key={prompt} onClick={()=>{setDraft(prompt);textareaRef.current?.focus();}}>{prompt}<ChevronRight/></button>)}</div>}
             </ConversationEmptyState>
-          ) : timeline.map(({id, message, content, routineRuns}) => routineRuns ? <RoutineActivityRow key={id} runs={routineRuns} onOpen={setRoutineRunIds}/> : message ? (
+          ) : timeline.map(({id, message, content}) => message ? (
             <Message from={message.role} key={message.id} className="thread-message">
               <div className="thread-avatar" aria-hidden="true">{message.role === "assistant" ? <CompanionAvatar name={detail.companion.name} avatar={detail.companion.avatar} size={32} /> : <span className="user-avatar"><UserRound /></span>}</div>
               <div className="thread-message-body"><div className="message-meta"><span className="message-author">{message.role === "assistant" ? detail.companion.name : "You"}</span><time className="message-time" dateTime={message.createdAt}>{readableDate(message.createdAt)}</time>{message.complete === false && detail.runs.some(run => run.id === message.runId && !isActiveRun(run.status)) && <span className="message-time">Incomplete response</span>}</div>
-              {message.role === "assistant" && <RoutineProvenance run={runsById.get(message.runId)} onOpen={setRoutineRunIds}/>}
+              {message.source === "routine_agent" && <span className="message-source"><Repeat2/>{message.sourceName || "Routine"}</span>}
               <MessageContent className="thread-content"><MessageResponse>{message.content}</MessageResponse></MessageContent>
               {message.files?.length ? <div className="message-files">{message.files.map((file) => <a key={file.id} href={file.url} target="_blank" rel="noreferrer"><FileText /><span>{file.name}</span></a>)}</div> : null}
               {message.role === "user" && <SpecialistsForRun detail={detail} runId={message.runId} onOpen={onOpenCompanion} />}
@@ -362,9 +393,8 @@ function Chat({ detail, onRefresh, onUnauthorized, onOpenCompanion, specialistTe
           {specialistCards}
           {!readOnly && <SpecialistImprovements companionId={detail.companion.id} onOpenCompanion={onOpenCompanion}/>}
         </ConversationContent>
-        <ConversationScrollButton aria-label="Scroll to latest message" latestMessageId={detail.messages.at(-1)?.id} />
+        <ConversationScrollButton aria-label="Scroll to latest message" latestMessageId={conversationMessages.at(-1)?.id} />
       </Conversation>
-      {!!routineRuns.length && <RoutineRunSheet key={routineRunIds.join(":")} companionId={detail.companion.id} runs={routineRuns} onClose={() => setRoutineRunIds([])} onOpenRoutine={onOpenRoutine ? id => { setRoutineRunIds([]); onOpenRoutine(id); } : undefined}/>}
       {!readOnly && <form className={cn("composer-wrap", dragActive && "composer-wrap--drop")} onSubmit={send} onDragEnter={dragEnter} onDragOver={dragOver} onDragLeave={dragLeave} onDrop={drop}>
         <span className="sr-only" aria-live="polite">{fileNotice}</span>
         {actionError && <p className="composer-error" role="alert">{actionError}</p>}
@@ -405,7 +435,7 @@ function Chat({ detail, onRefresh, onUnauthorized, onOpenCompanion, specialistTe
 
 type NavigationGuard = (action: () => void, updateHistory?: boolean) => boolean;
 
-function CompanionView({ detail, models, onRefresh, onUnauthorized, onMenu, onOpenCompanion, onDeleted, onRegisterNavigationGuard, onLocationChange, refreshVersion, onNavigate }: { onNavigate: (path: string) => void; detail: CompanionDetail; models: Array<{ id: string; name: string }>; onDeleted: (ids: string[]) => void; onRefresh: () => Promise<void>; onUnauthorized: () => void; onMenu: () => void; onOpenCompanion: (id: string) => void; onRegisterNavigationGuard: (guard: NavigationGuard | null) => void; onLocationChange: (location: string) => void; refreshVersion: number }) {
+function CompanionView({ detail, models, onRefresh, onUnauthorized, onMenu, onOpenCompanion, onDeleted, onRegisterNavigationGuard, onLocationChange, refreshVersion, onNavigate, notificationsOpen, notificationCounts, navigationNeedsAttention, onOpenNotifications, onCloseNotifications, onNotificationsChanged }: { onNavigate: (path: string) => void; detail: CompanionDetail; models: Array<{ id: string; name: string }>; onDeleted: (ids: string[]) => void; onRefresh: () => Promise<void>; onUnauthorized: () => void; onMenu: () => void; onOpenCompanion: (id: string) => void; onRegisterNavigationGuard: (guard: NavigationGuard | null) => void; onLocationChange: (location: string) => void; refreshVersion: number; notificationsOpen: boolean; navigationNeedsAttention:boolean; notificationCounts?: { unread:number; needsInput:number }; onOpenNotifications:()=>void; onCloseNotifications:()=>void; onNotificationsChanged:()=>Promise<void> }) {
   const finished = Boolean(detail.companion.retiredAt);
   const specialistTemplateId = new URLSearchParams(window.location.search).get("specialist");
   const readView = (): CompanionSection => {
@@ -446,9 +476,11 @@ function CompanionView({ detail, models, onRefresh, onUnauthorized, onMenu, onOp
 
   return (
     <main className="workspace" id="main-content">
-      {(!specialistTemplateId || finished || view !== "chat") && <CompanionHeader detail={detail} section={view} refreshVersion={refreshVersion} onSection={changeView} onMenu={onMenu} />}
+      {(!specialistTemplateId || finished || view !== "chat") && <CompanionHeader detail={detail} section={view} refreshVersion={refreshVersion} onSection={changeView} onMenu={onMenu} notificationCounts={notificationCounts} navigationNeedsAttention={navigationNeedsAttention} onNotifications={onOpenNotifications} />}
       <div className="workspace-body" hidden={view !== 'chat'}>
-        {specialistTemplateId && !finished ? <Suspense fallback={<div role="status">Opening specialist…</div>}><SpecialistDraftPanel templateId={specialistTemplateId} companionId={detail.companion.id} avatar={detail.companion.avatar ?? undefined} onClose={() => onNavigate('/specialists')} onComputer={detail.companion.provider === 'box' ? () => changeView('computer') : undefined} onOpenCompanion={onOpenCompanion} onContinued={onRefresh} renderChat={(cards, history) => <Chat detail={detail} onRefresh={onRefresh} onUnauthorized={onUnauthorized} onOpenCompanion={onOpenCompanion} specialistTemplateId={specialistTemplateId} specialistCards={cards} specialistHistory={history}/>} /></Suspense> : <Chat detail={detail} onRefresh={onRefresh} onUnauthorized={onUnauthorized} onOpenCompanion={onOpenCompanion} readOnly={finished} onOpenRoutine={finished ? undefined : id => { setRoutineTarget(id); changeView("automations"); }}/>}
+        {specialistTemplateId && !finished
+          ? <Suspense fallback={<div role="status">Opening specialist…</div>}><SpecialistDraftPanel templateId={specialistTemplateId} companionId={detail.companion.id} avatar={detail.companion.avatar ?? undefined} onClose={() => onNavigate('/specialists')} onComputer={detail.companion.provider === 'box' ? () => changeView('computer') : undefined} onOpenCompanion={onOpenCompanion} onContinued={onRefresh} renderChat={(cards, history) => <Chat detail={detail} onRefresh={onRefresh} onUnauthorized={onUnauthorized} onOpenCompanion={onOpenCompanion} specialistTemplateId={specialistTemplateId} specialistCards={cards} specialistHistory={history}/>} /></Suspense>
+          : <Chat detail={detail} onRefresh={onRefresh} onUnauthorized={onUnauthorized} onOpenCompanion={onOpenCompanion} readOnly={finished}/>}
       </div>
       {!finished && view === 'automations' && <section className="companion-page" aria-label="Automations"><div className="companion-page-inner"><header className="section-intro"><h2>A little help, on repeat.</h2><p>Set the timing. Your companion takes it from there.</p></header><div className="automation-group"><RoutineSettings companionId={detail.companion.id} initialRoutineId={routineTarget}/></div><div className="automation-group" id="events"><TriggerSettings companionId={detail.companion.id}/></div></div></section>}
       {!finished && view === 'team' && <section className="companion-page" aria-label="Team"><Suspense fallback={<div className="companion-page-inner" role="status">Opening your team…</div>}><TeamPanel onOpenDraft={(companionId, templateId) => onNavigate(`/companions/${companionId}?specialist=${encodeURIComponent(templateId)}`)} companion={detail.companion} refreshVersion={refreshVersion} onOpenCompanion={onOpenCompanion}/></Suspense></section>}
@@ -456,13 +488,14 @@ function CompanionView({ detail, models, onRefresh, onUnauthorized, onMenu, onOp
       {!finished && view === 'computer' && <section className="companion-page" aria-label="Computer"><DesktopSheet embedded companion={detail.companion} onClose={() => changeView('chat')} onRefresh={onRefresh} /></section>}
       {!finished && view === 'applications' && <section className="companion-page" aria-label="Applications"><div className="companion-page-inner"><header className="section-intro"><h2>Applications</h2><p>Choose which connected accounts {detail.companion.name} can use.</p></header><ApplicationAccess key={detail.companion.id} companionId={detail.companion.id} onConnect={() => onNavigate("/connections")} /></div></section>}
       {!finished && settingsVisited && <div className="companion-page" hidden={view !== 'settings'}><SettingsSheet ref={settingsRef} embedded active={view === 'settings'} detail={detail} models={models} onClose={() => changeView('chat')} onSaved={onRefresh} onDeleted={onDeleted} connections={view === "settings" ? <ApplicationAccess key={detail.companion.id} companionId={detail.companion.id} onConnect={() => onNavigate("/connections")} /> : null} onActivity={() => changeView('activity')} onDesktop={() => changeView('computer')} /></div>}
+      <RoutineNotifications companionId={detail.companion.id} companionName={detail.companion.name} questions={detail.questions} open={notificationsOpen} refreshVersion={refreshVersion} onOpen={onOpenNotifications} onClose={onCloseNotifications} onChanged={onNotificationsChanged}/>
     </main>
   );
 }
 
-function Home({ companions, onSelect, onCreate, onCreateTeam, onMenu }: { companions: Companion[]; onSelect: (id: string) => void; onCreate: () => void; onCreateTeam: () => void; onMenu: () => void }) {
+function Home({ companions, onSelect, onCreate, onCreateTeam, onMenu, needsAttention = false }: { companions: Companion[]; onSelect: (id: string) => void; onCreate: () => void; onCreateTeam: () => void; onMenu: () => void; needsAttention?: boolean }) {
   return <main className="home-page" id="main-content">
-    <header className="mobile-page-header"><Button variant="ghost" size="icon" onClick={onMenu} aria-label="Open navigation"><Menu /></Button><span className="wordmark">companions.build</span></header>
+    <header className="mobile-page-header"><Button className={needsAttention ? "mobile-menu--attention" : undefined} variant="ghost" size="icon" onClick={onMenu} aria-label={needsAttention ? "Open navigation, notifications need attention" : "Open navigation"}><Menu /></Button><span className="wordmark">companions.build</span></header>
     <div className="home-inner"><div className="home-heading"><div><h1>Your companions.</h1><p>Pick up where you left off.</p></div><div className="home-create-actions"><Button variant="ghost" onClick={onCreateTeam}>Create a team</Button><Button onClick={onCreate}><Plus />New Companion</Button></div></div>
       <div className="home-list">{companions.map((companion) => <button key={companion.id} className="home-companion" onClick={() => onSelect(companion.id)}>
         <CompanionAvatar name={companion.name} avatar={companion.avatar} size={62} />
@@ -554,6 +587,8 @@ export function App() {
   const deletedIds = useRef(new Set<string>());
   const [config, setConfig] = useState<AppConfig | null>(null);
   const [companions, setCompanions] = useState<Companion[]>([]);
+  const [notificationSummary, setNotificationSummary] = useState<NotificationSummary["companions"]>([]);
+  const [notificationsOpenFor, setNotificationsOpenFor] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(selectedIdFromPath);
   const [detail, setDetail] = useState<CompanionDetail | null>(null);
   const [detailVersion, setDetailVersion] = useState(0);
@@ -606,6 +641,15 @@ export function App() {
     }
   }, [handleApiError]);
 
+  const loadNotificationSummary = useCallback(async () => {
+    try {
+      const result = await api.notificationSummary();
+      if (Array.isArray(result.companions)) setNotificationSummary(result.companions);
+    } catch {
+      // Keep the last known counts. A failed poll must not turn unknown state into zero.
+    }
+  }, []);
+
   const loadDetail = useCallback(async () => {
     if (!selectedId) return;
     const request = ++detailRequest.current;
@@ -631,6 +675,7 @@ export function App() {
       setConfig(nextConfig);
       setCompanions(list.companions);
       setAuthRequired(false);
+      void loadNotificationSummary();
       const pathId = selectedIdFromPath();
       const nextId = pathId;
       setSelectedId(nextId);
@@ -640,7 +685,7 @@ export function App() {
     } finally {
       setLoading(false);
     }
-  }, [handleApiError]);
+  }, [handleApiError, loadNotificationSummary]);
 
   useEffect(() => { if (!publicRoute) void bootstrap(); }, [bootstrap, publicRoute]);
 
@@ -715,12 +760,13 @@ export function App() {
 
   useEffect(() => {
     if (authRequired || publicRoute) return;
-    const timer = window.setInterval(() => { void loadList(); }, LIST_INTERVAL);
+    const timer = window.setInterval(() => { void loadList(); void loadNotificationSummary(); }, LIST_INTERVAL);
     return () => window.clearInterval(timer);
-  }, [authRequired, loadList, publicRoute]);
+  }, [authRequired, loadList, loadNotificationSummary, publicRoute]);
 
   function selectCompanion(id: string) {
     const select = () => {
+      setNotificationsOpenFor(null);
       setSelectedId(id);
       if (id !== selectedId) setDetail(null);
       else void loadDetail();
@@ -734,8 +780,23 @@ export function App() {
     if (id === selectedId) select(); else leaveCompanion(select);
   }
 
+  function openCompanionNotifications(id: string) {
+    const open = () => {
+      setNotificationsOpenFor(id);
+      setSelectedId(id);
+      if (id !== selectedId) setDetail(null);
+      setCreateOpen(false); setTeamCreateOpen(false); setSidebarOpen(false);
+      window.history.pushState({}, "", `/companions/${id}`);
+      acceptedLocation.current = `/companions/${id}`;
+      setCurrentPath(`/companions/${id}`);
+    };
+    if (id === selectedId) { setNotificationsOpenFor(id); setSidebarOpen(false); }
+    else leaveCompanion(open);
+  }
+
   function navigate(path: string) {
     leaveCompanion(() => {
+      setNotificationsOpenFor(null);
       window.history.pushState({}, "", path);
       acceptedLocation.current = path;
       setCurrentPath(path);
@@ -805,6 +866,8 @@ export function App() {
         user={user}
         open={sidebarOpen}
         onClose={() => setSidebarOpen(false)}
+        notificationSummary={notificationSummary}
+        onOpenNotifications={openCompanionNotifications}
       />
       {pageError && (
         <div className="page-error" role="alert"><CircleAlert />{pageError}<button onClick={() => void bootstrap()}>Try again</button></div>
@@ -821,9 +884,9 @@ export function App() {
           <Suspense fallback={<div className="detail-loading" role="status">Opening creation…</div>}><CreateCompanion ownerId={user.id} onSetupLockedChange={setupLockedChange} config={config} onCreated={handleCreated} compact={companions.length > 0} /></Suspense>
         </main>
       ) : !selectedId ? (
-        <Home companions={companions} onSelect={selectCompanion} onCreateTeam={() => leaveCompanion(() => setTeamCreateOpen(true))} onCreate={() => navigate("/new")} onMenu={() => setSidebarOpen(true)} />
+        <Home companions={companions} onSelect={selectCompanion} onCreateTeam={() => leaveCompanion(() => setTeamCreateOpen(true))} onCreate={() => navigate("/new")} onMenu={() => setSidebarOpen(true)} needsAttention={notificationSummary.some(item => item.needsInput > 0 || item.unread > 0)} />
       ) : detail && detail.companion.id === selectedId ? (
-        <CompanionView onNavigate={navigate} onDeleted={handleDeleted} key={detail.companion.id} detail={detail} refreshVersion={detailVersion} models={config.models ?? [{ id: config.model, name: config.model }]} onRefresh={loadDetail} onUnauthorized={() => setAuthRequired(true)} onMenu={() => setSidebarOpen(true)} onOpenCompanion={selectCompanion} onRegisterNavigationGuard={registerNavigationGuard} onLocationChange={location => { acceptedLocation.current = location; }} />
+        <CompanionView onNavigate={navigate} onDeleted={handleDeleted} key={detail.companion.id} detail={detail} refreshVersion={detailVersion} models={config.models ?? [{ id: config.model, name: config.model }]} onRefresh={loadDetail} onUnauthorized={() => setAuthRequired(true)} onMenu={() => setSidebarOpen(true)} onOpenCompanion={selectCompanion} onRegisterNavigationGuard={registerNavigationGuard} onLocationChange={location => { acceptedLocation.current = location; }} notificationsOpen={notificationsOpenFor === detail.companion.id} navigationNeedsAttention={notificationSummary.some(item => item.needsInput > 0 || item.unread > 0)} notificationCounts={notificationSummary.find(item => item.companionId === detail.companion.id)} onOpenNotifications={() => setNotificationsOpenFor(detail.companion.id)} onCloseNotifications={() => setNotificationsOpenFor(null)} onNotificationsChanged={loadNotificationSummary} />
       ) : (
         <main className="detail-loading" id="main-content"><LoaderCircle className="spin" /><span>Opening Companion…</span></main>
       )}

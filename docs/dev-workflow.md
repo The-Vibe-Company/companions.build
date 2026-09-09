@@ -300,3 +300,32 @@ return to Box. This setting is independent of model selection: `--scripted` cont
 the test model, while `--live` uses configured model credentials. Live Box development
 requires `BOX_API_KEY` and an existing `BOX_TEMPLATE`. Deterministic verification explicitly
 enables the local runtime in its isolated test environment.
+
+### Chat events and routine notifications
+
+Build the agent distribution before rolling out this release. Apply `chat-notifications.sql`
+through the normal migration entrypoint, then run the updated API/executor before exposing
+notification controls in the web UI. The migration adds display positions, tool/thinking
+projections, routine timezone snapshots and durable notification read state. It retains all
+existing messages and questions. Historical routine publications and failures are backfilled
+as read; an unanswered actionable question still contributes to Needs you.
+
+The executor admits newly observed chat events in a transaction, preserving their source order
+within a snapshot and assigning stable server display positions. Production timestamps remain
+metadata: a late card does not move messages already visible. Older journals remain readable,
+but missing historical tool/thinking segments cannot be reconstructed. Existing machines need
+the rebuilt runtime for future detailed events and the `notify_agent` control operation.
+
+Human routine publications retain their old message projection for compatibility, but the new
+web displays them only in Notifications. `notify_agent` is a separate controller adapter to the
+existing `acceptMessage` / main-lane / native Pi steer path. Its command ID is the durable
+message admission ID, and only an active routine on the same Companion can invoke it. It
+reports acceptance, not that Pi has already consumed the message. A lost command result is
+not replayed automatically. Publication policy still governs human notifications, not steering.
+
+Supported UI rollback retains the additive schema and compatible server/executor. Old readers
+can still access publications through their message projection and failures through Activity;
+questions retain their existing answer endpoint. Read states remain stored for a later return
+to the new UI. Do not remove multi-message indexes, positions, notifications or journals, and
+never rerun external actions to rebuild their display. A whole-server rollback requires
+separate reconciliation of newly created sources before notification UI is re-enabled.

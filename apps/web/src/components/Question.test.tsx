@@ -46,3 +46,12 @@ it.each(['cancelled','failed','succeeded'])('retains an unanswered question afte
  expect(screen.queryByRole('textbox')).not.toBeInTheDocument();
  expect(screen.queryByRole('button')).not.toBeInTheDocument();
 });
+
+it('keeps a question draft when the notification panel is closed and reopened',async()=>{
+ const question={id:'draft-question',question:'Which scope?',options:[],answer:null,runStatus:'needs_input'};
+ const first=render(<Question companionId="designer" question={question} onAnswered={vi.fn(async()=>{})}/>);
+ fireEvent.change(screen.getByRole('textbox',{name:'Your answer'}),{target:{value:'Keep the small scope'}});
+ first.unmount();
+ render(<Question companionId="designer" question={question} onAnswered={vi.fn(async()=>{})}/>);
+ expect(screen.getByRole('textbox',{name:'Your answer'})).toHaveValue('Keep the small scope');
+});

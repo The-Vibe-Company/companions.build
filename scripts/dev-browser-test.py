@@ -2,6 +2,7 @@
 """Verify a persisted local scenario in an isolated real browser session."""
 
 import argparse
+import importlib.util
 from datetime import datetime, timezone
 import json
 import os
@@ -119,9 +120,58 @@ def prepare_scenario() -> dict[str, object]:
     return result
 
 
+
+def verify_notifications(browser: Browser, base: str, artifact_dir: Path, original_url: str) -> None:
+    spec = importlib.util.spec_from_file_location("notification_scenario", ROOT / "scripts/dev-scenario.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    api = module.authenticated_api(base)
+    companion = module.create_companion(api, "notifications")
+    companion_id = companion["id"]
+    prefix = f"/api/companions/{companion_id}"
+    def routine(name: str, prompt: str, mode: str) -> str:
+        created = api.request("POST", prefix + "/routines", {"name": name, "prompt": prompt,
+            "cron": "0 9 * * *", "timezone": "Europe/Paris", "enabled": False, "publicationMode": mode})["routine"]
+        return api.request("POST", prefix + f"/routines/{created['id']}/test", {"clientMessageId": str(uuid.uuid4())})["runId"]
+    try:
+        silent = routine("Silent check", "write-note", "silent")
+        module.wait_run(api, companion_id, silent, {"succeeded"})
+        published = routine("Daily report", "publish-background", "auto")
+        module.wait_run(api, companion_id, published, {"succeeded"})
+        waiting = routine("Report choice", "control-ask-background", "silent")
+        module.wait_run(api, companion_id, waiting, {"needs_input"})
+        # The notification indicator must work while viewing another Companion.
+        browser.run("open", original_url)
+        browser.wait_text("The note was written and read back.", timeout=30)
+        browser.run("find", "role", "button", "click", "--name", f"{companion['name']}:")
+        browser.wait_text("Useful background result", timeout=20)
+        browser.wait_text("Which option should the background task use?", timeout=20)
+        browser.run("screenshot", str(artifact_dir / "notifications-desktop.png"), "--full")
+        browser.run("find", "text", "Which option should the background task use?", "click", "--exact")
+        browser.run("find", "role", "button", "click", "--name", "Blue", "--exact")
+        module.wait_run(api, companion_id, waiting, {"succeeded"})
+        browser.wait_text("Answered", timeout=20)
+        browser.run("find", "role", "button", "click", "--name", "Close notifications", "--exact")
+        text = browser.run("get", "text", "body")
+        if "Useful background result" in text or "Silent check" in text:
+            raise RuntimeError("Routine results leaked into the conversation")
+        browser.run("reload")
+        browser.run("set", "viewport", "390", "844")
+        browser.run("find", "role", "button", "click", "--name", "Notifications")
+        browser.wait_text("Useful background result", timeout=20)
+        browser.run("screenshot", str(artifact_dir / "notifications-mobile.png"), "--full")
+        if browser.run("eval", "document.documentElement.scrollWidth > window.innerWidth").strip() == "true":
+            raise RuntimeError("Notification panel overflows the mobile viewport")
+    finally:
+        # Retirement stops only the fixture Companion and retains its disk and history.
+        api.request("DELETE", prefix)
+        browser.run("set", "viewport", "1440", "900")
+        browser.run("open", original_url)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("test", nargs="?", choices=["chat-recovery", "chat-ready"], default="chat-recovery")
+    parser.add_argument("test", nargs="?", choices=["chat-recovery", "chat-ready", "chat-notifications"], default="chat-recovery")
     args = parser.parse_args()
     started = datetime.now(timezone.utc)
     artifact_dir = ROOT / ".artifacts/browser-tests" / f"{started.strftime('%Y%m%dT%H%M%SZ')}-{str(uuid.uuid4())[:8]}-{args.test}"
@@ -147,6 +197,8 @@ def main() -> None:
         browser.run("fill", "textarea", "write-note")
         browser.run("press", "Enter")
         browser.wait_text_count("The note was written and read back.", 2)
+        if args.test == "chat-notifications":
+            verify_notifications(browser, base, artifact_dir, str(scenario["url"]))
         browser.run("screenshot", str(artifact_dir / "persisted-chat.png"), "--full")
         before = browser.run("snapshot", "-c")
         (artifact_dir / "before-reload.txt").write_text(before)

@@ -1,3 +1,4 @@
+import {handleNotifications} from './notifications';
 import {privateBetaEmails} from "./private-beta";
 import {createSpecialistDraft,openSpecialistDraft,readSpecialistDraft,updateSpecialistDraft,requestSpecialistPublication,requestSpecialistTest,assessSpecialistTest} from './specialist-drafts';
 import {specialistConnections,overrideSpecialistConnection} from './specialist-connections';
@@ -153,6 +154,8 @@ export async function handler(request: Request): Promise<Response> {
     if(triggerResponse) return triggerResponse;
     const fileResponse = await handleFiles(request,ownerId);
     if(fileResponse) return fileResponse;
+    const notificationResponse = await handleNotifications(request,ownerId);
+    if(notificationResponse) return notificationResponse;
     const taskResponse = await handleTasks(request,ownerId);
     if(taskResponse) return taskResponse;
     const automationResponse = await handleAutomations(request,ownerId);
@@ -175,14 +178,18 @@ export async function handler(request: Request): Promise<Response> {
       const id = idSchema.parse(match[1]);
       if (!match[2] && request.method === "DELETE") { const result=await retireCompanion(ownerId,id); return result ? json(result,202) : json({error:"Companion not found."},404); }
       if (!match[2] && request.method === "PATCH") { const companion=await configureCompanion(ownerId,id,await request.json()); return companion ? json({companion}) : json({error:"Companion not found."},404); }
-      if (!match[2] && request.method === "GET") { const result = await detail(ownerId, id);
+      if (!match[2] && request.method === "GET") return await db.begin(async tx => {
+        // Messages, states, questions and tool events must describe one committed snapshot.
+        await tx`SET TRANSACTION ISOLATION LEVEL REPEATABLE READ`;
+        const result = await detail(ownerId, id,tx);
         if(!result)return json({error:"Companion not found."},404);
-        const files=await filesForThread(ownerId,id);
-        const questions=await db`SELECT q.id,q.run_id AS "runId",q.question,q.options,q.answer,q.created_at AS "createdAt",q.context_text AS "contextText",r.status AS "runStatus" FROM task_questions q JOIN runs r ON r.id=q.run_id WHERE q.companion_id=${id} ORDER BY q.created_at,q.id`;
+        const files=await filesForThread(ownerId,id,{database:tx});
+        const questions=await tx`SELECT q.id,q.run_id AS "runId",q.question,q.options,q.answer,q.created_at AS "createdAt",q.context_text AS "contextText",q.position::text,CASE WHEN r.cancel_requested THEN 'cancelled' ELSE r.status END AS "runStatus" FROM task_questions q JOIN runs r ON r.id=q.run_id WHERE q.companion_id=${id} ORDER BY q.created_at,q.id`;
         // Output attachments belong to the latest assistant message, not every update.
         const lastAssistant=new Map<string,string>();
         for(const message of result.messages)if(message.role==='assistant')lastAssistant.set(message.runId,message.id);
-        return json({...result,questions,files,messages:result.messages.map((m:any)=>({...m,files:files.filter(f=>f.runId===m.runId&&f.kind===(m.role==='user'?'user_upload':'agent_output')&&(m.role==='user'||lastAssistant.get(m.runId)===m.id))}))}); }
+        const events=await tx`SELECT id,run_id AS "runId",kind,position::text,created_at AS "createdAt",text,tool_name AS "toolName",application,CASE WHEN status='running' AND EXISTS(SELECT 1 FROM runs WHERE id=chat_events.run_id AND status IN ('failed','interrupted','cancelled','succeeded')) THEN 'unknown' ELSE status END AS status FROM chat_events WHERE companion_id=${id} ORDER BY chat_events.position`;
+        return json({...result,events,questions,files,messages:result.messages.map((m:any)=>({...m,files:files.filter(f=>f.runId===m.runId&&f.kind===(m.role==='user'?'user_upload':'agent_output')&&(m.role==='user'||lastAssistant.get(m.runId)===m.id))}))}); });
       if (match[2] === "events" && request.method === "GET") return handleCompanionEvents(request, ownerId, id);
       if (match[2] === "messages" && request.method === "POST") {
         const body = z.object({ clientMessageId: idSchema, content: z.string().trim().min(1).max(50_000), attachmentCount: z.number().int().min(0).max(5).default(0) }).parse(await request.json());

@@ -7,7 +7,7 @@ import { scriptedModel, scriptedHumanTool } from "./scripted-model";
 import { clearProviderSecrets, takeProviderApiKey } from "./environment";
 import { SharedMemory } from "./memory";
 import { configureModelGateway, withModelGatewayRequest } from "./model-gateway";
-import type { RunExecutor, RunInput, RunLane, RunMessage, RunProgress } from "./types";
+import type { RunExecutor, RunInput, RunLane, RunMessage, RunProgress, RunEvent } from "./types";
 import {configureAzureFoundry} from './azure-foundry';
 
 type Session = Awaited<ReturnType<typeof createAgentSession>>["session"];
@@ -24,6 +24,7 @@ type ActiveExecution = {
 
 export interface PiSessionTools {
   tools: import("@earendil-works/pi-coding-agent").ToolDefinition[];
+  describeTool?(name:string,args:unknown): {name:string;provider:string}|undefined;
   close?(): Promise<void>;
 }
 export type PiToolsFactory = (context: { runId: string; lane: RunLane; cwd: string }) => Promise<PiSessionTools>;
@@ -90,7 +91,7 @@ export class PiExecutor implements RunExecutor {
       accepting: true, ready: undefined!,
       preflight, preflightDone, parked: false, onProgress,
       modelGateway:input.modelGateway,
-      progress:{previewText:"",usage:{input:0,output:0,cacheRead:0,cacheWrite:0,totalTokens:0,costUsd:0},messages:[],messageVersion:0},
+      progress:{previewText:"",usage:{input:0,output:0,cacheRead:0,cacheWrite:0,totalTokens:0,costUsd:0},messages:[],events:[],messageVersion:0},
     };
     if(this.gatewayUrl&&!input.modelGateway)throw new Error("MODEL_GATEWAY_CREDENTIAL_REQUIRED");
     this.active.set(id, execution);
@@ -117,6 +118,7 @@ export class PiExecutor implements RunExecutor {
       if (last?.role === "assistant" && last.stopReason === "error") throw new Error("MODEL_RESPONSE_FAILED");
       return { text: execution.publishText ?? session.getLastAssistantText() ?? "", publishToChat: execution.publishText !== undefined };
     } finally {
+      for(const event of execution.progress.events??[])if(event.status==='running')event.status='unknown';
       this.emitProgress(execution);
       execution.accepting = false;
       execution.preflightDone();
@@ -197,7 +199,7 @@ export class PiExecutor implements RunExecutor {
       settingsManager, resourceLoader, tools: ["read", "write", "edit", "bash", ...memoryTools.map(tool => tool.name), ...(extra?.tools.map(tool => tool.name) ?? []),
         ...testTools.map(tool => tool.name), ...(execution.lane === "background" ? ["publish_to_chat"] : [])],
       customTools: [...memoryTools, ...extra?.tools ?? [], ...testTools, ...(execution.lane === "background" ? [{
-        name: "publish_to_chat", label: "Publish result", description: "Publish this task's useful result to the main conversation when the task finishes successfully.",
+        name: "publish_to_chat", label: "Publish result", description: "Publish this task's useful result for the human when the task finishes successfully. Routine results appear in notifications; this does not prompt the main agent.",
         parameters: Type.Object({ text: Type.String({ minLength: 1, maxLength: 50_000 }) }),
         async execute(_toolId: string, params: { text: string }) {
           execution.publishText = params.text;
@@ -207,6 +209,16 @@ export class PiExecutor implements RunExecutor {
       sessionManager: execution.lane === "main" ? SessionManager.continueRecent(this.cwd, sessionDir) : SessionManager.create(this.cwd, sessionDir),
     })).session;
     // Subscribe before the first prompt. Historical transcript messages are never counted.
+    let eventOrder=0;
+    let thinkingIndex:number|undefined;
+    const toolEvents=new Map<string,RunEvent>();
+    const updateThinking=(message:{content:readonly unknown[]})=>{
+      const text=message.content.filter((part:any)=>part.type==='thinking').map((part:any)=>part.thinking).join('').slice(0,20_000);
+      if(!text)return;
+      if(thinkingIndex===undefined){thinkingIndex=execution.progress.events!.length;execution.progress.events!.push({sequence:++eventOrder,kind:'thinking',createdAt:new Date().toISOString(),text});}
+      else execution.progress.events![thinkingIndex]!.text=text;
+      execution.progress.thinkingText=text;
+    };
     let lastPreviewAt=0;
     let activeMessage: { createdAt: string; index?: number } | undefined;
     const updateMessage = (text: string, complete: boolean) => {
@@ -215,7 +227,7 @@ export class PiExecutor implements RunExecutor {
       if (activeMessage.index === undefined) {
         if (!text) return false;
         activeMessage.index = messages.length;
-        messages.push({ sequence: messages.length + 1, text, createdAt: activeMessage.createdAt, complete });
+        messages.push({ order:++eventOrder,sequence: messages.length + 1, text, createdAt: activeMessage.createdAt, complete });
         return true;
       }
       const previous = messages[activeMessage.index]!;
@@ -225,13 +237,25 @@ export class PiExecutor implements RunExecutor {
       return true;
     };
     session.subscribe(event=>{
+      if(event.type==='tool_execution_start'){
+        const item:RunEvent={sequence:++eventOrder,kind:'tool',createdAt:new Date().toISOString(),toolName:event.toolName.slice(0,200),status:'running',application:extra?.describeTool?.(event.toolName,event.args)};
+        if(event.toolName==='plugin_call'&&event.args&&typeof event.args==='object'&&'tool' in event.args&&typeof event.args.tool==='string')item.toolName=event.args.tool.slice(0,200);
+        toolEvents.set(event.toolCallId,item);execution.progress.events!.push(item);this.emitProgress(execution);
+      }
+      if(event.type==='tool_execution_end'){
+        const item=toolEvents.get(event.toolCallId);
+        if(item){item.status=event.isError||!!(event.result as any)?.details?.isError?'failed':'succeeded';this.emitProgress(execution);}
+      }
       if(event.type==='message_start' && event.message.role==='assistant'){
+        thinkingIndex=undefined;
         activeMessage={createdAt:new Date().toISOString()};
+        updateThinking(event.message);
         const text=assistantText(event.message);
         execution.progress.previewText=text.slice(0,50_000);
         if(updateMessage(text,false)){lastPreviewAt=Date.now();this.emitProgress(execution);}
       }
       if(event.type==='message_update' && event.message.role==='assistant'){
+        updateThinking(event.message);
         const text=assistantText(event.message);
         execution.progress.previewText=text.slice(0,50_000);
         updateMessage(text,false);
@@ -240,6 +264,7 @@ export class PiExecutor implements RunExecutor {
         if(Date.now()-lastPreviewAt>=150){lastPreviewAt=Date.now();this.emitProgress(execution);}
       }
       if(event.type==='message_end' && event.message.role==='assistant'){
+        updateThinking(event.message);
         const usage=event.message.usage;
         for(const key of ['input','output','cacheRead','cacheWrite','totalTokens'] as const){
           const value=usage[key];if(Number.isFinite(value)&&value>=0)execution.progress.usage[key]+=value;
@@ -265,6 +290,7 @@ export class PiExecutor implements RunExecutor {
       ...execution.progress,
       usage:{...execution.progress.usage},
       messages:execution.progress.messages?.map(message=>({...message})),
+      events:execution.progress.events?.map(event=>({...event})),
     });
   }
 

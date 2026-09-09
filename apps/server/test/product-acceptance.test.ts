@@ -83,6 +83,15 @@ acceptance("real Linux product path transfers files, applies control requests, p
     expect(download?.status).toBe(200);
     expect(await download?.text()).toBe("MINIO_INPUT_BYTES -> agent output\n");
 
+    const notifyRun=await enqueueBackground({companionId:companion.id,clientMessageId:crypto.randomUUID(),content:'control-notify-agent',source:'routine'});
+    expect(await succeeded(notifyRun!)).toMatchObject({resultText:'Main agent notified'});
+    let notifiedMain:string|undefined;
+    await until('routine message reaches the native main conversation',async()=>{
+      const [message]=await db`SELECT run_id FROM messages WHERE companion_id=${companion.id} AND source='routine_agent'`;
+      notifiedMain=message?.run_id;return !!notifiedMain;
+    });
+    expect(await succeeded(notifiedMain!)).toMatchObject({resultText:'Native steering applied.'});
+
     const routineRun = await run("control-create-routine");
     expect(await succeeded(routineRun)).toMatchObject({resultText: "Routine created"});
     expect((await db`SELECT name,prompt,cron,timezone,enabled FROM routines WHERE companion_id=${companion.id}`)[0]).toMatchObject({
@@ -112,6 +121,12 @@ acceptance("real Linux product path transfers files, applies control requests, p
     expect(readFileSync(join(dataDir, "agents", companion.id, "workspace", "control-question-dispatches.txt"), "utf8")).toBe("asked\n");
     expect(Number((await db`SELECT count(*)::int AS count FROM control_commands WHERE run_id=${waiting} AND operation='ask_user'`)[0].count)).toBe(1);
 
+    const thinkingRun=await run('thinking-roundtrip');
+    expect(await succeeded(thinkingRun)).toMatchObject({resultText:'The requested file was not found.'});
+    const thoughts=await db`SELECT text FROM chat_events WHERE run_id=${thinkingRun} AND kind='thinking' ORDER BY position`;
+    expect(thoughts.map((x:any)=>x.text)).toEqual(['Checking the requested file.','The file is unavailable; report the observed result.']);
+    expect((await db`SELECT status FROM chat_events WHERE run_id=${thinkingRun} AND kind='tool'`)[0].status).toBe('failed');
+
     const accountId = crypto.randomUUID();
     const host = await dockerHost();
     const credential = {kind: "custom", label: "Acceptance MCP", transport: "http", url: `http://${host}:${fake.port}/mcp`, args: [], headers: {}, env: {}};
@@ -120,6 +135,9 @@ acceptance("real Linux product path transfers files, applies control requests, p
     const pluginRun = await run(`plugin-roundtrip:${accountId}`);
     expect(await succeeded(pluginRun)).toMatchObject({resultText: "Plugin roundtrip verified"});
     expect(fake.echoes).toEqual(["PRODUCT_MCP_OK"]);
+    const [applicationCall]=await db`SELECT tool_name,application,status FROM chat_events WHERE run_id=${pluginRun} AND tool_name='echo'`;
+    expect(applicationCall).toMatchObject({tool_name:'echo',application:{name:'Acceptance MCP',provider:'custom'},status:'succeeded'});
+    expect(JSON.stringify(applicationCall)).not.toContain('PRODUCT_MCP_OK');
 
     await attachPlugin(ownerId, companion.id, accountId, false);
     const detachedRun = await run(`plugin-detached:${accountId}`);

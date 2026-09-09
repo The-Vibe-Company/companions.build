@@ -14,7 +14,7 @@ import {GitCredentialBroker} from './git-credentials';
 import {AgentSkills,type SkillMutationCheckpoint} from './skills';
 
 const localSkillOperations=['skills','skill_install','skill_update','skill_remove'] as const;
-const operations=['history_search','identity','companion_create','models','configure','companions','routines','routine_save','routine_delete','routine_history','routine_test','plugins','plugin_select','plugin_catalog','plugin_connect','plugin_custom','plugin_check','plugin_disconnect','triggers','trigger_save','trigger_delete','trigger_test','trigger_history','delegate','task_status','task_answer','task_cancel','deliveries','delivery_prepare','maintenance','maintenance_inspect','maintenance_configure','maintenance_prepare','maintenance_task','maintenance_history','templates','template_permission','prepare','template_save','template_history','template_rollback','software_prepare','software_status','spawn','adopt_template','specialist_configure','specialist_next_step','specialist_propose_improvement','specialist_keep_alive','specialist_install','ask_user','desktop_takeover','desktop_release',...localSkillOperations] as const;
+const operations=['notify_agent','history_search','identity','companion_create','models','configure','companions','routines','routine_save','routine_delete','routine_history','routine_test','plugins','plugin_select','plugin_catalog','plugin_connect','plugin_custom','plugin_check','plugin_disconnect','triggers','trigger_save','trigger_delete','trigger_test','trigger_history','delegate','task_status','task_answer','task_cancel','deliveries','delivery_prepare','maintenance','maintenance_inspect','maintenance_configure','maintenance_prepare','maintenance_task','maintenance_history','templates','template_permission','prepare','template_save','template_history','template_rollback','software_prepare','software_status','spawn','adopt_template','specialist_configure','specialist_next_step','specialist_propose_improvement','specialist_keep_alive','specialist_install','ask_user','desktop_takeover','desktop_release',...localSkillOperations] as const;
 export type ControlOperation=typeof operations[number];
 /** Durable local MCP outbox. The executor visits Box; Box need not reach a local web server. */
 export class AgentControl {
@@ -101,7 +101,11 @@ export class AgentControl {
       const result=await client.callTool({name:'companion_control',arguments:params as Record<string,unknown>},undefined,{signal,timeout:(params as any).operation==='ask_user'?2*3600_000+5000:125_000});
       return {content:result.content as any,details:{}};
     }};
-    return {tools:[tool,...plugins.tools],async close(){await plugins.close();await client.close();await server.close();}};
+    return {tools:[tool,...plugins.tools],describeTool:(name:string,args:unknown)=>{
+      if(name!=='plugin_call'||!args||typeof args!=='object'||!('connectionId' in args))return undefined;
+      const plugin=this.plugins.find(item=>item.id===args.connectionId);
+      return plugin?{name:plugin.name,provider:plugin.provider}:undefined;
+    },async close(){await plugins.close();await client.close();await server.close();}};
   }
   close(){this.gitCredentials.close();this.db.close();}
 }

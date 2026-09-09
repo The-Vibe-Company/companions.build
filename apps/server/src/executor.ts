@@ -1,4 +1,5 @@
 import {ManagedBaseImageCoordinator} from './managed-base-image';
+import {persistChatSnapshot} from './chat-events';
 import { SoftwareBuildCoordinator, type SoftwareRuntimeHooks } from './software-runtime';
 import {specialistConfigurationInstructions} from './specialist-drafts';
 import {tracePreparation} from './preparation-trace';
@@ -51,7 +52,7 @@ export async function waitForExecutor(options:ExecutorWaitOptions={}):Promise<Re
  return null;
 }
 function routinePublicationInstructions(mode: string) {
-  if (mode === "always") return "Routine publication policy: every successful final answer is automatically posted to the main conversation. Write the final answer for the user; publish_to_chat is optional.";
+  if (mode === "always") return "Routine publication policy: every successful final answer is automatically delivered as a notification to the user. Write the final answer for the user; publish_to_chat is optional.";
   if (mode === "silent") return "Routine publication policy: results stay in this task's history. Do not call publish_to_chat; publication requests are suppressed. You can still ask the human a necessary question.";
   return "Routine publication policy: call publish_to_chat only if the result is useful to the user according to the routine's instructions. Otherwise the final answer stays in task history.";
 }
@@ -70,10 +71,6 @@ async function settle(sql: any, run: any, status: string, text: string | null, e
     ON CONFLICT(run_id,role,sequence) DO NOTHING`;
 }
 
-const messageSnapshotShape=z.object({
- messageVersion:z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
- messages:z.array(z.object({sequence:z.number().int().positive().max(2147483647),text:z.string(),createdAt:z.string().datetime(),complete:z.boolean()}))
-}).refine(value=>new Set(value.messages.map(message=>message.sequence)).size===value.messages.length);
 const usageShape=z.object({input:z.number().finite().nonnegative(),output:z.number().finite().nonnegative(),cacheRead:z.number().finite().nonnegative(),cacheWrite:z.number().finite().nonnegative(),totalTokens:z.number().finite().nonnegative(),costUsd:z.number().finite().nonnegative()});
 /** Steering siblings share one response root; its measured usage is stored only once. */
 export async function persistObservation(sql:any,run:any,result:any,leaderPid?:number){
@@ -86,25 +83,7 @@ export async function persistObservation(sql:any,run:any,result:any,leaderPid?:n
    AND EXISTS(SELECT 1 FROM pg_locks WHERE locktype='advisory' AND pid=COALESCE(${leaderPid??null}::int,pg_backend_pid()) AND objid=721440139 AND granted)`;
   return;
  }
- // Persist the whole observed snapshot atomically. Stable sequence numbers make polling
- // and recovery idempotent; the revision fences late observations from shrinking text.
- const snapshot=messageSnapshotShape.safeParse(result);
- if(snapshot.success){
-  const {messageVersion,messages}=snapshot.data;
-  await sql`WITH observed AS (
-   UPDATE runs SET message_version=${messageVersion}
-   WHERE id=${run.id} AND companion_id=${run.companion_id}
-    AND (message_version IS NULL OR message_version<${messageVersion})
-    AND EXISTS(SELECT 1 FROM pg_locks WHERE locktype='advisory' AND pid=COALESCE(${leaderPid??null}::int,pg_backend_pid()) AND objid=721440139 AND granted)
-   RETURNING id,companion_id,lane
-  ) INSERT INTO messages(id,companion_id,run_id,role,sequence,content,created_at,complete)
-   SELECT gen_random_uuid(),observed.companion_id,observed.id,'assistant',item.sequence,item.text,item."createdAt",item.complete
-   FROM observed CROSS JOIN jsonb_to_recordset(${messages}::jsonb)
-    AS item(sequence integer,text text,"createdAt" timestamptz,complete boolean)
-   WHERE observed.lane='main' AND length(item.text)>0
-   ON CONFLICT(run_id,role,sequence) DO UPDATE SET content=EXCLUDED.content,complete=EXCLUDED.complete
-    WHERE NOT messages.complete AND (messages.content,messages.complete) IS DISTINCT FROM (EXCLUDED.content,EXCLUDED.complete)`;
- }
+ await persistChatSnapshot(sql,run,result,leaderPid);
  const warning=typeof result.initWarning==='string'?result.initWarning.slice(0,2000):null;
  const thinking=typeof result.thinkingText==='string'?result.thinkingText.slice(0,20_000):null;
  const preview=typeof result.previewText==='string'?result.previewText.slice(0,20_000):null;

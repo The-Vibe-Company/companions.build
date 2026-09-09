@@ -54,7 +54,7 @@ describe("routine execution drawer", () => {
     const view = render(<RoutineRunSheet companionId="c1" runs={[a, b]} onClose={onClose} onOpenRoutine={onOpenRoutine}/>);
     expect(fetchMock).not.toHaveBeenCalled();
     const user = userEvent.setup();
-    await user.click(screen.getAllByRole("button", { name: /Completed · No message/ })[0]!);
+    await user.click(screen.getAllByRole("button", { name: /Completed · No notification/ })[0]!);
     expect(await screen.findByText("Result for b")).toBeVisible();
     expect(screen.getByText("Say hello to Stan")).toBeVisible();
     expect(fetchMock).toHaveBeenCalledWith("/api/companions/c1/tasks/b", expect.anything());
@@ -71,9 +71,9 @@ describe("routine execution drawer", () => {
     vi.stubGlobal("fetch", vi.fn((path: string) => path.endsWith("/b") ? new Promise<Response>(resolve => { resolveFirst = resolve; }) : response({ task: task(a), files: [] })));
     render(<RoutineRunSheet companionId="c1" runs={[a, b]} onClose={() => {}}/>);
     const user = userEvent.setup();
-    await user.click(screen.getAllByRole("button", { name: /Completed · No message/ })[0]!);
+    await user.click(screen.getAllByRole("button", { name: /Completed · No notification/ })[0]!);
     await user.click(screen.getByRole("button", { name: "All 2 executions" }));
-    await user.click(screen.getAllByRole("button", { name: /Completed · No message/ })[1]!);
+    await user.click(screen.getAllByRole("button", { name: /Completed · No notification/ })[1]!);
     expect(await screen.findByText("Result for a")).toBeVisible();
     await act(async () => resolveFirst(await response({ task: task(b), files: [] })));
     expect(screen.queryByText("Result for b")).not.toBeInTheDocument();

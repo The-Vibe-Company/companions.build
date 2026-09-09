@@ -1,0 +1,24 @@
+apps/server/src/managed-base-image.ts
+  s_3a42cadc2a06c2::t_b167c833e94bf5 191-192,195,265-268
+  s_3a42cadc2a06c2::t_6e6100d5dc0a2e 193-194
+  s_3a42cadc2a06c2::t_1a357dc4f778f5 258-259
+apps/server/test/managed-base-image.test.ts
+  s_3a42cadc2a06c2::t_b167c833e94bf5 46-48,59-63,68,71-75,143-172
+  s_3a42cadc2a06c2::t_f9c0142d39bd0b 173
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "98fd60a83cf79dbba78a878e05c89a9bb55f493c",
+  "prompts": {},
+  "sessions": {
+    "s_3a42cadc2a06c2": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a085f7-65e6-7543-9909-16542d8e4ac4",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "StanGirard <stan@quivr.app>"
+    }
+  }
+}

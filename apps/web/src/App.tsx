@@ -243,6 +243,7 @@ function Chat({ detail, onRefresh, onUnauthorized, onOpenCompanion, specialistTe
   const [activeSkillIndex, setActiveSkillIndex] = useState(0);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const suppressCommandDetection = useRef(false);
+  const dismissedSelection = useRef<{ value: string; start: number; end: number } | null>(null);
   const skillsCompanion = useRef<string | null>(null);
   const skillsRequest = useRef(0);
   const activeCommandStart = useRef<number | null>(null);
@@ -264,6 +265,7 @@ function Chat({ detail, onRefresh, onUnauthorized, onOpenCompanion, specialistTe
     skillsCompanion.current = null;
     skillsRequest.current += 1;
     activeCommandStart.current = null;
+    dismissedSelection.current = null;
     setSkills([]);
     setSkillCommandsEnabled(null);
     setSkillsUnavailable(false);
@@ -315,6 +317,7 @@ function Chat({ detail, onRefresh, onUnauthorized, onOpenCompanion, specialistTe
     setCommandToken(null);
     activeCommandStart.current = null;
     suppressCommandDetection.current = true;
+    dismissedSelection.current = { value: nextDraft, start: nextCaret, end: nextCaret };
     requestAnimationFrame(() => {
       textareaRef.current?.focus();
       textareaRef.current?.setSelectionRange(nextCaret, nextCaret);
@@ -479,13 +482,22 @@ function Chat({ detail, onRefresh, onUnauthorized, onOpenCompanion, specialistTe
           <Textarea
             ref={textareaRef}
             value={draft}
-            onChange={(event) => { setDraft(event.target.value); updateCommandToken(event.target.value, event.target.selectionStart); }}
-            onClick={(event) => updateCommandToken(event.currentTarget.value, event.currentTarget.selectionStart)}
-            onSelect={(event) => { if (!suppressCommandDetection.current) updateCommandToken(event.currentTarget.value, event.currentTarget.selectionStart); }}
+            onChange={(event) => { dismissedSelection.current = null; setDraft(event.target.value); updateCommandToken(event.target.value, event.target.selectionStart); }}
+            onClick={(event) => { dismissedSelection.current = null; updateCommandToken(event.currentTarget.value, event.currentTarget.selectionStart); }}
+            onSelect={(event) => {
+              if (suppressCommandDetection.current) return;
+              const input = event.currentTarget, dismissed = dismissedSelection.current;
+              // setSelectionRange queues a native select event after the animation frame.
+              // Keep the inserted/dismissed token closed until the user edits or moves the caret.
+              if (dismissed && dismissed.value === input.value && dismissed.start === input.selectionStart && dismissed.end === input.selectionEnd) return;
+              dismissedSelection.current = null;
+              updateCommandToken(input.value, input.selectionStart);
+            }}
             onKeyDown={(event) => {
               if (event.nativeEvent.isComposing) return;
               if (paletteOpen && event.key === "Escape") {
                 event.preventDefault();
+                dismissedSelection.current = { value: event.currentTarget.value, start: event.currentTarget.selectionStart, end: event.currentTarget.selectionEnd };
                 setCommandToken(null);
                 activeCommandStart.current = null;
                 return;
@@ -497,9 +509,9 @@ function Chat({ detail, onRefresh, onUnauthorized, onOpenCompanion, specialistTe
                   : (current - 1 + visibleSkills.length) % visibleSkills.length);
                 return;
               }
-              if (paletteOpen && event.key === "Enter") {
+              if (paletteOpen && activeSkill && event.key === "Enter") {
                 event.preventDefault();
-                if (activeSkill) insertSkill(activeSkill);
+                insertSkill(activeSkill);
                 return;
               }
               if (event.key === "Enter" && !event.shiftKey) {

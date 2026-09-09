@@ -1186,6 +1186,9 @@ describe("Pi skill commands", () => {
     expect(composer).toHaveAttribute("aria-expanded", "false");
     expect(palette).not.toBeInTheDocument();
     await waitFor(() => expect(composer.selectionStart).toBe("Keep /skill:deploy".length));
+    // A browser may dispatch select after restoring a caret before trailing prose.
+    fireEvent.select(composer);
+    expect(screen.queryByRole("listbox", { name: "Skills" })).not.toBeInTheDocument();
     await user.type(composer, " /");
     expect(screen.getByRole("listbox", { name: "Skills" })).toBeInTheDocument();
     await user.keyboard("{Escape}");
@@ -1207,6 +1210,11 @@ describe("Pi skill commands", () => {
     await user.keyboard("{ArrowDown}{Enter}");
     expect(composer).toHaveValue("/skill:deploy");
     expect(messageBodies).toHaveLength(0);
+
+    // Native select can arrive after setSelectionRange's animation frame completes.
+    await waitFor(() => expect((composer as HTMLTextAreaElement).selectionStart).toBe("/skill:deploy".length));
+    fireEvent.select(composer);
+    expect(screen.queryByRole("listbox", { name: "Skills" })).not.toBeInTheDocument();
 
     await user.keyboard("{Enter}");
     await waitFor(() => expect(messageBodies).toHaveLength(1));
@@ -1230,15 +1238,33 @@ describe("Pi skill commands", () => {
     [{ skills: [], enabled: true }, "No skills available."],
     ["unavailable" as const, "Skills are unavailable. You can still send your message."],
   ])("keeps chat usable for %s discovery", async (result, statusText) => {
-    vi.stubGlobal("fetch", skillFetch(result));
+    const messageBodies: unknown[] = [];
+    vi.stubGlobal("fetch", skillFetch(result, messageBodies));
     const user = userEvent.setup();
     render(<App />);
     const composer = await screen.findByRole("textbox", { name: "Message Ada" });
-    await user.type(composer, "/");
+    await user.type(composer, "/unknown");
     expect(await screen.findByText(statusText)).toBeInTheDocument();
-    await user.keyboard("{Escape}");
-    await user.type(composer, " still editable");
-    expect(composer).toHaveValue("/ still editable");
+    await user.keyboard("{Enter}");
+    await waitFor(() => expect(messageBodies).toHaveLength(1));
+    expect(messageBodies[0]).toMatchObject({ content: "/unknown" });
+  });
+
+  it("sends an unmatched command unchanged and keeps Shift+Enter available", async () => {
+    const messageBodies: unknown[] = [];
+    vi.stubGlobal("fetch", skillFetch({ skills: skillList, enabled: true }, messageBodies));
+    const user = userEvent.setup();
+    render(<App />);
+    const composer = await screen.findByRole("textbox", { name: "Message Ada" });
+    await user.type(composer, "/unknown");
+    expect(await screen.findByText("No matching skills.")).toBeInTheDocument();
+    await user.keyboard("{Shift>}{Enter}{/Shift}");
+    expect(composer).toHaveValue("/unknown\n");
+    expect(messageBodies).toHaveLength(0);
+    await user.type(composer, "details");
+    await user.keyboard("{Enter}");
+    await waitFor(() => expect(messageBodies).toHaveLength(1));
+    expect(messageBodies[0]).toMatchObject({ content: "/unknown\ndetails" });
   });
 
   it("keeps a late skill response isolated to its Companion", async () => {

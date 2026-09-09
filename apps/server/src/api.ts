@@ -1,4 +1,5 @@
 import {privateBetaEmails} from "./private-beta";
+import { companionSkillCommands } from "./skill-commands";
 import {createSpecialistDraft,openSpecialistDraft,readSpecialistDraft,updateSpecialistDraft,requestSpecialistPublication,requestSpecialistTest,assessSpecialistTest} from './specialist-drafts';
 import {specialistConnections,overrideSpecialistConnection} from './specialist-connections';
 import {listSpecialistImprovements,decideSpecialistImprovement} from './specialist-improvements';
@@ -170,9 +171,10 @@ export async function handler(request: Request): Promise<Response> {
         return json({ companion: await createCompanion(ownerId, input) }, 201);
       }
     }
-    const match = url.pathname.match(/^\/api\/companions\/([^/]+)(?:\/(messages|cancel|desktop|events))?$/);
+    const match = url.pathname.match(/^\/api\/companions\/([^/]+)(?:\/(messages|cancel|desktop|events|skills))?$/);
     if (match) {
       const id = idSchema.parse(match[1]);
+      if (match[2] === "skills" && request.method === "GET") return await companionSkillCommands(ownerId, id);
       if (!match[2] && request.method === "DELETE") { const result=await retireCompanion(ownerId,id); return result ? json(result,202) : json({error:"Companion not found."},404); }
       if (!match[2] && request.method === "PATCH") { const companion=await configureCompanion(ownerId,id,await request.json()); return companion ? json({companion}) : json({error:"Companion not found."},404); }
       if (!match[2] && request.method === "GET") { const result = await detail(ownerId, id);

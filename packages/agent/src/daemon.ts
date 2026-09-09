@@ -32,6 +32,13 @@ export class AgentDaemon {
   async fetch(request: Request): Promise<Response> {
     if (!authorized(request.headers.get("authorization"), this.token)) return json({ error: "UNAUTHORIZED" }, 401);
     const url = new URL(request.url);
+    if (request.method === "GET" && url.pathname === "/skill-commands") {
+      try {
+        return this.executor.listSkillCommands
+          ? json(await this.executor.listSkillCommands())
+          : json({ error: "SKILLS_UNAVAILABLE" }, 503);
+      } catch { return json({ error: "SKILLS_UNAVAILABLE" }, 503); }
+    }
     if (request.method === "GET" && url.pathname === "/health") {
       return json({ ready: true, version: "0.2.0", runtimeVersion, maintenanceSupported:true, maintenance:this.maintenance, maintenanceReady:this.mutations===0&&this.initializing.size===0, desktopBoundaryVersion:this.desktopBoundaryVersion, activeRunId: this.activeRuns.main, activeRuns: this.activeRuns, parkedRuns: [...this.parkedRuns] });
     }

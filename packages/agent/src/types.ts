@@ -38,6 +38,7 @@ export interface RunInput {
 }
 
 export interface RunExecutor {
+  listSkillCommands?(): Promise<import("./skill-commands").SkillCommands>;
   execute(id: string, input: RunInput, onProgress?:(progress:RunProgress)=>void): Promise<{ text: string; publishToChat?: boolean }>;
   /** Native Pi steering joins an existing response; it never starts a second main session. */
   steer?(rootId: string, id: string, input: RunInput): Promise<void>;

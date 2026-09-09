@@ -2,7 +2,8 @@ import { buildCompanionInstructions } from "./companion-instructions";
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { InMemoryCredentialStore, Type } from "@earendil-works/pi-ai";
-import { createAgentSession, DefaultResourceLoader, ModelRuntime, SessionManager, SettingsManager } from "@earendil-works/pi-coding-agent";
+import { createAgentSession, DefaultResourceLoader, ModelRuntime, SessionManager } from "@earendil-works/pi-coding-agent";
+import { runtimeSettings, skillCommands, type SkillCommands } from "./skill-commands";
 import { scriptedModel, scriptedHumanTool } from "./scripted-model";
 import { clearProviderSecrets, takeProviderApiKey } from "./environment";
 import { SharedMemory } from "./memory";
@@ -78,6 +79,15 @@ export class PiExecutor implements RunExecutor {
     if (!gatewayUrl&&providerApiKey) await modelRuntime.setRuntimeApiKey(provider, providerApiKey);
     if (!modelRuntime.getModel(provider, modelId)) throw new Error("MODEL_NOT_FOUND");
     return new PiExecutor(stateDir, modelRuntime, provider, modelId,gatewayUrl);
+  }
+
+  async listSkillCommands(): Promise<SkillCommands> {
+    const session = [...this.active.values()].find(run => run.lane === "main")?.session;
+    if (session) return skillCommands(session.resourceLoader, session.settingsManager);
+    const settings = runtimeSettings();
+    const loader = new DefaultResourceLoader({ cwd: this.cwd, agentDir: this.agentDir, settingsManager: settings });
+    await loader.reload();
+    return skillCommands(loader, settings);
   }
 
   async execute(id: string, input: RunInput, onProgress?:(progress:RunProgress)=>void): Promise<{ text: string; publishToChat: boolean }> {
@@ -180,7 +190,7 @@ export class PiExecutor implements RunExecutor {
   }
 
   private async initialize(input: RunInput, execution: ActiveExecution, extra?: PiSessionTools): Promise<Session> {
-    const settingsManager = SettingsManager.inMemory({ compaction: { enabled: true }, retry: { enabled: false } });
+    const settingsManager = runtimeSettings();
     const memory = this.memory.read().content.slice(0, 30_000);
     const instructions = buildCompanionInstructions({ instructions: input.instructions, memory,
       lane: execution.lane, desktopBoundary: process.env.DESKTOP_BOUNDARY_VERSION === "1" });

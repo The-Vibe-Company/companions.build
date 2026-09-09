@@ -2,7 +2,7 @@ import {beforeAll,expect,test} from 'bun:test';
 import {db,migrate,createCompanion,acceptMessage} from '../src/store';
 import {createModelGateway,MODEL_GATEWAY_MAX_REQUEST_BYTES} from '../src/model-gateway';
 import {mintModelGatewayToken} from '../src/model-gateway-token';
-const protocols={google:'google-generative-ai',anthropic:'anthropic-messages',openai:'openai-responses',openrouter:'openai-completions',zai:'openai-completions'} as const;
+const protocols={google:'google-generative-ai',anthropic:'anthropic-messages',azure:'openai-responses',openai:'openai-responses',openrouter:'openai-completions',zai:'openai-completions'} as const;
 type Provider=keyof typeof protocols;
 beforeAll(async()=>{await migrate();await db.unsafe(await Bun.file(new URL('../src/model-gateway.sql',import.meta.url)).text());});
 async function fixture(provider:Provider='openai'){
@@ -12,36 +12,44 @@ async function fixture(provider:Provider='openai'){
  const [companion]=await db`SELECT agent_secret FROM companions WHERE id=${c.id}`;
  return {owner,companionId:c.id,runId:row.id,provider,token:mintModelGatewayToken(c.id,row.id,companion.agent_secret)};
 }
-function path(f:Awaited<ReturnType<typeof fixture>>){return `/api/model-gateway/${f.provider}/${protocols[f.provider]}`+(f.provider==='google'?'/models/fixture-model:streamGenerateContent?alt=sse':f.provider==='anthropic'?'/v1/messages':f.provider==='openai'?'/responses':'/chat/completions');}
+function path(f:Awaited<ReturnType<typeof fixture>>){const wireProvider=f.provider==='azure'?'openai':f.provider;return `/api/model-gateway/${wireProvider}/${protocols[f.provider]}`+(f.provider==='google'?'/models/fixture-model:streamGenerateContent?alt=sse':f.provider==='anthropic'?'/v1/messages':protocols[f.provider]==='openai-responses'?'/responses':'/chat/completions');}
 function request(f:Awaited<ReturnType<typeof fixture>>,id=crypto.randomUUID(),body:any={model:'fixture-model',stream:true},changes:Record<string,string>={}){
  return new Request('https://fixture.invalid'+path(f),{method:'POST',headers:{'content-type':'application/json','x-companions-model-token':f.token,'x-companions-run-id':f.runId,'x-companions-model-request-id':id,...changes},body:JSON.stringify(body)});
 }
 const frame=(value:any)=>'data: '+JSON.stringify(value)+'\n\n';
 function events(provider:Provider){
  if(provider==='anthropic')return frame({type:'message_start',message:{usage:{input_tokens:10,output_tokens:0,cache_read_input_tokens:3,cache_creation_input_tokens:2}}})+frame({type:'message_delta',usage:{output_tokens:5}})+frame({type:'message_stop'});
- if(provider==='openai')return frame({type:'response.completed',response:{status:'completed',usage:{input_tokens:15,output_tokens:5,total_tokens:20,input_tokens_details:{cached_tokens:3}}}});
+ if(provider==='openai'||provider==='azure')return frame({type:'response.completed',response:{status:'completed',usage:{input_tokens:15,output_tokens:5,total_tokens:20,input_tokens_details:{cached_tokens:3}}}});
  if(provider==='google')return frame({candidates:[{finishReason:'STOP'}],usageMetadata:{promptTokenCount:15,candidatesTokenCount:3,thoughtsTokenCount:2,cachedContentTokenCount:3,totalTokenCount:20}});
  return frame({choices:[{finish_reason:'stop'}]})+frame({choices:[],usage:{prompt_tokens:15,completion_tokens:5,total_tokens:20,prompt_tokens_details:{cached_tokens:3}}})+'data: [DONE]\n\n';
 }
-function gateway(transport:(url:string,init:RequestInit)=>Promise<Response>|Response,overrides:any={}){return createModelGateway({sql:db,modelApi:async provider=>protocols[provider as Provider],key:()=> 'synthetic-server-only-key',fetch:((url:any,init:any)=>transport(String(url),init)) as typeof fetch,...overrides});}
+function gateway(transport:(url:string,init:RequestInit)=>Promise<Response>|Response,overrides:any={}){return createModelGateway({sql:db,modelApi:async provider=>protocols[provider as Provider],key:()=> 'synthetic-server-only-key',azureBaseUrl:'https://resource.services.ai.azure.com/api/projects/project/openai/v1/responses',fetch:((url:any,init:any)=>transport(String(url),init)) as typeof fetch,...overrides});}
 function upstream(provider:Provider){return new Response(events(provider),{headers:{'content-type':'text/event-stream'}});}
 
-test('all five providers retain native paths and terminal usage, with durable claim before upstream and server-only credentials',async()=>{
+test('all providers retain native paths and terminal usage, with durable claim before upstream and server-only credentials',async()=>{
  for(const provider of Object.keys(protocols) as Provider[]){
   const f=await fixture(provider),id=crypto.randomUUID();let calls=0;
   const g=gateway(async(url,init)=>{
    calls++;const [claim]=await db`SELECT status,request_hash FROM model_gateway_requests WHERE id=${id}`;expect(claim.status).toBe('forwarding');expect(claim.request_hash).toMatch(/^[a-f0-9]{64}$/);
-   const expected={google:'https://generativelanguage.googleapis.com/v1beta/models/fixture-model:streamGenerateContent?alt=sse',anthropic:'https://api.anthropic.com/v1/messages',openai:'https://api.openai.com/v1/responses',openrouter:'https://openrouter.ai/api/v1/chat/completions',zai:'https://api.z.ai/api/coding/paas/v4/chat/completions'};
+   const expected={google:'https://generativelanguage.googleapis.com/v1beta/models/fixture-model:streamGenerateContent?alt=sse',anthropic:'https://api.anthropic.com/v1/messages',azure:'https://resource.services.ai.azure.com/api/projects/project/openai/v1/responses',openai:'https://api.openai.com/v1/responses',openrouter:'https://openrouter.ai/api/v1/chat/completions',zai:'https://api.z.ai/api/coding/paas/v4/chat/completions'};
    expect(url).toBe(expected[provider]);expect(init.redirect).toBe('error');
    const headers=new Headers(init.headers);expect(headers.get('cookie')).toBeNull();expect(headers.get('x-companions-model-token')).toBeNull();
-   expect(headers.get(provider==='google'?'x-goog-api-key':provider==='anthropic'?'x-api-key':'authorization')).toContain('synthetic-server-only-key');
-   const body=JSON.parse(String(init.body));if(provider==='openai')expect(body.store).toBe(false);if(provider==='zai'||provider==='openrouter')expect(body.stream_options.include_usage).toBe(true);
+   expect(headers.get(provider==='google'?'x-goog-api-key':provider==='anthropic'?'x-api-key':provider==='azure'?'api-key':'authorization')).toContain('synthetic-server-only-key');
+   if(provider==='azure')expect(headers.get('authorization')).toBeNull();
+   const body=JSON.parse(String(init.body));if(provider==='openai'||provider==='azure')expect(body.store).toBe(false);if(provider==='zai'||provider==='openrouter')expect(body.stream_options.include_usage).toBe(true);
    return upstream(provider);
   });
   const response=await g.handle(request(f,id,{model:'fixture-model',stream:true},{cookie:'never-forward',authorization:'Bearer attacker'}));expect(response!.status).toBe(200);expect(await response!.text()).toBe(events(provider));await g.drain();
   const [row]=await db`SELECT * FROM model_gateway_requests WHERE id=${id}`;expect(row.status).toBe('succeeded');expect(row.usage_verified).toBe(true);expect(row.usage.totalTokens).toBe(20);expect(row.owner_id).toBe(f.owner);expect(row.usage.cacheRead).toBe(3);
   expect(JSON.stringify(row)).not.toContain('Private prompt');expect(JSON.stringify(row)).not.toContain('synthetic-server-only-key');
   expect((await g.handle(request(f,id)))!.status).toBe(409);expect(calls).toBe(1);
+ }
+});
+
+test('Azure provider URLs are confined to supported Azure Responses endpoints',async()=>{
+ for(const value of ['https://attacker.invalid/openai/v1/responses','http://resource.services.ai.azure.com/openai/v1/responses','https://resource.services.ai.azure.com/other/responses','https://resource.services.ai.azure.com/openai/v1/responses?target=other']){
+  const f=await fixture('azure');let calls=0;const g=gateway(()=>{calls++;return upstream('azure');},{azureBaseUrl:value});
+  expect((await g.handle(request(f)))!.status).toBe(503);expect(calls).toBe(0);
  }
 });
 
@@ -119,7 +127,7 @@ test('OpenRouter Anthropic-native models keep their catalog protocol and fixed M
 test('native function tools work while hosted tools, priority tiers and non-text generation are rejected on every protocol',async()=>{
  for(const provider of Object.keys(protocols) as Provider[]){
   const f=await fixture(provider);let calls=0;const g=gateway(()=>{calls++;return upstream(provider);});
-  const tool=provider==='google'?{functionDeclarations:[{name:'bash',parameters:{type:'object'}}]}:provider==='anthropic'?{name:'bash',input_schema:{type:'object'}}:provider==='openai'?{type:'function',name:'bash',parameters:{type:'object'}}:{type:'function',function:{name:'bash',parameters:{type:'object'}}};
+  const tool=provider==='google'?{functionDeclarations:[{name:'bash',parameters:{type:'object'}}]}:provider==='anthropic'?{name:'bash',input_schema:{type:'object'}}:provider==='openai'||provider==='azure'?{type:'function',name:'bash',parameters:{type:'object'}}:{type:'function',function:{name:'bash',parameters:{type:'object'}}};
   const valid=await g.handle(request(f,undefined,{model:'fixture-model',stream:true,tools:[tool]}));expect(valid!.status).toBe(200);await valid!.text();await g.drain();
   const hosted=provider==='google'?{googleSearch:{}}:provider==='anthropic'?{type:'web_search_20250305',name:'web_search'}:{type:'web_search'};
   for(const extra of [{tools:[hosted]},{service_tier:'priority'},{web_search_options:{}},{priority:100},{generationConfig:{responseModalities:['IMAGE']}},{modalities:['audio']}])expect((await g.handle(request(f,undefined,{model:'fixture-model',stream:true,...extra})))!.status).toBe(403);

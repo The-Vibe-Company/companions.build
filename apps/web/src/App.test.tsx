@@ -192,7 +192,7 @@ describe("first Companion flow", () => {
     vi.stubGlobal("EventSource", FakeEventSource);
     render(<App />);
     expect(await screen.findByRole("textbox", { name: "Message Ada" })).toBeInTheDocument();
-    expect(FakeEventSource.instances).toHaveLength(1);
+    await waitFor(() => expect(FakeEventSource.instances).toHaveLength(1));
     expect(FakeEventSource.instances[0].url).toBe("/api/companions/ada/events");
 
     const baselineRequests = detailRequests;

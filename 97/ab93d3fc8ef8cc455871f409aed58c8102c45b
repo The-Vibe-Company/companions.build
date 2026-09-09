@@ -1,0 +1,123 @@
+apps/server/test/product-acceptance.test.ts
+  s_e9d1089e8953ad::t_de664d3d9cfdb9 86-94
+  s_e9d1089e8953ad::t_3cabb8bd2723c2 124-129,138-140
+packages/agent/src/pi-executor.ts
+  s_e9d1089e8953ad::t_3cabb8bd2723c2 10,27,94,121,202,212-221,230,240-248,250,252,258,267,293
+packages/agent/src/companion-instructions.ts
+  s_e9d1089e8953ad::t_3cabb8bd2723c2 15
+packages/agent/src/types.ts
+  s_e9d1089e8953ad::t_3cabb8bd2723c2 8-10,23
+apps/server/src/control-help.ts
+  s_e9d1089e8953ad::t_3cabb8bd2723c2 10
+apps/server/src/specialist-drafts.ts
+  s_e9d1089e8953ad::t_3cabb8bd2723c2 37
+apps/server/src/store.ts
+  s_e9d1089e8953ad::t_c4a7bfdb384bc2 105-106,109-111
+  s_e9d1089e8953ad::t_3cabb8bd2723c2 7,123,129-134,153
+packages/agent/src/scripted-model.ts
+  s_e9d1089e8953ad::t_3cabb8bd2723c2 56-58
+  s_e9d1089e8953ad::t_de664d3d9cfdb9 116-118
+apps/web/src/components/RoutineNotifications.tsx
+  s_e9d1089e8953ad::t_4595abeb325ef8 39-183
+  s_e9d1089e8953ad::t_840d5c537fdbf6 36-38
+  s_e9d1089e8953ad::t_5c4d8c104f30be 184-186
+  s_e9d1089e8953ad::t_2308785759860c 1-35,187-190
+docs/companions-build.md
+  s_e9d1089e8953ad::t_3cabb8bd2723c2 5-11
+packages/agent/test/linux-acceptance.test.ts
+  s_e9d1089e8953ad::t_3cabb8bd2723c2 32,35-37,39-45
+apps/server/test/chat-notifications.test.ts
+  s_e9d1089e8953ad::t_138add6c213e63 1-92
+packages/control/agent.ts
+  s_e9d1089e8953ad::t_3cabb8bd2723c2 17,104-108
+docs/dev-workflow.md
+  s_e9d1089e8953ad::t_3cabb8bd2723c2 292-320
+packages/agent/src/index.ts
+  s_e9d1089e8953ad::t_3cabb8bd2723c2 33
+packages/agent/test/daemon.test.ts
+  s_e9d1089e8953ad::t_3cabb8bd2723c2 289,294,297
+apps/server/test/automations.test.ts
+  s_e9d1089e8953ad::t_d817f050c79747 300
+apps/server/src/control.ts
+  s_e9d1089e8953ad::t_3cabb8bd2723c2 9,31,58-62
+apps/server/src/automation-routes.ts
+  s_e9d1089e8953ad::t_3cabb8bd2723c2 12,15
+packages/agent/src/journal.ts
+  s_e9d1089e8953ad::t_3cabb8bd2723c2 11,43,103,105,126,143
+scripts/dev-browser-test.py
+  s_e9d1089e8953ad::t_381a54e62c8f55 5,123-145,147-159,161-171,174,200-201
+  s_e9d1089e8953ad::t_6531b0d20f2492 146,160
+apps/server/src/api.ts
+  s_e9d1089e8953ad::t_3cabb8bd2723c2 1,157-158
+  s_e9d1089e8953ad::t_c4a7bfdb384bc2 182-184,187,191-192
+  s_e9d1089e8953ad::t_314a07af78159d 186
+  s_e9d1089e8953ad::t_2e2534f5c26a5d 181
+apps/server/src/executor.ts
+  s_e9d1089e8953ad::t_3cabb8bd2723c2 2,55,86
+apps/server/src/chat-events.ts
+  s_e9d1089e8953ad::t_fcf63a373308c4 1-42
+apps/server/src/chat-notifications.sql
+  s_e9d1089e8953ad::t_552583ca5e0d86 1-93
+apps/server/src/notifications.ts
+  s_e9d1089e8953ad::t_d58f28efaad977 1-51
+apps/web/src/App.test.tsx
+  s_e9d1089e8953ad::t_2b4b1ee74fa8c3 4,21-50,1043,1060-1062,1064,1085,1134,1152-1153,1157-1158
+apps/web/src/App.tsx
+  s_e9d1089e8953ad::t_1f2c6f5cc14104 3,18,50,57,119-146,207-208,221-222,233-235,249-250,263,284-293,298,302,376,380,396,438,479,481-483,491,496,498,590-591,644-652,678,688,763,765,769,783-796,799,869-870,887,889
+apps/web/src/api.ts
+  s_e9d1089e8953ad::t_7994bbea4b0cfb 38-40,100-101,114-156,264-268,376
+apps/web/src/components/AutomationPanels.test.tsx
+  s_e9d1089e8953ad::t_0a4808ae5312f3 184,198,202,205-206
+apps/web/src/components/AutomationPanels.tsx
+  s_e9d1089e8953ad::t_c196b9596bcb56 37,62,188-189,192
+apps/web/src/components/CompanionHeader.css
+  s_e9d1089e8953ad::t_0da8faefa14e6c 19-21,37
+apps/web/src/components/CompanionHeader.tsx
+  s_e9d1089e8953ad::t_420fa5d0a088a0 2,11,14,48,62-63
+apps/web/src/components/Question.test.tsx
+  s_e9d1089e8953ad::t_5fe1fa84b824df 49-57
+apps/web/src/components/Question.tsx
+  s_e9d1089e8953ad::t_3dffdf9707a861 1,5-7,10
+apps/web/src/components/RoutineChat.test.tsx
+  s_e9d1089e8953ad::t_eaed6d2ea47c70 57,74,76
+apps/web/src/components/RoutineChat.tsx
+  s_e9d1089e8953ad::t_fb37fa4b68f298 15,97
+apps/web/src/components/RoutineNotifications.css
+  s_e9d1089e8953ad::t_83346339b9af43 1-7
+apps/web/src/components/RoutineNotifications.test.tsx
+  s_e9d1089e8953ad::t_99b7fdd7112be1 1-79
+apps/web/src/components/SpecialistDraftPanel.tsx
+  s_e9d1089e8953ad::t_a4dc53f4e84d79 23,169,218
+apps/web/src/index.css
+  s_e9d1089e8953ad::t_1be0059194a1f5 113,130-137
+apps/web/src/maison.css
+  s_e9d1089e8953ad::t_e86d9395c39519 207
+docs/specs/chat-and-routine-notifications.md
+  s_e9d1089e8953ad::t_60ca0005e84cf8 1-383
+docs/specs/chat-and-routine-notifications.review.md
+  s_fefcc02711a2c2::t_5118011a56b7ea 1-167
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "97ab93d3fc8ef8cc455871f409aed58c8102c45b",
+  "prompts": {},
+  "sessions": {
+    "s_e9d1089e8953ad": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0861d-bab2-7431-96ec-f8bd2bd4d45e",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "StanGirard <stan@quivr.app>"
+    },
+    "s_fefcc02711a2c2": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a085fb-802b-7df0-bcda-ae21c37d8f3e",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "StanGirard <stan@quivr.app>"
+    }
+  }
+}

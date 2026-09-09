@@ -54,3 +54,10 @@ CREATE TABLE IF NOT EXISTS routine_missed_windows (
 
 -- Search only task prompts/results; never index staged instructions or provider credentials.
 CREATE INDEX IF NOT EXISTS runs_history_search_idx ON runs USING gin(to_tsvector('simple',content || E'\n' || COALESCE(result_text,'')));
+
+-- Snapshot routine provenance and publication policy at durable admission.
+ALTER TABLE routines ADD COLUMN IF NOT EXISTS publication_mode text NOT NULL DEFAULT 'auto' CHECK (publication_mode IN ('auto','always','silent'));
+ALTER TABLE runs ADD COLUMN IF NOT EXISTS routine_name text;
+ALTER TABLE runs ADD COLUMN IF NOT EXISTS publication_mode text NOT NULL DEFAULT 'auto' CHECK (publication_mode IN ('auto','always','silent'));
+-- Older scheduled runs had only the routine ID; retain the best available name once.
+UPDATE runs r SET routine_name=rt.name FROM routines rt WHERE r.routine_id=rt.id AND r.routine_name IS NULL;

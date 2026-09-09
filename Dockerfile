@@ -24,7 +24,7 @@ RUN set -eu; output=/tmp/companion-agent-startup; \
     if env -u AGENT_TOKEN /app/dist/agent/companion-agent >"$output" 2>&1; then exit 1; fi; \
     test "$(cat "$output")" = MISSING_AGENT_TOKEN; rm -f "$output"
 
-FROM oven/bun:1.4.2-alpine@sha256:d888c0ae6c86d7866ff10c5aafdd9077b36aee6455b33dd270fb93c0dd5cef6f
+FROM oven/bun:1.4.2-debian@sha256:4f6e31d1a54d6a3dd312daef655fc998101b5043d52e12592ac293ef04b9bc73
 WORKDIR /app
 ENV NODE_ENV=production \
     COMPANIONS_SCHEMA_PREPARED=1 \

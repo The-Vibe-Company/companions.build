@@ -247,6 +247,7 @@ describe("first Companion flow", () => {
 
     const createCall = fetchMock.mock.calls.find(([, options]) => options?.method === "POST");
     expect(JSON.parse(createCall?.[1]?.body as string)).toEqual({
+      profileId: "default-v1",
       clientCreationId: expect.stringMatching(/^[0-9a-f-]{36}$/),
       prepare: true,
       name: "Ada",

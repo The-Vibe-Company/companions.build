@@ -22,6 +22,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import "./CreateCompanion.css";
+import { isProfileId, profiles, type ProfileId } from "../../../../packages/workbench/profiles";
 
 type CreateCompanionProps = {
   config: AppConfig;
@@ -63,6 +64,9 @@ export function CreateCompanion({ config, onCreated, compact = false, ownerId, o
   const [appearanceExpanded, setAppearanceExpanded] = useState(false);
   const firstProvider: "local" | "box" = config.defaultProvider ?? (config.localAvailable && !config.boxAvailable ? "local" : "box");
   const [name, setName] = useState(restored.current?.request.name ?? "");
+  const savedProfileId = restored.current?.request.profileId;
+  const unsupportedProfile = savedProfileId != null && !isProfileId(savedProfileId);
+  const [profileId, setProfileId] = useState<ProfileId>(isProfileId(savedProfileId) ? savedProfileId : "default-v1");
   const [instructions, setInstructions] = useState(restored.current?.request.instructions ?? "");
   const [provider, setProvider] = useState<"local" | "box">(restored.current?.request.provider ?? firstProvider);
   const [avatar, setAvatar] = useState<CompanionAvatarValue>(() => restored.current?.request.avatar ?? randomizeAvatar());
@@ -185,7 +189,7 @@ export function CreateCompanion({ config, onCreated, compact = false, ownerId, o
 
   async function submit(event: FormEvent) {
     event.preventDefault();
-    if (!name.trim() || !instructions.trim() || loadingSetup || setupError || submissionPending.current) return;
+    if (unsupportedProfile || !name.trim() || !instructions.trim() || loadingSetup || setupError || submissionPending.current) return;
     submissionPending.current = true;
     setAttempted(true);
     setupLockCallback.current?.(true);
@@ -200,6 +204,7 @@ export function CreateCompanion({ config, onCreated, compact = false, ownerId, o
         avatar,
         prepare: true,
         clientCreationId: creationId.current,
+        profileId,
         ...(sourceTemplate ? { templateId: sourceTemplate.id, templateRevision: sourceTemplate.revision } : {}),
       };
     }
@@ -250,7 +255,7 @@ export function CreateCompanion({ config, onCreated, compact = false, ownerId, o
     }
   }
 
-  const canCreate = Boolean(name.trim() && instructions.trim() && !loadingSetup && !setupError && (config.localAvailable || config.boxAvailable));
+  const canCreate = Boolean(!unsupportedProfile && name.trim() && instructions.trim() && !loadingSetup && !setupError && (config.localAvailable || config.boxAvailable));
 
   return <form className={cn("create-companion", compact && "create-companion--compact")} onSubmit={submit}>
     <section className="create-companion-preview" aria-label="Companion preview">
@@ -278,6 +283,14 @@ export function CreateCompanion({ config, onCreated, compact = false, ownerId, o
 
     <section className="create-companion-fields">
       <header><h1>{compact ? "New companion" : "Create your first Companion"}</h1></header>
+      <div className="field create-profile-field">
+        <label htmlFor="create-companion-profile">Companion type</label>
+        <select id="create-companion-profile" value={unsupportedProfile ? "unavailable" : profileId} disabled={selectionLocked} onChange={event => setProfileId(event.target.value as ProfileId)} aria-describedby="create-profile-help">
+          {unsupportedProfile && <option value="unavailable">Unavailable Companion type</option>}
+          {Object.values(profiles).map(profile => <option key={profile.id} value={profile.id}>{profile.title}</option>)}
+        </select>
+        <p id="create-profile-help" role={unsupportedProfile ? "alert" : undefined}>{unsupportedProfile ? "This saved creation uses a type unavailable in this app version. Its original request is kept; reopen it with a compatible version to continue." : `${profiles[profileId].description} The type is fixed after creation.`}</p>
+      </div>
       <div className="create-companion-basics">
         <div className="field"><label htmlFor="create-companion-name">Name</label><input id="create-companion-name" value={name} maxLength={80} disabled={selectionLocked} onChange={event => setName(event.target.value)} placeholder="Ada" autoFocus={!compact}/></div>
         <div className="field"><label htmlFor="create-companion-purpose">Role</label><Textarea id="create-companion-purpose" value={instructions} maxLength={20_000} disabled={selectionLocked} onChange={event => setInstructions(event.target.value)} placeholder="Research customer questions and turn the findings into clear briefs." rows={1}/></div>

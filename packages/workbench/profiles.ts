@@ -1,0 +1,55 @@
+/** First-party product contracts. Names and editable instructions never select a profile. */
+export type ProfileId = "default-v1" | "design-v1";
+export type ModuleId = "chat" | "artifact-preview" | "artifact-history" | "assets" | "design-brief";
+export interface ModuleDescriptor {
+  readonly id: ModuleId;
+  readonly title: string;
+  readonly placement: "central" | "side";
+}
+export interface SkillReference { readonly id: string; readonly version: string }
+export interface ProfileDescriptor {
+  readonly id: ProfileId;
+  readonly title: string;
+  readonly description: string;
+  readonly modules: readonly ModuleId[];
+  readonly skills: readonly SkillReference[];
+  readonly capabilities: readonly ("workspace-files" | "static-artifact-read")[];
+  readonly artifactTypes: readonly "static-html"[];
+  readonly runtime: { readonly kind: "pi-linux"; readonly artifactPublication: "unavailable" };
+}
+
+export const moduleRegistry: Readonly<Record<ModuleId, ModuleDescriptor>> = {
+  chat: { id: "chat", title: "Chat", placement: "central" },
+  "artifact-preview": { id: "artifact-preview", title: "Preview", placement: "side" },
+  "artifact-history": { id: "artifact-history", title: "History", placement: "side" },
+  assets: { id: "assets", title: "Assets", placement: "side" },
+  "design-brief": { id: "design-brief", title: "Design brief", placement: "side" },
+};
+
+export const designSkill = { id: "first-party/design-foundation", version: "1.0.0" } as const;
+export const profiles: Readonly<Record<ProfileId, ProfileDescriptor>> = {
+  "default-v1": {
+    id: "default-v1", title: "General", description: "A flexible Companion for everyday work.",
+    modules: ["chat"], skills: [], capabilities: ["workspace-files"], artifactTypes: [],
+    runtime: { kind: "pi-linux", artifactPublication: "unavailable" },
+  },
+  "design-v1": {
+    id: "design-v1", title: "Design", description: "A design workbench with a brief, assets and space for previews. Artifact publishing is coming next.",
+    modules: ["chat", "artifact-preview", "artifact-history", "assets", "design-brief"],
+    skills: [designSkill], capabilities: ["workspace-files", "static-artifact-read"], artifactTypes: ["static-html"],
+    runtime: { kind: "pi-linux", artifactPublication: "unavailable" },
+  },
+};
+
+export function isProfileId(value: unknown): value is ProfileId {
+  return value === "default-v1" || value === "design-v1";
+}
+
+/** Null is a legacy default, not a stored migration or a guessed specialization. */
+export function resolveProfile(id?: string | null): ProfileDescriptor {
+  return isProfileId(id) ? profiles[id] : profiles["default-v1"];
+}
+
+export function composeModules(id?: string | null): readonly ModuleDescriptor[] {
+  return resolveProfile(id).modules.map(moduleId => moduleRegistry[moduleId]);
+}

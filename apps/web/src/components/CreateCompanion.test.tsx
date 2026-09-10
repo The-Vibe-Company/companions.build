@@ -40,6 +40,31 @@ beforeEach(() => { window.sessionStorage.clear(); mockSetup(); vi.spyOn(workspac
 afterEach(() => vi.restoreAllMocks());
 
 describe("CreateCompanion", () => {
+  it.each(["future-v2", { invalid: "profile" }])("preserves an unsupported saved creation without crashing or silently retyping it", async profileId => {
+    const create = vi.spyOn(api, "createCompanion");
+    const intent = { request: { clientCreationId: "kept-creation-id", name: "Ada", instructions: "Saved mission", provider: "box", profileId }, accountIds: [], specialistIds: [], completedAccountIds: [], completedSpecialistIds: [] };
+    window.sessionStorage.setItem("companions.create.pending.owner", JSON.stringify(intent));
+    render(<CreateCompanion config={config} ownerId="owner" onCreated={vi.fn()}/>);
+    expect(await screen.findByRole("alert")).toHaveTextContent("type unavailable in this app version");
+    expect(screen.getByLabelText("Companion type")).toHaveDisplayValue("Unavailable Companion type");
+    expect(screen.getByRole("button", { name: "Resume setup" })).toBeDisabled();
+    expect(create).not.toHaveBeenCalled();
+    expect(JSON.parse(window.sessionStorage.getItem("companions.create.pending.owner")!)).toEqual(intent);
+  });
+  it("freezes an explicit Design type with the creation intent and retries the same profile", async () => {
+    const user = userEvent.setup();
+    const create = vi.spyOn(api, "createCompanion").mockRejectedValueOnce(new Error("Connection lost")).mockResolvedValueOnce({ companion: { ...companion, profileId: "design-v1" } });
+    render(<CreateCompanion config={config} onCreated={vi.fn()}/>);
+    await enterBasics(user);
+    await user.selectOptions(screen.getByLabelText("Companion type"), "design-v1");
+    await user.click(screen.getByRole("button", { name: "Create companion" }));
+    await screen.findByText("Connection lost");
+    expect(screen.getByLabelText("Companion type")).toBeDisabled();
+    expect(create.mock.calls[0][0].profileId).toBe("design-v1");
+    await user.click(screen.getByRole("button", { name: "Resume setup" }));
+    await waitFor(() => expect(create).toHaveBeenCalledTimes(2));
+    expect(create.mock.calls[1][0]).toEqual(create.mock.calls[0][0]);
+  });
   it("shows live identity controls and groups real account and specialist choices", async () => {
     vi.spyOn(api, "createCompanion");
     const user = userEvent.setup();

@@ -1,0 +1,16 @@
+{
+  "id": "first-party/design-foundation",
+  "version": "1.0.0",
+  "status": "staged",
+  "entrypoint": "SKILL.md",
+  "files": [
+    {
+      "path": "SKILL.md",
+      "sha256": "0a05f11bbb659e079a9228736f29523ea7372fa334ace03e3594a29b8619b0e4"
+    },
+    {
+      "path": "references/critique.md",
+      "sha256": "5de6f56e89e92df7d06ce81f8f94b038e5577bfea12e5f31ee14f7437d1de0dc"
+    }
+  ]
+}

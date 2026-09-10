@@ -1,0 +1,196 @@
+.agents/skills/capture-learning-tools/references/testing-policy.md
+  s_c06f0fd3815872::t_71aa2330c79503 1-57
+.agents/skills/review-code-dev/references/reviewers/performance.md
+  s_c06f0fd3815872::t_71aa2330c79503 1-28
+.agents/skills/review-code-dev/references/reviewers/red-team.md
+  s_c06f0fd3815872::t_71aa2330c79503 1-30
+.agents/skills/review-code-dev/references/output-contract.md
+  s_c06f0fd3815872::t_71aa2330c79503 1-375
+.agents/skills/review-code-dev/scripts/veille_pr_state.py
+  s_c06f0fd3815872::t_71aa2330c79503 1-228
+.agents/skills/design-frontend-dev/reference/adapt.md
+  s_c06f0fd3815872::t_71aa2330c79503 1-311
+.agents/skills/design-frontend-dev/reference/brand.md
+  s_c06f0fd3815872::t_71aa2330c79503 1-108
+.agents/skills/design-frontend-dev/reference/product.md
+  s_c06f0fd3815872::t_71aa2330c79503 1-60
+.agents/skills/review-code-dev/scripts/collect_review_context.py
+  s_c06f0fd3815872::t_71aa2330c79503 1-90,92-333,335-338,343-421
+  s_c06f0fd3815872::t_e88738c32367dc 91,334,339-342
+.agents/skills/ship-pr-dev/references/agent-routing.md
+  s_c06f0fd3815872::t_71aa2330c79503 1-122
+.agents/skills/ship-pr-dev/references/pr-template.md
+  s_c06f0fd3815872::t_71aa2330c79503 1-75
+.agents/skills/design-frontend-dev/reference/optimize.md
+  s_c06f0fd3815872::t_6b98b69eb7447d 37
+  s_c06f0fd3815872::t_71aa2330c79503 1-36,38-258
+.agents/skills/design-frontend-dev/reference/layout.md
+  s_c06f0fd3815872::t_71aa2330c79503 1-161
+.agents/skills/design-frontend-dev/reference/overdrive.md
+  s_c06f0fd3815872::t_71aa2330c79503 1-130
+.agents/skills/review-code-dev/references/reviewers/api-contract.md
+  s_c06f0fd3815872::t_71aa2330c79503 1-29
+.agents/skills/capture-learning-tools/references/project-memory.md
+  s_c06f0fd3815872::t_71aa2330c79503 1-46
+.agents/skills/review-code-dev/scripts/prepare_review_run.py
+  s_c06f0fd3815872::t_71aa2330c79503 1-52,55-65,70-142
+  s_c06f0fd3815872::t_7bcce8b6306252 53-54,66-69
+.agents/skills/ship-pr-dev/scripts/test_collect_ship_context.py
+  s_c06f0fd3815872::t_71aa2330c79503 1-66
+.agents/skills/capture-learning-tools/references/cross-agent-linking.md
+  s_c06f0fd3815872::t_71aa2330c79503 1-56
+.agents/skills/review-code-dev/references/subagent-briefs.md
+  s_c06f0fd3815872::t_71aa2330c79503 1-335
+.agents/skills/capture-learning-tools/evals/evals.json
+  s_c06f0fd3815872::t_71aa2330c79503 1-29
+.agents/skills/ship-pr-dev/companion.json
+  s_c06f0fd3815872::t_71aa2330c79503 1-85
+.agents/skills/design-frontend-dev/reference/colorize.md
+  s_c06f0fd3815872::t_71aa2330c79503 1-245
+.agents/skills/ship-pr-dev/scripts/collect_ship_context.py
+  s_c06f0fd3815872::t_71aa2330c79503 1-217
+AGENTS.md
+  s_c06f0fd3815872::t_41e962bcfd4bd5 23-25
+.agents/skills/design-frontend-dev/reference/harden.md
+  s_c06f0fd3815872::t_71aa2330c79503 1-123,127-237,239-347
+  s_c06f0fd3815872::t_6b98b69eb7447d 124-126,238
+.agents/skills/design-frontend-dev/reference/shape.md
+  s_c06f0fd3815872::t_71aa2330c79503 1-165
+.agents/skills/ship-pr-dev/SKILL.md
+  s_c06f0fd3815872::t_71aa2330c79503 1-134
+.agents/skills/capture-learning-tools/companion.json
+  s_c06f0fd3815872::t_71aa2330c79503 1-50
+.agents/skills/review-code-dev/agents/openai.yaml
+  s_c06f0fd3815872::t_71aa2330c79503 1-4
+.agents/skills/design-frontend-dev/reference/clarify.md
+  s_c06f0fd3815872::t_71aa2330c79503 1-288
+.agents/skills/review-code-dev/references/reviewers/backend.md
+  s_c06f0fd3815872::t_71aa2330c79503 1-29
+.agents/skills/design-frontend-dev/reference/polish.md
+  s_c06f0fd3815872::t_71aa2330c79503 1-236
+.agents/skills/design-frontend-dev/reference/interaction-design.md
+  s_c06f0fd3815872::t_71aa2330c79503 1-189
+.agents/skills/design-frontend-dev/reference/onboard.md
+  s_c06f0fd3815872::t_71aa2330c79503 1-234
+.agents/skills/capture-learning-tools/scripts/inspect_ci_surface.py
+  s_c06f0fd3815872::t_71aa2330c79503 1-115
+.agents/skills/ship-pr-dev/references/readiness-gates.md
+  s_c06f0fd3815872::t_71aa2330c79503 1-92
+.agents/skills/capture-learning-tools/references/examples.md
+  s_c06f0fd3815872::t_71aa2330c79503 1-61
+.agents/skills/design-frontend-dev/reference/typeset.md
+  s_c06f0fd3815872::t_71aa2330c79503 1-279
+.agents/skills/review-code-dev/SKILL.md
+  s_c06f0fd3815872::t_71aa2330c79503 1-134
+.agents/skills/review-code-dev/references/reviewers/architecture.md
+  s_c06f0fd3815872::t_71aa2330c79503 1-29
+.agents/skills/review-code-dev/references/local-review-rules.md
+  s_c06f0fd3815872::t_71aa2330c79503 1-50
+.agents/skills/review-code-dev/references/finding-rubric.md
+  s_c06f0fd3815872::t_71aa2330c79503 1-99
+.agents/skills/capture-learning-tools/references/ci-policy.md
+  s_c06f0fd3815872::t_71aa2330c79503 1-84
+.agents/skills/capture-learning-tools/scripts/inspect_project_guidance.py
+  s_c06f0fd3815872::t_71aa2330c79503 1-137
+.agents/skills/design-frontend-dev/SOURCE.md
+  s_c06f0fd3815872::t_71aa2330c79503 1-26
+.agents/skills/capture-learning-tools/references/non-technical-mode.md
+  s_c06f0fd3815872::t_71aa2330c79503 1-36
+.agents/skills/design-frontend-dev/reference/quieter.md
+  s_c06f0fd3815872::t_71aa2330c79503 1-99
+.agents/skills/design-frontend-dev/reference/distill.md
+  s_c06f0fd3815872::t_71aa2330c79503 1-111
+.agents/skills/review-code-dev/companion.json
+  s_c06f0fd3815872::t_71aa2330c79503 1-84
+.agents/skills/ship-pr-dev/references/workflow.md
+  s_c06f0fd3815872::t_71aa2330c79503 1-64
+.agents/skills/review-code-dev/scripts/test_collect_review_context.py
+  s_c06f0fd3815872::t_e88738c32367dc 1-76
+.agents/skills/design-frontend-dev/evals/evals.json
+  s_c06f0fd3815872::t_71aa2330c79503 1-20
+.agents/skills/review-code-dev/scripts/test_veille_pr_state.py
+  s_c06f0fd3815872::t_71aa2330c79503 1-56
+.agents/skills/capture-learning-tools/references/agent-instructions.md
+  s_c06f0fd3815872::t_71aa2330c79503 1-71
+.agents/skills/review-code-dev/references/reviewers/data-migration.md
+  s_c06f0fd3815872::t_71aa2330c79503 1-28
+.agents/skills/review-code-dev/references/reviewers/security.md
+  s_c06f0fd3815872::t_71aa2330c79503 1-29
+.agents/skills/ship-pr-dev/scripts/prepare_ship_run.py
+  s_c06f0fd3815872::t_71aa2330c79503 1-31,42-91
+  s_c06f0fd3815872::t_7bcce8b6306252 32-41
+docs/dev-workflow.md
+  s_c06f0fd3815872::t_41e962bcfd4bd5 8-29,32
+  s_c06f0fd3815872::t_e88738c32367dc 30-31
+.gitignore
+  s_c06f0fd3815872::t_41e962bcfd4bd5 11-12
+.agents/skills/review-code-dev/references/review-intelligence.md
+  s_c06f0fd3815872::t_71aa2330c79503 1-113
+.agents/skills/review-code-dev/references/review-playbook.md
+  s_c06f0fd3815872::t_71aa2330c79503 1-155
+.agents/skills/design-frontend-dev/SKILL.md
+  s_c06f0fd3815872::t_71aa2330c79503 1-143
+.agents/skills/review-code-dev/evals/evals.json
+  s_c06f0fd3815872::t_71aa2330c79503 1-105
+.agents/skills/capture-learning-tools/SKILL.md
+  s_c06f0fd3815872::t_71aa2330c79503 1-152
+.agents/skills/capture-learning-tools/scripts/classify_learning.py
+  s_c06f0fd3815872::t_71aa2330c79503 1-72
+.agents/skills/design-frontend-dev/companion.json
+  s_c06f0fd3815872::t_71aa2330c79503 1-48
+.agents/skills/design-frontend-dev/reference/animate.md
+  s_c06f0fd3815872::t_71aa2330c79503 1-201
+.agents/skills/design-frontend-dev/reference/audit.md
+  s_c06f0fd3815872::t_71aa2330c79503 1-132
+.agents/skills/review-code-dev/references/reviewers/frontend.md
+  s_c06f0fd3815872::t_71aa2330c79503 1-48
+.agents/skills/design-frontend-dev/reference/bolder.md
+  s_c06f0fd3815872::t_71aa2330c79503 1-113
+.agents/skills/review-code-dev/references/reviewers/tests.md
+  s_c06f0fd3815872::t_71aa2330c79503 1-28
+.agents/skills/review-code-dev/scripts/parse_review_findings.py
+  s_c06f0fd3815872::t_71aa2330c79503 1-81
+.agents/skills/design-frontend-dev/reference/delight.md
+  s_c06f0fd3815872::t_71aa2330c79503 1-302
+.agents/skills/capture-learning-tools/references/conversation-analysis.md
+  s_c06f0fd3815872::t_71aa2330c79503 1-44
+.agents/skills/ship-pr-dev/evals/evals.json
+  s_c06f0fd3815872::t_71aa2330c79503 1-85
+scripts/shared_skills_test.py
+  s_c06f0fd3815872::t_52b34a37dee753 1-3,5-21,25-111
+  s_c06f0fd3815872::t_d07d66aa71071f 4,22-24
+.agents/skills/design-frontend-dev/reference/critique.md
+  s_c06f0fd3815872::t_71aa2330c79503 1-59
+.agents/skills/capture-learning-tools/references/promotion-matrix.md
+  s_c06f0fd3815872::t_71aa2330c79503 1-44
+.agents/skills/design-frontend-dev/LICENSE
+  s_c06f0fd3815872::t_410312fc792745 1-191
+.agents/skills/review-code-dev/scripts/.gitignore
+  s_c06f0fd3815872::t_8a9f9c1b04101d 1-2
+.agents/skills/ship-pr-dev/scripts/.gitignore
+  s_c06f0fd3815872::t_fec73605541d51 1-2
+.claude/skills/capture-learning-tools
+  s_c06f0fd3815872::t_b7f02994a5515d 1
+.claude/skills/design-frontend-dev
+  s_c06f0fd3815872::t_2ed13377ca5cef 1
+.claude/skills/review-code-dev
+  s_c06f0fd3815872::t_3b718b3f8abad1 1
+.claude/skills/ship-pr-dev
+  s_c06f0fd3815872::t_2be4f95bf672ef 1
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "8362370e60b2e77d38cd1018a6e39861c63203f6",
+  "prompts": {},
+  "sessions": {
+    "s_c06f0fd3815872": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a08a30-ccce-79a0-8693-f41f2a8795ac",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "StanGirard <stan@quivr.app>"
+    }
+  }
+}

@@ -23,14 +23,26 @@ export async function applyControl(companionId:string,raw:unknown,execution?:Run
   const claimCommand=(sql:any)=>sql`INSERT INTO control_commands (id,companion_id,run_id,operation) VALUES (${command.id},${companionId},${command.runId},${command.operation}) ON CONFLICT DO NOTHING RETURNING id`;
   const [claim]=execution?await execution.checkpoint(claimCommand):await claimCommand(db);
   if(!claim) {
-    const [previous]=await db`SELECT result,result_secret,status FROM control_commands WHERE id=${command.id} AND companion_id=${companionId} AND run_id=${command.runId}`;
-    return (previous?.result_secret?JSON.parse(decrypt(previous.result_secret)):previous?.result)??{error:'The previous attempt has an unknown outcome. Inspect the current state before requesting a new change.'};
+    const [previous]=await db`SELECT operation,result,result_secret,status FROM control_commands WHERE id=${command.id} AND companion_id=${companionId} AND run_id=${command.runId}`;
+    const result=previous?.result_secret?JSON.parse(decrypt(previous.result_secret)):previous?.result;
+    // Old daemons can remain parked until their question is answered, which also
+    // defers their runtime update. Resolve only the existing unanswered question;
+    // preserve explicit answers and requests with an unknown outcome.
+    if(command.operation==='app_tool_confirm'&&previous?.operation===command.operation&&result?.pendingQuestionId===command.id){
+      const answer=(sql:any)=>sql`UPDATE task_questions SET answer='Approve this call',answered_at=now(),context_text=(SELECT preview_text FROM runs WHERE id=${command.runId}) WHERE id=${command.id} AND companion_id=${companionId} AND run_id=${command.runId} AND answer IS NULL`;
+      if(execution)await execution.checkpoint(answer);else await answer(db);
+    }
+    return result??{error:'The previous attempt has an unknown outcome. Inspect the current state before requesting a new change.'};
   }
   let result:unknown;
   try {
     if(['companion_create','routine_save','routine_test','trigger_save','trigger_test','prepare','software_prepare','spawn','delegate','adopt_template','desktop_takeover'].includes(command.operation))await requireHostedActivation(actor.owner_id);
     await execution?.assertActive();
-    const handle=controlHandlers[command.operation as ControlOperation];
+    // Compatibility for old runtimes: acknowledge directly without exposing this
+    // retired operation in discovery or creating a human approval question.
+    const handle=command.operation==='app_tool_confirm'
+      ?async()=>({answer:'Approve this call'})
+      :controlHandlers[command.operation as ControlOperation];
     if(!handle) result={error:'This operation is not available.'};
     else if(actor.parent_id&&['spawn','adopt_template','template_save','template_rollback','software_prepare','software_status'].includes(command.operation)) result={error:'Ask your parent to manage templates and additional agents.'};
     else result=await handle({ownerId:actor.owner_id,companionId,runId:command.runId,commandId:command.id,isChild:!!actor.parent_id},command.input);

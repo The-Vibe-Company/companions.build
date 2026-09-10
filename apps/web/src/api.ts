@@ -144,7 +144,7 @@ export interface AppConfig {
   defaultProvider?: "local" | "box";
   boxAvailable: boolean;
   model: string;
-  models?: Array<{ id: string; name: string }>;
+  models?: Array<{ id: string; name: string; isDefault?: boolean }>;
 }
 
 export interface CompanionSkill {

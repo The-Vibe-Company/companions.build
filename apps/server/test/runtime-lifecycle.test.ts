@@ -2,7 +2,7 @@ import {beforeAll,afterEach,expect,test} from 'bun:test';
 import {db,migrate,createCompanion,acceptMessage,detail} from '../src/store';
 import {acquireExecutor,tick,persistObservation} from '../src/executor';
 import {migrateLifecycle,handleLifecycle,type LifecycleMachines} from '../src/lifecycle';
-import {encrypt} from '../src/config';
+import {config,encrypt} from '../src/config';
 import {productHooks} from '../src/runtime-product';
 const owner='00000000-0000-4000-8000-000000000001',ids:string[]=[];
 beforeAll(async()=>{await migrate();await migrateLifecycle();await db.unsafe('ALTER TABLE runs ADD COLUMN IF NOT EXISTS preview_text text; ALTER TABLE runs ADD COLUMN IF NOT EXISTS usage jsonb');});
@@ -163,4 +163,26 @@ test('interrupted and cancelled replies retain partial messages, while backgroun
   await persistObservation(lock.sql,{id:root,companion_id:id},{messageVersion:3,messages:[{...message,text:'Former leader'}]});
   expect((await db`SELECT content FROM messages WHERE run_id=${root} AND role='assistant'`)[0].content).toBe(message.text);
  }finally{await lock.close();}
+});
+
+
+test('Fast persists the real provider before dispatch while existing agents receive their Responses profile',async()=>{
+ const previous={testMode:config.testMode,modelProvider:config.modelProvider,modelId:config.modelId,modelGatewayUrl:config.modelGatewayUrl};
+ const id=await companion(),events:string[]=[];let puts=0;
+ const daemon=Bun.serve({hostname:'127.0.0.1',port:0,async fetch(req){
+  if(req.method==='PUT'){
+   puts++;const body=await req.json() as any;
+   const [persisted]=await db`SELECT model_provider,model_id,dispatched FROM runs WHERE companion_id=${id} ORDER BY created_at DESC LIMIT 1`;
+   expect(persisted).toMatchObject({model_provider:'deepseek',model_id:'deepseek-flash',dispatched:true});
+   expect(body.modelId).toBe('gpt-5.6-sol');expect(body.modelGateway.token).toBeString();
+  }
+  return Response.json(new URL(req.url).pathname==='/health'?{ready:true,activeRuns:{main:null,background:null}}:{status:'running'});
+ }}),lock=await leader();
+ try{
+  Object.assign(config,{testMode:false,modelProvider:'azure',modelId:'gpt-5.6-luna',modelGatewayUrl:'https://fixture.invalid/api/model-gateway'});
+  await db`UPDATE companions SET model_id='deepseek-flash' WHERE id=${id}`;
+  await acceptMessage(owner,id,crypto.randomUUID(),'Fast request');
+  await tick(lock.sql,{lifecycleMachines:machines(`http://127.0.0.1:${daemon.port}`,events,id),canStartWork:async()=>true});
+  expect(puts).toBe(1);
+ }finally{Object.assign(config,previous);await lock.close();daemon.stop(true);}
 });

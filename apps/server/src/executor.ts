@@ -1,3 +1,4 @@
+import {agentModelId,selectedProvider} from './model-selection';
 import {ManagedBaseImageCoordinator} from './managed-base-image';
 import {runtimeUpdateMachine} from "./runtime-updates";
 import { SoftwareBuildCoordinator, type SoftwareRuntimeHooks } from './software-runtime';
@@ -298,8 +299,9 @@ export async function tick(sql: ReservedSQL, hooks: ExecutorHooks = {}, lifecycl
           // Persist intent before the network side effect. Recovery only observes this id.
           const useGateway=!config.testMode&&!!config.modelGatewayUrl;
           const selectedModel=run.model_id??config.modelId;
+          const provider=config.testMode?'companion-test':selectedProvider(selectedModel);
           const [dispatch] = await sql`UPDATE runs SET status='running',dispatched=true,prepared_at=COALESCE(prepared_at,now()),
-            model_provider=${config.testMode?'companion-test':config.modelProvider},model_id=${config.testMode?'scripted':selectedModel},usage_source=${useGateway?'gateway':'agent'}
+            model_provider=${provider},model_id=${config.testMode?'scripted':selectedModel},usage_source=${useGateway?'gateway':'agent'}
             WHERE id=${run.id} AND status='preparing' AND NOT cancel_requested
             AND EXISTS(SELECT 1 FROM companions c WHERE c.id=runs.companion_id AND c.retired_at IS NULL AND c.archive_requested_at IS NULL AND NOT c.prepare_requested AND c.endpoint_secret=${run.endpoint_secret})
             AND EXISTS(SELECT 1 FROM pg_locks WHERE locktype='advisory' AND pid=${leaderPid} AND objid=721440139 AND granted)
@@ -308,7 +310,7 @@ export async function tick(sql: ReservedSQL, hooks: ExecutorHooks = {}, lifecycl
           await execution.checkpoint(async tx=>tx`UPDATE companions SET status='ready',error=null WHERE id=${run.companion_id}`);
           const accepted = await tracePreparation(run.companion_id,'admission_put',()=>request(endpoint!, token, `/runs/${run.id}`, "PUT", { content: run.content, instructions: [run.specialist_draft_id ? specialistConfigurationInstructions : run.instructions, run.source === "routine" ? routinePublicationInstructions(run.publication_mode) : ""].filter(Boolean).join("\n\n"), lane: run.lane,
             ...(run.init_script?{initScript:run.init_script,initTimeoutMs:600_000}:{}),
-            ...(run.model_id ? {modelId: run.model_id} : {}),
+            ...(run.model_id ? {modelId: agentModelId(provider,selectedModel)} : {}),
             ...(useGateway?{modelGateway:{token:mintModelGatewayToken(run.companion_id,run.id,run.agent_secret,undefined,run.endpoint_secret)}}:{}) }),undefined,run.id);
           if (accepted?.responseRootId) {
             await execution.checkpoint(async tx=>tx`UPDATE runs SET response_root_id=(SELECT id FROM runs root WHERE root.id=${accepted.responseRootId} AND root.companion_id=${run.companion_id}) WHERE id=${run.id}`);

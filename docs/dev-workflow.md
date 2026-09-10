@@ -235,6 +235,41 @@ an explicit mode saved. `./dev restart --live` overrides a previous scripted cho
 `./dev restart --scripted` remains deterministic. A worktree `.env` model override
 still takes precedence over the main checkout and must be removed to follow it.
 
+### Great and Fast in hosted Companion settings
+
+With Azure `gpt-5.6-luna` configured, the model picker calls it **Great** and marks it
+as the default. Null model preferences continue to use Great. Set `DEEPSEEK_ENABLED=1`
+on API, executor and worker to also offer **Fast** (`deepseek-flash`), and configure
+`DEEPSEEK_API_KEY` on the API only. Fast requires the hosted model gateway.
+The existing `AZURE_OPENAI_REASONING_*` override applies only to Great.
+
+The companion preference stores the actual model ID. Before dispatch, the executor
+persists the actual provider and model on the run; joined steering retains its response
+root's selection. Changing settings affects the next response root. The gateway sends
+Fast requests to `https://api.deepseek.com/responses` with the API-only credential,
+retaining usage attribution and non-replayable request IDs.
+
+Existing compiled agents use distinct built-in OpenAI Responses transport profiles:
+`gpt-5.6-luna` for Great and `gpt-5.6-sol` for Fast. The gateway validates that profile against the pinned run, then
+substitutes the actual model ID. Pi transcript model metadata therefore names the
+transport profile; persisted run and gateway records identify the actual model.
+No agent update or machine replacement is required. Distinct profiles let Pi
+normalize cross-model history and remove incompatible reasoning signatures while
+retaining messages and tool results.
+DeepSeek developer messages become system messages because its Responses API treats
+`developer` as a user role.
+
+Deploy the API first with Fast disabled: its Railway pre-deploy command applies the
+additive provider constraint migration and preserves every existing gateway request
+tombstone. Then deploy executor and worker from the same release; they require the
+current schema fingerprint at startup. Enable Fast on the API only after all three
+services are healthy.
+For rollback, disable Fast selection first, finish accepted Fast runs, then remove the
+key or revert the application. Keep the expanded provider constraint and histories.
+
+Verified API references on 2026-09-10: [DeepSeek Responses](https://api-docs.deepseek.com/guides/responses_api/)
+and [model details](https://api-docs.deepseek.com/quick_start/pricing/).
+
 ### Herdr worktree `.env` copy
 
 The repository’s shared Git `post-checkout` hook is installed locally from

@@ -1,8 +1,13 @@
 import {config} from './config';
-let catalog:Promise<Array<{id:string;name:string}>>|undefined,catalogKey:string|undefined;
-export function availableModels(){
+import {fastModelAvailable,GREAT_MODEL_ID,FAST_MODEL_ID} from './model-selection';
+let catalog:Promise<Array<{id:string;name:string;isDefault?:boolean}>>|undefined,catalogKey:string|undefined;
+export function availableModels():Promise<Array<{id:string;name:string;isDefault?:boolean}>>{
  if(config.testMode)return Promise.resolve([{id:'scripted',name:'Local test model'}]);
- const key=`${config.modelProvider}/${config.modelId}`;
+ if(config.modelProvider==='azure'&&config.modelId===GREAT_MODEL_ID)return Promise.resolve([
+  {id:GREAT_MODEL_ID,name:'Great',isDefault:true},
+  ...(fastModelAvailable()?[{id:FAST_MODEL_ID,name:'Fast'}]:[]),
+ ]);
+ const key=`${config.modelProvider}/${config.modelId}/${fastModelAvailable()}`;
  if(catalogKey!==key){catalog=undefined;catalogKey=key;}
  return catalog??=(async()=>{
   const [{ModelRuntime},{InMemoryCredentialStore}]=await Promise.all([import('@earendil-works/pi-coding-agent'),import('@earendil-works/pi-ai')]);

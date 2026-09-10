@@ -65,3 +65,39 @@ test('native Pi SDKs cross the real gateway and persist verified terminal usage 
   expect(upstream.map(value=>[value.provider,value.api])).toEqual(pairs.map(value=>[...value]));
  }finally{server.stop(true);await gateway.drain();}
 });
+
+
+test('existing native Responses agents can switch Great to Fast without receiving provider keys',async()=>{
+ const owner=crypto.randomUUID();await db`INSERT INTO "user"(id,name,email,"emailVerified") VALUES(${owner},'Model choices',${owner+'@example.test'},true)`;
+ const companion=await createCompanion(owner,{name:'Model choice fixture',provider:'box'});
+ const [stored]=await db`SELECT agent_secret FROM companions WHERE id=${companion.id}`;
+ const sent:any[]=[];
+ const gateway=createModelGateway({sql:db,authorize:async()=>{},key:()=> 'server-only-fixture-key',azureBaseUrl:'https://fixture.services.ai.azure.com/openai/v1',fetch:(async(url:any,init:any)=>{
+  const body=JSON.parse(String(init.body));sent.push({url:String(url),model:body.model});
+  expect(new Headers(init.headers).get('x-companions-model-token')).toBeNull();
+  if(body.model==='gpt-5.6-luna')expect(body.input.some((item:any)=>item.id==='rs_deepseek_fixture')).toBe(false);
+  return new Response(terminal('openai-responses',body.model),{headers:{'content-type':'text/event-stream'}});
+ }) as typeof fetch});
+ const server=Bun.serve({hostname:'127.0.0.1',port:0,fetch:async request=>await gateway.handle(request)??new Response(null,{status:404})});
+ try{
+  const runtime=await ModelRuntime.create({credentials:new InMemoryCredentialStore(),modelsPath:null,allowModelNetwork:false,refreshOnCreate:false});
+  await configureModelGateway(runtime,'openai',`http://127.0.0.1:${server.port}/api/model-gateway`,true);
+  const messages:any[]=[];
+  for(const provider of ['azure','deepseek','azure']){
+   const actual=provider==='azure'?'gpt-5.6-luna':'deepseek-flash';
+   const model=runtime.getModel('openai',provider==='azure'?'gpt-5.6-luna':'gpt-5.6-sol')!;
+   messages.push({role:'user',content:'Hello',timestamp:Date.now()});
+   const runId=(await acceptMessage(owner,companion.id,crypto.randomUUID(),'Model selection fixture'))!;
+   await db`UPDATE runs SET status='running',dispatched=true,model_provider=${provider},model_id=${actual},usage_source='gateway' WHERE id=${runId}`;
+   const token=mintModelGatewayToken(companion.id,runId,stored.agent_secret);
+   const result=await withModelGatewayRequest(runId,{token},()=>runtime.streamSimple(model,{messages},{maxRetries:0}).result());
+   expect(result.stopReason).toBe('stop');
+   if(provider==='deepseek')result.content.unshift({type:'thinking',thinking:'fixture reasoning',thinkingSignature:JSON.stringify({type:'reasoning',id:'rs_deepseek_fixture',status:'completed',summary:[]})});
+   messages.push(result);await gateway.drain();
+   const [claim]=await db`SELECT provider,model_id,status,usage_verified FROM model_gateway_requests WHERE run_id=${runId}`;
+   expect(claim).toMatchObject({provider,model_id:actual,status:'succeeded',usage_verified:true});
+   await db`UPDATE runs SET status='succeeded',finished_at=now() WHERE id=${runId}`;
+  }
+  expect(sent.map(x=>x.model)).toEqual(['gpt-5.6-luna','deepseek-flash','gpt-5.6-luna']);expect(sent[1].url).toBe('https://api.deepseek.com/responses');
+ }finally{server.stop(true);await gateway.drain();}
+});

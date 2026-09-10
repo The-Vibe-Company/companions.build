@@ -24,9 +24,15 @@ def sanitize_copied_memory(workspace,source_state=None):
             connection=sqlite3.connect(database.as_uri()+'?mode=ro')
             try:
                 now=datetime.datetime.now(datetime.timezone.utc).isoformat(timespec='milliseconds').replace('+00:00','Z')
-                rows=connection.execute('SELECT content,scope,kind,project_key,provenance,reusable,expires_at FROM memories WHERE reusable=1 AND (expires_at IS NULL OR expires_at>?) ORDER BY updated_at DESC,id LIMIT 200',(now,)).fetchall()
-                data={'version':1,'memories':[dict(zip(('content','scope','kind','projectKey','provenance','reusable','expiresAt'),row)) for row in rows]}
-                for item in data['memories']: item['reusable']=item['reusable']==1
+                lifecycle=connection.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='memory_lifecycle'").fetchone()
+                if lifecycle:
+                    rows=connection.execute("SELECT m.content,COALESCE(l.scope,m.scope),m.kind,m.project_key,m.provenance,m.reusable,m.expires_at,l.source_json FROM memories m LEFT JOIN memory_lifecycle l ON l.id=m.id WHERE m.reusable=1 AND (m.expires_at IS NULL OR m.expires_at>?) AND COALESCE(l.status,'active')='active' AND COALESCE(l.approval,'approved')='approved' AND COALESCE(l.verification,'verified') NOT IN ('changed','missing') ORDER BY m.updated_at DESC,m.id LIMIT 200",(now,)).fetchall()
+                else:
+                    rows=connection.execute('SELECT content,scope,kind,project_key,provenance,reusable,expires_at,NULL FROM memories WHERE reusable=1 AND (expires_at IS NULL OR expires_at>?) ORDER BY updated_at DESC,id LIMIT 200',(now,)).fetchall()
+                data={'version':1,'memories':[dict(zip(('content','scope','kind','projectKey','provenance','reusable','expiresAt','source'),row)) for row in rows]}
+                for item in data['memories']:
+                    item['reusable']=item['reusable']==1
+                    if item['source']: item['source']=json.loads(item['source'])
             finally: connection.close()
         else:
             if not export.exists(): return
@@ -36,6 +42,7 @@ def sanitize_copied_memory(workspace,source_state=None):
         kept=[]
         for item in data['memories']:
             if not isinstance(item,dict) or item.get('reusable') is not True: continue
+            if item.get('status','active')!='active' or item.get('approval','approved')!='approved' or item.get('verification') in ('changed','missing'): continue
             scope,kind=item.get('scope'),item.get('kind')
             if not ((scope=='project' and kind in ('fact','procedure')) or (scope=='companion' and kind=='procedure')): continue
             content=item.get('content')
@@ -48,7 +55,7 @@ def sanitize_copied_memory(workspace,source_state=None):
                     expires=datetime.datetime.fromisoformat(expiry.replace('Z','+00:00'))
                     if expires.tzinfo is None or expires<=datetime.datetime.now(datetime.timezone.utc): continue
                 except ValueError: continue
-            candidate={key:item[key] for key in ('content','scope','kind','projectKey','provenance','reusable','expiresAt') if key in item and item[key] is not None}
+            candidate={key:item[key] for key in ('content','scope','kind','projectKey','provenance','reusable','expiresAt','source') if key in item and item[key] is not None}
             if len(json.dumps({'version':1,'memories':kept+[candidate]}).encode('utf-8'))<=65536: kept.append(candidate)
         export.write_text(json.dumps({'version':1,'memories':kept}))
         export.chmod(0o600)

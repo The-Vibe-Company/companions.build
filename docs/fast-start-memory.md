@@ -1,5 +1,9 @@
 # Fast-start Companion memory (THE-635)
 
+The shipped baseline below is extended by [Memory lifecycle](memory-lifecycle.md):
+approval policies, status filtering, source-driven retirement, budgets, grooming and structured
+thread checkpoints. Where behavior differs (including legacy writes), that document is current.
+
 Each Companion owns its memory under its agent state directory. PostgreSQL remains the web
 source of truth; Pi owns native sessions, transcripts, compaction and branches. The memory
 service neither moves nor rewrites Pi history. User-scoped memory belongs to this Companion,

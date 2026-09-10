@@ -1,3 +1,4 @@
+import type { MemoryResponse } from "./memory-protocol";
 import { createHash } from "node:crypto";
 import { lstatSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -38,29 +39,42 @@ export class SharedMemory {
     return operation;
   }
 
-  tools(): ToolDefinition[] {
+  tools(lifecycle?: () => Promise<MemoryResponse | { status: "preparing"; error: string }>): ToolDefinition[] {
     return [{
       name: "shared_memory_read",
       label: "Read shared memory",
-      description: "Read this Companion's shared long-term memory and its version before updating it.",
+      description: "Read current legacy memory with its content version and lifecycle provenance. Retired content is available only through human inspection. Preparing/unavailable is not empty memory; continue useful work and retry a preparing read later. Memory is a lead; re-verify sources before acting.",
       parameters: Type.Object({}),
-      execute: async () => { try { return result(this.read()); } catch { return result({ error: "MEMORY_UNAVAILABLE" }); } },
+      execute: async () => { try {
+        const snapshot = this.read();
+        if (!lifecycle) return result(snapshot);
+        const current = await lifecycle();
+        if (current.status !== "ok") return result({ content: "", version: snapshot.version, status: current.status, error: "MEMORY_UNAVAILABLE" });
+        if (!("memory" in current) || !current.memory) return result({ content: "", version: snapshot.version, status: "not_current" });
+        return result({ content: current.memory.content, version: version(current.memory.content), lifecycle: { status: current.memory.status,
+          approval: current.memory.approval, source: current.memory.source, provenance: current.memory.provenance } });
+      } catch { return result({ content: "", error: "MEMORY_UNAVAILABLE" }); } },
     }, {
       name: "shared_memory_update",
       label: "Update shared memory",
-      description: "Atomically replace this Companion's shared long-term memory. Pass the version from shared_memory_read. A conflict returns the latest memory so you can merge useful facts and retry without overwriting another task.",
+      description: "Propose a versioned replacement of legacy MEMORY.md for human approval through Memory settings/API. This tool never silently writes durable memory. Prefer structured memory_save proposals and source pointers.",
       parameters: Type.Object({
         expectedVersion: Type.String({ pattern: VERSION.source, description: "Version returned by the latest shared_memory_read." }),
         content: Type.String({ maxLength: MAX_MEMORY_BYTES, description: "Complete replacement MEMORY.md content, at most 30,000 UTF-8 bytes." }),
       }),
       execute: async (_toolId: string, params: { expectedVersion: string; content: string }) => {
-        try { return result(await this.update(params.expectedVersion, params.content)); }
+        try {
+          const current = this.read();
+          if (current.version !== params.expectedVersion) return result({ updated: false, error: "MEMORY_VERSION_CONFLICT", memory: current });
+          if (Buffer.byteLength(params.content) > MAX_MEMORY_BYTES) return result({ updated: false, error: "MEMORY_TOO_LARGE", memory: current });
+          return result({ updated: false, error: "MEMORY_CONFIRMATION_REQUIRED", proposal: params });
+        }
         catch { return result({ updated: false, error: "MEMORY_UNAVAILABLE" }); }
       },
     }];
   }
 
-  private updateCurrent(expectedVersion: string, content: string): MemoryUpdate {
+  updateCurrent(expectedVersion: string, content: string): MemoryUpdate {
     const current = this.read();
     if (!VERSION.test(expectedVersion) || expectedVersion !== current.version) {
       return { updated: false, error: "MEMORY_VERSION_CONFLICT", memory: current };
@@ -85,4 +99,9 @@ function version(content: string) {
 
 function result(value: unknown) {
   return { content: [{ type: "text" as const, text: JSON.stringify(value) }], details: value };
+}
+
+/** Called only after a human command has a durable intent in the memory worker. */
+export function replaceLegacyMemory(workspace: string, expectedVersion: string, content: string): MemoryUpdate {
+  return new SharedMemory(workspace).updateCurrent(expectedVersion, content);
 }

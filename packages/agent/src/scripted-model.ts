@@ -86,7 +86,7 @@ export function scriptedModel(model: any, context: any) {
     else message.content = [{ type: "text", text: `Answer received: ${JSON.stringify(results.at(-1)?.content)}` }];
   } else if (text === "remember-structured-preference") {
     if (results.length === 0) tool("memory_save", { operationId: "fixture-explicit-preference", scope: "user", kind: "preference", content: "Use brief answers with concrete examples.", provenance: "Explicit fixture user preference" });
-    else message.content = [{ type: "text", text: lastToolValue().status === "ok" ? "Structured preference saved." : "Structured memory unavailable." }];
+    else message.content = [{ type: "text", text: lastToolValue().status === "ok" ? "Structured preference proposed." : "Structured memory unavailable." }];
   } else if (text === "find-structured-preference") {
     if (results.length === 0 || (lastToolValue().status === "preparing" && results.length < 8)) tool("memory_search", { query: "concrete examples" });
     else message.content = [{ type: "text", text: lastResult().includes("Use brief answers") ? "Structured preference found." : "Structured preference not found." }];
@@ -95,17 +95,17 @@ export function scriptedModel(model: any, context: any) {
   } else if (text === "remember-preference") {
     if (results.length === 0) tool("shared_memory_read", {});
     else if (results.length === 1) tool("shared_memory_update", { expectedVersion: lastToolValue().version, content: "User prefers concise summaries." });
-    else message.content = [{ type: "text", text: lastToolValue().updated ? "Preference saved." : "Preference conflicted." }];
+    else message.content = [{ type: "text", text: lastToolValue().updated ? "Preference saved." : lastToolValue().error === "MEMORY_CONFIRMATION_REQUIRED" ? "Preference proposed." : "Preference conflicted." }];
   } else if (text === "inspect-memory") {
-    if (results.length === 0) tool("shared_memory_read", {});
-    else message.content = [{ type: "text", text: lastToolValue().content.includes("User prefers concise summaries.") ? "Shared memory loaded" : "Memory missing" }];
+    if (results.length === 0 || (lastToolValue().status === "preparing" && results.length < 8)) tool("shared_memory_read", {});
+    else message.content = [{ type: "text", text: lastToolValue().error ? "Memory unavailable" : lastToolValue().content?.includes("User prefers concise summaries.") ? "Shared memory loaded" : "Memory missing" }];
   } else if (text?.startsWith("memory-cas:")) {
     const content = text.slice("memory-cas:".length);
     if (results.length === 0) tool("shared_memory_update", { expectedVersion: "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855", content });
-    else message.content = [{ type: "text", text: lastToolValue().updated ? `Memory updated: ${content}` : `Memory conflict: ${lastToolValue().memory.content}` }];
+    else message.content = [{ type: "text", text: lastToolValue().updated ? `Memory updated: ${content}` : lastToolValue().error === "MEMORY_CONFIRMATION_REQUIRED" ? `Memory proposed: ${content}` : `Memory conflict: ${lastToolValue().memory.content}` }];
   } else if (text === "read-memory-content") {
-    if (results.length === 0) tool("shared_memory_read", {});
-    else message.content = [{ type: "text", text: `Memory content: ${lastToolValue().content}` }];
+    if (results.length === 0 || (lastToolValue().status === "preparing" && results.length < 8)) tool("shared_memory_read", {});
+    else message.content = [{ type: "text", text: lastToolValue().error ? "Memory unavailable" : `Memory content: ${lastToolValue().content}` }];
   } else if (text === "inspect-history") {
     const users = context.messages.filter((item: any) => item.role === "user");
     message.content = [{ type: "text", text: JSON.stringify(users) }];

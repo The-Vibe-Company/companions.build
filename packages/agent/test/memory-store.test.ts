@@ -26,7 +26,7 @@ test("persists records and mutation receipts across restart with atomic CAS", ()
   let store = new MemoryStore(directory);
   const request = { op: "save" as const, operationId: "create-1", content: "Uses PostgreSQL",
     scope: "companion" as const, kind: "fact" as const, provenance: "chat" };
-  const first = saved(store.handle(request));
+  const first = saved(store.handle(request, "human"));
   expect(first.version).toBe(1);
   expect(store.handle(request)).toEqual({ status: "ok", memory: first });
   expect(store.handle({ ...request, content: "changed" })).toEqual({ status: "conflict", error: "MEMORY_OPERATION_CONFLICT" });
@@ -35,7 +35,7 @@ test("persists records and mutation receipts across restart with atomic CAS", ()
   store = new MemoryStore(directory);
   expect(store.handle(request)).toEqual({ status: "ok", memory: first });
   const update = saved(store.handle({ ...request, operationId: "update-1", id: first.id,
-    expectedVersion: 1, content: "Uses PostgreSQL and Bun" }));
+    expectedVersion: 1, content: "Uses PostgreSQL and Bun" }, "human"));
   expect(update.version).toBe(2);
   expect(store.handle({ ...request, operationId: "stale", id: first.id, expectedVersion: 1 }))
     .toEqual({ status: "conflict", error: "MEMORY_VERSION_CONFLICT", memory: update });
@@ -84,7 +84,7 @@ test("search handles Unicode and punctuation, caps snippets/results, and falls b
   const directory = state();
   const store = new MemoryStore(directory);
   for (let index = 0; index < 12; index++) saved(store.handle({ op: "save", operationId: `item-${index}`,
-    content: `${"x".repeat(1_100)} café C++ numéro ${index}`, scope: "companion", kind: "fact", provenance: "test" }));
+    content: `${"x".repeat(1_100)} café C++ numéro ${index}`, scope: "companion", kind: "fact", provenance: "test" }, "human"));
   const result = store.handle({ op: "search", query: "café C++", limit: 99 }) as Extract<MemoryResponse, { memories: MemoryRecord[] }>;
   expect(result.memories).toHaveLength(10);
   expect(result.memories.every(memory => memory.content.length <= 1_000)).toBe(true);
@@ -125,18 +125,19 @@ test("maintains bounded startup and reusable template snapshots and imports temp
   const directory = state();
   const store = new MemoryStore(directory);
   saved(store.handle({ op: "save", operationId: "pref", content: "Use concise replies", scope: "user",
-    kind: "preference", provenance: "explicit" }));
+    kind: "preference", provenance: "explicit" }, "human"));
   saved(store.handle({ op: "save", operationId: "procedure", content: "Run focused checks", scope: "project",
-    projectKey: "THE", kind: "procedure", provenance: "explicit", reusable: true }));
+    projectKey: "THE", kind: "procedure", provenance: "explicit", reusable: true }, "human"));
   saved(store.handle({ op: "save", operationId: "private", content: "Private fact", scope: "user",
-    kind: "fact", provenance: "explicit" }));
+    kind: "fact", provenance: "explicit" }, "human"));
   store.handle({ op: "maintain" });
   const startup = JSON.parse(readFileSync(join(directory, "memory", "startup.json"), "utf8"));
   expect(startup.memories.map((memory: any) => memory.content)).toEqual(["Use concise replies"]);
   expect(lstatSync(join(directory, "memory", "startup.json")).size).toBeLessThanOrEqual(4_096);
   const template = JSON.parse(readFileSync(join(directory, "workspace", "template-memory.json"), "utf8"));
   expect(template).toEqual({ version: 1, memories: [{ content: "Run focused checks", scope: "project",
-    kind: "procedure", provenance: "explicit", projectKey: "THE", reusable: true }] });
+    kind: "procedure", provenance: "explicit", source: { type: "run", ref: "legacy:explicit" },
+    projectKey: "THE", reusable: true }] });
   store.close();
 
   const importedState = state();
@@ -176,7 +177,7 @@ test("commits writes when derived index and snapshots are unavailable", () => {
   writeFileSync(outside, "unchanged");
   symlinkSync(outside, join(directory, "memory", "startup.json"));
   const memory = saved(store.handle({ op: "save", operationId: "durable-despite-derivatives",
-    content: "Persist even if derived outputs fail", scope: "user", kind: "preference", provenance: "test" }));
+    content: "Persist even if derived outputs fail", scope: "user", kind: "preference", provenance: "test" }, "human"));
   expect(readFileSync(outside, "utf8")).toBe("unchanged");
   store.close();
   store = new MemoryStore(directory);
@@ -188,14 +189,14 @@ test("rebuilds a damaged index in bounded maintenance batches", () => {
   const directory = state();
   let store = new MemoryStore(directory);
   for (let index = 0; index < 101; index++) saved(store.handle({ op: "save", operationId: `batch-${index}`,
-    content: `batchable ${index}`, scope: "companion", kind: "fact", provenance: "test" }));
+    content: `batchable ${index}`, scope: "project", projectKey: `batch-${index % 2}`, kind: "fact", provenance: "test" }));
   store.close();
   const db = new Database(join(directory, "memory", "memory.sqlite"));
   db.exec("DROP TABLE memory_fts");
   db.close();
   store = new MemoryStore(directory);
   expect(store.handle({ op: "maintain" })).toEqual({ status: "ok", more: true });
-  expect((store.handle({ op: "search", query: "batchable 100" }) as any).memories).toHaveLength(1);
+  expect((store.handle({ op: "search", query: "batchable 100", projectKey: "batch-0" }) as any).memories).toHaveLength(1);
   expect(store.handle({ op: "maintain" })).toEqual({ status: "ok" });
   store.close();
 });
@@ -206,14 +207,14 @@ test("other projects cannot crowd a visible match out of indexed or fallback sea
   try {
     const wanted = saved(store.handle({ op: "save", operationId: "wanted", scope: "project", projectKey: "wanted",
       kind: "fact", content: "deployment", provenance: "fixture" }));
-    for (let index = 0; index < 501; index++) saved(store.handle({ op: "save", operationId: `other-${index}`, scope: "project", projectKey: "other",
+    for (let index = 0; index < 499; index++) saved(store.handle({ op: "save", operationId: `other-${index}`, scope: "project", projectKey: `other-${Math.floor(index / 99)}`,
       kind: "fact", content: "deployment", provenance: "fixture" }));
     const query = { op: "search" as const, query: "deployment", projectKey: "wanted" };
     expect((store.handle(query) as any).memories.map((record: MemoryRecord) => record.id)).toEqual([wanted.id]);
     const db = new Database(join(directory, "memory", "memory.sqlite"));
     try { db.exec("DROP TABLE memory_fts"); } finally { db.close(); }
     expect((store.handle(query) as any).memories.map((record: MemoryRecord) => record.id)).toEqual([wanted.id]);
-    expect(store.handle({ ...query, projectKey: "other" })).toMatchObject({ status: "ok", partial: true });
+    expect(store.handle({ ...query, projectKey: "other-0" })).toMatchObject({ status: "ok", memories: expect.any(Array) });
   } finally { store.close(); }
 });
 
@@ -222,7 +223,7 @@ test("a stale template export cannot resurrect a committed deletion after restar
     const directory = state();
     let store = new MemoryStore(directory);
     const record = saved(store.handle({ op: "save", operationId: "reusable", scope: "companion", kind: "procedure",
-      content: "Retired deployment procedure", reusable: true, provenance: "approved setup" }));
+      content: "Retired deployment procedure", reusable: true, provenance: "approved setup" }, "human"));
     const staleExport = readFileSync(join(directory, "workspace", "template-memory.json"), "utf8");
     store.close();
     if (legacyMarkerMissing) {

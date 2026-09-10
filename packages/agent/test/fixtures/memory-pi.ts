@@ -35,7 +35,18 @@ if (process.argv.includes("--memory-worker")) {
     session = await create();
     await session.prompt("remember-structured-preference");
     await session.waitForIdle();
-    assert.equal(session.getLastAssistantText(), "Structured preference saved.");
+    assert.equal(session.getLastAssistantText(), "Structured preference proposed.");
+    const proposed = await memory.request({ op: "inspect" }, undefined, "human");
+    assert("memories" in proposed);
+    const proposal = proposed.memories.find(record => record.kind === "preference")!;
+    assert.equal(proposal.approval, "pending");
+    assert.equal((await memory.request({ op: "approve", operationId: "fixture-approval", id: proposal.id, expectedVersion: proposal.version }, undefined, "human")).status, "ok");
+    const beforeCheckpoint = session.sessionManager.getEntries().length;
+    const checkpoint = await memory.request({ op: "checkpoint", operationId: "thread-close", threadId: "product-thread", decided: ["Use repository instructions"], open: ["Review implementation"], next: ["Read source"], pointers: [{type:"repository",ref:"AGENTS.md"}] });
+    assert.equal(checkpoint.status, "ok");
+    assert.equal(session.sessionManager.getEntries().length, beforeCheckpoint);
+    const brief = await memory.request({ op: "brief", threadId: "product-thread" });
+    assert("checkpoint" in brief && brief.checkpoint?.open.includes("Review implementation"));
     for (let index = 0; index < 3; index++) {
       await session.prompt("Compaction fixture context " + "historical detail ".repeat(100));
       await session.waitForIdle();

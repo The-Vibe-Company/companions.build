@@ -63,6 +63,15 @@ connection.executemany('INSERT INTO memories VALUES(?,?,?,?,?,?,?,?,?)',[
     ('private','private user preference','user','preference',None,'explicit',0,None,'2026-09-10'),
     ('approved','Use the test command','project','fact','demo','approved setup',1,'2099-01-01T00:00:00.000Z','2026-09-10'),
     ('revoked','revoked procedure','companion','procedure',None,'revoked setup',0,None,'2026-09-10')])
+connection.execute('CREATE TABLE memory_lifecycle (id TEXT PRIMARY KEY,scope TEXT,status TEXT,approval TEXT,verification TEXT,source_json TEXT)')
+connection.executemany('INSERT INTO memories VALUES(?,?,?,?,?,?,?,?,?)',[
+    ('retired','retired reusable setup','project','fact','demo','old setup',1,None,'2026-09-10'),
+    ('pending','pending reusable setup','project','fact','demo','proposal',1,None,'2026-09-10'),
+    ('changed','changed reusable setup','project','fact','demo','changed source',1,None,'2026-09-10')])
+connection.executemany('INSERT INTO memory_lifecycle VALUES(?,?,?,?,?,?)',[
+    ('retired','project','retired','approved',None,None),
+    ('pending','project','active','pending',None,None),
+    ('changed','project','active','approved','changed',None)])
 connection.commit()
 connection.close()
 put(state/'sessions'/'private.jsonl','model transcript\n')
@@ -84,6 +93,8 @@ assert not state.exists()
 assert not (saved_workspace/'MEMORY.md').exists()
 assert 'private' not in (saved_workspace/'template-memory.json').read_text()
 assert 'revoked' not in (saved_workspace/'template-memory.json').read_text()
+for excluded in ('retired reusable','pending reusable','changed reusable'):
+    assert excluded not in (saved_workspace/'template-memory.json').read_text()
 assert '2099-01-01T00:00:00.000Z' in (saved_workspace/'template-memory.json').read_text()
 assert 'Use the test command' in (saved_workspace/'template-memory.json').read_text()
 assert not (home/'.companions.env').exists()

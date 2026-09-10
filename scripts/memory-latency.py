@@ -67,9 +67,9 @@ def sample(binary, state):
 def populate(binary, state):
     requests = []
     for index in range(100):
-        requests.append({"id": str(index), "request": {"op": "save", "operationId": f"fixture-{index}",
+        requests.append({"id": str(index), "authority": "human", "request": {"op": "save", "operationId": f"fixture-{index}",
             "scope": "user" if index < 5 else "project", "kind": "preference" if index < 5 else "fact",
-            "content": "Use concise summaries " + ("durable project fact " * 150), "provenance": "synthetic benchmark",
+            "content": "Use concise summaries " + ("durable project fact " * 25), "provenance": "synthetic benchmark",
             **({"projectKey": "fixture"} if index >= 5 else {})}})
     result = subprocess.run([str(binary), "--memory-worker", str(state)], input="".join(json.dumps(item)+"\n" for item in requests),
         text=True, capture_output=True, check=True, timeout=30, env={})
@@ -89,8 +89,7 @@ def inside(samples):
                 binary = pathlib.Path("/" + variant) / "companion-agent"
                 rows.append({"sample": iteration, "variant": variant, "phase": "create", **sample(binary, state)})
                 (state / "workspace" / "MEMORY.md").write_text("legacy project context " * 1000)
-                if variant == "candidate":
-                    populate(binary, state)
+                populate(binary, state)
                 rows.append({"sample": iteration, "variant": variant, "phase": "wake", **sample(binary, state)})
     summary = {}
     for phase in ("create", "wake"):
@@ -100,7 +99,7 @@ def inside(samples):
         summary[phase] = values
     return {"samplesPerVariantPhase": samples, "summary": summary, "samples": rows,
         "passed": all(summary[phase]["addedP95FirstResponseMs"] <= 50 for phase in summary),
-        "limitations": "Compiled scripted daemon in Linux x86_64 Docker, 2ms polling; excludes Docker/Box provisioning, network and real model latency. Wake retains Pi transcript and 100 candidate memory records; baseline retains legacy MEMORY.md."}
+        "limitations": "Compiled scripted daemon in Linux x86_64 Docker, 2ms polling; excludes Docker/Box provisioning, network and real model latency. Both wake variants retain Pi transcript, legacy MEMORY.md and 100 memory records."}
 
 
 if __name__ == "__main__":

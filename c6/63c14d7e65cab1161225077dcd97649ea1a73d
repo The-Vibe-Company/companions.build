@@ -1,0 +1,47 @@
+.env.example
+  s_d248f42a784136::t_059043c5af83ac 83-87
+apps/server/src/config.ts
+  s_d248f42a784136::t_596d89e39efa98 65
+apps/server/src/executor.ts
+  s_d248f42a784136::t_32237f4bc928d6 1,302,304,313
+apps/server/src/model-gateway.sql
+  s_d248f42a784136::t_54d51a400eee67 9,22,25
+apps/server/src/model-gateway.ts
+  s_d248f42a784136::t_1f49fbbcfcca05 1,21,96-104,192-193
+apps/server/src/model-selection.ts
+  s_d248f42a784136::t_c6b45e510b6996 1-20
+apps/server/src/models.ts
+  s_d248f42a784136::t_b181be305c040c 2-4,6-10
+apps/server/test/azure-openai.test.ts
+  s_d248f42a784136::t_6552a9bbacb2ea 9,14-27
+apps/server/test/model-gateway-native.test.ts
+  s_d248f42a784136::t_a4e8b0599ae432 68-103
+apps/server/test/model-gateway.test.ts
+  s_d248f42a784136::t_85ec5d7da402c7 273-301
+apps/server/test/runtime-lifecycle.test.ts
+  s_d248f42a784136::t_ea77c8f498e6d7 5,167-188
+apps/web/src/api.ts
+  s_d248f42a784136::t_a731771951921b 147
+apps/web/src/components/SettingsSheet.test.tsx
+  s_d248f42a784136::t_c0eea297ea202a 175-251
+apps/web/src/components/SettingsSheet.tsx
+  s_d248f42a784136::t_5756b3bc1cbb98 35,41,65,71,109,113,199
+docs/dev-workflow.md
+  s_d248f42a784136::t_6dc10933a53a07 238-269
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "c663c14d7e65cab1161225077dcd97649ea1a73d",
+  "prompts": {},
+  "sessions": {
+    "s_d248f42a784136": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a08ae8-281b-76a2-af0a-53a20dbfbfe1",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "StanGirard <stan@quivr.app>"
+    }
+  }
+}

@@ -1,0 +1,29 @@
+.env.example
+  s_d248f42a784136::t_fce09e1239cc1f 79-82
+apps/server/src/azure-reasoning.ts
+  s_d248f42a784136::t_b6c4a1dd450193 1-10
+apps/server/src/model-gateway.ts
+  s_d248f42a784136::t_45b9d44a9561d7 6,26,154,187-189
+apps/server/test/model-gateway.test.ts
+  s_d248f42a784136::t_5cc9b4528ac073 2-3,240-272
+docs/companion-behavior.md
+  s_d248f42a784136::t_cfac8f87432719 79-82
+docs/dev-workflow.md
+  s_d248f42a784136::t_f8d96d7dc8fe45 214-221
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "2058e2ef084e5ed50426118469bd9ce5684624af",
+  "prompts": {},
+  "sessions": {
+    "s_d248f42a784136": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a08ae8-281b-76a2-af0a-53a20dbfbfe1",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "StanGirard <stan@quivr.app>"
+    }
+  }
+}

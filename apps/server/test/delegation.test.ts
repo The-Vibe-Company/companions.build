@@ -55,14 +55,3 @@ test('a later active parent run can inspect and answer only its correlated child
  expect((await db`SELECT answer,resume_requested_at FROM task_questions q JOIN runs r ON r.id=q.run_id WHERE q.id=${questionId}`)[0]).toMatchObject({answer:'Blue'});
  expect((await db`SELECT resume_requested_at FROM runs WHERE id=${delegated.runId}`)[0].resume_requested_at).not.toBeNull();
 });
-
-test('parent agents cannot answer a destructive App confirmation for a delegated task',async()=>{
- const parent=await companion('Approval parent'),target=await companion('Approval target');
- const run=await parentRun(parent.id),delegated=await delegateTask(owner,parent.id,run,crypto.randomUUID(),{companionId:target.id,prompt:'Operate project'});
- await db`UPDATE runs SET status='needs_input' WHERE id=${delegated.runId}`;
- const questionId=crypto.randomUUID();
- await db`INSERT INTO control_commands(id,companion_id,run_id,operation) VALUES(${questionId},${target.id},${delegated.runId},'app_tool_confirm')`;
- await db`INSERT INTO task_questions(id,companion_id,run_id,question,options) VALUES(${questionId},${target.id},${delegated.runId},'Approve redeploy?',${['Approve this call','Decline']})`;
- await expect(answerDelegationQuestion(owner,parent.id,delegated.runId,questionId,'Approve this call')).rejects.toThrow('human answer');
- expect((await db`SELECT answer FROM task_questions WHERE id=${questionId}`)[0].answer).toBeNull();
-});

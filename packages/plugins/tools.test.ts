@@ -1,5 +1,9 @@
 import { afterEach, expect, test } from 'bun:test';
 import { pluginTools } from './tools';
+import { AgentControl } from '../control/agent';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import type { MachinePlugin } from './catalog';
 
 const cleanup:Array<()=>Promise<void>>=[];
@@ -72,15 +76,15 @@ test('never retries an ambiguous tool call failure',async()=>{
   expect(remote.calls).toBe(1);
 });
 
-function railwayFixture() {
+function railwayFixture(beforeList?:()=>void) {
   const calls:Array<unknown>=[];let requests=0;
-  const tools=[schema('whoami'),schema('list-projects'),schema('list-services'),{...schema('redeploy'),annotations:{destructiveHint:true,readOnlyHint:true,title:'Redeploy service'}},{...schema('railway-agent'),annotations:{destructiveHint:true,openWorldHint:true}},schema('create-project'),schema('accept-deploy'),schema('list-feature-flags')];
+  const tools=[schema('whoami'),schema('list-projects'),schema('list-services'),{...schema('redeploy'),annotations:{destructiveHint:true,readOnlyHint:true,title:'Redeploy service'}},{...schema('railway-agent'),annotations:{destructiveHint:true,openWorldHint:true}},schema('create-project'),schema('accept-deploy'),schema('list-feature-flags'),{name:'create_workspace',inputSchema:{type:'object' as const,properties:{}}}];
   const server=Bun.serve({hostname:'127.0.0.1',port:0,async fetch(request){
     requests++;if(request.method!=='POST')return new Response(null,{status:405});
     const message=await request.json() as any;if(message.id===undefined)return new Response(null,{status:202});
     let result:unknown;
     if(message.method==='initialize')result={protocolVersion:'2025-03-26',capabilities:{tools:{}},serverInfo:{name:'Railway fixture',version:'1'}};
-    else if(message.method==='tools/list')result=message.params?.cursor?{tools:tools.slice(3)}:{tools:tools.slice(0,3),nextCursor:'next'};
+    else if(message.method==='tools/list'){beforeList?.();result=message.params?.cursor?{tools:tools.slice(3)}:{tools:tools.slice(0,3),nextCursor:'next'};}
     else if(message.method==='tools/call'){calls.push(message.params);result={content:[{type:'text',text:'done'}]};}
     else return new Response(null,{status:400});
     return Response.json({jsonrpc:'2.0',id:message.id,result});
@@ -99,27 +103,52 @@ test('Railway lists every paginated tool including railway-agent and connects on
   await execute(connection,1,{connectionId:fixture.plugin.id,tool:'whoami',arguments:{}});expect(fixture.calls).toHaveLength(1);
 });
 
-test('destructive Railway calls wait for human confirmation and send the original exact arguments',async()=>{
-  const fixture=railwayFixture();let approve!:(answer:boolean)=>void;let requested!:(value:unknown)=>void;
-  const requestedPromise=new Promise(resolve=>requested=resolve);
-  const connection=pluginTools(()=>[fixture.plugin],{confirm:async request=>{requested(request);return new Promise(resolve=>approve=resolve);}});cleanup.push(()=>connection.close());
+test('MCP calls execute directly regardless of destructive, contradictory or missing annotations',async()=>{
+  const fixture=railwayFixture(),connection=pluginTools(()=>[fixture.plugin]);cleanup.push(()=>connection.close());
+  for(const tool of ['whoami','redeploy','railway-agent','create_workspace']) {
+    const args={projectId:'project-1',options:{force:true},brief:'x'.repeat(21_000)};
+    const result=await execute(connection,1,{connectionId:fixture.plugin.id,tool,arguments:args});
+    expect(result.content).toEqual([{type:'text',text:'done'}]);
+    expect(fixture.calls.at(-1)).toEqual({name:tool,arguments:args});
+  }
+  expect(fixture.calls).toHaveLength(4);
+});
+
+test('direct calls preserve original arguments across asynchronous discovery',async()=>{
   const args={projectId:'project-1',options:{force:true}};
-  const pending=execute(connection,1,{connectionId:fixture.plugin.id,tool:'railway-agent',arguments:args});
-  expect(await requestedPromise).toEqual({connectionId:fixture.plugin.id,tool:'railway-agent',annotations:fixture.tools[4]!.annotations,arguments:args});
-  expect(fixture.calls).toHaveLength(0);args.options.force=false;approve(true);await pending;
+  const fixture=railwayFixture(()=>{args.options.force=false;});
+  const connection=pluginTools(()=>[fixture.plugin]);cleanup.push(()=>connection.close());
+  await execute(connection,1,{connectionId:fixture.plugin.id,tool:'railway-agent',arguments:args});
+  expect(args.options.force).toBe(false);
   expect(fixture.calls).toEqual([{name:'railway-agent',arguments:{projectId:'project-1',options:{force:true}}}]);
 });
 
-test('explicit destructive annotations override contradictory read-only hints and fail closed without approval, on denial, or after detachment',async()=>{
-  const fixture=railwayFixture();
-  const input={connectionId:fixture.plugin.id,tool:'redeploy',arguments:{serviceId:'service-1'}};
-  const missing=pluginTools(()=>[fixture.plugin]);cleanup.push(()=>missing.close());
-  await expect(execute(missing,1,input)).rejects.toThrow('PLUGIN_CONFIRMATION_REQUIRED');
-  const denied=pluginTools(()=>[fixture.plugin],{confirm:async()=>false});cleanup.push(()=>denied.close());
-  await expect(execute(denied,1,input)).rejects.toThrow('PLUGIN_CONFIRMATION_DENIED');
-  let selected=[fixture.plugin];
-  const detached=pluginTools(()=>selected,{confirm:async()=>{selected=[];return true;}});cleanup.push(()=>detached.close());
-  await expect(execute(detached,1,input)).rejects.toThrow('PLUGIN_NOT_SELECTED');expect(fixture.calls).toHaveLength(0);
+for(const change of ['detach','reconfigure','cancel'] as const) {
+  test(`direct calls stop before dispatch on ${change} during discovery`,async()=>{
+    const controller=new AbortController();let selected:MachinePlugin[]=[];
+    const fixture=railwayFixture(()=>{
+      if(change==='detach')selected=[];
+      if(change==='reconfigure')selected=[{...fixture.plugin,name:'Changed account'}];
+      if(change==='cancel')controller.abort();
+    });
+    selected=[fixture.plugin];
+    const connection=pluginTools(()=>selected);cleanup.push(()=>connection.close());
+    await expect(connection.tools[1]!.execute('request',{connectionId:fixture.plugin.id,tool:'redeploy',arguments:{}},controller.signal,undefined,{} as never)).rejects.toThrow();
+    expect(fixture.calls).toHaveLength(0);
+  });
+}
+
+test('Pi control calls Conductor create_workspace without queuing an approval request',async()=>{
+  const fixture=railwayFixture(),dir=mkdtempSync(join(tmpdir(),'companion-direct-mcp-'));
+  const control=new AgentControl(dir);
+  cleanup.push(async()=>{control.close();rmSync(dir,{recursive:true,force:true});});
+  await control.handleRequest(new Request('http://agent/configuration',{method:'PUT',body:JSON.stringify({generation:'1',plugins:[{...fixture.plugin,provider:'conductor'}]})}));
+  const factory=await control.toolsFactory({runId:crypto.randomUUID()});cleanup.push(()=>factory.close());
+  const result=await factory.tools.find(tool=>tool.name==='plugin_call')!.execute('create',{connectionId:fixture.plugin.id,tool:'create_workspace',arguments:{name:'Fix MCP calls'}},AbortSignal.timeout(5000),undefined,{} as never);
+  expect(result.content).toEqual([{type:'text',text:'done'}]);
+  expect(fixture.calls).toEqual([{name:'create_workspace',arguments:{name:'Fix MCP calls'}}]);
+  const queued=await control.handleRequest(new Request('http://agent/control'));
+  expect((await queued!.json() as any).requests).toEqual([]);
 });
 
 test('expired App credentials refresh only when the selected account is used',async()=>{

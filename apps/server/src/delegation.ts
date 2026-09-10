@@ -82,8 +82,6 @@ export async function answerDelegationQuestion(ownerId:string,parentId:string,ru
    WHERE d.parent_id=${parentId} AND parent.parent_id IS NULL AND NOT parent.temporary
     AND d.run_id=${runId} AND d.finished_at IS NULL FOR UPDATE OF q`;
   if(!row)throw new LifecycleConflict('Delegated question unavailable.');
-  const [command]=await tx`SELECT operation FROM control_commands WHERE id=${questionId}`;
-  if(command?.operation==='app_tool_confirm')throw new LifecycleConflict('App tool calls require a human answer.');
   if(row.answer){if(row.answer!==answer)throw new LifecycleConflict('This question already has an answer.');return {ok:true};}
   if(!['running','needs_input'].includes(row.status))throw new LifecycleConflict('This delegated task is no longer waiting.');
   await tx`UPDATE task_questions SET answer=${answer},answered_at=now(),context_text=(SELECT preview_text FROM runs WHERE id=task_questions.run_id) WHERE id=${questionId}`;

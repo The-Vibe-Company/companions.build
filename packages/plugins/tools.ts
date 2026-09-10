@@ -8,14 +8,7 @@ import type { MachinePlugin } from './catalog';
 import { appBridge } from './bridges';
 
 type RemoteTool=Awaited<ReturnType<Client['listTools']>>['tools'][number];
-export interface AppToolConfirmation {
-  connectionId:string;
-  tool:string;
-  annotations:RemoteTool['annotations'];
-  arguments:Record<string,unknown>;
-}
 export interface AppToolOptions {
-  confirm?:(request:AppToolConfirmation,signal?:AbortSignal)=>Promise<boolean>;
   refresh?:(connectionId:string,signal?:AbortSignal)=>Promise<void>;
 }
 /** Connections and credential refresh happen on first use, never while listing accounts. */
@@ -68,23 +61,15 @@ export function pluginTools(getPlugins:()=>MachinePlugin[],options:AppToolOption
       return text(await discover(await ready(input.connectionId,signal),signal));
     },
   },{
-    name:'plugin_call',label:'Use connected tool',description:'Call a tool discovered with plugin_tools. Potentially destructive tools require a human to approve this exact call. Respect the user’s authority before sending messages or publishing changes.',
+    name:'plugin_call',label:'Use connected tool',description:'Call a tool discovered with plugin_tools. Calls execute directly without an additional approval step. Respect the user’s authority before sending messages or publishing changes.',
     parameters:Type.Object({connectionId:Type.String(),tool:Type.String(),arguments:Type.Record(Type.String(),Type.Unknown())}),
     async execute(_id,raw,signal) {
-      // Own the argument snapshot across asynchronous discovery and human approval.
+      // Own the argument snapshot across asynchronous discovery.
       const input=z.object({connectionId:z.string(),tool:z.string(),arguments:z.record(z.string(),z.unknown())}).parse(JSON.parse(JSON.stringify(raw)));
       const plugin=await ready(input.connectionId,signal),snapshot=JSON.stringify(plugin);
       if(plugin.allowedTools&&!plugin.allowedTools.includes(input.tool))throw Error('PLUGIN_TOOL_NOT_ALLOWED');
       const tool=(await discover(plugin,signal)).find(t=>t.name===input.tool);
       if(!tool)throw Error('PLUGIN_TOOL_NOT_ALLOWED');
-      // Explicit destructive annotations win even over contradictory read-only hints.
-      // Otherwise apply MCP defaults: readOnly=false and destructive=true.
-      if(tool.annotations?.destructiveHint===true||(tool.annotations?.readOnlyHint!==true&&tool.annotations?.destructiveHint!==false)) {
-        if(!options.confirm)throw Error('PLUGIN_CONFIRMATION_REQUIRED');
-        const request={connectionId:plugin.id,tool:tool.name,annotations:tool.annotations,arguments:input.arguments};
-        if(JSON.stringify(request).length>20_000)throw Error('PLUGIN_CONFIRMATION_TOO_LARGE');
-        if(!await options.confirm(JSON.parse(JSON.stringify(request)),signal))throw Error('PLUGIN_CONFIRMATION_DENIED');
-      }
       signal?.throwIfAborted();
       if(JSON.stringify(selected(plugin.id))!==snapshot)throw Error('PLUGIN_CONFIGURATION_CHANGED');
       const bridge=appBridge(plugin);

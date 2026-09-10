@@ -45,6 +45,7 @@ export class RunJournal {
     if (!columns.has("publish_to_chat")) this.db.exec("ALTER TABLE runs ADD COLUMN publish_to_chat INTEGER NOT NULL DEFAULT 0");
     if (!columns.has("parked")) this.db.exec("ALTER TABLE runs ADD COLUMN parked INTEGER NOT NULL DEFAULT 0");
     if (!columns.has("init_warning")) this.db.exec("ALTER TABLE runs ADD COLUMN init_warning TEXT");
+    if (!columns.has("design_context")) this.db.exec("ALTER TABLE runs ADD COLUMN design_context TEXT");
     this.db.exec("UPDATE runs SET response_root_id=id WHERE response_root_id IS NULL");
   }
 
@@ -63,10 +64,10 @@ export class RunJournal {
       }
       const now = new Date().toISOString();
       this.db.query(`INSERT INTO runs
-        (id, request_hash, content, instructions, status, text, error, created_at, updated_at, lane, response_root_id, parked)
-        VALUES (?, ?, ?, ?, 'running', NULL, NULL, ?, ?, ?, ?, ?)`)
+        (id, request_hash, content, instructions, status, text, error, created_at, updated_at, lane, response_root_id, parked, design_context)
+        VALUES (?, ?, ?, ?, 'running', NULL, NULL, ?, ?, ?, ?, ?, ?)`)
         .run(id, hash, input.content, input.instructions, now, now, input.lane ?? "main", rootId,
-          this.get(rootId)?.status === "needs_input" ? 1 : 0);
+          this.get(rootId)?.status === "needs_input" ? 1 : 0, input.designContext ? JSON.stringify(input.designContext) : null);
       return { kind: "accepted" as const, run: this.get(id)! };
     });
     return transaction.immediate();
@@ -75,6 +76,11 @@ export class RunJournal {
   get(id: string): RunRecord | null {
     const run = this.getStored(id);
     return run ? publicRun(run) : null;
+  }
+
+  designContext(id: string): RunInput["designContext"] | null {
+    const row = this.db.query("SELECT design_context FROM runs WHERE id=?").get(id) as {design_context:string|null}|null;
+    return row?.design_context ? JSON.parse(row.design_context) : null;
   }
 
   settle(id: string, status: TerminalRunStatus, text: string | null, error: string | null): RunRecord | null {
@@ -130,6 +136,7 @@ function requestHash(input: RunInput): string {
   const fields = input.lane === "background" ? [input.content, input.instructions, "background"] : [input.content, input.instructions];
   if(input.modelId)fields.push(input.modelId);
   if(input.initScript)fields.push(JSON.stringify({initScript:input.initScript,initTimeoutMs:input.initTimeoutMs??600_000}));
+  if(input.designContext)fields.push(JSON.stringify({designContext:input.designContext}));
   return createHash("sha256").update(JSON.stringify(fields)).digest("hex");
 }
 

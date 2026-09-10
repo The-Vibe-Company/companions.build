@@ -1,6 +1,6 @@
 # Typed Companions and the first Design workbench
 
-Status: foundation implemented; Design artifact publication and runtime skill activation are staged.
+Status: foundation implemented. Its immutable `design-v1` profile remains staged; the next version is implemented in [Design projects and the operational studio](design-projects-studio.md).
 
 A specialized Companion is still a Companion. Its immutable `profileId` selects a first-party,
 versioned workbench descriptor. Names, instructions and Specialist templates do not select a type.

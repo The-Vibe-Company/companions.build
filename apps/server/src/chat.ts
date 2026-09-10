@@ -6,7 +6,7 @@ const uuid=z.string().uuid();
 const kind=z.enum(['message','question','routine','thinking']);
 const cursorSchema=z.object({v:z.literal(1),companionId:uuid,time:z.iso.datetime({precision:6}),sequence:z.number().int().min(0).max(2147483647),kind,id:uuid}).strict();
 const activeStatuses=['queued','preparing','running','needs_input'];
-const runColumns=`r.id,r.status,r.error,r.lane,r.source,r.routine_id AS "routineId",r.routine_name AS "routineName",r.publication_mode AS "publicationMode",r.scheduled_for AS "scheduledFor",r.started_at AS "startedAt",r.result_text AS "resultText",r.preview_text AS "previewText",r.message_version AS "messageVersion",r.thinking_text AS "thinkingText",r.publish_to_chat AS "publishToChat",r.response_root_id AS "responseRootId",r.created_at AS "createdAt",r.prepared_at AS "preparedAt",r.finished_at AS "finishedAt",
+const runColumns=`r.project_id AS "projectId",r.id,r.status,r.error,r.lane,r.source,r.routine_id AS "routineId",r.routine_name AS "routineName",r.publication_mode AS "publicationMode",r.scheduled_for AS "scheduledFor",r.started_at AS "startedAt",r.result_text AS "resultText",r.preview_text AS "previewText",r.message_version AS "messageVersion",r.thinking_text AS "thinkingText",r.publish_to_chat AS "publishToChat",r.response_root_id AS "responseRootId",r.created_at AS "createdAt",r.prepared_at AS "preparedAt",r.finished_at AS "finishedAt",
  EXISTS(SELECT 1 FROM messages published WHERE published.run_id=r.id AND published.role='assistant') AS "hasPublishedMessage",
  EXISTS(SELECT 1 FROM task_questions asked WHERE asked.run_id=r.id) AS "hasQuestion"`;
 const entryCte=`WITH entries AS NOT MATERIALIZED (

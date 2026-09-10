@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "id": "first-party/design-studio",
+  "version": "1.0.0",
+  "status": "active",
+  "files": [
+    {
+      "path": "SKILL.md",
+      "sha256": "facb49ccc056fefea6c7b81be0936c19a688f8ac2cf15a3b651439f713d3aaab"
+    },
+    {
+      "path": "references/craft.md",
+      "sha256": "78833449a55c99bb3869f601d5dc79925b7d1ef19872601ae3046796334a637f"
+    },
+    {
+      "path": "references/critique.md",
+      "sha256": "6cc852bf14d49ddea9f680b12cbfd171c512279a6b490a026ebac04e30678344"
+    }
+  ]
+}

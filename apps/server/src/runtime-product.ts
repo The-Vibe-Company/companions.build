@@ -1,3 +1,4 @@
+import './design-control';
 import {tracePreparation} from './preparation-trace';
 import {synchronizeSpecialistConnections} from './specialist-connections';
 import {createHash} from 'node:crypto';

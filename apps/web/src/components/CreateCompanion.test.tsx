@@ -53,14 +53,14 @@ describe("CreateCompanion", () => {
   });
   it("freezes an explicit Design type with the creation intent and retries the same profile", async () => {
     const user = userEvent.setup();
-    const create = vi.spyOn(api, "createCompanion").mockRejectedValueOnce(new Error("Connection lost")).mockResolvedValueOnce({ companion: { ...companion, profileId: "design-v1" } });
+    const create = vi.spyOn(api, "createCompanion").mockRejectedValueOnce(new Error("Connection lost")).mockResolvedValueOnce({ companion: { ...companion, profileId: "design-v2" } });
     render(<CreateCompanion config={config} onCreated={vi.fn()}/>);
     await enterBasics(user);
-    await user.selectOptions(screen.getByLabelText("Companion type"), "design-v1");
+    await user.selectOptions(screen.getByLabelText("Companion type"), "design-v2");
     await user.click(screen.getByRole("button", { name: "Create companion" }));
     await screen.findByText("Connection lost");
     expect(screen.getByLabelText("Companion type")).toBeDisabled();
-    expect(create.mock.calls[0][0].profileId).toBe("design-v1");
+    expect(create.mock.calls[0][0].profileId).toBe("design-v2");
     await user.click(screen.getByRole("button", { name: "Resume setup" }));
     await waitFor(() => expect(create).toHaveBeenCalledTimes(2));
     expect(create.mock.calls[1][0]).toEqual(create.mock.calls[0][0]);

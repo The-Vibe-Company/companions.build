@@ -287,7 +287,7 @@ export function CreateCompanion({ config, onCreated, compact = false, ownerId, o
         <label htmlFor="create-companion-profile">Companion type</label>
         <select id="create-companion-profile" value={unsupportedProfile ? "unavailable" : profileId} disabled={selectionLocked} onChange={event => setProfileId(event.target.value as ProfileId)} aria-describedby="create-profile-help">
           {unsupportedProfile && <option value="unavailable">Unavailable Companion type</option>}
-          {Object.values(profiles).map(profile => <option key={profile.id} value={profile.id}>{profile.title}</option>)}
+          {Object.values(profiles).filter(profile => profile.selectable !== false || (selectionLocked && profile.id === profileId)).map(profile => <option key={profile.id} value={profile.id}>{profile.title}</option>)}
         </select>
         <p id="create-profile-help" role={unsupportedProfile ? "alert" : undefined}>{unsupportedProfile ? "This saved creation uses a type unavailable in this app version. Its original request is kept; reopen it with a compatible version to continue." : `${profiles[profileId].description} The type is fixed after creation.`}</p>
       </div>

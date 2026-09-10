@@ -14,7 +14,8 @@ import {GitCredentialBroker} from './git-credentials';
 import {AgentSkills,type SkillMutationCheckpoint} from './skills';
 
 const localSkillOperations=['skills','skill_install','skill_update','skill_remove'] as const;
-const operations=['history_search','identity','companion_create','models','configure','companions','routines','routine_save','routine_delete','routine_history','routine_test','plugins','plugin_select','plugin_catalog','plugin_connect','plugin_custom','plugin_check','plugin_disconnect','triggers','trigger_save','trigger_delete','trigger_test','trigger_history','delegate','task_status','task_answer','task_cancel','deliveries','delivery_prepare','maintenance','maintenance_inspect','maintenance_configure','maintenance_prepare','maintenance_task','maintenance_history','templates','template_permission','prepare','template_save','template_history','template_rollback','software_prepare','software_status','spawn','adopt_template','specialist_configure','specialist_next_step','specialist_propose_improvement','specialist_keep_alive','specialist_install','ask_user','app_refresh','desktop_takeover','desktop_release',...localSkillOperations] as const;
+const operations=['design_projects','design_project_create','design_project_update','design_history','design_publish','history_search','identity','companion_create','models','configure','companions','routines','routine_save','routine_delete','routine_history','routine_test','plugins','plugin_select','plugin_catalog','plugin_connect','plugin_custom','plugin_check','plugin_disconnect','triggers','trigger_save','trigger_delete','trigger_test','trigger_history','delegate','task_status','task_answer','task_cancel','deliveries','delivery_prepare','maintenance','maintenance_inspect','maintenance_configure','maintenance_prepare','maintenance_task','maintenance_history','templates','template_permission','prepare','template_save','template_history','template_rollback','software_prepare','software_status','spawn','adopt_template','specialist_configure','specialist_next_step','specialist_propose_improvement','specialist_keep_alive','specialist_install','ask_user','app_refresh','desktop_takeover','desktop_release',...localSkillOperations] as const;
+const exposedOperations = operations.filter(operation => operation !== 'design_publish');
 export type ControlOperation=typeof operations[number];
 /** Durable local MCP outbox. The executor visits Box; Box need not reach a local web server. */
 export class AgentControl {
@@ -59,7 +60,7 @@ export class AgentControl {
       if(row.status!=='pending') {
         const result=JSON.parse(row.result);
         if(operation==='identity'&&Array.isArray(result?.operations)){
-          result.operations=[...new Set([...result.operations,...localSkillOperations])];
+          result.operations=[...new Set([...result.operations.filter((operation:string)=>operation!=='design_publish'),...localSkillOperations])];
           result.examples={...result.examples,skills:{},skill_install:{clientOperationId:'UUID',skill:{name:'writer',files:[{path:'SKILL.md',data:'base64',sha256:'lowercase SHA-256'}]}},skill_update:{clientOperationId:'UUID',expectedHash:'hash returned by skills',skill:{name:'writer',files:[{path:'SKILL.md',data:'base64',sha256:'lowercase SHA-256'}]}},skill_remove:{clientOperationId:'UUID',name:'writer',expectedHash:'hash returned by skills'}};
           result.instructions=`${result.instructions??''} Manage local Pi skills with skills, skill_install, skill_update and skill_remove; keep clientOperationId stable when retrying a mutation.`.trim();
         }
@@ -93,13 +94,13 @@ export class AgentControl {
   }
   async toolsFactory({runId}:{runId:string}) {
     const server=new McpServer({name:'companion-control',version:'0.2.0'});
-    server.registerTool('companion_control',{description:'Configure companions.build and delegate work. Read identity first for available operations and their inputs.',inputSchema:{operation:z.enum(operations),input:z.record(z.string(),z.unknown()).default({})}},async({operation,input},extra)=>({content:[{type:'text',text:JSON.stringify(await this.call(runId,operation,input,extra.signal))}]}));
+    server.registerTool('companion_control',{description:'Configure companions.build and delegate work. Read identity first for available operations and their inputs.',inputSchema:{operation:z.enum(exposedOperations),input:z.record(z.string(),z.unknown()).default({})}},async({operation,input},extra)=>({content:[{type:'text',text:JSON.stringify(await this.call(runId,operation,input,extra.signal))}]}));
     const client=new Client({name:'companion-agent',version:'0.2.0'});
     const [a,b]=InMemoryTransport.createLinkedPair();await server.connect(a);await client.connect(b);
     const plugins=pluginTools(()=>this.plugins,{
       refresh:async(connectionId,signal)=>{const result=await this.call(runId,'app_refresh',{connectionId},signal);if(result?.refreshed!==true)throw Error('PLUGIN_REFRESH_FAILED');},
     });
-    const tool:ToolDefinition={name:'companion_control',label:'Companion control',description:'Use the companion-control MCP to configure this product: identity, skills, instructions, routines, plugins, triggers, delegation, templates and prepared software. Call identity with empty input to discover schemas. Never claim a configuration changed before this tool confirms it.',parameters:Type.Object({operation:Type.Union(operations.map(x=>Type.Literal(x))),input:Type.Record(Type.String(),Type.Unknown())}),async execute(_id,params,signal){
+    const tool:ToolDefinition={name:'companion_control',label:'Companion control',description:'Use the companion-control MCP to configure this product: identity, skills, instructions, routines, plugins, triggers, delegation, templates and prepared software. Call identity with empty input to discover schemas. Never claim a configuration changed before this tool confirms it.',parameters:Type.Object({operation:Type.Union(exposedOperations.map(x=>Type.Literal(x))),input:Type.Record(Type.String(),Type.Unknown())}),async execute(_id,params,signal){
       const result=await client.callTool({name:'companion_control',arguments:params as Record<string,unknown>},undefined,{signal,timeout:(params as any).operation==='ask_user'?2*3600_000+5000:125_000});
       return {content:result.content as any,details:{}};
     }};

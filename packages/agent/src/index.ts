@@ -10,6 +10,7 @@ import { AgentSkills } from "../../control/skills";
 import { desktopTools } from "../../desktop/tools";
 import {runDesktopBroker} from '../../desktop/run';
 import { runMemoryWorker } from "./memory-worker";
+import { DesignStudio } from "./design-studio";
 
 async function startupPhase<T>(phase:string,body:()=>T|Promise<T>):Promise<T>{
   try{return await body();}catch(error){
@@ -27,11 +28,12 @@ export async function startAgent() {
   const files = await startupPhase("FILES",()=>new AgentFiles(stateDir));
   const skills = await startupPhase("SKILLS",()=>new AgentSkills(stateDir));
   const control = await startupPhase("CONTROL",()=>new AgentControl(stateDir,skills));
+  const studio = await startupPhase("DESIGN",()=>new DesignStudio(stateDir,(runId,operation,input,signal)=>control.call(runId,operation,input,signal)));
   Object.assign(process.env,control.gitCredentials.environment());
   const desktopSocket = process.env.DESKTOP_BOUNDARY_VERSION === "1" ? process.env.DESKTOP_AGENT_SOCKET : undefined;
   executor.toolsFactory = async context => {
     const product = await control.toolsFactory(context);
-    return {tools:[...product.tools,...files.tools(context.runId),...(desktopSocket?desktopTools({socketPath:desktopSocket,runId:context.runId}):[])],close:product.close};
+    return {tools:[...product.tools,...files.tools(context.runId),...(context.designContext?studio.tools(context.runId,context.designContext):[]),...(desktopSocket?desktopTools({socketPath:desktopSocket,runId:context.runId}):[])],close:product.close};
   };
   const daemon = new AgentDaemon(stateDir, token, executor, async request => {
     if(desktopSocket && request.method==='GET' && new URL(request.url).pathname==='/desktop') {
@@ -41,7 +43,7 @@ export async function startAgent() {
     return await control.handleRequest(request) ?? await files.handleRequest(request) ?? await skills.handleRequest(request);
   },desktopSocket?1:0);
   const server = await startupPhase("SERVER",()=>Bun.serve({ hostname: "0.0.0.0", port, maxRequestBodySize: 15 * 1024 * 1024, fetch: request => daemon.fetch(request) }));
-  const shutdown = () => { server.stop(true); executor.close(); daemon.close(); control.close(); files.close(); process.exit(0); };
+  const shutdown = () => { server.stop(true); executor.close(); daemon.close(); control.close(); files.close(); studio.close(); process.exit(0); };
   process.on("SIGTERM", shutdown);
   process.on("SIGINT", shutdown);
   return { server, daemon };

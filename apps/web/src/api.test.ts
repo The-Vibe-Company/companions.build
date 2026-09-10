@@ -4,6 +4,17 @@ import { api } from "./api";
 afterEach(() => vi.unstubAllGlobals());
 
 describe("Companion API client", () => {
+  it("preserves a pending message's project through response loss and blocks accidental reassignment", async () => {
+    const fetchMock=vi.fn().mockRejectedValueOnce(new Error("lost")).mockResolvedValue(new Response(JSON.stringify({runId:"same-run"}),{status:202}));
+    vi.stubGlobal("fetch",fetchMock);
+    await expect(api.sendMessage("project-retry","Draw this",[],"project-A")).rejects.toThrow("lost");
+    const first=JSON.parse(fetchMock.mock.calls[0][1].body);
+    await expect(api.sendMessage("project-retry","Draw this",[],"project-B")).rejects.toThrow("another project");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    await api.sendMessage("project-retry","Draw this",[],"project-A");
+    expect(JSON.parse(fetchMock.mock.calls[1][1].body)).toEqual(first);
+    expect(first.projectId).toBe("project-A");
+  });
   it("opens the authenticated same-origin event stream for one Companion", () => {
     const opened: string[] = [];
     vi.stubGlobal("EventSource", class { constructor(url: string) { opened.push(url); } });

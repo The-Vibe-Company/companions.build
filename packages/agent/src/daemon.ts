@@ -5,6 +5,7 @@ import { RunJournal } from "./journal";
 import type { RunExecutor, RunInput, RunLane } from "./types";
 import { parseModelGatewayCredential } from "./model-gateway";
 import { InitializationRunner } from "./initialization";
+import { designRunContextSchema } from "../../workbench/projects";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -40,7 +41,7 @@ export class AgentDaemon {
       } catch { return json({ error: "SKILLS_UNAVAILABLE" }, 503); }
     }
     if (request.method === "GET" && url.pathname === "/health") {
-      return json({ ready: true, version: "0.2.0", runtimeVersion, maintenanceSupported:true, maintenance:this.maintenance, maintenanceReady:this.mutations===0&&this.initializing.size===0, desktopBoundaryVersion:this.desktopBoundaryVersion, activeRunId: this.activeRuns.main, activeRuns: this.activeRuns, parkedRuns: [...this.parkedRuns] });
+      return json({ ready: true, version: "0.2.0", runtimeVersion, designStudioVersion:1, maintenanceSupported:true, maintenance:this.maintenance, maintenanceReady:this.mutations===0&&this.initializing.size===0, desktopBoundaryVersion:this.desktopBoundaryVersion, activeRunId: this.activeRuns.main, activeRuns: this.activeRuns, parkedRuns: [...this.parkedRuns] });
     }
     if(request.method==='POST'&&url.pathname==='/maintenance'){
       if(this.mutations||this.initializing.size||this.activeRuns.main||this.activeRuns.background||this.parkedRuns.size||this.resumingBackground||this.cancelling.size)return json({error:'AGENT_BUSY'},409);
@@ -89,6 +90,7 @@ export class AgentDaemon {
       const modelGateway=parseModelGatewayCredential(value.modelGateway),gatewayRequired=!!process.env.MODEL_GATEWAY_URL?.trim();
       if((gatewayRequired&&!modelGateway)||(!gatewayRequired&&value.modelGateway!==undefined))return json({error:"INVALID_REQUEST"},400);
       input = { ...(value.modelId?{modelId:value.modelId}:{}),...(modelGateway?{modelGateway}:{}),
+        ...(value.designContext === undefined ? {} : {designContext: designRunContextSchema.parse(value.designContext)}),
         ...(value.initScript?{initScript:value.initScript,initTimeoutMs:value.initTimeoutMs??600_000}:{}),
         content: value.content, instructions: value.instructions, lane: value.lane ?? "main" };
     } catch { return json({ error: "INVALID_REQUEST" }, 400); }
@@ -109,6 +111,9 @@ export class AgentDaemon {
       ? this.executor.acceptingRoot(lane) : this.activeRuns[lane];
     if (activeRoot && (lane === "background" || !this.executor.steer || this.cancelling.has(activeRoot) || this.initializing.has(activeRoot))) {
       return json({ error: "BUSY", activeRunId: activeRoot }, 409);
+    }
+    if (activeRoot && JSON.stringify(this.journal.designContext(activeRoot)) !== JSON.stringify(input.designContext ?? null)) {
+      return json({ error: "PROJECT_CONTEXT_BUSY", activeRunId: activeRoot }, 409);
     }
     const accepted = this.journal.accept(id, input, activeRoot ?? id);
     if (accepted.kind !== "accepted") {

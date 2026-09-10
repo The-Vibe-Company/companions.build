@@ -1,0 +1,19 @@
+docs/dev-workflow.md
+  s_d248f42a784136::t_fe49e6a4638253 262-266
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "d2ef5acd0388f9257e547827b053880aa93b6dc6",
+  "prompts": {},
+  "sessions": {
+    "s_d248f42a784136": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a08ae8-281b-76a2-af0a-53a20dbfbfe1",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "StanGirard <stan@quivr.app>"
+    }
+  }
+}

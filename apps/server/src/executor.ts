@@ -1,3 +1,4 @@
+import { PLUGIN_ERROR_CODES } from '../../../packages/plugins/execution';
 import {agentModelId,selectedProvider} from './model-selection';
 import {ManagedBaseImageCoordinator} from './managed-base-image';
 import {runtimeUpdateMachine} from "./runtime-updates";
@@ -62,7 +63,13 @@ async function settle(sql: any, run: any, status: string, text: string | null, e
   publishToChat = status === "succeeded" && !!text && (run.publication_mode === "silent" ? false : run.publication_mode === "always" || publishToChat);
   await sql`WITH settled AS (
     UPDATE runs SET status=${status},error=${error},finished_at=now(),result_text=${text},publish_to_chat=${publishToChat},
-      response_root_id=COALESCE((SELECT id FROM runs root WHERE root.id=${rootId} AND root.companion_id=${run.companion_id}),id)
+      response_root_id=COALESCE((SELECT id FROM runs root WHERE root.id=${rootId} AND root.companion_id=${run.companion_id}),id),
+      plugin_calls=CASE WHEN plugin_calls IS NULL THEN NULL ELSE (
+        SELECT COALESCE(jsonb_agg(CASE WHEN item->>'status'='running' THEN
+          item || jsonb_build_object('status','interrupted','outcome','unknown','code','PLUGIN_REMOTE_FAILED','updatedAt',floor(extract(epoch FROM now())*1000))
+          ELSE item END ORDER BY ordinal),'[]'::jsonb)
+        FROM jsonb_array_elements(plugin_calls) WITH ORDINALITY AS calls(item,ordinal)
+      ) END
       WHERE id=${run.id} AND status IN ('preparing','running','needs_input')
       AND EXISTS(SELECT 1 FROM pg_locks WHERE locktype='advisory' AND pid=COALESCE(${leaderPid??null}::int,pg_backend_pid()) AND objid=721440139 AND granted)
       RETURNING id,companion_id,lane,message_version
@@ -77,6 +84,20 @@ const messageSnapshotShape=z.object({
  messages:z.array(z.object({sequence:z.number().int().positive().max(2147483647),text:z.string(),createdAt:z.string().datetime(),complete:z.boolean()}))
 }).refine(value=>new Set(value.messages.map(message=>message.sequence)).size===value.messages.length);
 const usageShape=z.object({input:z.number().finite().nonnegative(),output:z.number().finite().nonnegative(),cacheRead:z.number().finite().nonnegative(),cacheWrite:z.number().finite().nonnegative(),totalTokens:z.number().finite().nonnegative(),costUsd:z.number().finite().nonnegative()});
+
+const pluginErrorCode=z.enum(PLUGIN_ERROR_CODES);
+const boundedPluginString=z.string().min(1).max(256);
+const pluginCallShape=z.object({
+ requestId:boundedPluginString,runId:boundedPluginString,toolCallId:boundedPluginString,connectionId:boundedPluginString,tool:boundedPluginString,
+ attempt:z.number().int().nonnegative().max(2147483647),phase:z.enum(['prepare','connect','discover','call','cleanup']),
+ status:z.enum(['running','succeeded','failed','interrupted']),outcome:z.enum(['not_sent','confirmed','unknown']),code:pluginErrorCode.optional(),
+ startedAt:z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),deadlineAt:z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),updatedAt:z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
+});
+const pluginSnapshotShape=z.object({pluginCallVersion:z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),pluginCalls:z.array(pluginCallShape).max(10_000)});
+function observedPluginError(result:any){
+ const parsed=pluginErrorCode.safeParse(result?.errorCode??result?.error);
+ return parsed.success?parsed.data:null;
+}
 /** Steering siblings share one response root; its measured usage is stored only once. */
 export async function persistObservation(sql:any,run:any,result:any,leaderPid?:number){
  if(!result)return;
@@ -106,6 +127,14 @@ export async function persistObservation(sql:any,run:any,result:any,leaderPid?:n
    WHERE observed.lane='main' AND length(item.text)>0
    ON CONFLICT(run_id,role,sequence) DO UPDATE SET content=EXCLUDED.content,complete=EXCLUDED.complete
     WHERE NOT messages.complete AND (messages.content,messages.complete) IS DISTINCT FROM (EXCLUDED.content,EXCLUDED.complete)`;
+ }
+ const pluginSnapshot=pluginSnapshotShape.safeParse(result);
+ if(pluginSnapshot.success && pluginSnapshot.data.pluginCalls.every(call=>call.runId===run.id) && new Set(pluginSnapshot.data.pluginCalls.map(call=>call.requestId)).size===pluginSnapshot.data.pluginCalls.length){
+  const {pluginCallVersion,pluginCalls}=pluginSnapshot.data;
+  await sql`UPDATE runs SET plugin_call_version=${pluginCallVersion},plugin_calls=${pluginCalls}
+   WHERE id=${run.id} AND companion_id=${run.companion_id} AND status IN ('preparing','running','needs_input')
+    AND (plugin_call_version IS NULL OR plugin_call_version<${pluginCallVersion})
+    AND EXISTS(SELECT 1 FROM pg_locks WHERE locktype='advisory' AND pid=COALESCE(${leaderPid??null}::int,pg_backend_pid()) AND objid=721440139 AND granted)`;
  }
  const warning=typeof result.initWarning==='string'?result.initWarning.slice(0,2000):null;
  const thinking=typeof result.thinkingText==='string'?result.thinkingText.slice(0,20_000):null;
@@ -232,7 +261,7 @@ export async function tick(sql: ReservedSQL, hooks: ExecutorHooks = {}, lifecycl
           if (["succeeded", "failed", "cancelled", "interrupted"].includes(result.status)) {
             await hooks.beforeSettle?.(run, endpoint, token,execution);
             await finish(result.status, typeof result.text === "string" ? result.text : null,
-              result.status === "interrupted" ? "The agent restarted while waiting. It was not replayed." : null,
+              result.status === "failed" ? observedPluginError(result)??"The agent could not complete this task." : result.status === "interrupted" ? observedPluginError(result)??"The agent restarted while waiting. It was not replayed." : null,
               result.responseRootId ?? run.id, result.publishToChat === true);
             return;
           }
@@ -330,7 +359,7 @@ export async function tick(sql: ReservedSQL, hooks: ExecutorHooks = {}, lifecycl
         if (["succeeded", "failed", "interrupted", "cancelled"].includes(result.status)) {
           await hooks.beforeSettle?.(run, endpoint, token,execution);
           await finish(result.status, typeof result.text === "string" ? result.text : null,
-            result.status === "failed" ? "The agent could not complete this task." : result.status === "interrupted" ? "The agent restarted during this task. It was not replayed." : null,
+            result.status === "failed" ? observedPluginError(result)??"The agent could not complete this task." : result.status === "interrupted" ? observedPluginError(result)??"The agent restarted during this task. It was not replayed." : null,
             result.responseRootId ?? run.id, result.publishToChat === true);
         } else if (executionAge() > 2 * 3600_000) {
           await request(endpoint, token, `/runs/${run.id}/cancel`, "POST");

@@ -3,6 +3,7 @@ import type { ChatEntry } from "@/api";
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { ArrowLeft, ChevronRight, CircleAlert, FileText, Repeat2, X } from "lucide-react";
 import { api, type ChatMessage, type CompanionDetail, type Run, type RunStatus, type TaskDetail, type ThreadFile } from "@/api";
+import { PluginCalls, pluginErrorMessage } from "./PluginCalls";
 import { Button } from "@/components/ui/button";
 import { MessageResponse } from "@/components/ai-elements/message";
 import "./RoutineChat.css";
@@ -98,8 +99,9 @@ export function RoutineRunSheet({ companionId, runs, onClose, onOpenRoutine }: {
             <div className={`routine-sheet-outcome${["failed", "interrupted", "needs_input"].includes(task.status) ? " routine-sheet-outcome--attention" : ""}`}>{routineRunLabel(task)}</div>
             <dl className="routine-sheet-facts"><div><dt>Requested</dt><dd>{date(task.createdAt)}</dd></div>{task.scheduledFor && <div><dt>Scheduled for</dt><dd>{date(task.scheduledFor)}</dd></div>}{task.startedAt && <div><dt>Started</dt><dd>{date(task.startedAt)}</dd></div>}{task.finishedAt && <div><dt>Finished</dt><dd>{date(task.finishedAt)}</dd></div>}{duration != null && <div><dt>Duration</dt><dd>{duration < 60 ? `${duration}s` : `${Math.floor(duration / 60)}m ${duration % 60}s`}</dd></div>}</dl>
             {task.status === "needs_input" && <div className="routine-sheet-next"><p>Your companion needs an answer in the chat.</p><Button variant="outline" onClick={onClose}>Back to the conversation</Button></div>}
-            {task.error && <section className="routine-sheet-error"><h3>What happened</h3><p>{task.error}</p></section>}
+            {task.error && <section className="routine-sheet-error"><h3>What happened</h3><p>{pluginErrorMessage(task.error)}</p></section>}
             {task.resultText && <section><h3>Result</h3><MessageResponse>{task.resultText}</MessageResponse></section>}
+            <PluginCalls calls={task.pluginCalls}/>
             {!!result.files.length && <section><h3>Files</h3><div className="routine-sheet-files">{result.files.map(file => <a key={file.id} href={file.url} target="_blank" rel="noreferrer"><FileText/><span>{file.name}</span></a>)}</div></section>}
             <section><h3>Instructions for this execution</h3><MessageResponse>{task.content}</MessageResponse></section>
           </> : null}

@@ -81,6 +81,17 @@ test('detail includes only this task inputs, outputs and authorized retained han
  expect((await body(await request(alice,parent))).tasks).toHaveLength(2);
 });
 
+test('task detail exposes persisted plugin call metadata after the task completes',async()=>{
+ const id=await companion(),run=await task(id,{status:'succeeded'});
+ const pluginCalls=[{requestId:'request-1',runId:run,toolCallId:'tool-1',connectionId:'connection-1',tool:'linear.create_issue',attempt:1,phase:'call',status:'succeeded',outcome:'confirmed',startedAt:100,deadlineAt:200,updatedAt:180}];
+ await db`UPDATE runs SET result_text='Issue created',plugin_calls=${pluginCalls},plugin_call_version=3,finished_at=now() WHERE id=${run}`;
+ await db`INSERT INTO messages(id,companion_id,run_id,role,content) VALUES(${crypto.randomUUID()},${id},${run},'user','Use Linear')`;
+ const detail=await body(await request(alice,id,`/${run}`));
+ expect(detail.task).toMatchObject({id:run,status:'succeeded',resultText:'Issue created',pluginCalls,pluginCallVersion:3});
+ const chat=await handler(new Request(`http://127.0.0.1:4310/api/companions/${id}`,{headers:{cookie:alice.cookie}}));
+ expect((await body(chat)).runs.find((item:any)=>item.id===run)).toMatchObject({pluginCalls,pluginCallVersion:3});
+});
+
 test('cancellation targets one task, persists active intent and leaves terminal tasks exactly unchanged',async()=>{
  const id=await companion();const unaffected=await task(id,{lane:'background',source:'trigger'});
  for(const status of ['queued','preparing','running','needs_input','succeeded','failed','interrupted','cancelled']){

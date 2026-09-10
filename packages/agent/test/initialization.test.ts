@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { InMemoryCredentialStore } from "@earendil-works/pi-ai";
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
-import { guardedInitialization } from "../src/pi-executor";
+import { bounded, guardedInitialization } from "../src/pi-executor";
 import { configureModelGateway, modelGatewayStream, modelGatewayUrl, withModelGatewayRequest } from "../src/model-gateway";
 import {configureAzureFoundry,normalizeAzureFoundryBaseUrl} from '../src/azure-foundry';
 
@@ -26,6 +26,17 @@ test("a timed-out late initializer is disposed", async () => {
   resolve({ dispose: () => { disposed = true; } });
   await Bun.sleep(0);
   expect(disposed).toBe(true);
+});
+
+test("bounded runtime work rejects even when the underlying promise never settles", async () => {
+  await expect(bounded(new Promise<void>(() => {}), 1, "RUNTIME_TEST_TIMEOUT")).rejects.toThrow("RUNTIME_TEST_TIMEOUT");
+});
+
+test("guarded initialization preserves a safe abort reason", async () => {
+  const controller = new AbortController();
+  const guarded = guardedInitialization(new Promise<{ dispose(): void }>(() => {}), controller.signal, 1_000);
+  controller.abort(new Error("PLUGIN_TIMEOUT"));
+  await expect(guarded).rejects.toThrow("PLUGIN_TIMEOUT");
 });
 
 const message={role:"user" as const,content:[{type:"text" as const,text:"hello"}],timestamp:1};

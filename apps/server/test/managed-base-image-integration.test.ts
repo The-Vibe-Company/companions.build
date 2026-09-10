@@ -7,7 +7,9 @@ import {BoxError} from '../../../packages/box/client';
 const owner='00000000-0000-4000-8000-000000000001';
 const originalManaged=config.managedBoxTemplate;
 const owned:string[]=[];
-beforeAll(async()=>{await migrate();});
+// Compress the real agent distribution as suite setup, outside the per-test
+// behavior deadline. Compression can exceed five seconds on Linux CI runners.
+beforeAll(async()=>{await migrate();await managedBaseImageReleaseDigest();},30_000);
 afterEach(async()=>{
  config.managedBoxTemplate=originalManaged;
  for(const id of owned.splice(0))await db`DELETE FROM companions WHERE id=${id}`;

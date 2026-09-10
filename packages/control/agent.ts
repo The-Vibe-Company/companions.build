@@ -9,6 +9,8 @@ import { Type } from '@earendil-works/pi-ai';
 import type { ToolDefinition } from '@earendil-works/pi-coding-agent';
 import { z } from 'zod';
 import { pluginTools } from '../plugins/tools';
+import { PluginJournal } from '../plugins/journal';
+import { boundedClose } from '../plugins/execution';
 import type { MachinePlugin } from '../plugins/catalog';
 import {GitCredentialBroker} from './git-credentials';
 import {AgentSkills,type SkillMutationCheckpoint} from './skills';
@@ -19,12 +21,15 @@ export type ControlOperation=typeof operations[number];
 /** Durable local MCP outbox. The executor visits Box; Box need not reach a local web server. */
 export class AgentControl {
   private readonly db:Database;
+  private readonly pluginJournal:PluginJournal;
   private plugins:MachinePlugin[]=[];
   private generation='';
   readonly gitCredentials:GitCredentialBroker;
   constructor(stateDir:string,private readonly skills=new AgentSkills(stateDir),private readonly afterLocalSkillControl?:()=>void) {
     mkdirSync(stateDir,{recursive:true});
     this.db=new Database(join(stateDir,'control.sqlite'));
+    this.pluginJournal=new PluginJournal(stateDir);
+    this.pluginJournal.interrupt();
     this.gitCredentials=new GitCredentialBroker(stateDir);
     this.db.exec(`PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL;
       CREATE TABLE IF NOT EXISTS requests(id TEXT PRIMARY KEY,run_id TEXT NOT NULL,operation TEXT NOT NULL,input TEXT NOT NULL,result TEXT,status TEXT NOT NULL DEFAULT 'pending',created_at INTEGER NOT NULL);
@@ -91,21 +96,22 @@ export class AgentControl {
     this.db.exec("DELETE FROM local_requests WHERE id IN (SELECT id FROM local_requests WHERE status='done' ORDER BY created_at DESC,id DESC LIMIT -1 OFFSET 500)");
     return result;
   }
-  async toolsFactory({runId}:{runId:string}) {
+  async toolsFactory({runId,signal,onPluginFailure}:{runId:string;signal?:AbortSignal;onPluginFailure?:(code:string)=>void}) {
     const server=new McpServer({name:'companion-control',version:'0.2.0'});
     server.registerTool('companion_control',{description:'Configure companions.build and delegate work. Read identity first for available operations and their inputs.',inputSchema:{operation:z.enum(operations),input:z.record(z.string(),z.unknown()).default({})}},async({operation,input},extra)=>({content:[{type:'text',text:JSON.stringify(await this.call(runId,operation,input,extra.signal))}]}));
     const client=new Client({name:'companion-agent',version:'0.2.0'});
     const [a,b]=InMemoryTransport.createLinkedPair();await server.connect(a);await client.connect(b);
     const plugins=pluginTools(()=>this.plugins,{
+      runId,signal,journal:this.pluginJournal,onFailure:onPluginFailure,
       refresh:async(connectionId,signal)=>{const result=await this.call(runId,'app_refresh',{connectionId},signal);if(result?.refreshed!==true)throw Error('PLUGIN_REFRESH_FAILED');},
     });
     const tool:ToolDefinition={name:'companion_control',label:'Companion control',description:'Use the companion-control MCP to configure this product: identity, skills, instructions, routines, plugins, triggers, delegation, templates and prepared software. Call identity with empty input to discover schemas. Never claim a configuration changed before this tool confirms it.',parameters:Type.Object({operation:Type.Union(operations.map(x=>Type.Literal(x))),input:Type.Record(Type.String(),Type.Unknown())}),async execute(_id,params,signal){
       const result=await client.callTool({name:'companion_control',arguments:params as Record<string,unknown>},undefined,{signal,timeout:(params as any).operation==='ask_user'?2*3600_000+5000:125_000});
       return {content:result.content as any,details:{}};
     }};
-    return {tools:[tool,...plugins.tools],async close(){await plugins.close();await client.close();await server.close();}};
+    return {tools:[tool,...plugins.tools],async close(){await boundedClose(async()=>{await Promise.allSettled([plugins.close(),client.close(),server.close()]);});}};
   }
-  close(){this.gitCredentials.close();this.db.close();}
+  close(){this.gitCredentials.close();this.pluginJournal.close();this.db.close();}
 }
 
 function localRequestInput(raw:unknown,fingerprint:string):{checkpoint:SkillMutationCheckpoint|null}|null{

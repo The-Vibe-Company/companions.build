@@ -51,6 +51,23 @@ export interface ChatMessage {
 
 export interface ThreadFile { id: string; runId: string; kind: "user_upload" | "agent_output"; name: string; mimeType: string; size: number; url: string }
 
+export type PluginCallCode = "PLUGIN_TIMEOUT" | "PLUGIN_CANCELLED" | "PLUGIN_CONNECTION_FAILED" | "PLUGIN_REMOTE_FAILED" | "PLUGIN_AUTH_FAILED" | "PLUGIN_NOT_FOUND" | "PLUGIN_RATE_LIMITED" | "PLUGIN_RESTARTED" | "PLUGIN_RESPONSE_TIMEOUT" | "PLUGIN_POLL_LIMIT" | "PLUGIN_RECONCILIATION_REQUIRED";
+export interface PluginCall {
+  requestId: string;
+  runId: string;
+  toolCallId: string;
+  connectionId: string;
+  tool: string;
+  attempt: number;
+  phase: "prepare" | "connect" | "discover" | "call" | "cleanup";
+  status: "running" | "succeeded" | "failed" | "interrupted";
+  outcome: "not_sent" | "confirmed" | "unknown";
+  code?: PluginCallCode;
+  startedAt: number;
+  deadlineAt: number;
+  updatedAt: number;
+}
+
 export interface Run {
   cursor?: string;
   hasPublishedMessage?: boolean;
@@ -69,6 +86,8 @@ export interface Run {
   previewText?: string|null;
   messageVersion?: number|null;
   thinkingText?: string|null;
+  pluginCalls?: PluginCall[]|null;
+  pluginCallVersion?: number|null;
   id: string;
   status: RunStatus;
   error: string | null;
@@ -97,6 +116,8 @@ export interface TaskDetail extends TaskSummary {
   preparedAt: string | null;
   cancelRequested: boolean;
   publishToChat: boolean;
+  pluginCalls?: PluginCall[] | null;
+  pluginCallVersion?: number | null;
 }
 
 export interface ChatEntry {

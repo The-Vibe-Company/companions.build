@@ -29,6 +29,15 @@ describe("TaskActivity", () => {
     expect(screen.queryByRole("status",{name:"Loading activity"})).not.toBeInTheDocument();
   });
 
+  it("shows persisted application progress in completed task details", async () => {
+    const completed: TaskDetail={...detail,status:"succeeded",resultText:"Issue created.",finishedAt:"2026-09-07T12:05:00.000Z",pluginCallVersion:2,pluginCalls:[{requestId:"request-1",runId:detail.id,toolCallId:"tool-1",connectionId:"connection-1",tool:"linear.create_issue",attempt:1,phase:"call",status:"succeeded",outcome:"confirmed",startedAt:100,deadlineAt:200,updatedAt:180}]};
+    vi.spyOn(api,"taskHistory").mockResolvedValue({tasks:[completed],nextCursor:null});
+    vi.spyOn(api,"taskDetail").mockResolvedValue({task:completed,files:[]});
+    render(<TaskActivity companion={companion} onOpenDiscussion={vi.fn()}/>);
+    await userEvent.setup().click(await screen.findByRole("button",{name:/Review the launch brief/}));
+    expect(await screen.findByRole("region",{name:"Application activity"})).toHaveTextContent("linear.create_issueCompleted");
+  });
+
   it("loads older summaries and retries a lazy detail failure", async () => {
     const older: TaskSummary = { ...running, id:"task-older", status:"succeeded", source:"routine", title:"Prepare the weekly notes", createdAt:"2026-09-06T12:00:00.000Z", finishedAt:"2026-09-06T12:03:00.000Z" };
     vi.spyOn(api, "taskHistory")

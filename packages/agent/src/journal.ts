@@ -1,3 +1,5 @@
+import { safePluginCode } from '../../plugins/execution';
+import { PluginJournal } from '../../plugins/journal';
 import { Database } from "bun:sqlite";
 import { createHash } from "node:crypto";
 import { dirname } from "node:path";
@@ -12,10 +14,12 @@ interface StoredRun extends RunRecord {
 
 export class RunJournal {
   private readonly db: Database;
+  private readonly pluginJournal: PluginJournal;
 
   constructor(path: string) {
     mkdirSync(dirname(path), { recursive: true });
     this.db = new Database(path, { create: true, strict: true });
+    this.pluginJournal = new PluginJournal(dirname(path));
     this.db.exec("PRAGMA journal_mode = WAL; PRAGMA synchronous = FULL; PRAGMA busy_timeout = 5000;");
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS runs (
@@ -49,6 +53,7 @@ export class RunJournal {
   }
 
   interruptUnfinished(): number {
+    this.pluginJournal.interrupt();
     const now = new Date().toISOString();
     return this.db.query("UPDATE runs SET status = 'interrupted', error = 'DAEMON_RESTARTED', updated_at = ? WHERE status = 'running'")
       .run(now).changes;
@@ -74,7 +79,7 @@ export class RunJournal {
 
   get(id: string): RunRecord | null {
     const run = this.getStored(id);
-    return run ? publicRun(run) : null;
+    return run ? {...publicRun(run),...this.pluginJournal.snapshot(run.responseRootId)} : null;
   }
 
   settle(id: string, status: TerminalRunStatus, text: string | null, error: string | null): RunRecord | null {
@@ -85,6 +90,8 @@ export class RunJournal {
 
   /** All accepted steering IDs settle atomically with one response stored on their root. */
   settleGroup(rootId: string, status: TerminalRunStatus, text: string | null, error: string | null, publishToChat = false): void {
+    // Final plugin metadata must be durable before the server sees a terminal run.
+    this.pluginJournal.interrupt(rootId,status === "cancelled" ? "PLUGIN_CANCELLED" : safePluginCode(new Error(error ?? "")) ?? "PLUGIN_REMOTE_FAILED");
     this.db.query(`UPDATE runs SET status=?, text=CASE WHEN id=? THEN ? ELSE NULL END,
       error=?, publish_to_chat=CASE WHEN id=? AND ? THEN 1 ELSE 0 END, updated_at=?
       WHERE response_root_id=? AND status='running'`)
@@ -115,6 +122,7 @@ export class RunJournal {
   }
 
   close(): void {
+    this.pluginJournal.close();
     this.db.close(false);
   }
 

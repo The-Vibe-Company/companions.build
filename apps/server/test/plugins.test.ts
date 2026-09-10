@@ -93,6 +93,19 @@ test('connection failures are expurgated, cross-owner checks do nothing, and cus
  expect(endpoint?.status).toBe(200);expect(await endpoint?.json()).toMatchObject({account:{id:custom.id,healthStatus:'requires_agent',healthCode:'agent_check_required'}});
 });
 
+test('health checks bound noncooperative discovery and do not save a refresh after its deadline',async()=>{
+ const checking=await oauthAccount();const started=Date.now();
+ const checked=await checkPluginAccount(owner,checking,{timeoutMs:10,async check(){return new Promise<void>(()=>{});}});
+ expect(Date.now()-started).toBeLessThan(1_000);expect(checked).toMatchObject({healthStatus:'error',healthCode:'connection_failed'});
+
+ const expired=oauthCredential(new Date(Date.now()-60_000).toISOString()),refreshing=await oauthAccount(owner,expired);
+ const refreshed=await checkPluginAccount(owner,refreshing,{timeoutMs:10,async refresh(){return await new Promise(resolve=>setTimeout(()=>resolve({...expired,accessToken:'late-token',accessExpiresAt:new Date(Date.now()+3600_000).toISOString()}),30));},async check(){throw Error('must not discover');}});
+ expect(refreshed).toMatchObject({healthStatus:'error',healthCode:'configuration_invalid'});
+ await Bun.sleep(40);
+ const [stored]=await db`SELECT credential_secret FROM plugin_accounts WHERE id=${refreshing}`;
+ expect(JSON.parse(decrypt(stored.credential_secret)).accessToken).toBe('private-access');
+});
+
 
 test('a later provider refresh failure preserves an earlier rotated grant and still fails closed',async()=>{
  const companion=await createCompanion(owner,{name:'Refresh isolation',provider:'local'});

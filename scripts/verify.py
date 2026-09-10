@@ -227,7 +227,8 @@ class Verifier:
             "S3_SECRET_ACCESS_KEY": storage_secret_key, "S3_BUCKET_FILES": "companions-files", "S3_REGION": "us-east-1"})
 
     def run_agent_checks(self):
-        self.run("agent-unit", [self.bun, "--no-env-file", "test", "packages/plugins/definitions.test.ts", "packages/plugins/tools.test.ts", "packages/agent/test/daemon.test.ts",
+        self.run("plugin-linux", [self.bun, "--no-env-file", "scripts/test-plugin-linux.ts"])
+        self.run("agent-unit", [self.bun, "--no-env-file", "test", "packages/plugins/definitions.test.ts", "packages/plugins/tools.test.ts", "packages/plugins/deadlines.test.ts", "packages/agent/test/daemon.test.ts",
             "packages/agent/test/environment.test.ts", "packages/agent/test/initialization.test.ts",
             "packages/agent/test/memory.test.ts", "packages/agent/test/memory-store.test.ts",
             "packages/agent/test/memory-service.test.ts", "packages/agent/test/skills.test.ts",
@@ -248,6 +249,7 @@ class Verifier:
         self.run("distribution-content-linux", [self.bun, "--no-env-file", "scripts/test-distribution-verification.ts"])
         self.run("agent-build", [self.bun, "--no-env-file", "scripts/build-agent.ts"])
         self.run("memory-pi-linux", [self.bun, "--no-env-file", "scripts/test-memory-pi.ts"])
+        self.run("plugin-pi-linux", [self.bun, "--no-env-file", "scripts/test-plugin-pi.ts"])
 
     def run_server_checks(self):
         command = [self.bun, "--no-env-file", "scripts/test-server.ts", "--linux"]

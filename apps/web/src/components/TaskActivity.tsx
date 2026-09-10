@@ -4,6 +4,7 @@ import { api, type Companion, type CompanionDetail, type TaskDetail, type TaskSu
 import { MessageResponse } from "@/components/ai-elements/message";
 import { CompanionAvatar } from "@/components/CompanionAvatar";
 import { Button } from "@/components/ui/button";
+import { PluginCalls, pluginErrorMessage } from "./PluginCalls";
 import "./TaskActivity.css";
 
 type Props = {
@@ -195,7 +196,8 @@ export function TaskActivity({ companion, refreshVersion = 0, onOpenCompanion, s
         </header>
         <section><h3>Original request</h3><MessageResponse>{detail.content}</MessageResponse></section>
         {detail.resultText && <section><h3>Result</h3><MessageResponse>{detail.resultText}</MessageResponse></section>}
-        {detail.error && <section className="task-error" role="alert"><h3>What happened</h3><p>{detail.error}</p></section>}
+        <PluginCalls calls={detail.pluginCalls}/>
+        {detail.error && <section className="task-error" role="alert"><h3>What happened</h3><p>{pluginErrorMessage(detail.error)}</p></section>}
         {!!delegated.length && <section><h3>Specialists</h3><div className="task-specialists">{delegated.map(item => <button type="button" disabled={!onOpenCompanion} onClick={() => onOpenCompanion?.(item.companion.id)} key={item.delegationId} aria-label={`Open ${item.companion.name}'s discussion`}><CompanionAvatar name={item.companion.name} avatar={item.companion.avatar} size={36}/><span><strong>{item.companion.name}</strong><small>{item.companion.retiredAt ? "Finished" : statusLabel(item.companion.status)}</small></span><ChevronRight/></button>)}</div></section>}
         {!!detailFiles.length && <section><h3>Files</h3><div className="task-files">{detailFiles.map(file => <a href={file.url} target="_blank" rel="noreferrer" key={file.id}><FileText/><span>{file.name}</span></a>)}</div></section>}
         {detail.status === "needs_input" && <div className="task-next"><p>{companion.name} needs your answer before continuing.</p><Button onClick={onOpenDiscussion}><MessageCircle/>Open Discussion</Button></div>}

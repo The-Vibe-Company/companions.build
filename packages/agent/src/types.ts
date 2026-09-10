@@ -9,6 +9,8 @@ export interface RunMessage {sequence:number;text:string;createdAt:string;comple
 export interface RunProgress {thinkingText?:string;previewText:string;usage:RunUsage;messages?:RunMessage[];messageVersion?:number}
 
 export interface RunRecord {
+  pluginCalls?: import("../../plugins/execution").PluginCall[];
+  pluginCallVersion?: number;
   id: string;
   status: RunStatus;
   text: string | null;
@@ -43,6 +45,8 @@ export interface RunExecutor {
   /** Native Pi steering joins an existing response; it never starts a second main session. */
   steer?(rootId: string, id: string, input: RunInput): Promise<void>;
   acceptingRoot?(lane: RunLane): string | null;
+  /** Includes a non-steerable root draining its bounded cleanup. */
+  occupiedRoot?(lane: RunLane): string | null;
   /** Only called after the product has durably recorded a human question/answer. */
   suspend?(id: string): Promise<boolean>;
   resume?(id: string): Promise<boolean>;

@@ -72,7 +72,7 @@ test('bounds providers that produce endlessly unique cursors',async()=>{
 test('never retries an ambiguous tool call failure',async()=>{
   const remote=fixture(()=>({tools:[schema('read_email')]}));
   await remote.discover();
-  await expect(remote.call('read_email')).rejects.toThrow();
+  expect((await remote.call('read_email')).details).toEqual({isError:true});
   expect(remote.calls).toBe(1);
 });
 
@@ -93,7 +93,7 @@ function railwayFixture(beforeList?:()=>void) {
   const plugin:MachinePlugin={id:'railway-account',name:'Production workspace',provider:'railway',transport:'http',url:`http://127.0.0.1:${server.port}/mcp`};
   return {plugin,tools,calls,get requests(){return requests;}};
 }
-const execute=(connection:ReturnType<typeof pluginTools>,index:number,input:unknown)=>connection.tools[index]!.execute('request',input,undefined,undefined,{} as never);
+const execute=(connection:ReturnType<typeof pluginTools>,index:number,input:unknown)=>connection.tools[index]!.execute(crypto.randomUUID(),input,undefined,undefined,{} as never);
 
 test('Railway lists every paginated tool including railway-agent and connects only on use',async()=>{
   const fixture=railwayFixture(),connection=pluginTools(()=>[fixture.plugin]);cleanup.push(()=>connection.close());
@@ -133,7 +133,9 @@ for(const change of ['detach','reconfigure','cancel'] as const) {
     });
     selected=[fixture.plugin];
     const connection=pluginTools(()=>selected);cleanup.push(()=>connection.close());
-    await expect(connection.tools[1]!.execute('request',{connectionId:fixture.plugin.id,tool:'redeploy',arguments:{}},controller.signal,undefined,{} as never)).rejects.toThrow();
+    const work=connection.tools[1]!.execute('request',{connectionId:fixture.plugin.id,tool:'redeploy',arguments:{}},controller.signal,undefined,{} as never);
+    if(change==='cancel')expect((await work).details).toEqual({isError:true});
+    else await expect(work).rejects.toThrow();
     expect(fixture.calls).toHaveLength(0);
   });
 }

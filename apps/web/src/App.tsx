@@ -347,11 +347,12 @@ export function App() {
   const [config, setConfig] = useState<AppConfig | null>(null);
   const [companions, setCompanions] = useState<Companion[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(selectedIdFromPath);
-  const [detail, setDetail] = useState<CompanionDetail | null>(null);
-  const [detailVersion, setDetailVersion] = useState(0);
+  const detailCache = useRef(new Map<string, CompanionDetail>());
+  const detailVersionMap = useRef(new Map<string, number>());
+  const detailRequestSeq = useRef(new Map<string, number>());
+  const [, setDetailCacheTick] = useState(0);
   const selectedIdRef = useRef(selectedId);
   selectedIdRef.current = selectedId;
-  const detailRequest = useRef(0);
   const [loading, setLoading] = useState(true);
   const [pageError, setPageError] = useState("");
   const [createOpen, setCreateOpen] = useState(() => window.location.pathname === "/new");
@@ -398,20 +399,24 @@ export function App() {
     }
   }, [handleApiError]);
 
-  const loadDetail = useCallback(async () => {
-    if (!selectedId) return;
-    const request = ++detailRequest.current;
-    const current = () => request === detailRequest.current && selectedIdRef.current === selectedId && !deletedIds.current.has(selectedId);
+  const loadDetail = useCallback(async (companionId?: string) => {
+    const idToLoad = companionId ?? selectedIdRef.current;
+    if (!idToLoad) return;
+    const seq = (detailRequestSeq.current.get(idToLoad) ?? 0) + 1;
+    detailRequestSeq.current.set(idToLoad, seq);
     try {
-      const result = await api.getCompanion(selectedId);
-      if (!current()) return;
-      setDetail(result);
-      setDetailVersion(version => version + 1);
+      const result = await api.getCompanion(idToLoad);
+      if (detailRequestSeq.current.get(idToLoad) !== seq) return;
+      if (deletedIds.current.has(idToLoad)) return;
+      detailCache.current.set(idToLoad, result);
+      detailVersionMap.current.set(idToLoad, (detailVersionMap.current.get(idToLoad) ?? 0) + 1);
+      setDetailCacheTick(v => v + 1);
       setPageError("");
     } catch (cause) {
-      if (current()) handleApiError(cause);
+      if (detailRequestSeq.current.get(idToLoad) !== seq) return;
+      if (idToLoad === selectedIdRef.current) handleApiError(cause);
     }
-  }, [selectedId, handleApiError]);
+  }, [handleApiError]);
 
   const bootstrap = useCallback(async () => {
     setLoading(true);
@@ -426,7 +431,12 @@ export function App() {
       const pathId = selectedIdFromPath();
       const nextId = pathId;
       setSelectedId(nextId);
-      if (nextId) setDetail(await api.getCompanion(nextId));
+      if (nextId) {
+        const result = await api.getCompanion(nextId);
+        detailCache.current.set(nextId, result);
+        detailVersionMap.current.set(nextId, 1);
+        setDetailCacheTick(v => v + 1);
+      }
     } catch (cause) {
       handleApiError(cause);
     } finally {
@@ -449,7 +459,6 @@ export function App() {
         window.history.replaceState({}, "", target);
         acceptedLocation.current = target;
         setCurrentPath(window.location.pathname);
-        if (targetId !== selectedId) setDetail(null);
         setSelectedId(targetId);
         setCreateOpen(window.location.pathname === "/new");
         setTeamCreateOpen(false);
@@ -514,14 +523,13 @@ export function App() {
   function selectCompanion(id: string) {
     const select = () => {
       setSelectedId(id);
-      if (id !== selectedId) setDetail(null);
-      else void loadDetail();
       setCreateOpen(false);
       setTeamCreateOpen(false);
       setSidebarOpen(false);
       window.history.pushState({}, "", `/companions/${id}`);
       acceptedLocation.current = `/companions/${id}`;
       setCurrentPath(`/companions/${id}`);
+      if (id === selectedId) void loadDetail(id);
     };
     if (id === selectedId) select(); else leaveCompanion(select);
   }
@@ -541,14 +549,17 @@ export function App() {
   async function signOut() {
     await api.signOut();
     clearReadingPositions();
-    setUser(null); setAuthRequired(true); setCompanions([]); setDetail(null);
+    detailCache.current.clear();
+    detailVersionMap.current.clear();
+    detailRequestSeq.current.clear();
+    setUser(null); setAuthRequired(true); setCompanions([]);
     navigate("/");
   }
 
   function handleDeleted(ids: string[]) {
-    ids.forEach(id => deletedIds.current.add(id));
+    ids.forEach(id => { deletedIds.current.add(id); detailCache.current.delete(id); detailVersionMap.current.delete(id); });
     setCompanions(current => current.filter(item => !ids.includes(item.id)));
-    setDetail(null);
+    setDetailCacheTick(v => v + 1);
     setPageError('');
     window.history.replaceState({}, '', '/');
     acceptedLocation.current = '/';
@@ -615,11 +626,15 @@ export function App() {
         </main>
       ) : !selectedId ? (
         <Home companions={companions} onSelect={selectCompanion} onCreateTeam={() => leaveCompanion(() => setTeamCreateOpen(true))} onCreate={() => navigate("/new")} onMenu={() => setSidebarOpen(true)} />
-      ) : detail && detail.companion.id === selectedId ? (
-        <CompanionView accountId={user.id} onNavigate={navigate} onDeleted={handleDeleted} key={detail.companion.id} detail={detail} refreshVersion={detailVersion} models={config.models ?? [{ id: config.model, name: config.model }]} onRefresh={loadDetail} onUnauthorized={() => setAuthRequired(true)} onMenu={() => setSidebarOpen(true)} onOpenCompanion={selectCompanion} onRegisterNavigationGuard={registerNavigationGuard} onLocationChange={location => { acceptedLocation.current = location; }} />
-      ) : (
-        <main className="detail-loading" id="main-content"><LoaderCircle className="spin" /><span>Opening Companion…</span></main>
-      )}
+      ) : (() => {
+        const cachedDetail = detailCache.current.get(selectedId);
+        const companionRefreshVersion = detailVersionMap.current.get(selectedId) ?? 0;
+        return cachedDetail ? (
+          <CompanionView accountId={user.id} onNavigate={navigate} onDeleted={handleDeleted} key={cachedDetail.companion.id} detail={cachedDetail} refreshVersion={companionRefreshVersion} models={config.models ?? [{ id: config.model, name: config.model }]} onRefresh={loadDetail} onUnauthorized={() => setAuthRequired(true)} onMenu={() => setSidebarOpen(true)} onOpenCompanion={selectCompanion} onRegisterNavigationGuard={registerNavigationGuard} onLocationChange={location => { acceptedLocation.current = location; }} />
+        ) : (
+          <main className="detail-loading" id="main-content"><LoaderCircle className="spin" /><span>Opening Companion…</span></main>
+        );
+      })()}
     </div>
   );
 }

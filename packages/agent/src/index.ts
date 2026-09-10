@@ -9,6 +9,7 @@ import { AgentFiles } from "../../control/files";
 import { AgentSkills } from "../../control/skills";
 import { desktopTools } from "../../desktop/tools";
 import {runDesktopBroker} from '../../desktop/run';
+import { runMemoryWorker } from "./memory-worker";
 
 async function startupPhase<T>(phase:string,body:()=>T|Promise<T>):Promise<T>{
   try{return await body();}catch(error){
@@ -40,7 +41,7 @@ export async function startAgent() {
     return await control.handleRequest(request) ?? await files.handleRequest(request) ?? await skills.handleRequest(request);
   },desktopSocket?1:0);
   const server = await startupPhase("SERVER",()=>Bun.serve({ hostname: "0.0.0.0", port, maxRequestBodySize: 15 * 1024 * 1024, fetch: request => daemon.fetch(request) }));
-  const shutdown = () => { server.stop(true); daemon.close(); control.close(); files.close(); process.exit(0); };
+  const shutdown = () => { server.stop(true); executor.close(); daemon.close(); control.close(); files.close(); process.exit(0); };
   process.on("SIGTERM", shutdown);
   process.on("SIGINT", shutdown);
   return { server, daemon };
@@ -55,7 +56,11 @@ function parsePort(raw: string | undefined): number {
 
 if (import.meta.main) {
   const credentialHelper=process.argv.indexOf('--git-credential-helper');
-  if(credentialHelper>=0){
+  if(process.argv.includes('--memory-worker')) {
+    const stateDir = process.argv[process.argv.indexOf('--memory-worker') + 1];
+    if (!stateDir || !stateDir.startsWith('/')) process.exit(1);
+    runMemoryWorker(stateDir).then(() => process.exit(0), () => process.exit(1));
+  }else if(credentialHelper>=0){
     const socketPath=process.argv[credentialHelper+1]??'',operation=process.argv[credentialHelper+2]??'';
     runGitCredentialHelper(socketPath,operation).then(code=>{if(code===2)console.error('GITHUB_CREDENTIAL_AMBIGUOUS');process.exit(code===2?1:code);},()=>process.exit(1));
   }else if(process.argv.includes('--desktop-broker')){

@@ -7,6 +7,7 @@ import { runtimeSettings, skillCommands, type SkillCommands } from "./skill-comm
 import { scriptedModel, scriptedHumanTool } from "./scripted-model";
 import { clearProviderSecrets, takeProviderApiKey } from "./environment";
 import { SharedMemory } from "./memory";
+import { MemoryService } from "./memory-service";
 import { configureModelGateway, withModelGatewayRequest } from "./model-gateway";
 import type { RunExecutor, RunInput, RunLane, RunMessage, RunProgress } from "./types";
 import {configureAzureFoundry} from './azure-foundry';
@@ -38,6 +39,7 @@ export class PiExecutor implements RunExecutor {
   private readonly provider: string;
   private readonly modelId: string;
   private readonly memory: SharedMemory;
+  private readonly persistentMemory: MemoryService;
   private readonly gatewayUrl?: string;
   private readonly active = new Map<string, ActiveExecution>();
   toolsFactory?: PiToolsFactory;
@@ -53,6 +55,7 @@ export class PiExecutor implements RunExecutor {
     this.gatewayUrl = gatewayUrl;
     for (const path of [this.cwd, this.agentDir, this.sessionsDir]) mkdirSync(path, { recursive: true });
     this.memory = new SharedMemory(this.cwd);
+    this.persistentMemory = new MemoryService(stateDir);
   }
 
   static async create(stateDir: string): Promise<PiExecutor> {
@@ -134,6 +137,7 @@ export class PiExecutor implements RunExecutor {
       await externalTools?.close?.();
       this.cancelled.delete(id);
       this.active.delete(id);
+      this.persistentMemory.afterResponse();
     }
   }
 
@@ -191,7 +195,7 @@ export class PiExecutor implements RunExecutor {
 
   private async initialize(input: RunInput, execution: ActiveExecution, extra?: PiSessionTools): Promise<Session> {
     const settingsManager = runtimeSettings();
-    const memory = this.memory.read().content.slice(0, 30_000);
+    const memory = await this.persistentMemory.startupContext();
     const instructions = buildCompanionInstructions({ instructions: input.instructions, memory,
       lane: execution.lane, desktopBoundary: process.env.DESKTOP_BOUNDARY_VERSION === "1" });
     const resourceLoader = new DefaultResourceLoader({ cwd: this.cwd, agentDir: this.agentDir, settingsManager, systemPrompt: instructions.join("\n\n") });
@@ -200,7 +204,7 @@ export class PiExecutor implements RunExecutor {
     if (!model) throw new Error("MODEL_NOT_FOUND");
     const sessionDir = execution.lane === "main" ? this.sessionsDir : join(this.sessionsDir, "background", execution.id);
     const testTools = this.provider === "companion-test" ? [scriptedHumanTool(execution.id, this.cwd)] : [];
-    const memoryTools = this.memory.tools();
+    const memoryTools = [...this.memory.tools(), ...this.persistentMemory.tools(execution.id)];
     mkdirSync(sessionDir, { recursive: true });
     const session = (await createAgentSession({
       cwd: this.cwd, agentDir: this.agentDir, modelRuntime: this.modelRuntime, model,
@@ -268,6 +272,8 @@ export class PiExecutor implements RunExecutor {
     });
     return session;
   }
+
+  close(): void { this.persistentMemory.close(); }
 
   private emitProgress(execution: ActiveExecution): void {
     execution.progress.messageVersion=(execution.progress.messageVersion??0)+1;

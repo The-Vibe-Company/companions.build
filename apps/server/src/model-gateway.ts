@@ -1,3 +1,4 @@
+import {agentModelId,FAST_MODEL_ID} from './model-selection';
 import {createHash} from 'node:crypto';
 import {db} from './store';
 import {requireHostedActivation} from './activation';
@@ -17,6 +18,7 @@ const routes={
  google:{api:'google-generative-ai',base:'https://generativelanguage.googleapis.com/v1beta',key:['GOOGLE_API_KEY','GEMINI_API_KEY']},
  anthropic:{api:'anthropic-messages',base:'https://api.anthropic.com',key:['ANTHROPIC_API_KEY']},
  azure:{api:'openai-responses',base:'',key:['AZURE_OPENAI_API_KEY']},
+ deepseek:{api:'openai-responses',base:'https://api.deepseek.com',key:['DEEPSEEK_API_KEY']},
  openai:{api:'openai-responses',base:'https://api.openai.com/v1',key:['OPENAI_API_KEY']},
  openrouter:{api:'openai-completions',base:'https://openrouter.ai/api/v1',key:['OPENROUTER_API_KEY']},
  zai:{api:'openai-completions',base:'https://api.z.ai/api/coding/paas/v4',key:['ZAI_API_KEY']},
@@ -91,7 +93,15 @@ function target(provider:keyof typeof routes,api:string,suffix:string,url:URL,bo
  let base:string;
  if(provider==='azure'){try{base=normalizeAzureOpenAIBaseUrl(azureBaseUrl);}catch{fail('model_provider_unavailable',503);}}
  else base=provider==='openrouter'&&api==='anthropic-messages'?'https://openrouter.ai/api':route.base;
- const normalized=sanitizeBody(body,api as Api,model);
+ const normalized=sanitizeBody(body,api as Api,agentModelId(provider,model));
+ if(provider==='deepseek'){
+  if(model!==FAST_MODEL_ID)fail('model_selection_mismatch',403);
+  normalized.model=model;
+ }
+ // DeepSeek treats developer as user; preserve the system instruction boundary.
+ if(provider==='deepseek'&&Array.isArray(normalized.input))for(const item of normalized.input){
+  if(item?.role==='developer')item.role='system';
+ }
  // Foundry's project endpoint requires the message discriminator for content arrays.
  if(provider==='azure'&&Array.isArray(normalized.input))for(const item of normalized.input){
   if(item&&typeof item==='object'&&item.type===undefined&&['system','developer','user','assistant'].includes(item.role))item.type='message';
@@ -179,8 +189,8 @@ export function createModelGateway(deps:Dependencies={}){
    if(admitted>=(deps.maxConcurrent??8))fail('model_gateway_busy',503);admitted++;release=()=>{admitted--;};
    const run=await allowed(claims),parts=url.pathname.slice(prefix.length).split('/'),wireProvider=parts.shift() as keyof typeof routes,api=parts.shift()??'',suffix='/'+parts.join('/');
    const provider=run.model_provider as keyof typeof routes;
-   if(!Object.hasOwn(routes,provider)||!Object.hasOwn(routes,wireProvider)||(wireProvider!==provider&&!(provider==='azure'&&wireProvider==='openai')))fail('model_selection_mismatch',403);
-   if(await lookup(wireProvider,run.model_id)!==api)fail('model_protocol_mismatch',403);
+   if(!Object.hasOwn(routes,provider)||!Object.hasOwn(routes,wireProvider)||(wireProvider!==provider&&!(['azure','deepseek'].includes(provider)&&wireProvider==='openai')))fail('model_selection_mismatch',403);
+   if(await lookup(wireProvider,agentModelId(provider,run.model_id))!==api)fail('model_protocol_mismatch',403);
    const key=deps.key?deps.key(provider):routes[provider].key.map(name=>process.env[name]).find(Boolean);if(!key)fail('model_provider_unavailable',503);
    let body=await boundedBody(request,reserveBody,deps.bodyDeadlineMs);
    const wire=target(provider,api,suffix,url,body,run.model_id,deps.azureBaseUrl??process.env.AZURE_OPENAI_BASE_URL);

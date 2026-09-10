@@ -270,3 +270,32 @@ test('unconfigured Azure reasoning retains session effort',async()=>{
  const response=await g.handle(request(f,undefined,{model:'fixture-model',stream:true,reasoning:{effort:'low'}}));
  expect(response!.status).toBe(200);await response!.text();await g.drain();expect(forwarded.reasoning.effort).toBe('low');
 });
+
+
+test('Fast uses a distinct existing Responses profile, pins DeepSeek and preserves native reasoning',async()=>{
+ const f=await fixture('azure');
+ await db`UPDATE runs SET model_provider='deepseek',model_id='deepseek-flash' WHERE id=${f.runId}`;
+ let sent:any,calls=0;
+ const g=gateway((url,init)=>{calls++;expect(url).toBe('https://api.deepseek.com/responses');expect(new Headers(init.headers).get('authorization')).toBe('Bearer synthetic-server-only-key');sent=JSON.parse(String(init.body));return upstream('openai');});
+ const input=[{role:'developer',content:'System rules'},{role:'user',content:'Use the tool'},
+  {type:'reasoning',id:'rs_deepseek',summary:[],content:[{type:'reasoning_text',text:'fixture thinking'}]},
+  {type:'function_call',call_id:'call_fixture',name:'read',arguments:'{}'},
+  {type:'function_call_output',call_id:'call_fixture',output:'tool fixture'}];
+ const id=crypto.randomUUID(),body={model:'gpt-5.6-sol',stream:true,input};
+ const response=await g.handle(request(f,id,body));expect(response!.status).toBe(200);await response!.text();await g.drain();
+ expect(sent.model).toBe('deepseek-flash');expect(sent.store).toBe(false);
+ expect(sent.input).toEqual([{...input[0],role:'system'},...input.slice(1)]);
+ const [row]=await db`SELECT provider,model_id,status,usage_verified FROM model_gateway_requests WHERE id=${id}`;
+ expect(row).toMatchObject({provider:'deepseek',model_id:'deepseek-flash',status:'succeeded',usage_verified:true});
+ expect((await g.handle(request(f,id,body)))!.status).toBe(409);expect(calls).toBe(1);
+ expect((await g.handle(request(f,undefined,{model:'deepseek-v4-pro',stream:true})))!.status).toBe(403);expect(calls).toBe(1);
+});
+
+test('Great retains native Azure signatures and tool history',async()=>{
+ const f=await fixture('azure');let sent:any;
+ const g=gateway((_url,init)=>{sent=JSON.parse(String(init.body));return upstream('azure');});
+ const input=[{type:'reasoning',id:'rs_azure',summary:[],encrypted_content:'azure-fixture'},
+  {type:'function_call_output',call_id:'fixture',output:'retained'}];
+ const response=await g.handle(request(f,undefined,{model:'fixture-model',stream:true,input}));
+ expect(response!.status).toBe(200);await response!.text();await g.drain();expect(sent.input).toEqual(input);
+});

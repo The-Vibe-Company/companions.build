@@ -62,6 +62,7 @@ export const config = {
   modelProvider: process.env.MODEL_PROVIDER ?? "google",
   modelId: process.env.MODEL_ID ?? "gemini-2.5-flash",
   modelGatewayUrl:modelGatewayUrl(),
+  deepseekEnabled:process.env.DEEPSEEK_ENABLED==='1',
   testMode: process.env.AGENT_TEST_MODE === "1",
   localAvailable: process.env.LOCAL_RUNTIME === "1",
   defaultProvider: process.env.LOCAL_RUNTIME === "1" ? "local" as const : "box" as const,

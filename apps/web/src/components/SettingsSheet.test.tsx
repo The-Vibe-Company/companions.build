@@ -172,3 +172,80 @@ it('saves the visible model preference with the identity form and disables editi
  await waitFor(()=>expect(screen.getByRole('status')).toHaveTextContent('Changes saved'));
  expect(screen.getByLabelText('Model')).toBeEnabled();
 });
+
+const productModels = [
+ {id:'gpt-5.6-luna',name:'Great',isDefault:true},
+ {id:'deepseek-flash',name:'Fast'},
+];
+
+it.each([null, 'gpt-5.6-luna'])('shows the Great default once for a %s persisted model', modelId => {
+ const productDetail = {...detail, companion:{...detail.companion,modelId}};
+ render(<SettingsSheet embedded detail={productDetail} models={productModels} connections={null} onDeleted={vi.fn()} onClose={vi.fn()} onSaved={vi.fn().mockResolvedValue(undefined)} onActivity={vi.fn()} onDesktop={vi.fn()}/>);
+ const model = screen.getByLabelText('Model');
+ expect(model).toHaveValue('gpt-5.6-luna');
+ expect(screen.getAllByRole('option')).toHaveLength(2);
+ expect(screen.getByRole('option',{name:'Great (default)'})).toBeInTheDocument();
+ expect(screen.getByRole('option',{name:'Fast'})).toBeInTheDocument();
+ expect(screen.queryByRole('option',{name:'Default model'})).not.toBeInTheDocument();
+ expect(model).not.toHaveTextContent('gpt-5.6-luna');
+ expect(model).not.toHaveTextContent('deepseek-flash');
+});
+
+it('retains an explicitly saved Great model when another setting changes', async () => {
+ const explicitGreat = {...detail, companion:{...detail.companion,modelId:'gpt-5.6-luna'}};
+ const save = vi.spyOn(api,'updateCompanion').mockResolvedValue({companion:{...explicitGreat.companion,name:'Mila'}});
+ render(<SettingsSheet embedded detail={explicitGreat} models={productModels} connections={null} onDeleted={vi.fn()} onClose={vi.fn()} onSaved={vi.fn().mockResolvedValue(undefined)} onActivity={vi.fn()} onDesktop={vi.fn()}/>);
+ const user = userEvent.setup();
+ await user.clear(screen.getByLabelText('Name'));
+ await user.type(screen.getByLabelText('Name'),'Mila');
+ await user.click(screen.getByRole('button',{name:'Save changes'}));
+ await waitFor(() => expect(save).toHaveBeenCalledWith('ada',{name:'Mila'}));
+ expect(screen.getByLabelText('Model')).toHaveValue('gpt-5.6-luna');
+});
+
+it('persists Fast, retains it after an error, and maps Great back to the default', async () => {
+ const save = vi.spyOn(api,'updateCompanion')
+  .mockRejectedValueOnce(new Error('Could not save model.'))
+  .mockResolvedValueOnce({companion:{...detail.companion,modelId:'deepseek-flash'}})
+  .mockResolvedValueOnce({companion:{...detail.companion,modelId:null}});
+ render(<SettingsSheet embedded detail={detail} models={productModels} connections={null} onDeleted={vi.fn()} onClose={vi.fn()} onSaved={vi.fn().mockResolvedValue(undefined)} onActivity={vi.fn()} onDesktop={vi.fn()}/>);
+ const user = userEvent.setup();
+ const model = screen.getByLabelText('Model');
+ await user.selectOptions(model,'deepseek-flash');
+ await user.click(screen.getByRole('button',{name:'Save changes'}));
+ expect(await screen.findByRole('alert')).toHaveTextContent('Could not save model.');
+ expect(model).toHaveValue('deepseek-flash');
+ expect(screen.getByRole('status')).toHaveTextContent('Unsaved changes');
+ await user.click(screen.getByRole('button',{name:'Save changes'}));
+ await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('Changes saved'));
+ expect(save).toHaveBeenNthCalledWith(1,'ada',{modelId:'deepseek-flash'});
+ expect(save).toHaveBeenNthCalledWith(2,'ada',{modelId:'deepseek-flash'});
+ await user.selectOptions(model,'gpt-5.6-luna');
+ await user.click(screen.getByRole('button',{name:'Save changes'}));
+ await waitFor(() => expect(save).toHaveBeenNthCalledWith(3,'ada',{modelId:null}));
+ expect(model).toHaveValue('gpt-5.6-luna');
+ expect(screen.getByRole('button',{name:'Save changes'})).toBeDisabled();
+});
+
+it('shows unavailable persisted Fast and preserves it until the user chooses Great', async () => {
+ const fast = {...detail,companion:{...detail.companion,modelId:'deepseek-flash'}};
+ const save = vi.spyOn(api,'updateCompanion')
+  .mockResolvedValueOnce({companion:{...fast.companion,name:'Mila'}})
+  .mockResolvedValueOnce({companion:{...fast.companion,name:'Mila',modelId:null}});
+ render(<SettingsSheet embedded detail={fast} models={[productModels[0]]} connections={null} onDeleted={vi.fn()} onClose={vi.fn()} onSaved={vi.fn().mockResolvedValue(undefined)} onActivity={vi.fn()} onDesktop={vi.fn()}/>);
+ const user = userEvent.setup();
+ const model = screen.getByLabelText('Model');
+ expect(model).toHaveValue('deepseek-flash');
+ expect(screen.getByRole('option',{name:'Fast (unavailable)'})).toBeDisabled();
+ await user.clear(screen.getByLabelText('Name'));
+ await user.type(screen.getByLabelText('Name'),'Mila');
+ await user.click(screen.getByRole('button',{name:'Save changes'}));
+ await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('Changes saved'));
+ expect(save).toHaveBeenNthCalledWith(1,'ada',{name:'Mila'});
+ expect(model).toHaveValue('deepseek-flash');
+ await user.selectOptions(model,'gpt-5.6-luna');
+ await user.click(screen.getByRole('button',{name:'Save changes'}));
+ await waitFor(() => expect(save).toHaveBeenNthCalledWith(2,'ada',{modelId:null}));
+ expect(model).toHaveValue('gpt-5.6-luna');
+ expect(screen.queryByRole('option',{name:'Fast (unavailable)'})).not.toBeInTheDocument();
+});

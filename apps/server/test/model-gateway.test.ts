@@ -1,4 +1,6 @@
 import {beforeAll,expect,test} from 'bun:test';
+import {createHash} from 'node:crypto';
+import {azureReasoningOverride} from '../src/azure-reasoning';
 import {db,migrate,createCompanion,acceptMessage} from '../src/store';
 import {createModelGateway,MODEL_GATEWAY_MAX_REQUEST_BYTES} from '../src/model-gateway';
 import {mintModelGatewayToken} from '../src/model-gateway-token';
@@ -234,4 +236,37 @@ test('body budget is released after a chunked read timeout, invalid JSON and a f
   const response=await g.handle(bad);expect(response!.status).toBe(phase==='timeout'?408:phase==='json'?400:502);
   const next=await g.handle(request(b,undefined,body));expect(next!.status).toBe(200);await next!.text();await g.drain();
  }
+});
+
+
+test('Azure reasoning policy validates both selector and effort without exposing invalid values',()=>{
+ expect(azureReasoningOverride({})).toBeUndefined();
+ expect(azureReasoningOverride({AZURE_OPENAI_REASONING_MODEL:'gpt-5.6-luna',AZURE_OPENAI_REASONING_EFFORT:'xhigh'})).toEqual({model:'gpt-5.6-luna',effort:'xhigh'});
+ for(const env of [{AZURE_OPENAI_REASONING_EFFORT:'xhigh'},{AZURE_OPENAI_REASONING_MODEL:'fixture-model'},
+  {AZURE_OPENAI_REASONING_MODEL:'fixture-model',AZURE_OPENAI_REASONING_EFFORT:'invalid-private-value'}]){
+  expect(()=>azureReasoningOverride(env)).toThrow('AZURE_OPENAI_REASONING_OVERRIDE_INVALID');
+ }
+});
+
+test('Azure reasoning policy overrides restored sessions only for its selected model before durable claim',async()=>{
+ for(const provider of ['azure','openai'] as const)for(const selectedModel of ['fixture-model','other-model']){
+  const f=await fixture(provider),id=crypto.randomUUID();let calls=0;
+  const g=gateway(async(url,init)=>{
+   calls++;const body=JSON.parse(String(init.body));
+   expect(body.reasoning).toEqual({effort:provider==='azure'&&selectedModel==='fixture-model'?'xhigh':'medium',summary:'auto'});
+   const [row]=await db`SELECT request_hash FROM model_gateway_requests WHERE id=${id}`;
+   expect(row.request_hash).toBe(createHash('sha256').update(url+'\n'+String(init.body)).digest('hex'));
+   return upstream(provider);
+  },{azureReasoning:{model:selectedModel,effort:'xhigh'}});
+  const response=await g.handle(request(f,id,{model:'fixture-model',stream:true,reasoning:{effort:'medium',summary:'auto'}}));
+  expect(response!.status).toBe(200);await response!.text();await g.drain();
+  expect((await g.handle(request(f,id)))!.status).toBe(409);expect(calls).toBe(1);
+ }
+});
+
+test('unconfigured Azure reasoning retains session effort',async()=>{
+ const f=await fixture('azure');let forwarded:any;
+ const g=gateway((_url,init)=>{forwarded=JSON.parse(String(init.body));return upstream('azure');});
+ const response=await g.handle(request(f,undefined,{model:'fixture-model',stream:true,reasoning:{effort:'low'}}));
+ expect(response!.status).toBe(200);await response!.text();await g.drain();expect(forwarded.reasoning.effort).toBe('low');
 });

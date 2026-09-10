@@ -211,6 +211,14 @@ DEV_LIVE_MODEL=1
 gateway, preserving native streaming, function tools, images, reasoning and token usage.
 In production, set the key and endpoint on the API; API, executor and worker use the
 same provider and model defaults. The production key remains on the API.
+To override reasoning for a specific Azure deployment in hosted sessions, set
+`AZURE_OPENAI_REASONING_MODEL=gpt-5.6-luna` and `AZURE_OPENAI_REASONING_EFFORT=xhigh`
+on the API. Both values are required. The gateway applies the effort to new provider
+requests for that model, including continued conversations; requests already forwarded
+keep their original effort. Other providers and model IDs retain their session settings.
+Unset both variables to restore session-controlled reasoning. A live Azure probe on
+2026-09-10 accepted `xhigh` for Luna and rejected the literal `max` value.
+
 Existing hosted agents use the OpenAI Responses wire format; the gateway selects Azure
 from the persisted run provider. Direct development agents use the Azure adapter,
 which removes the legacy `api-version` query rejected by Foundry v1 endpoints.

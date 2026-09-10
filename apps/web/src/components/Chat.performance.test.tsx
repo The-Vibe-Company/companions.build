@@ -48,3 +48,22 @@ it('keeps an answered off-page question visibly in the conversation after refres
   expect(await screen.findByRole('region',{name:'Answered question'})).toBeVisible();
   expect(screen.getByText('Yes, continue')).toBeVisible();
 });
+
+it('keeps completed application activity beside a persisted assistant explanation', async () => {
+  const run={id:'plugin-run',status:'succeeded' as const,error:null,createdAt:'2026-09-10T12:00:00Z',pluginCallVersion:2,pluginCalls:[{requestId:'request-1',runId:'plugin-run',toolCallId:'tool-1',connectionId:'connection-1',tool:'linear.create_issue',attempt:1,phase:'call' as const,status:'succeeded' as const,outcome:'confirmed' as const,startedAt:100,deadlineAt:200,updatedAt:180}]};
+  const message={id:'answer',runId:run.id,role:'assistant' as const,content:'I created the issue.',createdAt:'2026-09-10T12:00:01Z'};
+  const detail:CompanionDetail={companion:{id:'plugin-chat',name:'Ada',provider:'local',status:'ready',instructions:'',error:null,createdAt:''},messages:[message],runs:[run],activity:[]};
+  render(<Chat accountId="test" detail={detail} onRefresh={async()=>{}} onUnauthorized={()=>{}} onOpenCompanion={()=>{}}/>);
+  expect(await screen.findByText('I created the issue.')).toBeVisible();
+  expect(screen.getByRole('region',{name:'Application activity'})).toHaveTextContent('linear.create_issueCompleted');
+});
+
+it('reloads a terminal plugin error beside an incomplete progress message', async () => {
+  const run={id:'timeout-run',status:'failed' as const,error:'PLUGIN_RESPONSE_TIMEOUT',createdAt:'2026-09-10T12:00:00Z',pluginCallVersion:3,pluginCalls:[{requestId:'request-timeout',runId:'timeout-run',toolCallId:'tool-timeout',connectionId:'connection-1',tool:'get_session',attempt:2,phase:'call' as const,status:'failed' as const,outcome:'unknown' as const,code:'PLUGIN_TIMEOUT' as const,startedAt:100,deadlineAt:200,updatedAt:200}]};
+  const message={id:'progress',runId:run.id,role:'assistant' as const,content:'I am checking the session.',complete:false,createdAt:'2026-09-10T12:00:01Z'};
+  const detail:CompanionDetail={companion:{id:'timeout-chat',name:'Ada',provider:'local',status:'ready',instructions:'',error:null,createdAt:''},messages:[message],runs:[run],activity:[]};
+  render(<Chat accountId="test" detail={detail} onRefresh={async()=>{}} onUnauthorized={()=>{}} onOpenCompanion={()=>{}}/>);
+  expect(await screen.findByText('I am checking the session.')).toBeVisible();
+  expect(screen.getByRole('alert')).toHaveTextContent('could not finish its response');
+  expect(screen.getByRole('region',{name:'Application activity'})).toHaveTextContent('Requires verification');
+});

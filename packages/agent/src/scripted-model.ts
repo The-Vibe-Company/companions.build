@@ -138,6 +138,27 @@ export function scriptedModel(model: any, context: any) {
     const connectionId = text.slice("plugin-detached:".length).trim();
     if (results.length === 0) tool("plugin_call", { connectionId, tool: "echo", arguments: { message: "MUST_NOT_CALL" } });
     else message.content = [{ type: "text", text: lastResult().includes("HTTP_MCP:MUST_NOT_CALL") ? "Detached plugin was called" : "Detached plugin denied" }];
+  } else if (text === "plugin-runtime-explain") {
+    if (results.length === 0) tool("fixture_plugin", { mode: "fail" });
+    else message.content = [{ type: "text", text: lastToolValue().error?.code === "PLUGIN_TIMEOUT" && lastToolValue().error?.outcome === "unknown" ? "Plugin failure explained." : "Missing structured plugin failure." }];
+  } else if (text === "plugin-runtime-model-error") {
+    if (results.length === 0) tool("fixture_plugin", { mode: "fail" });
+    else {
+      message.content = [{ type: "text", text: "Provider response failed." }];
+      message.stopReason = "error";
+    }
+  } else if (text === "plugin-runtime-hang") {
+    if (results.length === 0) tool("fixture_plugin", { mode: "fail" });
+    else {
+      message.content = [{ type: "text", text: "Partial explanation only." }];
+      queueMicrotask(() => stream.push({ type: "start", partial: message }));
+      return stream;
+    }
+  } else if (text === "plugin-runtime-cancel" || text === "plugin-runtime-late") {
+    if (results.length === 0) tool("fixture_plugin", { mode: text.endsWith("late") ? "late" : "cancel" });
+    else message.content = [{ type: "text", text: "Cancelled plugin returned unexpectedly." }];
+  } else if (text === "plugin-runtime-next") {
+    message.content = [{ type: "text", text: "Next message completed." }];
   }
   queueMicrotask(() => {
     stream.push({ type: "start", partial: message });

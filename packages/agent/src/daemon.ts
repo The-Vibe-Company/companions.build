@@ -5,8 +5,10 @@ import { RunJournal } from "./journal";
 import type { RunExecutor, RunInput, RunLane } from "./types";
 import { parseModelGatewayCredential } from "./model-gateway";
 import { InitializationRunner } from "./initialization";
+import { PLUGIN_ERROR_CODES } from "../../plugins/execution";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const CANCELLATION_TIMEOUT_MS = 5_000;
 
 export class AgentDaemon {
   readonly journal: RunJournal;
@@ -107,6 +109,8 @@ export class AgentDaemon {
     if (lane === "background" && this.resumingBackground) return json({ error: "BUSY" }, 409);
     const activeRoot = lane === "main" && this.executor.acceptingRoot
       ? this.executor.acceptingRoot(lane) : this.activeRuns[lane];
+    const occupiedRoot = this.executor.occupiedRoot?.(lane) ?? this.activeRuns[lane];
+    if (occupiedRoot && !activeRoot) return json({ error: "BUSY", activeRunId: occupiedRoot }, 409);
     if (activeRoot && (lane === "background" || !this.executor.steer || this.cancelling.has(activeRoot) || this.initializing.has(activeRoot))) {
       return json({ error: "BUSY", activeRunId: activeRoot }, 409);
     }
@@ -136,14 +140,18 @@ export class AgentDaemon {
     try {
       const initialization = this.initializing.get(rootId);
       initialization?.controller.abort();
-      await initialization?.done;
-      await this.executor.cancel(rootId);
+      await withinCancellation((async () => {
+        await initialization?.done;
+        await this.executor.cancel(rootId);
+      })());
       this.journal.settleGroup(rootId, "cancelled", null, null);
       return json(this.journal.get(id) ?? run);
     } catch {
       this.journal.settleGroup(rootId, "interrupted", null, "PI_ABORT_FAILED");
       return json(this.journal.get(id) ?? run, 500);
     } finally {
+      if (this.activeRuns[run.lane] === rootId) this.activeRuns[run.lane] = null;
+      this.parkedRuns.delete(rootId);
       this.cancelling.delete(rootId);
     }
   }
@@ -199,16 +207,35 @@ export class AgentDaemon {
           input = { ...input, instructions: `${input.instructions}\n\nRuntime warning: ${initialized.warning}`.trim() };
         }
       }
+      if (this.journal.get(id)?.status !== "running" || this.cancelling.has(id)) return;
       const result = await this.executor.execute(id, input, progress=>this.journal.progress(id,progress));
       this.journal.settleGroup(id, this.cancelling.has(id) ? "cancelled" : "succeeded", result.text, null, result.publishToChat);
-    } catch {
-      this.journal.settleGroup(id, this.cancelling.has(id) ? "cancelled" : "failed", null, this.cancelling.has(id) ? null : "PI_RUN_FAILED");
+    } catch (error) {
+      this.journal.settleGroup(id, this.cancelling.has(id) ? "cancelled" : "failed", null,
+        this.cancelling.has(id) ? null : safeRunError(error));
     } finally {
       this.initializing.delete(id);
       if (this.activeRuns[lane] === id) this.activeRuns[lane] = null;
       this.parkedRuns.delete(id);
     }
   }
+}
+
+async function withinCancellation(work: Promise<unknown>): Promise<void> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error("PI_ABORT_TIMEOUT")), CANCELLATION_TIMEOUT_MS);
+  });
+  try { await Promise.race([work, timeout]); }
+  finally { if (timer) clearTimeout(timer); }
+}
+
+function safeRunError(error: unknown): string {
+  const values = [
+    error && typeof error === "object" && "code" in error ? String(error.code) : "",
+    error instanceof Error ? error.message : "",
+  ];
+  return values.find(value => PLUGIN_ERROR_CODES.some(allowed => allowed === value)) ?? "PI_RUN_FAILED";
 }
 
 function authorized(header: string | null, token: string): boolean {

@@ -266,6 +266,41 @@ describe("agent daemon protocol", () => {
     expect(JSON.stringify(run)).not.toContain("sk-secret-value");
   });
 
+  test("preserves allowlisted plugin error codes and sanitizes all other executor failures", async () => {
+    const app = daemon();
+    await app.daemon.fetch(request(`/runs/${id}`, { method: "PUT", body: JSON.stringify({ content: "plugin", instructions: "" }) }));
+    await Bun.sleep(0);
+    app.executor.fail(id, new Error("PLUGIN_TIMEOUT"));
+    await Bun.sleep(0);
+    expect(app.daemon.journal.get(id)).toMatchObject({ status: "failed", error: "PLUGIN_TIMEOUT" });
+
+    const next = crypto.randomUUID();
+    await app.daemon.fetch(request(`/runs/${next}`, { method: "PUT", body: JSON.stringify({ content: "plugin", instructions: "" }) }));
+    await Bun.sleep(0);
+    app.executor.fail(next, new Error("PLUGIN_timeout provider-secret"));
+    await Bun.sleep(0);
+    expect(app.daemon.journal.get(next)).toMatchObject({ status: "failed", error: "PI_RUN_FAILED" });
+  });
+
+  test("releases the lane even when executor cancellation fails", async () => {
+    class AbortFailureExecutor extends ControlledExecutor {
+      async cancel(id: string) {
+        this.cancelled.push(id);
+        throw new Error("provider-secret");
+      }
+    }
+    const app = daemon(mkdtempSync(join(tmpdir(), "companion-agent-")), new AbortFailureExecutor());
+    await app.daemon.fetch(request(`/runs/${id}`, { method: "PUT", body: JSON.stringify({ content: "slow", instructions: "" }) }));
+    await Bun.sleep(0);
+    const cancelled = await app.daemon.fetch(request(`/runs/${id}/cancel`, { method: "POST" }));
+    expect(cancelled.status).toBe(500);
+    expect(app.daemon.journal.get(id)).toMatchObject({ status: "interrupted", error: "PI_ABORT_FAILED" });
+
+    const next = crypto.randomUUID();
+    expect((await app.daemon.fetch(request(`/runs/${next}`, { method: "PUT", body: JSON.stringify({ content: "next", instructions: "" }) }))).status).toBe(202);
+    expect(app.executor.calls.map(call => call.id)).toContain(next);
+  });
+
   test("enforces content and instruction bounds before journal acceptance", async () => {
     const app = daemon();
     for (const body of [

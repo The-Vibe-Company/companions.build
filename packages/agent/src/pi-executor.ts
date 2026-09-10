@@ -11,25 +11,47 @@ import { MemoryService } from "./memory-service";
 import { configureModelGateway, withModelGatewayRequest } from "./model-gateway";
 import type { RunExecutor, RunInput, RunLane, RunMessage, RunProgress } from "./types";
 import {configureAzureFoundry} from './azure-foundry';
+import { PLUGIN_ERROR_CODES, type PluginErrorCode } from '../../plugins/execution';
 
 type Session = Awaited<ReturnType<typeof createAgentSession>>["session"];
 type ActiveExecution = {
   id: string; lane: RunLane; controller: AbortController; session: Session | null;
   ready: Promise<Session>; submissions: Set<Promise<void>>; accepting: boolean;
   preflight: Promise<void>; preflightDone(): void;
+  drained: Promise<void>; drainDone(): void;
   parked: boolean;
   publishText?: string;
   progress:RunProgress;
   modelGateway?:RunInput["modelGateway"];
   onProgress?:(progress:RunProgress)=>void;
+  closed:boolean;
+  pluginFailureCode?:string;
+  pluginFailureTimer?:ReturnType<typeof setTimeout>;
+  assistantEnds:number;
+  pluginFailureAssistantEnds?:number;
+  pluginFailureExplained?:boolean;
 };
 
 export interface PiSessionTools {
   tools: import("@earendil-works/pi-coding-agent").ToolDefinition[];
   close?(): Promise<void>;
 }
-export type PiToolsFactory = (context: { runId: string; lane: RunLane; cwd: string }) => Promise<PiSessionTools>;
+export type PiToolsFactory = (context: {
+  runId: string;
+  lane: RunLane;
+  cwd: string;
+  signal?: AbortSignal;
+  onPluginFailure?: (code: string) => void;
+}) => Promise<PiSessionTools>;
 const INITIALIZATION_TIMEOUT_MS = 30_000;
+export const PLUGIN_FAILURE_GRACE_MS = 30_000;
+export const RUNTIME_CLEANUP_TIMEOUT_MS = 5_000;
+export interface PiRuntimeOptions {
+  /** Test seam for deterministic runtime deadline scenarios. Production uses the default. */
+  pluginFailureGraceMs?: number;
+  /** Test seam for non-cooperative cleanup scenarios. Production uses the default. */
+  cleanupTimeoutMs?: number;
+}
 
 export class PiExecutor implements RunExecutor {
   private readonly cwd: string;
@@ -45,7 +67,8 @@ export class PiExecutor implements RunExecutor {
   toolsFactory?: PiToolsFactory;
   private readonly cancelled = new Set<string>();
 
-  private constructor(stateDir: string, modelRuntime: ModelRuntime, provider: string, modelId: string, gatewayUrl?:string) {
+  private constructor(stateDir: string, modelRuntime: ModelRuntime, provider: string, modelId: string, gatewayUrl:string|undefined,
+    private readonly runtimeOptions:Required<PiRuntimeOptions>) {
     this.cwd = join(stateDir, "workspace");
     this.agentDir = join(stateDir, "pi");
     this.sessionsDir = join(stateDir, "sessions");
@@ -58,7 +81,7 @@ export class PiExecutor implements RunExecutor {
     this.persistentMemory = new MemoryService(stateDir);
   }
 
-  static async create(stateDir: string): Promise<PiExecutor> {
+  static async create(stateDir: string, options:PiRuntimeOptions = {}): Promise<PiExecutor> {
     mkdirSync(stateDir, { recursive: true });
     const testMode = process.env.AGENT_TEST_MODE === "1";
     const provider = testMode ? "companion-test" : requiredEnvironment("MODEL_PROVIDER");
@@ -81,7 +104,10 @@ export class PiExecutor implements RunExecutor {
     const gatewayUrl=rawGatewayUrl?await configureModelGateway(modelRuntime,provider,rawGatewayUrl,testMode):undefined;
     if (!gatewayUrl&&providerApiKey) await modelRuntime.setRuntimeApiKey(provider, providerApiKey);
     if (!modelRuntime.getModel(provider, modelId)) throw new Error("MODEL_NOT_FOUND");
-    return new PiExecutor(stateDir, modelRuntime, provider, modelId,gatewayUrl);
+    return new PiExecutor(stateDir, modelRuntime, provider, modelId,gatewayUrl,{
+      pluginFailureGraceMs: runtimeDuration(options.pluginFailureGraceMs, PLUGIN_FAILURE_GRACE_MS),
+      cleanupTimeoutMs: runtimeDuration(options.cleanupTimeoutMs, RUNTIME_CLEANUP_TIMEOUT_MS),
+    });
   }
 
   async listSkillCommands(): Promise<SkillCommands> {
@@ -95,13 +121,18 @@ export class PiExecutor implements RunExecutor {
 
   async execute(id: string, input: RunInput, onProgress?:(progress:RunProgress)=>void): Promise<{ text: string; publishToChat: boolean }> {
     const lane = input.lane ?? "main";
-    if ([...this.active.values()].some(run => run.lane === lane && run.accepting && (lane === "main" || !run.parked))) throw new Error("EXECUTOR_BUSY");
+    if (this.occupiedRoot(lane)) throw new Error("EXECUTOR_BUSY");
     let preflightDone!: () => void;
     const preflight = new Promise<void>(resolve => { preflightDone = resolve; });
+    let drainDone!: () => void;
+    const drained = new Promise<void>(resolve => { drainDone = resolve; });
     const execution: ActiveExecution = {
       id, lane, controller: new AbortController(), session: null, submissions: new Set(),
       accepting: true, ready: undefined!,
       preflight, preflightDone, parked: false, onProgress,
+      drained, drainDone,
+      closed: false,
+      assistantEnds: 0,
       modelGateway:input.modelGateway,
       progress:{previewText:"",usage:{input:0,output:0,cacheRead:0,cacheWrite:0,totalTokens:0,costUsd:0},messages:[],messageVersion:0},
     };
@@ -111,15 +142,22 @@ export class PiExecutor implements RunExecutor {
     let externalTools: PiSessionTools | undefined;
     try {
       execution.ready = guardedInitialization((async () => {
-        externalTools = await this.toolsFactory?.({ runId: id, lane, cwd: this.cwd });
+        externalTools = await this.toolsFactory?.({
+          runId: id, lane, cwd: this.cwd, signal: execution.controller.signal,
+          onPluginFailure: code => this.pluginFailed(execution, code),
+        });
+        if (execution.closed || execution.controller.signal.aborted) {
+          await boundedCleanup(externalTools?.close?.(), this.runtimeOptions.cleanupTimeoutMs);
+          throw abortReason(execution.controller.signal);
+        }
         return this.initialize(input, execution, externalTools);
       })(), execution.controller.signal, INITIALIZATION_TIMEOUT_MS);
       // Record the native prompt immediately, before initialization can yield to a steer.
-      await this.submit(execution, input.content, true);
+      await abortable(this.submit(execution, input.content, true), execution.controller.signal);
       const session = await execution.ready;
       for (;;) {
-        await Promise.all([...execution.submissions]);
-        await session.waitForIdle();
+        await abortable(Promise.all([...execution.submissions]), execution.controller.signal);
+        await abortable(session.waitForIdle(), execution.controller.signal);
         // A steering message arriving during either await belongs to this same response root.
         if (execution.submissions.size === 0 && session.isIdle) break;
       }
@@ -127,17 +165,29 @@ export class PiExecutor implements RunExecutor {
       execution.preflightDone();
       if (execution.controller.signal.aborted) throw new Error("RUN_CANCELLED");
       const last = session.messages.findLast(message => message.role === "assistant");
-      if (last?.role === "assistant" && last.stopReason === "error") throw new Error("MODEL_RESPONSE_FAILED");
+      if (last?.role === "assistant" && last.stopReason === "error") {
+        throw new Error(execution.pluginFailureCode ?? "MODEL_RESPONSE_FAILED");
+      }
+      if (execution.pluginFailureCode && !execution.pluginFailureExplained) throw new Error("PLUGIN_RESPONSE_TIMEOUT");
       return { text: execution.publishText ?? session.getLastAssistantText() ?? "", publishToChat: execution.publishText !== undefined };
     } finally {
-      this.emitProgress(execution);
       execution.accepting = false;
       execution.preflightDone();
-      execution.session?.dispose();
-      await externalTools?.close?.();
+      this.emitProgress(execution);
+      execution.closed = true;
+      if (execution.pluginFailureTimer) clearTimeout(execution.pluginFailureTimer);
+      if (!execution.controller.signal.aborted) execution.controller.abort(new Error("RUN_SETTLED"));
       this.cancelled.delete(id);
-      this.active.delete(id);
-      this.persistentMemory.afterResponse();
+      try {
+        try { execution.session?.dispose(); } catch {}
+        let closeWork: Promise<void> | undefined;
+        try { closeWork = externalTools?.close?.(); } catch {}
+        await boundedCleanup(closeWork, this.runtimeOptions.cleanupTimeoutMs);
+        try { this.persistentMemory.afterResponse(); } catch {}
+      } finally {
+        this.active.delete(id);
+        execution.drainDone();
+      }
     }
   }
 
@@ -151,6 +201,10 @@ export class PiExecutor implements RunExecutor {
     return [...this.active.values()].find(run => run.lane === lane && run.accepting && (lane === "main" || !run.parked))?.id ?? null;
   }
 
+  occupiedRoot(lane: RunLane): string | null {
+    return [...this.active.values()].find(run => run.lane === lane && (lane === "main" || !run.parked))?.id ?? null;
+  }
+
   async suspend(id: string): Promise<boolean> {
     const run = this.active.get(id);
     if (!run?.accepting || run.controller.signal.aborted) return false;
@@ -161,7 +215,7 @@ export class PiExecutor implements RunExecutor {
   async resume(id: string): Promise<boolean> {
     const run = this.active.get(id);
     if (!run?.accepting || run.controller.signal.aborted) return false;
-    if (run.lane === "background" && [...this.active.values()].some(other => other.id !== id && other.lane === "background" && other.accepting && !other.parked)) return false;
+    if (run.lane === "background" && [...this.active.values()].some(other => other.id !== id && other.lane === "background" && !other.parked)) return false;
     run.parked = false;
     return true;
   }
@@ -175,7 +229,8 @@ export class PiExecutor implements RunExecutor {
       if (!execution.accepting) throw new Error("PI_RESPONSE_SETTLED");
       const prompt=()=>session.prompt(content, { streamingBehavior: "steer",
         ...(first ? { preflightResult: () => execution.preflightDone() } : {}) });
-      await (this.gatewayUrl?withModelGatewayRequest(execution.id,execution.modelGateway!,prompt):prompt());
+      await abortable(Promise.resolve(this.gatewayUrl
+        ? withModelGatewayRequest(execution.id,execution.modelGateway!,prompt) : prompt()), execution.controller.signal);
     })();
     execution.submissions.add(work);
     // Both branches remove it; avoid an unhandled rejected finally promise.
@@ -188,8 +243,10 @@ export class PiExecutor implements RunExecutor {
     const execution = this.active.get(id);
     if (execution) {
       execution.accepting = false;
-      execution.controller.abort();
-      if (execution.session) await execution.session.abort();
+      execution.controller.abort(new Error("RUN_CANCELLED"));
+      let abortWork: Promise<void> | undefined;
+      try { abortWork = execution.session?.abort(); } catch {}
+      await boundedCleanup(Promise.allSettled([abortWork, execution.drained]), this.runtimeOptions.cleanupTimeoutMs);
     }
   }
 
@@ -205,12 +262,14 @@ export class PiExecutor implements RunExecutor {
     const sessionDir = execution.lane === "main" ? this.sessionsDir : join(this.sessionsDir, "background", execution.id);
     const testTools = this.provider === "companion-test" ? [scriptedHumanTool(execution.id, this.cwd)] : [];
     const memoryTools = [...this.memory.tools(), ...this.persistentMemory.tools(execution.id)];
+    const externalTools = bindRunSignal(extra?.tools ?? [], execution.controller.signal,
+      () => !execution.closed && this.active.get(execution.id) === execution);
     mkdirSync(sessionDir, { recursive: true });
     const session = (await createAgentSession({
       cwd: this.cwd, agentDir: this.agentDir, modelRuntime: this.modelRuntime, model,
-      settingsManager, resourceLoader, tools: ["read", "write", "edit", "bash", ...memoryTools.map(tool => tool.name), ...(extra?.tools.map(tool => tool.name) ?? []),
+      settingsManager, resourceLoader, tools: ["read", "write", "edit", "bash", ...memoryTools.map(tool => tool.name), ...externalTools.map(tool => tool.name),
         ...testTools.map(tool => tool.name), ...(execution.lane === "background" ? ["publish_to_chat"] : [])],
-      customTools: [...memoryTools, ...extra?.tools ?? [], ...testTools, ...(execution.lane === "background" ? [{
+      customTools: [...memoryTools, ...externalTools, ...testTools, ...(execution.lane === "background" ? [{
         name: "publish_to_chat", label: "Publish result", description: "Publish this task's useful result to the main conversation when the task finishes successfully.",
         parameters: Type.Object({ text: Type.String({ minLength: 1, maxLength: 50_000 }) }),
         async execute(_toolId: string, params: { text: string }) {
@@ -239,6 +298,7 @@ export class PiExecutor implements RunExecutor {
       return true;
     };
     session.subscribe(event=>{
+      if (execution.closed || this.active.get(execution.id) !== execution) return;
       if(event.type==='message_start' && event.message.role==='assistant'){
         activeMessage={createdAt:new Date().toISOString()};
         const text=assistantText(event.message);
@@ -254,6 +314,7 @@ export class PiExecutor implements RunExecutor {
         if(Date.now()-lastPreviewAt>=150){lastPreviewAt=Date.now();this.emitProgress(execution);}
       }
       if(event.type==='message_end' && event.message.role==='assistant'){
+        execution.assistantEnds++;
         const usage=event.message.usage;
         for(const key of ['input','output','cacheRead','cacheWrite','totalTokens'] as const){
           const value=usage[key];if(Number.isFinite(value)&&value>=0)execution.progress.usage[key]+=value;
@@ -261,6 +322,11 @@ export class PiExecutor implements RunExecutor {
         if(Number.isFinite(usage.cost.total)&&usage.cost.total>=0)execution.progress.usage.costUsd+=usage.cost.total;
         const text=assistantText(event.message);
         const complete=["stop","toolUse","length"].includes(event.message.stopReason);
+        if (execution.pluginFailureAssistantEnds !== undefined
+          && execution.assistantEnds > execution.pluginFailureAssistantEnds
+          && ["stop", "length"].includes(event.message.stopReason) && text.trim()) {
+          execution.pluginFailureExplained = true;
+        }
         updateMessage(text,complete);
         const captured=activeMessage?.index===undefined?undefined:execution.progress.messages![activeMessage.index];
         execution.progress.previewText=(text||captured?.text||"").slice(0,50_000);
@@ -276,12 +342,33 @@ export class PiExecutor implements RunExecutor {
   close(): void { this.persistentMemory.close(); }
 
   private emitProgress(execution: ActiveExecution): void {
+    if (execution.closed || this.active.get(execution.id) !== execution) return;
     execution.progress.messageVersion=(execution.progress.messageVersion??0)+1;
-    execution.onProgress?.({
-      ...execution.progress,
-      usage:{...execution.progress.usage},
-      messages:execution.progress.messages?.map(message=>({...message})),
-    });
+    try {
+      execution.onProgress?.({
+        ...execution.progress,
+        usage:{...execution.progress.usage},
+        messages:execution.progress.messages?.map(message=>({...message})),
+      });
+    } catch {
+      execution.controller.abort(new Error("RUN_JOURNAL_FAILED"));
+    }
+  }
+
+  private pluginFailed(execution: ActiveExecution, rawCode: string): void {
+    if (execution.closed || execution.controller.signal.aborted || this.active.get(execution.id) !== execution) return;
+    const code = pluginCode(rawCode);
+    if (execution.pluginFailureCode) return;
+    execution.pluginFailureCode = code;
+    execution.pluginFailureAssistantEnds = execution.assistantEnds;
+    execution.pluginFailureTimer = setTimeout(() => {
+      if (execution.closed || this.active.get(execution.id) !== execution) return;
+      execution.accepting = false;
+      execution.controller.abort(new Error("PLUGIN_RESPONSE_TIMEOUT"));
+      if (execution.session) {
+        try { void boundedCleanup(execution.session.abort(), this.runtimeOptions.cleanupTimeoutMs); } catch {}
+      }
+    }, this.runtimeOptions.pluginFailureGraceMs);
   }
 
 }
@@ -297,7 +384,7 @@ export async function guardedInitialization<T extends { dispose(): void }>(work:
   let removeAbort = () => {};
   let disposedValue: T | undefined;
   const stopped = new Promise<never>((_, reject) => {
-    const abort = () => reject(new Error("RUN_CANCELLED"));
+    const abort = () => reject(abortReason(signal));
     signal.addEventListener("abort", abort, { once: true });
     removeAbort = () => signal.removeEventListener("abort", abort);
     timer = setTimeout(() => reject(new Error("INITIALIZATION_TIMEOUT")), timeoutMs);
@@ -318,8 +405,92 @@ export async function guardedInitialization<T extends { dispose(): void }>(work:
   }
 }
 
+export async function bounded<T>(work: Promise<T>, timeoutMs: number, timeoutCode: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(timeoutCode)), timeoutMs);
+  });
+  try { return await Promise.race([work, timeout]); }
+  finally { if (timer) clearTimeout(timer); }
+}
+
+async function boundedCleanup(work: Promise<unknown> | undefined, timeoutMs: number): Promise<void> {
+  if (!work) return;
+  try { await bounded(work, timeoutMs, "RUNTIME_CLEANUP_TIMEOUT"); } catch {}
+}
+
+async function abortable<T>(work: Promise<T>, signal: AbortSignal): Promise<T> {
+  let removeAbort = () => {};
+  const aborted = new Promise<never>((_, reject) => {
+    const stop = () => reject(abortReason(signal));
+    signal.addEventListener("abort", stop, { once: true });
+    removeAbort = () => signal.removeEventListener("abort", stop);
+    if (signal.aborted) stop();
+  });
+  try { return await Promise.race([work, aborted]); }
+  finally { removeAbort(); }
+}
+
+function abortReason(signal: AbortSignal): Error {
+  return signal.reason instanceof Error && signal.reason.name !== "AbortError"
+    ? signal.reason : new Error("RUN_CANCELLED");
+}
+
+function pluginCode(code: string): PluginErrorCode {
+  return PLUGIN_ERROR_CODES.find(value => value === code) ?? "PLUGIN_REMOTE_FAILED";
+}
+
+function bindRunSignal(
+  tools: import("@earendil-works/pi-coding-agent").ToolDefinition[],
+  rootSignal: AbortSignal,
+  active: () => boolean,
+): import("@earendil-works/pi-coding-agent").ToolDefinition[] {
+  return tools.map(tool => ({
+    ...tool,
+    execute: async (...args: Parameters<typeof tool.execute>) => {
+      const [toolCallId, params, signal, onUpdate, context] = args;
+      if (!active() || rootSignal.aborted) throw abortReason(rootSignal);
+      const combined = combineSignals(rootSignal, signal);
+      const guardedUpdate: typeof onUpdate = onUpdate ? update => {
+        if (active() && !combined.signal.aborted) onUpdate(update);
+      } : undefined;
+      try {
+        const result = await tool.execute(toolCallId, params, combined.signal, guardedUpdate, context);
+        if (!active() || combined.signal.aborted) throw abortReason(combined.signal);
+        return result;
+      } finally {
+        combined.dispose();
+      }
+    },
+  }));
+}
+
+function combineSignals(root: AbortSignal, local?: AbortSignal): { signal: AbortSignal; dispose(): void } {
+  if (!local || local === root) return { signal: root, dispose() {} };
+  const controller = new AbortController();
+  const abortFrom = (source: AbortSignal) => {
+    if (!controller.signal.aborted) controller.abort(source.reason);
+  };
+  const rootAbort = () => abortFrom(root), localAbort = () => abortFrom(local);
+  root.addEventListener("abort", rootAbort, { once: true });
+  local.addEventListener("abort", localAbort, { once: true });
+  if (root.aborted) abortFrom(root);
+  else if (local.aborted) abortFrom(local);
+  return {
+    signal: controller.signal,
+    dispose() {
+      root.removeEventListener("abort", rootAbort);
+      local.removeEventListener("abort", localAbort);
+    },
+  };
+}
+
 function requiredEnvironment(name: string): string {
   const value = process.env[name]?.trim();
   if (!value) throw new Error(`MISSING_${name}`);
   return value;
+}
+
+function runtimeDuration(value:number|undefined,fallback:number):number {
+  return value !== undefined && Number.isFinite(value) && value > 0 ? Math.floor(value) : fallback;
 }

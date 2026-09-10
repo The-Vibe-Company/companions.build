@@ -100,6 +100,40 @@ test('preview and measured usage persist only on the response root with validate
  }finally{await lock.close();}
 });
 
+test('plugin observations persist only safe monotonic snapshots and freeze after settlement',async()=>{
+ const id=await companion(),run=await acceptMessage(owner,id,crypto.randomUUID(),'Use an application'),lock=await leader();
+ const base={requestId:'request-1',runId:run,toolCallId:'tool-call-1',connectionId:'connection-1',tool:'github.create_issue',attempt:1,phase:'call',status:'running',outcome:'unknown',startedAt:100,deadlineAt:200,updatedAt:150,providerPayload:{secret:'must not persist'}};
+ try{
+  await db`UPDATE runs SET status='running' WHERE id=${run}`;
+  await persistObservation(lock.sql,{id:run,companion_id:id},{pluginCallVersion:2,pluginCalls:[base]});
+  let saved=(await db`SELECT plugin_call_version,plugin_calls FROM runs WHERE id=${run}`)[0];
+  expect(Number(saved.plugin_call_version)).toBe(2);expect(saved.plugin_calls).toEqual([{requestId:'request-1',runId:run,toolCallId:'tool-call-1',connectionId:'connection-1',tool:'github.create_issue',attempt:1,phase:'call',status:'running',outcome:'unknown',startedAt:100,deadlineAt:200,updatedAt:150}]);
+  await persistObservation(lock.sql,{id:run,companion_id:id},{pluginCallVersion:1,pluginCalls:[{...base,status:'failed',code:'PLUGIN_TIMEOUT'}]});
+  await persistObservation(lock.sql,{id:run,companion_id:id},{pluginCallVersion:3,pluginCalls:[{...base,connectionId:'x'.repeat(257)}]});
+  await persistObservation(lock.sql,{id:run,companion_id:id},{pluginCallVersion:3,pluginCalls:[{...base,runId:crypto.randomUUID()}]});
+  expect((await db`SELECT plugin_call_version,plugin_calls FROM runs WHERE id=${run}`)[0]).toEqual(saved);
+  await db`UPDATE runs SET status='succeeded' WHERE id=${run}`;
+  await persistObservation(lock.sql,{id:run,companion_id:id},{pluginCallVersion:4,pluginCalls:[{...base,status:'succeeded',outcome:'confirmed',updatedAt:190}]});
+  saved=(await db`SELECT plugin_call_version,plugin_calls FROM runs WHERE id=${run}`)[0];expect(Number(saved.plugin_call_version)).toBe(2);expect(saved.plugin_calls[0].status).toBe('running');
+ }finally{await lock.close();}
+});
+
+test('terminal daemon observations preserve allowlisted plugin errors only',async()=>{
+ const id=await companion(),run=await acceptMessage(owner,id,crypto.randomUUID(),'Use an application'),lock=await leader();let error='PLUGIN_AUTH_FAILED';
+ const daemon=Bun.serve({hostname:'127.0.0.1',port:0,fetch(){return Response.json({status:'failed',error});}});
+ try{
+  await db`UPDATE companions SET endpoint_secret=${encrypt(`http://127.0.0.1:${daemon.port}`)} WHERE id=${id}`;
+  await db`UPDATE runs SET status='running',dispatched=true,started_at=now() WHERE id=${run}`;
+  const pending=[{requestId:'pending',runId:run,toolCallId:'pending',connectionId:'connection',tool:'mutate',attempt:1,phase:'prepare',status:'running',outcome:'not_sent',startedAt:100,deadlineAt:200,updatedAt:100}];
+  await db`UPDATE runs SET plugin_calls=${pending},plugin_call_version=1 WHERE id=${run}`;
+  await tick(lock.sql);expect((await db`SELECT status,error FROM runs WHERE id=${run}`)[0]).toMatchObject({status:'failed',error:'PLUGIN_AUTH_FAILED'});
+  expect((await db`SELECT plugin_calls FROM runs WHERE id=${run}`)[0].plugin_calls[0]).toMatchObject({status:'interrupted',outcome:'unknown',code:'PLUGIN_REMOTE_FAILED'});
+  const second=await acceptMessage(owner,id,crypto.randomUUID(),'Try another application');error='provider payload must stay private';
+  await db`UPDATE runs SET status='running',dispatched=true,started_at=now() WHERE id=${second}`;
+  await tick(lock.sql);expect((await db`SELECT status,error FROM runs WHERE id=${second}`)[0]).toMatchObject({status:'failed',error:'The agent could not complete this task.'});
+ }finally{await lock.close();daemon.stop(true);}
+});
+
 test('child file durability checks actual stored bytes, not only attachment metadata',async()=>{
  const id=await companion(),run=await acceptMessage(owner,id,crypto.randomUUID(),'Return file'),fileId=crypto.randomUUID();
  const bytes=Buffer.from('Durable child output'),sha256=(await import('node:crypto')).createHash('sha256').update(bytes).digest('hex');let stored=bytes;

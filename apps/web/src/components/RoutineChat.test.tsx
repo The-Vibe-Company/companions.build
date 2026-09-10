@@ -47,7 +47,8 @@ describe("routine conversation activity", () => {
 describe("routine execution drawer", () => {
   it("loads a selected execution on demand, shows persisted details, opens its routine and restores focus", async () => {
     const a = run("a", 0); const b = run("b", 5);
-    const fetchMock = vi.fn(() => response({ task: task(b), files: [] }));
+    const pluginCalls=[{requestId:'request-1',runId:'b',toolCallId:'tool-1',connectionId:'connection-1',tool:'github.create_issue',attempt:1,phase:'call' as const,status:'succeeded' as const,outcome:'confirmed' as const,startedAt:100,deadlineAt:200,updatedAt:180}];
+    const fetchMock = vi.fn(() => response({ task: task(b,{pluginCalls,pluginCallVersion:1}), files: [] }));
     vi.stubGlobal("fetch", fetchMock);
     const opener = document.createElement("button"); document.body.append(opener); opener.focus();
     const onOpenRoutine = vi.fn(); const onClose = vi.fn();
@@ -56,6 +57,7 @@ describe("routine execution drawer", () => {
     const user = userEvent.setup();
     await user.click(screen.getAllByRole("button", { name: /Completed · No message/ })[0]!);
     expect(await screen.findByText("Result for b")).toBeVisible();
+    expect(screen.getByRole('region',{name:'Application activity'})).toHaveTextContent('github.create_issueCompleted');
     expect(screen.getByText("Say hello to Stan")).toBeVisible();
     expect(fetchMock).toHaveBeenCalledWith("/api/companions/c1/tasks/b", expect.anything());
     await user.click(screen.getByRole("button", { name: "Open routine" }));

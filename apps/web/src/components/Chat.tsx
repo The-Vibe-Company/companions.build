@@ -12,6 +12,7 @@ import { ChatViewport } from "./ChatViewport";
 import { ChatHistory, type HistoryState } from "@/lib/chat-history";
 import { readingKey, readPosition } from "@/lib/chat-reading";
 import { Button } from "./ui/button";
+import { PluginCalls } from "./PluginCalls";
 import { cn } from "@/lib/utils";
 
 function readableDate(value: string) {
@@ -79,6 +80,7 @@ export const ChatTimeline = memo(function ChatTimeline({ detail, onRefresh, onUn
   const [routineRunIds, setRoutineRunIds] = useState<string[]>([]);
   const routineRuns = detail.runs.filter(run => routineRunIds.includes(run.id));
   const runsById = new Map(detail.runs.map(run => [run.id, run]));
+  const lastAssistantByRun = new Map(detail.messages.filter(message => message.role === "assistant").map(message => [message.runId, message.id]));
   const activeRun = detail.runs.find(run => run.lane !== "background" && isActiveRun(run.status));
   const activePreview = activeRun
     && activeRun.messageVersion == null
@@ -103,6 +105,7 @@ export const ChatTimeline = memo(function ChatTimeline({ detail, onRefresh, onUn
       ...(item.runId ? detail.messages.filter(message=>message.runId===item.runId && message.role==='assistant').map(message=>timestamp(message.createdAt)+1) : []),
       item.runId && item.runId===activeRun?.id ? streamingAt+1 : 0)).toISOString(), message: null })),
     ...detail.runs.filter(run => run.thinkingText && run.lane !== 'background').map(run => ({ id: 'thinking-' + run.id, createdAt: new Date(isActiveRun(run.status) ? streamingAt-1 : Math.max(timestamp(run.createdAt), ...detail.messages.filter(message=>message.role==='assistant' && message.runId===run.id).map(message=>timestamp(message.createdAt)-1))).toISOString(), message: null, content: <details className="thinking-panel" ><summary>{isActiveRun(run.status) ? 'Thinking' : 'Thought process'}</summary><div><MessageResponse>{run.thinkingText!}</MessageResponse></div></details> })),
+    ...detail.runs.filter(run => (run.pluginCalls?.length || run.error?.startsWith('PLUGIN_')) && !lastAssistantByRun.has(run.id)).map(run => ({ id: 'plugins-' + run.id, createdAt: new Date(Math.max(timestamp(run.createdAt)+1, isActiveRun(run.status) ? streamingAt : 0)).toISOString(), message: null, content: <PluginCalls calls={run.pluginCalls} runError={run.error}/> })),
     ...(activePreview && activeRun ? [{ id: 'preview-' + activeRun.id, message: null, createdAt: new Date(streamingAt).toISOString(), content: <Message from="assistant" className="thread-message message-preview">
               <div className="thread-avatar" aria-hidden="true"><CompanionAvatar name={detail.companion.name} avatar={detail.companion.avatar} size={32} /></div>
               <div className="thread-message-body"><div className="message-meta"><span className="message-author">{detail.companion.name}</span></div>
@@ -147,6 +150,7 @@ export const ChatTimeline = memo(function ChatTimeline({ detail, onRefresh, onUn
               <div className="thread-message-body"><div className="message-meta"><span className="message-author">{message.role === "assistant" ? detail.companion.name : "You"}</span><time className="message-time" dateTime={message.createdAt}>{readableDate(message.createdAt)}</time>{message.complete === false && detail.runs.some(run => run.id === message.runId && !isActiveRun(run.status)) && <span className="message-time">Incomplete response</span>}</div>
               {message.role === "assistant" && <RoutineProvenance run={runsById.get(message.runId)} onOpen={setRoutineRunIds}/>}
               <MessageContent className="thread-content"><MessageResponse>{message.content}</MessageResponse></MessageContent>
+              {message.role === "assistant" && lastAssistantByRun.get(message.runId) === message.id && <PluginCalls calls={runsById.get(message.runId)?.pluginCalls} runError={runsById.get(message.runId)?.error}/>}
               {message.files?.length ? <div className="message-files">{message.files.map((file) => <a key={file.id} href={file.url} target="_blank" rel="noreferrer"><FileText /><span>{file.name}</span></a>)}</div> : null}
               {message.role === "user" && <SpecialistsForRun detail={detail} runId={message.runId} onOpen={onOpenCompanion} />}
               </div>

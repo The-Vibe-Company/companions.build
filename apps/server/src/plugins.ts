@@ -107,17 +107,34 @@ export interface PluginHealthDependencies {
   check?:(plugin:MachinePlugin,signal:AbortSignal)=>Promise<void>;
   refresh?:(input:{credential:CompanionPluginStoredOAuthCredential;signal?:AbortSignal})=>Promise<CompanionPluginStoredOAuthCredential>;
   now?:()=>Date;
+  timeoutMs?:number;
 }
 
+function abortable<T>(operation:()=>Promise<T>,signal:AbortSignal):Promise<T>{
+ if(signal.aborted)return Promise.reject(signal.reason??Error('Operation aborted'));
+ return new Promise<T>((resolve,reject)=>{
+  const aborted=()=>finish(reject,signal.reason??Error('Operation aborted'));
+  const finish=(settle:(value:any)=>void,value:any)=>{signal.removeEventListener('abort',aborted);settle(value);};
+  signal.addEventListener('abort',aborted,{once:true});
+  Promise.resolve().then(operation).then(value=>finish(resolve,value),error=>finish(reject,error));
+ });
+}
+async function boundedClose(client:Client){
+ await abortable(()=>client.close(),AbortSignal.timeout(1_000)).catch(()=>undefined);
+}
 async function discoverPlugin(plugin:MachinePlugin,signal:AbortSignal) {
-  const bridge=appBridge(plugin);if(bridge)return bridge.check(plugin,signal);
+  const bridge=appBridge(plugin);if(bridge)return abortable(()=>bridge.check(plugin,signal),signal);
   if(plugin.transport!=='http'||!plugin.url)throw Error('PLUGIN_CONFIGURATION_INVALID');
   const client=new Client({name:'companions.build-health',version:'0.2.0'});
-  const transport=new StreamableHTTPClientTransport(new URL(plugin.url),{requestInit:{headers:plugin.headers}});
+  const transport=new StreamableHTTPClientTransport(new URL(plugin.url),{
+    requestInit:{headers:plugin.headers},
+    fetch:(input,init)=>fetch(input,{...init,signal:init?.signal?AbortSignal.any([signal,init.signal]):signal}),
+    reconnectionOptions:{maxRetries:0,initialReconnectionDelay:1_000,maxReconnectionDelay:1_000,reconnectionDelayGrowFactor:1},
+  });
   try {
-    await client.connect(transport,{timeout:10_000,signal});
-    await client.listTools(undefined,{timeout:10_000,signal});
-  } finally {await client.close().catch(()=>undefined);}
+    await abortable(()=>client.connect(transport,{timeout:10_000,signal}),signal);
+    await abortable(()=>client.listTools(undefined,{timeout:10_000,signal}),signal);
+  } finally {await boundedClose(client);}
 }
 
 function healthProjection(row:any):PluginHealthResult {
@@ -140,7 +157,9 @@ export async function checkPluginAccount(ownerId:string,accountId:string,deps:Pl
       let credential=storedOAuthSchema.parse(rawCredential) as CompanionPluginStoredOAuthCredential;
       if(credential.serverName!==row.server_id)throw Error('PLUGIN_CONFIGURATION_INVALID');
       if(credential.accessExpiresAt&&Date.parse(credential.accessExpiresAt)<Date.now()+60_000){
-        credential=await (deps.refresh??refreshCompanionPluginOAuth)({credential,signal:AbortSignal.timeout(10_000)});
+        const signal=AbortSignal.timeout(deps.timeoutMs??10_000);
+        credential=await abortable(()=>(deps.refresh??refreshCompanionPluginOAuth)({credential,signal}),signal);
+        if(signal.aborted)throw signal.reason;
         await tx`UPDATE plugin_accounts SET credential_secret=${encrypt(JSON.stringify(credential))} WHERE id=${accountId} AND owner_id=${ownerId}`;
       }
       const provider=pluginCatalog.find(item=>item.id===row.server_id);
@@ -155,7 +174,8 @@ export async function checkPluginAccount(ownerId:string,accountId:string,deps:Pl
     earlyCode=error instanceof CompanionPluginOAuthRevokedError||error instanceof CompanionPluginOAuthError&&error.code==='oauth_refresh_failed'?'authorization_required':'configuration_invalid';
   }
   if(plugin&&!early){
-    try{await (deps.check??discoverPlugin)(plugin,AbortSignal.timeout(10_000));}
+    const signal=AbortSignal.timeout(deps.timeoutMs??10_000);
+    try{await abortable(()=>(deps.check??discoverPlugin)(plugin!,signal),signal);}
     catch{early='error';earlyCode='connection_failed';}
   }
   const healthStatus=early??'ok',healthCode=earlyCode;
@@ -172,7 +192,7 @@ function projectAccount(row:any,credential:CompanionPluginStoredOAuthCredential)
     capabilities:{gitCredentials:definition.capabilities?.gitCredentials,bridge:definition.capabilities?.bridge}};
 }
 /** Executor-only projection. Commit each refresh before another provider can fail. */
-export async function machinePlugins(companionId:string,deps:Pick<PluginHealthDependencies,'refresh'>&{refreshCredentials?:boolean;accountId?:string}={}):Promise<MachinePlugin[]> {
+export async function machinePlugins(companionId:string,deps:Pick<PluginHealthDependencies,'refresh'|'timeoutMs'>&{refreshCredentials?:boolean;accountId?:string}={}):Promise<MachinePlugin[]> {
   const accounts=await db`SELECT p.id FROM companion_plugins cp JOIN plugin_accounts p ON p.id=cp.account_id JOIN companions c ON c.id=cp.companion_id WHERE c.id=${companionId} AND c.owner_id=p.owner_id ORDER BY p.id`;
   const result:MachinePlugin[]=[];
   for(const account of accounts) {
@@ -187,7 +207,9 @@ export async function machinePlugins(companionId:string,deps:Pick<PluginHealthDe
       if(!provider) throw new PluginError('Connection requires an update.');
       const shouldRefresh=deps.accountId?row.id===deps.accountId:deps.refreshCredentials!==false||!!getAppDefinition(row.server_id)?.capabilities?.gitCredentials;
       if(shouldRefresh && credential.accessExpiresAt && Date.parse(credential.accessExpiresAt)<Date.now()+60_000) {
-        credential=await (deps.refresh??refreshCompanionPluginOAuth)({credential:credential as CompanionPluginStoredOAuthCredential,signal:AbortSignal.timeout(10_000)});
+        const signal=AbortSignal.timeout(deps.timeoutMs??10_000);
+        credential=await abortable(()=>(deps.refresh??refreshCompanionPluginOAuth)({credential:credential as CompanionPluginStoredOAuthCredential,signal}),signal);
+        if(signal.aborted)throw signal.reason;
         await tx`UPDATE plugin_accounts SET credential_secret=${encrypt(JSON.stringify(credential))} WHERE id=${row.id}`;
       }
       return projectAccount(row,credential) satisfies MachinePlugin;

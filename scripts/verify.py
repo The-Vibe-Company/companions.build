@@ -229,7 +229,8 @@ class Verifier:
     def run_agent_checks(self):
         self.run("agent-unit", [self.bun, "--no-env-file", "test", "packages/plugins/definitions.test.ts", "packages/plugins/tools.test.ts", "packages/agent/test/daemon.test.ts",
             "packages/agent/test/environment.test.ts", "packages/agent/test/initialization.test.ts",
-            "packages/agent/test/memory.test.ts", "packages/agent/test/skills.test.ts",
+            "packages/agent/test/memory.test.ts", "packages/agent/test/memory-store.test.ts",
+            "packages/agent/test/memory-service.test.ts", "packages/agent/test/skills.test.ts",
             "packages/desktop/desktop.test.ts", "packages/control/software.test.ts",
             "packages/box/software-install.test.ts", "packages/box/software-build.test.ts",
             "packages/box/software-resolve.test.ts", "packages/box/software-resolve-apt.test.ts",
@@ -246,6 +247,7 @@ class Verifier:
         self.env["COMPANIONS_DISTRIBUTION_TEST_IMAGE"] = image
         self.run("distribution-content-linux", [self.bun, "--no-env-file", "scripts/test-distribution-verification.ts"])
         self.run("agent-build", [self.bun, "--no-env-file", "scripts/build-agent.ts"])
+        self.run("memory-pi-linux", [self.bun, "--no-env-file", "scripts/test-memory-pi.ts"])
 
     def run_server_checks(self):
         command = [self.bun, "--no-env-file", "scripts/test-server.ts", "--linux"]

@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, existsSync } from "node:fs";
+import { mkdtempSync, readFileSync, existsSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 
@@ -85,6 +85,15 @@ acceptance("compiled Linux daemon uses real Pi tools, persists output, rejects u
     const readMemory = crypto.randomUUID();
     await put(readMemory, "inspect-memory");
     expect((await waitTerminal(base, token, readMemory)).text).toBe("Shared memory loaded");
+    const structuredSave = crypto.randomUUID();
+    await put(structuredSave, "remember-structured-preference", "background");
+    expect((await waitTerminal(base, token, structuredSave)).text).toBe("Structured preference saved.");
+    const structuredSearch = crypto.randomUUID();
+    await put(structuredSearch, "find-structured-preference");
+    expect((await waitTerminal(base, token, structuredSearch)).text).toBe("Structured preference found.");
+    const standingMemory = crypto.randomUUID();
+    await put(standingMemory, "inspect-standing-memory");
+    expect((await waitTerminal(base, token, standingMemory)).text).toBe("Standing preference loaded.");
     const isolatedState = mkdtempSync(join(tmpdir(), "companion-agent-memory-isolated-"));
     const isolatedName = `companion-agent-${crypto.randomUUID()}`;
     const isolatedBase = await startIsolatedDaemon(binary!, isolatedState, isolatedName, token, image);
@@ -95,6 +104,9 @@ acceptance("compiled Linux daemon uses real Pi tools, persists output, rejects u
       const isolatedWrite = crypto.randomUUID();
       expect((await fetch(`${isolatedBase}/runs/${isolatedWrite}`, { method: "PUT", headers: headers(token), body: JSON.stringify({ content: "memory-cas:isolated fact", instructions: "" }) })).status).toBe(202);
       expect((await waitTerminal(isolatedBase, token, isolatedWrite)).text).toBe("Memory updated: isolated fact");
+      const isolatedStanding = crypto.randomUUID();
+      await fetch(`${isolatedBase}/runs/${isolatedStanding}`, { method: "PUT", headers: headers(token), body: JSON.stringify({ content: "inspect-standing-memory", instructions: "" }) });
+      expect((await waitTerminal(isolatedBase, token, isolatedStanding)).text).toBe("Standing preference absent.");
       expect(readFileSync(join(isolatedState, "workspace", "MEMORY.md"), "utf8")).toBe("isolated fact");
       expect(readFileSync(join(state, "workspace", "MEMORY.md"), "utf8")).toBe("User prefers concise summaries.");
     } finally {
@@ -153,6 +165,9 @@ acceptance("compiled Linux daemon uses real Pi tools, persists output, rejects u
     const persistedMemory = crypto.randomUUID();
     await put(persistedMemory, "inspect-memory");
     expect((await waitTerminal(base, token, persistedMemory)).text).toBe("Shared memory loaded");
+    const persistedStructured = crypto.randomUUID();
+    await put(persistedStructured, "find-structured-preference");
+    expect((await waitTerminal(base, token, persistedStructured)).text).toBe("Structured preference found.");
     expect((await fetch(`${base}/runs/${parkedCrash}`, { method: "PUT", headers: headers(token), body: JSON.stringify({ content: "ask-background", instructions: "", lane: "background" }) })).status).toBe(200);
     expect(readFileSync(join(state, `workspace/question-${parkedCrash}.txt`), "utf8")).toBe("asked\n");
   } finally {
@@ -160,6 +175,35 @@ acceptance("compiled Linux daemon uses real Pi tools, persists output, rejects u
     await stop.exited;
   }
 }, 60_000);
+
+acceptance("compiled daemon keeps chatting during stalled or corrupt memory preparation", async () => {
+  for (const mode of ["stalled", "corrupt"] as const) {
+    const state = mkdtempSync(join(tmpdir(), `companion-memory-${mode}-`));
+    const name = `companion-memory-${crypto.randomUUID()}`;
+    const token = "fixture-memory-fallback";
+    if (mode === "corrupt") {
+      mkdirSync(join(state, "memory"));
+      writeFileSync(join(state, "memory", "memory.sqlite"), "preserve this corrupt database");
+    }
+    try {
+      const base = await startIsolatedDaemon(binary!, state, name, token, process.env.AGENT_ACCEPTANCE_IMAGE ?? "debian:12-slim",
+        mode === "stalled" ? ["-e", "MEMORY_TEST_DELAY_MS=5000"] : []);
+      for (let index = 0; index < 2; index++) {
+        const id = crypto.randomUUID(), start = performance.now();
+        await fetch(`${base}/runs/${id}`, { method: "PUT", headers: headers(token), body: JSON.stringify({ content: "hello", instructions: "" }) });
+        expect(await waitTerminal(base, token, id)).toMatchObject({ status: "succeeded", text: "Scripted response." });
+        expect(performance.now() - start).toBeLessThan(1000);
+        await Bun.sleep(150);
+      }
+      if (mode === "stalled") expect(existsSync(join(state, "memory", "memory.sqlite"))).toBe(false);
+      else expect(readFileSync(join(state, "memory", "memory.sqlite"), "utf8")).toBe("preserve this corrupt database");
+    } finally {
+      const stop = Bun.spawn(["docker", "rm", "-f", name], { stdout: "ignore", stderr: "ignore" });
+      await stop.exited;
+      rmSync(state, { recursive: true, force: true });
+    }
+  }
+}, 30_000);
 
 function headers(token: string) { return { authorization: `Bearer ${token}`, "content-type": "application/json" }; }
 async function waitReady(base: string, token: string) {
@@ -185,11 +229,11 @@ async function waitFile(path: string) {
   throw new Error("Pi shell did not reach its observable checkpoint");
 }
 
-async function startIsolatedDaemon(binary: string, state: string, name: string, token: string, image: string) {
+async function startIsolatedDaemon(binary: string, state: string, name: string, token: string, image: string, extraEnv: string[] = []) {
   const create = Bun.spawn(["docker", "create", "--init", "--platform", "linux/amd64", "--name", name, "--network", "bridge",
     "-p", "127.0.0.1::8787/tcp", "--mount", `type=bind,source=${dirname(resolve(binary))},target=/app,readonly`,
     "--mount", `type=bind,source=${state},target=/state`, "-e", `AGENT_TOKEN=${token}`, "-e", "AGENT_TEST_MODE=1",
-    "-e", "AGENT_STATE_DIR=/state", image, "/app/companion-agent"], { stdout: "ignore", stderr: "pipe" });
+    "-e", "AGENT_STATE_DIR=/state", ...extraEnv, image, "/app/companion-agent"], { stdout: "ignore", stderr: "pipe" });
   expect(await create.exited).toBe(0);
   const start = Bun.spawn(["docker", "start", name], { stdout: "ignore", stderr: "pipe" });
   expect(await start.exited).toBe(0);

@@ -52,6 +52,19 @@ put(state/'workspace'/'package-lock.json','{"dependencies":{"fixture":"1.0.0"}}\
 put(state/'workspace'/'.git'/'config','[remote "origin"]\n\turl = https://github.com/acme/private.git\n')
 os.symlink('src/main.ts',state/'workspace'/'latest.ts')
 put(state/'pi'/'skills'/'reviewer'/'SKILL.md','# Reviewer\n')
+put(state/'workspace'/'MEMORY.md','private user preferences\n')
+put(state/'workspace'/'template-memory.json','{"version":1,"memories":[{"scope":"user","kind":"preference","reusable":true,"content":"private"},{"scope":"project","kind":"fact","projectKey":"demo","reusable":true,"content":"Use the test command","provenance":"approved template setup"}]}')
+# Publish from durable rows, even if the derived export still contains a revoked procedure.
+import sqlite3
+(state/'memory').mkdir(parents=True,exist_ok=True)
+connection=sqlite3.connect(state/'memory'/'memory.sqlite')
+connection.execute('CREATE TABLE memories (id TEXT,content TEXT,scope TEXT,kind TEXT,project_key TEXT,provenance TEXT,reusable INTEGER,expires_at TEXT,updated_at TEXT)')
+connection.executemany('INSERT INTO memories VALUES(?,?,?,?,?,?,?,?,?)',[
+    ('private','private user preference','user','preference',None,'explicit',0,None,'2026-09-10'),
+    ('approved','Use the test command','project','fact','demo','approved setup',1,'2099-01-01T00:00:00.000Z','2026-09-10'),
+    ('revoked','revoked procedure','companion','procedure',None,'revoked setup',0,None,'2026-09-10')])
+connection.commit()
+connection.close()
 put(state/'sessions'/'private.jsonl','model transcript\n')
 put(state/'runs.sqlite','runtime history\n')
 put(state/'identity.json','source companion identity\n')
@@ -68,6 +81,11 @@ for _ in range(2):
 saved_workspace=home/'.specialist-workspace'
 saved_skills=home/'.specialist-skills'
 assert not state.exists()
+assert not (saved_workspace/'MEMORY.md').exists()
+assert 'private' not in (saved_workspace/'template-memory.json').read_text()
+assert 'revoked' not in (saved_workspace/'template-memory.json').read_text()
+assert '2099-01-01T00:00:00.000Z' in (saved_workspace/'template-memory.json').read_text()
+assert 'Use the test command' in (saved_workspace/'template-memory.json').read_text()
 assert not (home/'.companions.env').exists()
 assert not pathlib.Path('/etc/companions-desktop.env').exists()
 assert not pathlib.Path('/var/lib/companions-desktop').exists()
@@ -81,8 +99,12 @@ assert (home/'Documents/notes.txt').read_text() == 'retained unrelated file\n'
 assert (saved_workspace/'src'/'main.ts').stat().st_uid == 1000
 assert (saved_skills/'reviewer'/'SKILL.md').stat().st_uid == 1000
 
+# Older already-published templates can still contain legacy private memory.
+put(saved_workspace/'MEMORY.md','old template private preferences\n')
 for _ in range(2):
     subprocess.run(['/bin/sh','/test/restore.sh'],check=True)
+assert not (state/'workspace'/'MEMORY.md').exists()
+assert not (state/'memory').exists()
 
 assert (state/'workspace'/'src'/'main.ts').read_text() == 'export const answer = 42;\n'
 assert (state/'workspace'/'latest.ts').is_symlink()
@@ -118,6 +140,31 @@ assert (restored_child/'workspace'/'src'/'main.ts').read_text() == 'selected chi
 assert (restored_child/'pi'/'skills'/'reviewer'/'SKILL.md').read_text() == '# Child reviewer\n'
 assert (restored_child/'workspace'/'src'/'main.ts').stat().st_uid == 1000
 assert (restored_child/'pi'/'skills'/'reviewer'/'SKILL.md').stat().st_uid == 1000
+assert not (restored_child/'sessions').exists()
+
+# Desktop-boundary runtimes bind a physical store into the agent-only mount namespace.
+# Provider capture runs outside that namespace and must prefer current state over the legacy backup.
+physical=pathlib.Path('/var/lib/companions-agent')
+active=physical/'${sourceId}'
+put(active/'workspace'/'current.txt','active physical workspace\\n')
+put(active/'workspace'/'MEMORY.md','physical private preferences\\n')
+put(active/'workspace'/'template-memory.json','{"version":1,"memories":[{"scope":"companion","kind":"procedure","reusable":true,"content":"approved physical procedure","provenance":"template setup","expiresAt":"2099-01-01T00:00:00.000Z"}]}')
+put(active/'pi'/'skills'/'physical'/'SKILL.md','# Physical skill\\n')
+put(active/'sessions'/'private.jsonl','physical private transcript\\n')
+put(physical/'another-copied-identity'/'memory'/'memory.sqlite','other copied private memory\\n')
+checkpoints=pathlib.Path('/var/lib/companions-runtime-migrations')
+put(checkpoints/'state-source.json','old source identity\\n')
+for _ in range(2):
+    subprocess.run([sys.executable,'/test/sanitize.py'],check=True)
+assert (saved_workspace/'current.txt').read_text()=='active physical workspace\\n'
+assert not (saved_workspace/'MEMORY.md').exists()
+assert 'approved physical procedure' in (saved_workspace/'template-memory.json').read_text()
+assert '2099-01-01T00:00:00.000Z' in (saved_workspace/'template-memory.json').read_text()
+assert (saved_skills/'physical'/'SKILL.md').exists()
+assert physical.is_dir() and not list(physical.iterdir())
+assert checkpoints.is_dir() and not list(checkpoints.iterdir())
+subprocess.run(['/bin/sh','/test/restore-child.sh'],check=True)
+assert (restored_child/'workspace'/'current.txt').read_text()=='active physical workspace\\n'
 assert not (restored_child/'sessions').exists()
 print('specialist image sanitization and restore verified')
 `,{mode:0o444});

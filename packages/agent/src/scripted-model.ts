@@ -84,6 +84,14 @@ export function scriptedModel(model: any, context: any) {
       message.content.unshift({type:"text",text:"I need your answer before I can continue."});
     }
     else message.content = [{ type: "text", text: `Answer received: ${JSON.stringify(results.at(-1)?.content)}` }];
+  } else if (text === "remember-structured-preference") {
+    if (results.length === 0) tool("memory_save", { operationId: "fixture-explicit-preference", scope: "user", kind: "preference", content: "Use brief answers with concrete examples.", provenance: "Explicit fixture user preference" });
+    else message.content = [{ type: "text", text: lastToolValue().status === "ok" ? "Structured preference saved." : "Structured memory unavailable." }];
+  } else if (text === "find-structured-preference") {
+    if (results.length === 0 || (lastToolValue().status === "preparing" && results.length < 8)) tool("memory_search", { query: "concrete examples" });
+    else message.content = [{ type: "text", text: lastResult().includes("Use brief answers") ? "Structured preference found." : "Structured preference not found." }];
+  } else if (text === "inspect-standing-memory") {
+    message.content = [{ type: "text", text: context.systemPrompt?.includes("Use brief answers with concrete examples.") ? "Standing preference loaded." : "Standing preference absent." }];
   } else if (text === "remember-preference") {
     if (results.length === 0) tool("shared_memory_read", {});
     else if (results.length === 1) tool("shared_memory_update", { expectedVersion: lastToolValue().version, content: "User prefers concise summaries." });

@@ -44,7 +44,7 @@ export class SharedMemory {
       label: "Read shared memory",
       description: "Read this Companion's shared long-term memory and its version before updating it.",
       parameters: Type.Object({}),
-      execute: async () => result(this.read()),
+      execute: async () => { try { return result(this.read()); } catch { return result({ error: "MEMORY_UNAVAILABLE" }); } },
     }, {
       name: "shared_memory_update",
       label: "Update shared memory",
@@ -53,7 +53,10 @@ export class SharedMemory {
         expectedVersion: Type.String({ pattern: VERSION.source, description: "Version returned by the latest shared_memory_read." }),
         content: Type.String({ maxLength: MAX_MEMORY_BYTES, description: "Complete replacement MEMORY.md content, at most 30,000 UTF-8 bytes." }),
       }),
-      execute: async (_toolId: string, params: { expectedVersion: string; content: string }) => result(await this.update(params.expectedVersion, params.content)),
+      execute: async (_toolId: string, params: { expectedVersion: string; content: string }) => {
+        try { return result(await this.update(params.expectedVersion, params.content)); }
+        catch { return result({ updated: false, error: "MEMORY_UNAVAILABLE" }); }
+      },
     }];
   }
 

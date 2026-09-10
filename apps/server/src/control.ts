@@ -58,12 +58,12 @@ export async function applyControl(companionId:string,raw:unknown,execution?:Run
   return result;
 }
 export const avatarSchema=z.object({shape:z.number().int().min(0).max(7),color:z.number().int().min(0).max(10),face:z.number().int().min(0).max(4)});
-export const identitySchema=z.object({name:z.string().trim().min(1).max(80).optional(),instructions:z.string().max(20_000).optional(),avatar:avatarSchema.optional(),modelId:z.string().min(1).max(200).nullable().optional()});
+export const identitySchema=z.object({name:z.string().trim().min(1).max(80).optional(),instructions:z.string().max(20_000).optional(),avatar:avatarSchema.optional(),modelId:z.string().min(1).max(200).nullable().optional(),profileId:z.never().optional()});
 export async function configureCompanion(ownerId:string,id:string,input:unknown,sql:any=db) {
   const value=identitySchema.parse(input);
   if((await sql`SELECT template_id FROM specialist_drafts WHERE companion_id=${id}`).length)throw new Conflict('Configure this specialist through its draft controls.');
   if(value.modelId)await validateModel(value.modelId);
-  const [row]=await sql`UPDATE companions SET model_id=CASE WHEN ${value.modelId!==undefined} THEN ${value.modelId??null} ELSE model_id END,name=COALESCE(${value.name??null},name),instructions=COALESCE(${value.instructions??null},instructions),avatar=COALESCE(${value.avatar??null},avatar) WHERE id=${id} AND owner_id=${ownerId} AND retired_at IS NULL RETURNING id,name,instructions,avatar,model_id AS "modelId"`;
+  const [row]=await sql`UPDATE companions SET model_id=CASE WHEN ${value.modelId!==undefined} THEN ${value.modelId??null} ELSE model_id END,name=COALESCE(${value.name??null},name),instructions=COALESCE(${value.instructions??null},instructions),avatar=COALESCE(${value.avatar??null},avatar) WHERE id=${id} AND owner_id=${ownerId} AND retired_at IS NULL RETURNING id,name,instructions,avatar,model_id AS "modelId",profile_id AS "profileId"`;
   return row??null;
 }
 registerControl({
@@ -81,11 +81,11 @@ registerControl({
   },
   models:async()=>({models:await availableModels()}),
   identity:async context=>{
-    const [companion]=await db`SELECT id,name,instructions,avatar,model_id AS "modelId",desktop_taken AS "desktopTaken",desktop_paused_at AS "desktopPausedAt",status,temporary,template_id AS "templateId",template_revision AS "templateRevision",specialist_draft_id AS "specialistDraftId" FROM companions WHERE id=${context.companionId} AND owner_id=${context.ownerId}`;
+    const [companion]=await db`SELECT id,name,instructions,avatar,model_id AS "modelId",profile_id AS "profileId",desktop_taken AS "desktopTaken",desktop_paused_at AS "desktopPausedAt",status,temporary,template_id AS "templateId",template_revision AS "templateRevision",specialist_draft_id AS "specialistDraftId" FROM companions WHERE id=${context.companionId} AND owner_id=${context.ownerId}`;
     return {companion,isChild:context.isChild,operations:Object.keys(controlHandlers),examples:controlHelp,instructions:'Read current state before changing it. Omit example placeholder IDs. OAuth returns a consent link for the human; never claim connection before consent succeeds. Use plugin_check with an accountId to verify catalog discovery; requires_agent means a custom server still needs a check inside the agent computer. Trigger mode filter also accepts filterCode, a JavaScript function (payload,responses) returning a boolean, plus optional filterRequests. New Sentry issues use source sentry and target organization/project. Child agents ask their parent for additional agents. Software preparation is asynchronous; poll software_status and do not claim tools are installed until it reports ready and verified. Local Pi skills belong under the agent skills directory; use file/shell tools to install, then verify loading. Human desktop control persists until the human explicitly releases it. Do not attempt to restore your own desktop access; use the runtime-provided desktop tools and observe their reported state. Long operations are requests: poll task/template state before reporting completion.'};
   },
   configure:(context,input)=>configureCompanion(context.ownerId,context.companionId,input),
-  companions:async context=>db`SELECT id,name,instructions,avatar,status FROM companions WHERE owner_id=${context.ownerId} AND retired_at IS NULL AND NOT temporary AND specialist_draft_id IS NULL ORDER BY created_at`,
+  companions:async context=>db`SELECT id,name,instructions,avatar,profile_id AS "profileId",status FROM companions WHERE owner_id=${context.ownerId} AND retired_at IS NULL AND NOT temporary AND specialist_draft_id IS NULL ORDER BY created_at`,
   ask_user:async(context,input)=>{
     const value=z.object({question:z.string().min(1).max(2000),options:z.array(z.string().max(200)).max(6).default([])}).parse(input);
     await db`INSERT INTO task_questions(id,companion_id,run_id,question,options) VALUES(${context.commandId},${context.companionId},${context.runId},${value.question},${value.options}) ON CONFLICT DO NOTHING`;

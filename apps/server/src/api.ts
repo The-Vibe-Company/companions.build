@@ -30,6 +30,8 @@ import { avatarSchema, configureCompanion } from "./control";
 import { handleCompanionEvents } from "./events";
 import { serveStaticWeb } from "./static-web";
 import { prepareTemplateSoftware, softwareRootsSchema, SoftwareConflict, SoftwareUnavailable, templateSoftwareStatus } from "./software";
+import {profileIdSchema} from '../../../packages/workbench/artifacts';
+import {readArtifactPreview,readWorkbench} from './workbench';
 
 const idSchema = z.string().uuid();
 const json = (body: unknown, status = 200, headers: Record<string, string> = {}) => Response.json(body, { status, headers: { "Cache-Control": "no-store", ...headers } });
@@ -166,12 +168,16 @@ export async function handler(request: Request): Promise<Response> {
       if (request.method === "GET") return json({ companions: await listCompanions(ownerId) });
       if (request.method === "POST") {
         if(privateBetaEmails() !== null || billingConfiguration().mode === "stripe" || process.env.NODE_ENV === "production") await requireProductActivation(ownerId);
-        const input = z.object({ clientCreationId:idSchema.optional(),prepare:z.boolean().default(true),name: z.string().trim().min(1).max(80), instructions: z.string().max(20_000).optional(), provider: z.enum(["local", "box"]).default(config.defaultProvider), avatar: avatarSchema.optional(), templateId:idSchema.optional(), templateRevision:z.number().int().positive().optional() }).parse(await request.json());
+        const input = z.object({ clientCreationId:idSchema.optional(),prepare:z.boolean().default(true),name: z.string().trim().min(1).max(80), instructions: z.string().max(20_000).optional(), provider: z.enum(["local", "box"]).default(config.defaultProvider), avatar: avatarSchema.optional(), templateId:idSchema.optional(), templateRevision:z.number().int().positive().optional(),profileId:profileIdSchema.nullable().optional() }).parse(await request.json());
         if (input.provider === "box" && (!config.boxKey || (!config.managedBoxTemplate && !config.boxTemplate))) return json({ error: "Box needs an API key and a prepared template." }, 409);
         if (input.provider === "local" && !config.localAvailable) return json({ error: "Local runtime is disabled." }, 409);
         return json({ companion: await createCompanion(ownerId, input) }, 201);
       }
     }
+    const workbenchMatch=url.pathname.match(/^\/api\/companions\/([^/]+)\/workbench$/);
+    if(workbenchMatch&&request.method==='GET'){const result=await readWorkbench(ownerId,idSchema.parse(workbenchMatch[1]));return result?json(result):json({error:'Companion not found.'},404);}
+    const previewMatch=url.pathname.match(/^\/api\/companions\/([^/]+)\/artifacts\/([^/]+)\/preview$/);
+    if(previewMatch&&request.method==='GET'){const revisionId=url.searchParams.get('revisionId');const result=await readArtifactPreview(ownerId,idSchema.parse(previewMatch[1]),idSchema.parse(previewMatch[2]),revisionId===null?undefined:idSchema.parse(revisionId));return result?json(result):json({error:'Artifact preview not found.'},404);}
     const match = url.pathname.match(/^\/api\/companions\/([^/]+)(?:\/(messages|cancel|desktop|events|skills|chat))?$/);
     if (match) {
       const id = idSchema.parse(match[1]);

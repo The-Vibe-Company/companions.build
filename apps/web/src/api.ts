@@ -1,4 +1,6 @@
 import type { CompanionAvatarValue } from "@/components/CompanionAvatar";
+import type { ProfileId } from "../../../packages/workbench/profiles";
+import type { ArtifactPreview, WorkbenchSnapshot } from "../../../packages/workbench/artifacts";
 
 export type CompanionStatus = "new" | "preparing" | "ready" | "archived" | "error";
 export type RunStatus =
@@ -12,6 +14,7 @@ export type RunStatus =
   | "cancelled";
 
 export interface Companion {
+  profileId?: ProfileId | null;
   id: string;
   name: string;
   instructions: string;
@@ -265,7 +268,9 @@ export const api = {
     request<{ task: TaskDetail; files: ThreadFile[] }>(`/api/companions/${id}/tasks/${taskId}`),
   cancelTask: (id: string, taskId: string) =>
     request<{ task: TaskDetail }>(`/api/companions/${id}/tasks/${taskId}/cancel`, { method: "POST" }),
-  createCompanion: (input: Pick<Companion, "name" | "instructions" | "provider" | "avatar"> & { clientCreationId: string; prepare?: boolean; templateId?: string; templateRevision?: number }) =>
+  workbench: (id: string) => request<WorkbenchSnapshot>(`/api/companions/${id}/workbench`),
+  artifactPreview: (id: string, artifactId: string, revisionId: string) => request<ArtifactPreview>(`/api/companions/${id}/artifacts/${artifactId}/preview?revisionId=${encodeURIComponent(revisionId)}`),
+  createCompanion: (input: Pick<Companion, "name" | "instructions" | "provider" | "avatar"> & { clientCreationId: string; profileId?: ProfileId; prepare?: boolean; templateId?: string; templateRevision?: number }) =>
     request<{ companion: Companion }>("/api/companions", {
       method: "POST",
       body: JSON.stringify(input),

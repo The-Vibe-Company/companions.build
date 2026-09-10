@@ -102,3 +102,7 @@
 .create-companion-fields .account-tile { padding:11px 12px 10px; }
 .create-companion-fields .account-grant { min-height:24px; }
 @media(max-width:760px) { .create-companion-fields .account-grant { min-height:44px; } }
+
+.create-companion-fields > .create-profile-field { margin: 0 0 24px; }
+.create-profile-field select { min-height: 44px; border: 1px solid #cfcec6; border-radius: 6px; padding: 8px 12px; background: white; }
+.create-profile-field p { font-size: .875rem; color: #55564d; line-height: 1.5; max-width: 60ch; }

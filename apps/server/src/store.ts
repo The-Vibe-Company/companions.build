@@ -4,7 +4,7 @@ import { config, encrypt } from "./config";
 import { requireSoftwareReady, SoftwareReadinessError } from "./software-readiness";
 import {requestMachineAdmissionInTransaction} from './admission';
 export const db = new SQL(config.databaseUrl, { max: 8, connectionTimeout: 10 });
-const migrationNames = ["schema.sql", "auth-schema.sql", "product.sql", "plugins.sql", "storage-schema.sql", "automations.sql", "triggers.sql", "lifecycle.sql", "software.sql", "desktop.sql", "box-observation.sql", "billing.sql", "delivery.sql", "maintenance.sql", "delivery-skills.sql", "software-results.sql", "events.sql", "model-gateway.sql", "specialist-drafts.sql", "admission.sql", "conversation.sql", "chat.sql", "managed-base-image.sql", "runtime-updates.sql"] as const;
+const migrationNames = ["schema.sql", "auth-schema.sql", "product.sql", "plugins.sql", "storage-schema.sql", "automations.sql", "triggers.sql", "lifecycle.sql", "software.sql", "desktop.sql", "box-observation.sql", "billing.sql", "delivery.sql", "maintenance.sql", "delivery-skills.sql", "software-results.sql", "events.sql", "model-gateway.sql", "specialist-drafts.sql", "admission.sql", "conversation.sql", "chat.sql", "managed-base-image.sql", "runtime-updates.sql", "workbench.sql"] as const;
 
 async function migrationFiles() {
   return Promise.all(migrationNames.map(async name => ({ name, sql: await Bun.file(new URL(`./${name}`, import.meta.url)).text() })));
@@ -67,11 +67,13 @@ export async function migrateForService(sql = db) {
   }
   await migrate(sql);
 }
-export const companionColumns = `runtime_version AS "runtimeVersion",runtime_update_target AS "runtimeUpdateTarget",runtime_update_status AS "runtimeUpdateStatus",runtime_update_error AS "runtimeUpdateError",id,name,instructions,avatar,model_id AS "modelId",provider,status,error,desktop_taken AS "desktopTaken",desktop_paused_at AS "desktopPausedAt",prepare_requested AS "prepareRequested",ready_at AS "readyAt",parent_id AS "parentId",template_id AS "templateId",template_revision AS "templateRevision",software_build_id AS "softwareBuildId",software_result_id AS "softwareResultId",retired_at AS "retiredAt",temporary,box_id AS "boxId",created_at AS "createdAt"`;
+export const companionColumns = `runtime_version AS "runtimeVersion",runtime_update_target AS "runtimeUpdateTarget",runtime_update_status AS "runtimeUpdateStatus",runtime_update_error AS "runtimeUpdateError",id,name,instructions,avatar,model_id AS "modelId",profile_id AS "profileId",provider,status,error,desktop_taken AS "desktopTaken",desktop_paused_at AS "desktopPausedAt",prepare_requested AS "prepareRequested",ready_at AS "readyAt",parent_id AS "parentId",template_id AS "templateId",template_revision AS "templateRevision",software_build_id AS "softwareBuildId",software_result_id AS "softwareResultId",retired_at AS "retiredAt",temporary,box_id AS "boxId",created_at AS "createdAt"`;
 export async function listCompanions(ownerId: string) { return db.unsafe(`SELECT ${companionColumns} FROM companions WHERE owner_id=$1 AND retired_at IS NULL AND NOT temporary AND specialist_draft_id IS NULL ORDER BY created_at,id`, [ownerId]); }
-export async function createCompanion(ownerId: string, input: { name: string; instructions?: string; provider?: "local" | "box"; prepare?:boolean; avatar?: {shape:number;color:number;face:number}; templateId?:string; templateRevision?:number; clientCreationId?:string }) {
+export async function createCompanion(ownerId: string, input: { name: string; instructions?: string; provider?: "local" | "box"; prepare?:boolean; avatar?: {shape:number;color:number;face:number}; templateId?:string; templateRevision?:number; clientCreationId?:string; profileId?:"default-v1"|"design-v1"|null }) {
   input={...input,provider:input.provider??config.defaultProvider};
-  const fingerprint=input.clientCreationId?createHash("sha256").update(JSON.stringify({name:input.name,instructions:input.instructions??null,provider:input.provider,prepare:input.prepare??false,avatar:input.avatar??null,templateId:input.templateId??null,templateRevision:input.templateRevision??null})).digest("hex"):null;
+  const fingerprintInput:any={name:input.name,instructions:input.instructions??null,provider:input.provider,prepare:input.prepare??false,avatar:input.avatar??null,templateId:input.templateId??null,templateRevision:input.templateRevision??null};
+  if(input.profileId!=null)fingerprintInput.profileId=input.profileId;
+  const fingerprint=input.clientCreationId?createHash("sha256").update(JSON.stringify(fingerprintInput)).digest("hex"):null;
   return db.begin(async sql => {
     if(input.clientCreationId){
       const [prior]=await sql`SELECT creation_fingerprint FROM companions WHERE owner_id=${ownerId} AND client_creation_id=${input.clientCreationId}`;
@@ -91,8 +93,8 @@ export async function createCompanion(ownerId: string, input: { name: string; in
       if(template.resolved_snapshot_name&&input.provider!=="box")throw new Conflict("This prepared template requires Box.");
     } else if(input.templateRevision)throw new Conflict("A template is required for a revision.");
     const id = crypto.randomUUID();
-    const inserted=await sql`INSERT INTO companions (id,owner_id,name,instructions,provider,create_key,agent_secret,avatar,prepare_requested,template_id,template_revision,snapshot_name,software_build_id,software_result_id,model_id,client_creation_id,creation_fingerprint)
-      VALUES (${id},${ownerId},${input.name},${input.instructions??template?.instructions??""},${input.provider},${crypto.randomUUID()},${encrypt(randomBytes(32).toString("hex"))},${input.avatar??template?.avatar??{shape:Math.floor(Math.random()*8),color:Math.floor(Math.random()*11),face:Math.floor(Math.random()*5)}},${input.prepare??false},${input.templateId??null},${template?.revision??null},${template?.resolved_snapshot_name??null},${template?.software_build_id??null},${template?.software_result_id??null},${template?.model_id??null},${input.clientCreationId??null},${fingerprint})
+    const inserted=await sql`INSERT INTO companions (id,owner_id,name,instructions,provider,create_key,agent_secret,avatar,prepare_requested,template_id,template_revision,snapshot_name,software_build_id,software_result_id,model_id,client_creation_id,creation_fingerprint,profile_id)
+      VALUES (${id},${ownerId},${input.name},${input.instructions??template?.instructions??""},${input.provider},${crypto.randomUUID()},${encrypt(randomBytes(32).toString("hex"))},${input.avatar??template?.avatar??{shape:Math.floor(Math.random()*8),color:Math.floor(Math.random()*11),face:Math.floor(Math.random()*5)}},${input.prepare??false},${input.templateId??null},${template?.revision??null},${template?.resolved_snapshot_name??null},${template?.software_build_id??null},${template?.software_result_id??null},${template?.model_id??null},${input.clientCreationId??null},${fingerprint},${input.profileId??null})
       ON CONFLICT(owner_id,client_creation_id) WHERE client_creation_id IS NOT NULL DO NOTHING RETURNING id`;
     if(!inserted.length){
       const [winner]=await sql`SELECT creation_fingerprint FROM companions WHERE owner_id=${ownerId} AND client_creation_id=${input.clientCreationId}`;

@@ -329,7 +329,7 @@ describe("first Companion flow", () => {
     expect(identity).not.toHaveTextContent("Finished specialist");
   });
 
-  it("keeps send available during active work and clears drafts when switching Companions", async () => {
+  it("keeps send available during active work and shows empty draft for a new Companion", async () => {
     window.history.replaceState({}, "", "/companions/ada");
     const browserCompanion = {
       ...companion,
@@ -390,6 +390,88 @@ describe("first Companion flow", () => {
     await user.click(screen.getByRole("button", { name: /Browser, Companion · Ready/ }));
     const browserComposer = await screen.findByRole("textbox", { name: "Message Browser" });
     expect(browserComposer).toHaveValue("");
+  });
+
+  it("restores per-Companion draft when switching back", async () => {
+    window.history.replaceState({}, "", "/companions/ada");
+    const browserCompanion = { ...companion, id: "browser", name: "Browser", provider: "local" as const, status: "ready" as const };
+    const adaReady = { ...companion, status: "ready" as const };
+    vi.stubGlobal("fetch", vi.fn((input: RequestInfo | URL) => {
+      const path = String(input);
+      if (path === "/api/me") return response(me);
+      if (path === "/api/config") return response(config);
+      if (path === "/api/companions") return response({ companions: [adaReady, browserCompanion] });
+      if (path === "/api/companions/ada") return response({ companion: adaReady, messages: [], runs: [], activity: [] });
+      if (path === "/api/companions/browser") return response({ companion: browserCompanion, messages: [], runs: [], activity: [] });
+      throw new Error(`Unexpected request: ${path}`);
+    }));
+    const user = userEvent.setup();
+    render(<App />);
+
+    const adaComposer = await screen.findByRole("textbox", { name: "Message Ada" });
+    await user.type(adaComposer, "Ada draft content");
+    expect(adaComposer).toHaveValue("Ada draft content");
+
+    await user.click(screen.getByRole("button", { name: /Browser, Companion · Ready/ }));
+    const browserComposer = await screen.findByRole("textbox", { name: "Message Browser" });
+    expect(browserComposer).toHaveValue(""); // Browser never had a draft
+
+    await user.click(screen.getByRole("button", { name: /Ada, Companion/ }));
+    const restoredAdaComposer = await screen.findByRole("textbox", { name: "Message Ada" });
+    expect(restoredAdaComposer).toHaveValue("Ada draft content"); // Ada's draft restored
+  });
+
+  it("does not leak draft between Companions", async () => {
+    window.history.replaceState({}, "", "/companions/ada");
+    const browserCompanion = { ...companion, id: "browser", name: "Browser", provider: "local" as const, status: "ready" as const };
+    const adaReady = { ...companion, status: "ready" as const };
+    vi.stubGlobal("fetch", vi.fn((input: RequestInfo | URL) => {
+      const path = String(input);
+      if (path === "/api/me") return response(me);
+      if (path === "/api/config") return response(config);
+      if (path === "/api/companions") return response({ companions: [adaReady, browserCompanion] });
+      if (path === "/api/companions/ada") return response({ companion: adaReady, messages: [], runs: [], activity: [] });
+      if (path === "/api/companions/browser") return response({ companion: browserCompanion, messages: [], runs: [], activity: [] });
+      throw new Error(`Unexpected request: ${path}`);
+    }));
+    const user = userEvent.setup();
+    render(<App />);
+
+    const adaComposer = await screen.findByRole("textbox", { name: "Message Ada" });
+    await user.type(adaComposer, "Private Ada message");
+
+    await user.click(screen.getByRole("button", { name: /Browser, Companion · Ready/ }));
+    const browserComposer = await screen.findByRole("textbox", { name: "Message Browser" });
+    expect(browserComposer).toHaveValue(""); // Ada's draft must not appear in Browser
+  });
+
+  it("does not show loading spinner when switching back to a previously loaded Companion", async () => {
+    window.history.replaceState({}, "", "/companions/ada");
+    const browserCompanion = { ...companion, id: "browser", name: "Browser", provider: "local" as const, status: "ready" as const };
+    const adaReady = { ...companion, status: "ready" as const };
+    vi.stubGlobal("fetch", vi.fn((input: RequestInfo | URL) => {
+      const path = String(input);
+      if (path === "/api/me") return response(me);
+      if (path === "/api/config") return response(config);
+      if (path === "/api/companions") return response({ companions: [adaReady, browserCompanion] });
+      if (path === "/api/companions/ada") return response({ companion: adaReady, messages: [], runs: [], activity: [] });
+      if (path === "/api/companions/browser") return response({ companion: browserCompanion, messages: [], runs: [], activity: [] });
+      throw new Error(`Unexpected request: ${path}`);
+    }));
+    const user = userEvent.setup();
+    render(<App />);
+
+    // Ada loads initially
+    await screen.findByRole("textbox", { name: "Message Ada" });
+
+    // Switch to Browser (loads fresh)
+    await user.click(screen.getByRole("button", { name: /Browser, Companion · Ready/ }));
+    await screen.findByRole("textbox", { name: "Message Browser" });
+
+    // Switch back to Ada — should be immediate from cache, no loading spinner
+    await user.click(screen.getByRole("button", { name: /Ada, Companion/ }));
+    expect(screen.queryByText("Opening Companion…")).not.toBeInTheDocument();
+    expect(screen.getByRole("textbox", { name: "Message Ada" })).toBeInTheDocument();
   });
 
   it("guards unsaved settings before leaving for another Companion", async () => {

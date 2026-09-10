@@ -4,6 +4,7 @@ import { api, ApiError, isActiveRun, type CompanionDetail, type CompanionSkill }
 import { Button } from "./ui/button";
 import { Textarea } from "./ui/textarea";
 import { cn } from "@/lib/utils";
+import { clearDraft, readDraft, saveDraft } from "@/lib/companion-drafts";
 const MAX_CHAT_FILES = 5;
 const MAX_CHAT_FILE_BYTES = 10 * 1024 * 1024;
 const CHAT_IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/webp", "image/gif"]);
@@ -27,7 +28,10 @@ function PendingFile({ file, onRemove }: { file: File; onRemove: () => void }) {
 
 export interface ChatComposerHandle { suggest(text: string): void }
 export const ChatComposer = forwardRef<ChatComposerHandle, { detail: CompanionDetail; onRefresh: () => Promise<void>; onUnauthorized: () => void }>(function ChatComposer({ detail, onRefresh, onUnauthorized }, ref) {
-  const [draft, setDraft] = useState("");
+  const [draft, setDraft] = useState(() => readDraft(detail.companion.id));
+  const draftRef = useRef(draft);
+  draftRef.current = draft;
+  const companionIdRef = useRef(detail.companion.id);
   const [files, setFiles] = useState<File[]>([]);
   const [sending, setSending] = useState(false);
   const [actionError, setActionError] = useState("");
@@ -67,6 +71,17 @@ export const ChatComposer = forwardRef<ChatComposerHandle, { detail: CompanionDe
     setSkillCommandsEnabled(null);
     setSkillsUnavailable(false);
   }, [detail.companion.id]);
+
+  // Debounce draft saves while typing so storage writes don't block input.
+  useEffect(() => {
+    const timer = window.setTimeout(() => saveDraft(detail.companion.id, draft), 300);
+    return () => window.clearTimeout(timer);
+  }, [draft, detail.companion.id]);
+
+  // Save the latest draft on unmount (covers navigation away before debounce fires).
+  useEffect(() => {
+    return () => { saveDraft(companionIdRef.current, draftRef.current); };
+  }, []);
 
   function discoverSkills() {
     const companionId = detail.companion.id;
@@ -121,7 +136,7 @@ export const ChatComposer = forwardRef<ChatComposerHandle, { detail: CompanionDe
       suppressCommandDetection.current = false;
     });
   }
-  useImperativeHandle(ref, () => ({ suggest(text) { setDraft(text); textareaRef.current?.focus(); } }), []);
+  useImperativeHandle(ref, () => ({ suggest(text) { setDraft(text); saveDraft(detail.companion.id, text); textareaRef.current?.focus(); } }), [detail.companion.id]);
   async function send(event: FormEvent) {
     event.preventDefault();
     const content = draft.trim();
@@ -131,6 +146,7 @@ export const ChatComposer = forwardRef<ChatComposerHandle, { detail: CompanionDe
     try {
       await api.sendMessage(detail.companion.id, content, files);
       setDraft("");
+      clearDraft(detail.companion.id);
       setCommandToken(null);
       activeCommandStart.current = null;
       setFiles([]);

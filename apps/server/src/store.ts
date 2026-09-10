@@ -3,8 +3,10 @@ import { createHash, randomBytes } from "node:crypto";
 import { config, encrypt } from "./config";
 import { requireSoftwareReady, SoftwareReadinessError } from "./software-readiness";
 import {requestMachineAdmissionInTransaction} from './admission';
+import {activeDesignSkill} from '../../../packages/workbench/profiles';
+import {designRunContextSchema} from '../../../packages/workbench/projects';
 export const db = new SQL(config.databaseUrl, { max: 8, connectionTimeout: 10 });
-const migrationNames = ["schema.sql", "auth-schema.sql", "product.sql", "plugins.sql", "storage-schema.sql", "automations.sql", "triggers.sql", "lifecycle.sql", "software.sql", "desktop.sql", "box-observation.sql", "billing.sql", "delivery.sql", "maintenance.sql", "delivery-skills.sql", "software-results.sql", "events.sql", "model-gateway.sql", "specialist-drafts.sql", "admission.sql", "conversation.sql", "chat.sql", "managed-base-image.sql", "runtime-updates.sql", "workbench.sql"] as const;
+const migrationNames = ["schema.sql", "auth-schema.sql", "product.sql", "plugins.sql", "storage-schema.sql", "automations.sql", "triggers.sql", "lifecycle.sql", "software.sql", "desktop.sql", "box-observation.sql", "billing.sql", "delivery.sql", "maintenance.sql", "delivery-skills.sql", "software-results.sql", "events.sql", "model-gateway.sql", "specialist-drafts.sql", "admission.sql", "conversation.sql", "chat.sql", "managed-base-image.sql", "runtime-updates.sql", "workbench.sql", "design-projects.sql"] as const;
 
 async function migrationFiles() {
   return Promise.all(migrationNames.map(async name => ({ name, sql: await Bun.file(new URL(`./${name}`, import.meta.url)).text() })));
@@ -69,7 +71,7 @@ export async function migrateForService(sql = db) {
 }
 export const companionColumns = `runtime_version AS "runtimeVersion",runtime_update_target AS "runtimeUpdateTarget",runtime_update_status AS "runtimeUpdateStatus",runtime_update_error AS "runtimeUpdateError",id,name,instructions,avatar,model_id AS "modelId",profile_id AS "profileId",provider,status,error,desktop_taken AS "desktopTaken",desktop_paused_at AS "desktopPausedAt",prepare_requested AS "prepareRequested",ready_at AS "readyAt",parent_id AS "parentId",template_id AS "templateId",template_revision AS "templateRevision",software_build_id AS "softwareBuildId",software_result_id AS "softwareResultId",retired_at AS "retiredAt",temporary,box_id AS "boxId",created_at AS "createdAt"`;
 export async function listCompanions(ownerId: string) { return db.unsafe(`SELECT ${companionColumns} FROM companions WHERE owner_id=$1 AND retired_at IS NULL AND NOT temporary AND specialist_draft_id IS NULL ORDER BY created_at,id`, [ownerId]); }
-export async function createCompanion(ownerId: string, input: { name: string; instructions?: string; provider?: "local" | "box"; prepare?:boolean; avatar?: {shape:number;color:number;face:number}; templateId?:string; templateRevision?:number; clientCreationId?:string; profileId?:"default-v1"|"design-v1"|null }) {
+export async function createCompanion(ownerId: string, input: { name: string; instructions?: string; provider?: "local" | "box"; prepare?:boolean; avatar?: {shape:number;color:number;face:number}; templateId?:string; templateRevision?:number; clientCreationId?:string; profileId?:"default-v1"|"design-v1"|"design-v2"|null }) {
   input={...input,provider:input.provider??config.defaultProvider};
   const fingerprintInput:any={name:input.name,instructions:input.instructions??null,provider:input.provider,prepare:input.prepare??false,avatar:input.avatar??null,templateId:input.templateId??null,templateRevision:input.templateRevision??null};
   if(input.profileId!=null)fingerprintInput.profileId=input.profileId;
@@ -109,7 +111,7 @@ export async function detail(ownerId: string, id: string) {
   if (!companion) return null;
   const [messages, runs, specialists] = await Promise.all([
     db`SELECT id,role,content,sequence,complete,created_at AS "createdAt",run_id AS "runId" FROM messages WHERE companion_id=${id} ORDER BY created_at,sequence,id`,
-    db`SELECT id,status,error,lane,source,routine_id AS "routineId",routine_name AS "routineName",publication_mode AS "publicationMode",scheduled_for AS "scheduledFor",started_at AS "startedAt",result_text AS "resultText",preview_text AS "previewText",message_version AS "messageVersion",thinking_text AS "thinkingText",publish_to_chat AS "publishToChat",response_root_id AS "responseRootId",created_at AS "createdAt",prepared_at AS "preparedAt",finished_at AS "finishedAt" FROM runs WHERE companion_id=${id} ORDER BY created_at,id`,
+    db`SELECT id,status,error,lane,source,project_id AS "projectId",routine_id AS "routineId",routine_name AS "routineName",publication_mode AS "publicationMode",scheduled_for AS "scheduledFor",started_at AS "startedAt",result_text AS "resultText",preview_text AS "previewText",message_version AS "messageVersion",thinking_text AS "thinkingText",publish_to_chat AS "publishToChat",response_root_id AS "responseRootId",created_at AS "createdAt",prepared_at AS "preparedAt",finished_at AS "finishedAt" FROM runs WHERE companion_id=${id} ORDER BY created_at,id`,
     db`SELECT d.id AS "delegationId",d.parent_run_id AS "parentRunId",d.run_id AS "childRunId",
       jsonb_build_object('id',child.id,'name',child.name,'avatar',child.avatar,'status',child.status,'retiredAt',child.retired_at) AS companion
       FROM delegations d
@@ -122,16 +124,23 @@ export async function detail(ownerId: string, id: string) {
   return { companion, messages, runs, specialists, activity: runs.filter((run:any)=>run.lane === "background") };
 }
 export class Conflict extends Error {}
-export async function acceptMessage(ownerId: string, companionId: string, clientMessageId: string, content: string, attachmentCount = 0) {
+export async function acceptMessage(ownerId: string, companionId: string, clientMessageId: string, content: string, attachmentCount = 0, projectId?:string) {
   return db.begin(async sql => {
     // Lock companion to serialize duplicate admission with cancellation and FIFO claims.
     await sql`SELECT pg_advisory_xact_lock(721440140)`;
-    const [companion] = await sql`SELECT id FROM companions WHERE id=${companionId} AND owner_id=${ownerId} AND retired_at IS NULL AND archive_requested_at IS NULL FOR UPDATE`;
+    const [companion] = await sql`SELECT id,profile_id FROM companions WHERE id=${companionId} AND owner_id=${ownerId} AND retired_at IS NULL AND archive_requested_at IS NULL FOR UPDATE`;
     if (!companion) return null;
-    const [existing] = await sql`SELECT id,content,attachment_count FROM runs WHERE companion_id=${companionId} AND client_message_id=${clientMessageId}`;
+    const [existing] = await sql`SELECT id,content,attachment_count,project_id FROM runs WHERE companion_id=${companionId} AND client_message_id=${clientMessageId}`;
     if (existing) {
-      if (existing.content !== content || existing.attachment_count !== attachmentCount) throw new Conflict("This message identifier was already used with different content or attachments.");
+      if (existing.content !== content || existing.attachment_count !== attachmentCount || (existing.project_id??undefined)!==projectId) throw new Conflict("This message identifier was already used with different content, attachments, or project.");
       return existing.id as string;
+    }
+    let designContext:unknown=null;
+    if(projectId){
+      if(companion.profile_id!=='design-v2')throw new Conflict('Projects require the Design profile.');
+      const [project]=await sql`SELECT id,name,brief,revision FROM design_projects WHERE id=${projectId} AND companion_id=${companionId} AND owner_id=${ownerId} AND NOT archived`;
+      if(!project)throw new Conflict('Design project not found or archived.');
+      designContext=designRunContextSchema.parse({version:1,profileId:'design-v2',companionId,project:{id:project.id,name:project.name,brief:project.brief,revision:project.revision},skill:activeDesignSkill});
     }
     const [draft]=await sql`SELECT status FROM specialist_drafts WHERE companion_id=${companionId} FOR UPDATE`;
     if(draft&&!['editing','error'].includes(draft.status))throw new Conflict('Configuration is paused while its draft is captured or tested.');
@@ -145,7 +154,7 @@ export async function acceptMessage(ownerId: string, companionId: string, client
       if(!open){const admission=await requestMachineAdmissionInTransaction(sql,ownerId,{requestId:clientMessageId,companionId,kind:'configuration'});if(admission.state==='refused')throw new Conflict('The specialist queue is full.');}
     }
     const id = crypto.randomUUID();
-    await sql`INSERT INTO runs (id,companion_id,client_message_id,content,attachment_count) VALUES (${id},${companionId},${clientMessageId},${content},${attachmentCount})`;
+    await sql`INSERT INTO runs (id,companion_id,client_message_id,content,attachment_count,project_id,design_context) VALUES (${id},${companionId},${clientMessageId},${content},${attachmentCount},${projectId??null},${designContext})`;
     await sql`INSERT INTO messages (id,companion_id,run_id,role,content) VALUES (${crypto.randomUUID()},${companionId},${id},'user',${content})`;
     return id;
   });

@@ -1,5 +1,6 @@
 /** Compact examples for the same owner-scoped services used by the web app. */
 export const controlHelp={
+ design_projects:{q:'Optional name or brief search',cursor:'Cursor from the previous page'},design_project_create:{id:'Stable new UUID',name:'Project name',brief:'Current design brief'},design_project_update:{projectId:'Project ID',expectedRevision:'Current project revision',name:'Optional name',brief:'Optional full brief',archived:'Optional archive state'},design_history:{projectId:'Project ID',cursor:'Cursor from the previous history page'},
  specialist_next_step:{kind:"connections",message:"Connect GitHub and Linear so I can prepare your repositories and read your issues.",providers:["github","linear"]},
  specialist_configure:{expectedGeneration:'Read with specialist_configure {} first',expectedIdentityRevision:'Required for name/avatar edits; use identityRevision from the draft',name:'Applies immediately without publish',instructions:'Mission for future copies',initScript:'Optional script run once per intervention'},
  specialist_install:{packages:['jq']},specialist_propose_improvement:{summary:'What changed and why',recipe:'Verified installation steps or selected file changes to reconstruct in the current draft'},specialist_keep_alive:{companionId:'Own specialist intervention ID'},

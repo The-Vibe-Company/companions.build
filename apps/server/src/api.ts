@@ -32,6 +32,7 @@ import { serveStaticWeb } from "./static-web";
 import { prepareTemplateSoftware, softwareRootsSchema, SoftwareConflict, SoftwareUnavailable, templateSoftwareStatus } from "./software";
 import {profileIdSchema} from '../../../packages/workbench/artifacts';
 import {readArtifactPreview,readWorkbench} from './workbench';
+import {createDesignProject,listDesignProjects,readDesignProject,updateDesignProject} from './design-projects';
 
 const idSchema = z.string().uuid();
 const json = (body: unknown, status = 200, headers: Record<string, string> = {}) => Response.json(body, { status, headers: { "Cache-Control": "no-store", ...headers } });
@@ -175,7 +176,17 @@ export async function handler(request: Request): Promise<Response> {
       }
     }
     const workbenchMatch=url.pathname.match(/^\/api\/companions\/([^/]+)\/workbench$/);
-    if(workbenchMatch&&request.method==='GET'){const result=await readWorkbench(ownerId,idSchema.parse(workbenchMatch[1]));return result?json(result):json({error:'Companion not found.'},404);}
+    if(workbenchMatch&&request.method==='GET'){const result=await readWorkbench(ownerId,idSchema.parse(workbenchMatch[1]),{projectId:url.searchParams.get('projectId')??undefined,cursor:url.searchParams.get('cursor')??undefined});return result?json(result):json({error:'Companion not found.'},404);}
+    const projectItem=url.pathname.match(/^\/api\/companions\/([^/]+)\/design-projects\/([^/]+)$/);
+    if(projectItem){const companionId=idSchema.parse(projectItem[1]),projectId=idSchema.parse(projectItem[2]);
+      if(request.method==='GET'){const project=await readDesignProject(ownerId,companionId,projectId);return project?json({project}):json({error:'Design project not found.'},404);}
+      if(request.method==='PATCH')return json({project:await updateDesignProject(ownerId,companionId,projectId,await request.json())});
+    }
+    const projectsRoute=url.pathname.match(/^\/api\/companions\/([^/]+)\/design-projects$/);
+    if(projectsRoute){const companionId=idSchema.parse(projectsRoute[1]);
+      if(request.method==='GET'){const result=await listDesignProjects(ownerId,companionId,{q:url.searchParams.get('q')??undefined,cursor:url.searchParams.get('cursor')??undefined});return result?json(result):json({error:'Companion not found.'},404);}
+      if(request.method==='POST')return json({project:await createDesignProject(ownerId,companionId,await request.json())},201);
+    }
     const previewMatch=url.pathname.match(/^\/api\/companions\/([^/]+)\/artifacts\/([^/]+)\/preview$/);
     if(previewMatch&&request.method==='GET'){const revisionId=url.searchParams.get('revisionId');const result=await readArtifactPreview(ownerId,idSchema.parse(previewMatch[1]),idSchema.parse(previewMatch[2]),revisionId===null?undefined:idSchema.parse(revisionId));return result?json(result):json({error:'Artifact preview not found.'},404);}
     const match = url.pathname.match(/^\/api\/companions\/([^/]+)(?:\/(messages|cancel|desktop|events|skills|chat))?$/);
@@ -189,8 +200,8 @@ export async function handler(request: Request): Promise<Response> {
         return result?json(result):json({error:"Companion not found."},404); }
       if (match[2] === "events" && request.method === "GET") return handleCompanionEvents(request, ownerId, id);
       if (match[2] === "messages" && request.method === "POST") {
-        const body = z.object({ clientMessageId: idSchema, content: z.string().trim().min(1).max(50_000), attachmentCount: z.number().int().min(0).max(5).default(0) }).parse(await request.json());
-        const runId = await acceptMessage(ownerId, id, body.clientMessageId, body.content, body.attachmentCount);
+        const body = z.object({ clientMessageId: idSchema, content: z.string().trim().min(1).max(50_000), attachmentCount: z.number().int().min(0).max(5).default(0),projectId:idSchema.optional() }).parse(await request.json());
+        const runId = await acceptMessage(ownerId, id, body.clientMessageId, body.content, body.attachmentCount,body.projectId);
         return runId ? json({ runId }, 202) : json({ error: "Companion not found." }, 404);
       }
       if (match[2] === "cancel" && request.method === "POST") return await cancel(ownerId, id) ? json({ ok: true }) : json({ error: "Companion not found." }, 404);

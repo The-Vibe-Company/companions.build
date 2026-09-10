@@ -43,7 +43,13 @@ export function scriptedModel(model: any, context: any) {
     message.content = [{ type: "toolCall", id: `fixture-${results.length}`, name, arguments: args }];
     message.stopReason = "toolUse";
   };
-  if (text === "desktop-type-fixture" || text === "desktop-key-fixture") {
+  if (text?.startsWith("design-publish-fixture ")) {
+    const design = JSON.parse(text.slice("design-publish-fixture ".length));
+    const path = `projects/${design.projectId}/index.html`;
+    if (results.length === 0) tool("write", {path,content:`<!doctype html><html><head><style>body{margin:0;background:#f4f0e8;color:#242c27;font-family:Georgia,serif}main{padding:60px 8%;max-width:1000px;margin:auto}h1{font-size:64px;line-height:1.05;max-width:12ch}p{font-family:system-ui;line-height:1.6;max-width:48ch}.tag{font-size:16px;color:#496d53}@media(max-width:500px){main{padding:32px 24px}h1{font-size:42px}}</style></head><body><main><p class="tag">DESIGN STUDIO · VERIFIED FIXTURE</p><h1>${String(design.title).replace(/[<>&]/g,"")}</h1><p>A persistent project, a considered direction, and a revision you can return to.</p></main></body></html>`});
+    else if(results.length === 1) tool("publish_design",{publicationId:design.publicationId,artifactId:design.artifactId,previousRevisionId:design.previousRevisionId??null,title:design.title,path});
+    else message.content=[{type:"text",text:lastToolValue().revisionId ? `Design published: ${lastToolValue().revisionId}` : `Design publication was not confirmed: ${lastToolValue().error??"unknown"}`}];
+  } else if (text === "desktop-type-fixture" || text === "desktop-key-fixture") {
     if(results.length===0)tool(text==='desktop-type-fixture'?'desktop_type':'desktop_capture',text==='desktop-type-fixture'?{text:'a'.repeat(1000),intervalMs:100}:{});
     else if(text==='desktop-key-fixture'&&results.length===1)tool('desktop_keys',{keys:['a']});
     else message.content=[{type:'text',text:lastResult().includes('desktop_paused')?'Desktop paused; headless work can continue.':'Desktop tool returned.'}];

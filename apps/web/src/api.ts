@@ -1,4 +1,5 @@
 import type { CompanionAvatarValue } from "@/components/CompanionAvatar";
+import type { DesignProject } from "../../../packages/workbench/projects";
 import type { ProfileId } from "../../../packages/workbench/profiles";
 import type { ArtifactPreview, WorkbenchSnapshot } from "../../../packages/workbench/artifacts";
 
@@ -55,6 +56,7 @@ export interface ChatMessage {
 export interface ThreadFile { id: string; runId: string; kind: "user_upload" | "agent_output"; name: string; mimeType: string; size: number; url: string }
 
 export interface Run {
+  projectId?: string | null;
   cursor?: string;
   hasPublishedMessage?: boolean;
   hasQuestion?: boolean;
@@ -184,6 +186,7 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
 }
 
 interface PendingMessage {
+  projectId?: string;
   id: string;
   content: string;
   fileIds: string[];
@@ -202,7 +205,7 @@ function readPendingMessage(companionId: string): PendingMessage | null {
     if (!stored) return null;
     const value = JSON.parse(stored) as Partial<PendingMessage>;
     if (typeof value.id !== "string" || typeof value.content !== "string" || !Array.isArray(value.fileIds)) return null;
-    const pending = { id: value.id, content: value.content, fileIds: value.fileIds.filter((id): id is string => typeof id === "string"),
+    const pending = { ...(typeof value.projectId === "string" ? {projectId:value.projectId} : {}), id: value.id, content: value.content, fileIds: value.fileIds.filter((id): id is string => typeof id === "string"),
       fileFingerprints: Array.isArray(value.fileFingerprints) && value.fileFingerprints.every(item => typeof item === "string") ? value.fileFingerprints : undefined };
     pendingMessages.set(companionId, pending);
     return pending;
@@ -268,18 +271,23 @@ export const api = {
     request<{ task: TaskDetail; files: ThreadFile[] }>(`/api/companions/${id}/tasks/${taskId}`),
   cancelTask: (id: string, taskId: string) =>
     request<{ task: TaskDetail }>(`/api/companions/${id}/tasks/${taskId}/cancel`, { method: "POST" }),
-  workbench: (id: string) => request<WorkbenchSnapshot>(`/api/companions/${id}/workbench`),
+  designProjects: (id: string, query = "", cursor?: string) => request<{projects: DesignProject[]; nextCursor: string | null}>(`/api/companions/${id}/design-projects?${new URLSearchParams({q:query,...(cursor?{cursor}:{})})}`),
+  designProject: (id: string, projectId: string) => request<{project:DesignProject}>(`/api/companions/${id}/design-projects/${projectId}`),
+  createDesignProject: (id: string, input: {id:string;name:string;brief:string}) => request<{project:DesignProject}>(`/api/companions/${id}/design-projects`, {method:"POST",body:JSON.stringify(input)}),
+  updateDesignProject: (id: string, projectId: string, input: {expectedRevision:number;name?:string;brief?:string;archived?:boolean}) => request<{project:DesignProject}>(`/api/companions/${id}/design-projects/${projectId}`, {method:"PATCH",body:JSON.stringify(input)}),
+  workbench: (id: string, projectId?:string, cursor?:string) => request<WorkbenchSnapshot>(`/api/companions/${id}/workbench${projectId ? `?${new URLSearchParams({projectId,...(cursor?{cursor}:{})})}` : ""}`),
   artifactPreview: (id: string, artifactId: string, revisionId: string) => request<ArtifactPreview>(`/api/companions/${id}/artifacts/${artifactId}/preview?revisionId=${encodeURIComponent(revisionId)}`),
   createCompanion: (input: Pick<Companion, "name" | "instructions" | "provider" | "avatar"> & { clientCreationId: string; profileId?: ProfileId; prepare?: boolean; templateId?: string; templateRevision?: number }) =>
     request<{ companion: Companion }>("/api/companions", {
       method: "POST",
       body: JSON.stringify(input),
     }),
-  sendMessage: async (id: string, content: string, files: File[] = []) => {
+  sendMessage: async (id: string, content: string, files: File[] = [], projectId?: string) => {
     const fileFingerprints: string[] = [];
     // Read sequentially to bound temporary memory to one attachment.
     for (const file of files) fileFingerprints.push(await fingerprintFile(file));
     const previous = readPendingMessage(id);
+    if (previous && previous.projectId !== projectId) throw new Error("The previous message belongs to another project. Return to that project to retry, or Cancel before sending a replacement.");
     const sameRequest = previous?.content === content && previous.fileIds.length === files.length
       && JSON.stringify(previous.fileFingerprints ?? []) === JSON.stringify(fileFingerprints);
     if (previous && previous.fileIds.length > 0 && !sameRequest) {
@@ -287,12 +295,12 @@ export const api = {
     }
     const pending = sameRequest
       ? previous!
-      : { id: crypto.randomUUID(), content, fileIds: files.map(() => crypto.randomUUID()), fileFingerprints };
+      : { ...(projectId ? {projectId} : {}), id: crypto.randomUUID(), content, fileIds: files.map(() => crypto.randomUUID()), fileFingerprints };
     writePendingMessage(id, pending);
 
     const result = await request<{ runId: string }>(`/api/companions/${id}/messages`, {
       method: "POST",
-      body: JSON.stringify({ clientMessageId: pending.id, content: pending.content, attachmentCount: files.length }),
+      body: JSON.stringify({ clientMessageId: pending.id, content: pending.content, attachmentCount: files.length, ...(pending.projectId ? {projectId:pending.projectId} : {}) }),
     });
     await Promise.all(files.map(async (file, position) => {
       const form = new FormData();

@@ -5,6 +5,7 @@ import { Button } from "./ui/button";
 import { Textarea } from "./ui/textarea";
 import { cn } from "@/lib/utils";
 import { clearDraft, readDraft, saveDraft } from "@/lib/companion-drafts";
+import { useDesignProject } from "./workbench/ProjectContext";
 const MAX_CHAT_FILES = 5;
 const MAX_CHAT_FILE_BYTES = 10 * 1024 * 1024;
 const CHAT_IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/webp", "image/gif"]);
@@ -28,6 +29,7 @@ function PendingFile({ file, onRemove }: { file: File; onRemove: () => void }) {
 
 export interface ChatComposerHandle { suggest(text: string): void }
 export const ChatComposer = forwardRef<ChatComposerHandle, { detail: CompanionDetail; onRefresh: () => Promise<void>; onUnauthorized: () => void }>(function ChatComposer({ detail, onRefresh, onUnauthorized }, ref) {
+  const design = useDesignProject();
   const [draft, setDraft] = useState(() => readDraft(detail.companion.id));
   const draftRef = useRef(draft);
   draftRef.current = draft;
@@ -141,10 +143,12 @@ export const ChatComposer = forwardRef<ChatComposerHandle, { detail: CompanionDe
     event.preventDefault();
     const content = draft.trim();
     if (!content || sending) return;
+    if(design?.loading || design?.project?.archived) { setActionError(design?.project?.archived ? "Restore this project or select another before sending." : "Wait for the selected project to load before sending."); return; }
     setSending(true);
     setActionError("");
     try {
-      await api.sendMessage(detail.companion.id, content, files);
+      if(design) await api.sendMessage(detail.companion.id, content, files, design.project?.id);
+      else await api.sendMessage(detail.companion.id, content, files);
       setDraft("");
       clearDraft(detail.companion.id);
       setCommandToken(null);
@@ -195,6 +199,7 @@ export const ChatComposer = forwardRef<ChatComposerHandle, { detail: CompanionDe
         {actionError && <p className="composer-error" role="alert">{actionError}</p>}
         {files.length > 0 && <div className="pending-files">{files.map((file, index) => <PendingFile key={index} file={file} onRemove={() => setFiles(current => current.filter((_, item) => item !== index))} />)}</div>}
         <div className="composer">
+          {design && <p className="composer-project" role="status">{design.loading ? "Loading project…" : design.project ? `To: ${design.project.name}${design.project.archived ? " · Archived" : ""}` : "General conversation · Select a project for design work"}</p>}
           {dragActive && <div className="drop-indicator" aria-hidden="true"><Paperclip />Drop files here</div>}
           {paletteOpen && <div className="skill-palette" role="listbox" id={`skill-palette-${detail.companion.id}`} aria-label="Skills">
             {skillCommandsEnabled == null ? <p role="status">Loading skills…</p>

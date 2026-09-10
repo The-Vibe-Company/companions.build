@@ -27,6 +27,8 @@ export interface RunRecord {
 export interface RunInput {
   content: string;
   instructions: string;
+  /** Frozen project context from durable web admission; independent of Pi transcript identity. */
+  designContext?: import("../../workbench/projects").DesignRunContext;
   modelId?:string;
   /** Immutable specialist initialization, journaled once per Companion state directory. */
   initScript?: string;

@@ -11,6 +11,7 @@ import { MemoryService } from "./memory-service";
 import { configureModelGateway, withModelGatewayRequest } from "./model-gateway";
 import type { RunExecutor, RunInput, RunLane, RunMessage, RunProgress } from "./types";
 import {configureAzureFoundry} from './azure-foundry';
+import { stageDesignContext } from "./design-studio";
 
 type Session = Awaited<ReturnType<typeof createAgentSession>>["session"];
 type ActiveExecution = {
@@ -28,7 +29,7 @@ export interface PiSessionTools {
   tools: import("@earendil-works/pi-coding-agent").ToolDefinition[];
   close?(): Promise<void>;
 }
-export type PiToolsFactory = (context: { runId: string; lane: RunLane; cwd: string }) => Promise<PiSessionTools>;
+export type PiToolsFactory = (context: { runId: string; lane: RunLane; cwd: string; designContext?: RunInput["designContext"] }) => Promise<PiSessionTools>;
 const INITIALIZATION_TIMEOUT_MS = 30_000;
 
 export class PiExecutor implements RunExecutor {
@@ -111,7 +112,7 @@ export class PiExecutor implements RunExecutor {
     let externalTools: PiSessionTools | undefined;
     try {
       execution.ready = guardedInitialization((async () => {
-        externalTools = await this.toolsFactory?.({ runId: id, lane, cwd: this.cwd });
+        externalTools = await this.toolsFactory?.({ runId: id, lane, cwd: this.cwd, designContext: input.designContext });
         return this.initialize(input, execution, externalTools);
       })(), execution.controller.signal, INITIALIZATION_TIMEOUT_MS);
       // Record the native prompt immediately, before initialization can yield to a steer.
@@ -144,6 +145,7 @@ export class PiExecutor implements RunExecutor {
   async steer(rootId: string, _id: string, input: RunInput): Promise<void> {
     const execution = this.active.get(rootId);
     if (!execution || execution.lane !== "main" || !execution.accepting) throw new Error("PI_RESPONSE_SETTLED");
+    if (input.designContext) stageDesignContext(this.cwd, _id, input.designContext);
     await this.submit(execution, input.content);
   }
 
@@ -198,6 +200,7 @@ export class PiExecutor implements RunExecutor {
     const memory = await this.persistentMemory.startupContext();
     const instructions = buildCompanionInstructions({ instructions: input.instructions, memory,
       lane: execution.lane, desktopBoundary: process.env.DESKTOP_BOUNDARY_VERSION === "1" });
+    if (input.designContext) instructions.push(stageDesignContext(this.cwd, execution.id, input.designContext));
     const resourceLoader = new DefaultResourceLoader({ cwd: this.cwd, agentDir: this.agentDir, settingsManager, systemPrompt: instructions.join("\n\n") });
     await resourceLoader.reload();
     const model = this.modelRuntime.getModel(this.provider, input.modelId??this.modelId);

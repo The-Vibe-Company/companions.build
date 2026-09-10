@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { api } from "@/api";
-import type { ArtifactRevision } from "../../../../../packages/workbench/artifacts";
+import type { AnyArtifactRevision as ArtifactRevision } from "../../../../../packages/workbench/artifacts";
 import { safePreviewDocument } from "./preview";
 
 type Frame = { revisionId: string; document: string; label: string };
@@ -10,6 +10,7 @@ export function ArtifactPreview({ companionId, revision }: { companionId: string
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [retry, setRetry] = useState(0);
+  const [viewport, setViewport] = useState<"desktop" | "mobile">("desktop");
   useEffect(() => {
     let cancelled = false;
     setLoading(true); setError(""); setCandidate(null);
@@ -36,7 +37,11 @@ export function ArtifactPreview({ companionId, revision }: { companionId: string
     {loading && <p role="status">Loading preview…</p>}
     {error && <div role="alert"><p>{error}</p><button type="button" onClick={() => setRetry(value => value + 1)}>Try again</button></div>}
     {valid && <p className="workbench-caption">{valid.label} · Static preview</p>}
-    <div className="artifact-preview-frames">
+    {valid && <div className="design-preview-tools"><button type="button" aria-pressed={viewport === "desktop"} onClick={() => setViewport("desktop")}>Fit width</button><button type="button" aria-pressed={viewport === "mobile"} onClick={() => setViewport("mobile")}>Mobile · 390px</button><button type="button" onClick={() => {
+      const url=URL.createObjectURL(new Blob([valid.document],{type:"text/html"}));
+      const link=document.createElement("a");link.href=url;link.download=`design-${valid.revisionId}.html`;link.click();window.setTimeout(()=>URL.revokeObjectURL(url),1000);
+    }}>Download HTML</button></div>}
+    <div className={`artifact-preview-frames design-viewport-${viewport}`}>
       {frames.map(frame => <iframe key={frame.revisionId} title={frame === valid ? "Design artifact preview" : "Preparing design preview"}
         sandbox="" referrerPolicy="no-referrer" srcDoc={frame.document}
         className={frame === valid ? "" : "preview-candidate"} aria-hidden={frame !== valid} tabIndex={frame === valid ? 0 : -1}

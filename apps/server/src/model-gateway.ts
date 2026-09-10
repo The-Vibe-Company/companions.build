@@ -3,6 +3,7 @@ import {db} from './store';
 import {requireHostedActivation} from './activation';
 import {verifyModelGatewayToken,type ModelGatewayClaims} from './model-gateway-token';
 import {normalizeAzureOpenAIBaseUrl} from './azure-openai';
+import {azureReasoningOverride,type AzureReasoningOverride} from './azure-reasoning';
 
 export const MODEL_GATEWAY_MAX_REQUEST_BYTES=96*1024*1024;
 export const MODEL_GATEWAY_BODY_BUDGET_BYTES=128*1024*1024;
@@ -22,7 +23,7 @@ const routes={
 } as const;
 type Api=typeof routes[keyof typeof routes]['api'];
 export type GatewayUsage={input:number;output:number;cacheRead:number;cacheWrite:number;totalTokens:number};
-type Dependencies={sql?:any;fetch?:typeof fetch;modelApi?:(provider:string,id:string)=>Promise<string|undefined>;authorize?:(ownerId:string,sql:any)=>Promise<void>;key?:(provider:string)=>string|undefined;azureBaseUrl?:string;deadlineMs?:number;bodyDeadlineMs?:number;maxConcurrent?:number;bodyBudgetBytes?:number};
+type Dependencies={sql?:any;fetch?:typeof fetch;modelApi?:(provider:string,id:string)=>Promise<string|undefined>;authorize?:(ownerId:string,sql:any)=>Promise<void>;key?:(provider:string)=>string|undefined;azureBaseUrl?:string;azureReasoning?:AzureReasoningOverride;deadlineMs?:number;bodyDeadlineMs?:number;maxConcurrent?:number;bodyBudgetBytes?:number};
 class GatewayError extends Error{constructor(readonly code:string,readonly status=400){super(code);}}
 function fail(code:string,status=400):never{throw new GatewayError(code,status);}
 function problem(code:string,status:number){return Response.json({error:{type:'model_gateway_error',code,message:code}},{status,headers:{'cache-control':'no-store'}});}
@@ -150,6 +151,7 @@ class Observation{
 }
 
 export function createModelGateway(deps:Dependencies={}){
+ const azureReasoning=deps.azureReasoning??azureReasoningOverride();
  const sql=deps.sql??db,send=deps.fetch??fetch,authorize=deps.authorize??requireHostedActivation,lookup=deps.modelApi??modelApi;
  const active=new Set<Promise<void>>();let admitted=0;
  const bodyBudget=deps.bodyBudgetBytes===undefined?sharedBodyBudget:{used:0,limit:deps.bodyBudgetBytes};
@@ -182,6 +184,9 @@ export function createModelGateway(deps:Dependencies={}){
    const key=deps.key?deps.key(provider):routes[provider].key.map(name=>process.env[name]).find(Boolean);if(!key)fail('model_provider_unavailable',503);
    let body=await boundedBody(request,reserveBody,deps.bodyDeadlineMs);
    const wire=target(provider,api,suffix,url,body,run.model_id,deps.azureBaseUrl??process.env.AZURE_OPENAI_BASE_URL);
+   if(provider==='azure'&&azureReasoning&&run.model_id===azureReasoning.model){
+    wire.body.reasoning={...wire.body.reasoning,effort:azureReasoning.effort};
+   }
    let encoded=JSON.stringify(wire.body);const encodedBytes=Buffer.byteLength(encoded);
    if(encodedBytes>MODEL_GATEWAY_MAX_REQUEST_BYTES)fail('model_request_too_large',413);
    if(encodedBytes>bodyBytes)reserveBody(encodedBytes-bodyBytes);

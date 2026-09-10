@@ -76,5 +76,7 @@ are limited evidence: they do not prove multi-turn execution, actual installatio
 or latency improvement. The acceptance table above remains the broader evaluation target.
 
 Pi’s reasoning configuration is unchanged: new sessions inherit the SDK default (`medium`),
-while continued sessions can restore their existing level. Benchmark conversational and task
-quality before changing this separately from prompt behavior.
+while continued sessions can restore their existing level. The API can now override the
+provider effort for one Azure deployment via the settings in `dev-workflow.md`; this
+does not change Pi transcript settings. Benchmark conversational and task quality
+separately from prompt behavior.

@@ -86,7 +86,7 @@ export function CreateTeamWizard({ config, companions, onCreated, onCancel }: Cr
           instructions: instructions.trim(),
           provider,
           avatar,
-          prepare: false,
+          prepare: true,
         });
         target = result.companion;
         createdCoordinator.current = target;
@@ -179,7 +179,9 @@ export function CreateTeamWizard({ config, companions, onCreated, onCancel }: Cr
       </div>}
 
       {step === "review" && <div className="team-wizard__body">
-        <p className="team-wizard__lede">This gives your coordinator permission to call on these specialists. It won’t start a task or wake a computer.</p>
+        <p className="team-wizard__lede">{choice.kind === "new"
+          ? "Your new coordinator’s computer will start preparing as soon as you create the team. Specialists start when given a task."
+          : "This gives your coordinator permission to call on these specialists. It won’t start a task or wake a computer."}</p>
         <div className="team-wizard__review">
           <div className="team-wizard__review-lead"><span>Coordinator</span>{coordinator ? <><CompanionAvatar name={coordinator.name} avatar={coordinator.avatar} size={64} /><div><strong>{coordinator.name}</strong><small>{coordinator.instructions}</small></div></> : <><CompanionAvatar name={name} avatar={avatar} size={64} /><div><strong>{name}</strong><small>{instructions}</small></div></>}</div>
           <div className="team-wizard__review-specialists"><span>Can ask for help from</span>{selectedTemplates.length ? selectedTemplates.map(template => <div key={template.id}><CompanionAvatar name={template.name} avatar={template.avatar} size={44} /><p><strong>{template.name}</strong><small>{template.instructions}</small></p>{grantedTemplateIds.current.has(template.id) && <em><Check />Added</em>}</div>) : <p className="team-wizard__solo">No specialists yet. You can add them later.</p>}</div>

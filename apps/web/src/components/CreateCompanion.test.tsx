@@ -36,7 +36,7 @@ async function enterBasics(user: ReturnType<typeof userEvent.setup>) {
   await user.type(screen.getByLabelText("Role"), "Research the market");
 }
 
-beforeEach(() => { window.sessionStorage.clear(); mockSetup(); });
+beforeEach(() => { window.sessionStorage.clear(); mockSetup(); vi.spyOn(workspaceApi, "prepare").mockResolvedValue({}); });
 afterEach(() => vi.restoreAllMocks());
 
 describe("CreateCompanion", () => {
@@ -111,11 +111,12 @@ describe("CreateCompanion", () => {
     await waitFor(() => expect(onCreated).toHaveBeenCalledWith(companion));
     expect(create).toHaveBeenCalledTimes(2);
     expect(create.mock.calls[0][0]).toEqual(create.mock.calls[1][0]);
-    expect(create.mock.calls[0][0]).toMatchObject({ name: "Ada", instructions: "Research the market", provider: "box", prepare: false });
+    expect(create.mock.calls[0][0]).toMatchObject({ name: "Ada", instructions: "Research the market", provider: "box", prepare: true });
     expect(create.mock.calls[0][0].clientCreationId).toBeTruthy();
+    expect(workspaceApi.prepare).not.toHaveBeenCalled();
   });
 
-  it("pins the chosen starting profile and creates without preparing a computer", async () => {
+  it("pins the chosen starting profile and immediately requests computer preparation", async () => {
     const user = userEvent.setup();
     const create = vi.spyOn(api, "createCompanion").mockResolvedValue({ companion });
     const grantAccount = vi.spyOn(workspaceApi, "selectPlugin");
@@ -130,7 +131,7 @@ describe("CreateCompanion", () => {
 
     await waitFor(() => expect(onCreated).toHaveBeenCalledWith(companion));
     expect(create).toHaveBeenCalledWith(expect.objectContaining({
-      name: "Researcher", templateId: "researcher", templateRevision: 4, prepare: false,
+      name: "Researcher", templateId: "researcher", templateRevision: 4, prepare: true,
     }));
     expect(grantAccount).not.toHaveBeenCalled();
     expect(grantSpecialist).not.toHaveBeenCalled();
@@ -230,5 +231,34 @@ it.each(['box','local'] as const)('uses the configured %s provider without a run
  expect(screen.queryByRole('radio',{name:/Local/})).not.toBeInTheDocument();
  expect(screen.queryByRole('radio',{name:/Box/})).not.toBeInTheDocument();
  await user.click(screen.getByRole('button',{name:'Create companion'}));
- await waitFor(()=>expect(create).toHaveBeenCalledWith(expect.objectContaining({provider})));
+ await waitFor(()=>expect(create).toHaveBeenCalledWith(expect.objectContaining({provider, prepare: true})));
+});
+
+it("resumes legacy lazy creation unchanged and persists preparation across grant retries and remount", async () => {
+  const request = { clientCreationId: crypto.randomUUID(), name: "Ada", instructions: "Research the market", provider: "box" as const, prepare: false };
+  window.sessionStorage.setItem("companions.create.pending.owner-1", JSON.stringify({
+    request, accountIds: ["linear-work"], specialistIds: [], completedAccountIds: [], completedSpecialistIds: [],
+  }));
+  const create = vi.spyOn(api, "createCompanion").mockResolvedValue({ companion });
+  vi.spyOn(api, "getCompanion").mockResolvedValue({ companion, messages: [], runs: [], activity: [] });
+  const prepare = vi.mocked(workspaceApi.prepare).mockRejectedValueOnce(new Error("Preparation response lost.")).mockResolvedValue({});
+  const grant = vi.spyOn(workspaceApi, "selectPlugin").mockRejectedValueOnce(new Error("Grant failed.")).mockResolvedValue({ ok: true });
+  const user = userEvent.setup();
+  const first = render(<CreateCompanion config={config} ownerId="owner-1" onCreated={vi.fn()}/>);
+  await screen.findByRole("heading", { name: "Linear" });
+  await user.click(screen.getByRole("button", { name: "Resume setup" }));
+  expect(await screen.findByRole("alert")).toHaveTextContent("Preparation response lost.");
+  expect(create).toHaveBeenCalledExactlyOnceWith(request);
+  expect(grant).not.toHaveBeenCalled();
+  await user.click(screen.getByRole("button", { name: "Resume setup" }));
+  expect(await screen.findByRole("alert")).toHaveTextContent("Grant failed.");
+  expect(prepare.mock.calls).toEqual([[companion.id], [companion.id]]);
+  first.unmount();
+  const onCreated = vi.fn();
+  render(<CreateCompanion config={config} ownerId="owner-1" onCreated={onCreated}/>);
+  await screen.findByRole("heading", { name: "Linear" });
+  await user.click(screen.getByRole("button", { name: "Resume setup" }));
+  await waitFor(() => expect(onCreated).toHaveBeenCalledWith(companion));
+  expect(create).toHaveBeenCalledTimes(1);
+  expect(prepare).toHaveBeenCalledTimes(2);
 });

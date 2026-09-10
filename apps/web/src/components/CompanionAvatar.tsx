@@ -9,6 +9,14 @@ export interface CompanionAvatarValue {
 
 export const DEFAULT_AVATAR: CompanionAvatarValue = { shape: 1, color: 2, face: 0 };
 
+export function randomizeAvatar(): CompanionAvatarValue {
+  return {
+    shape: Math.floor(Math.random() * 8),
+    color: Math.floor(Math.random() * 11),
+    face: Math.floor(Math.random() * 5),
+  };
+}
+
 export const AVATAR_COLORS = [
   "oklch(0.24 0.015 70)", "oklch(0.48 0.09 52)", "oklch(0.70 0.18 30)",
   "oklch(0.72 0.16 55)", "oklch(0.84 0.15 92)", "oklch(0.62 0.15 145)",

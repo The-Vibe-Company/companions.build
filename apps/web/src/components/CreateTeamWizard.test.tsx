@@ -119,6 +119,27 @@ describe("CreateTeamWizard", () => {
     expect(permission).toHaveBeenCalledWith("c1", "writer", 2);
   });
 
+  it("sends a randomized avatar when creating a new coordinator", async () => {
+    const created = { ...coordinator, id: "new-coordinator", name: "Maya", instructions: "Keep my app moving" };
+    const create = vi.spyOn(api, "createCompanion").mockResolvedValue({ companion: created });
+    const user = userEvent.setup();
+    render(<CreateTeamWizard config={config} companions={[]} onCreated={vi.fn()} onCancel={vi.fn()} />);
+    await user.type(screen.getByRole("textbox", { name: "Name" }), "Maya");
+    await user.type(screen.getByRole("textbox", { name: "Purpose" }), "Keep my app moving");
+    await user.click(screen.getByRole("button", { name: "Continue" }));
+    await screen.findByText("Researcher");
+    await user.click(screen.getByRole("button", { name: "Review team" }));
+    await user.click(screen.getByRole("button", { name: "Create team" }));
+    await waitFor(() => expect(create).toHaveBeenCalled());
+    const sent = create.mock.calls[0][0].avatar!;
+    expect(sent.shape).toBeGreaterThanOrEqual(0);
+    expect(sent.shape).toBeLessThanOrEqual(7);
+    expect(sent.color).toBeGreaterThanOrEqual(0);
+    expect(sent.color).toBeLessThanOrEqual(10);
+    expect(sent.face).toBeGreaterThanOrEqual(0);
+    expect(sent.face).toBeLessThanOrEqual(4);
+  });
+
   it("locks Back and Close while the first permission write is unresolved", async () => {
     let resolvePermission!: (value: { templateId: string; maxChildren: number }) => void;
     const permission = vi.spyOn(workspaceApi, "setTemplatePermission").mockImplementation(() => new Promise(resolve => { resolvePermission = resolve; }));

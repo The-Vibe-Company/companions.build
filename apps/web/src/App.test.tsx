@@ -252,7 +252,7 @@ describe("first Companion flow", () => {
       name: "Ada",
       instructions: "Research customer questions.",
       provider: "box",
-      avatar: { shape: 1, color: 2, face: 0 },
+      avatar: expect.objectContaining({ shape: expect.any(Number), color: expect.any(Number), face: expect.any(Number) }),
     });
     await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(
       "/api/companions/ada",

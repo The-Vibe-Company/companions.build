@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { ArrowLeft, Check, ChevronRight, LoaderCircle, Plus, UsersRound, X } from "lucide-react";
 import { api, workspaceApi, type AgentTemplate, type AppConfig, type Companion } from "@/api";
-import { AvatarPicker, CompanionAvatar, DEFAULT_AVATAR, type CompanionAvatarValue } from "@/components/CompanionAvatar";
+import { AvatarPicker, CompanionAvatar, randomizeAvatar, type CompanionAvatarValue } from "@/components/CompanionAvatar";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import "./CreateTeamWizard.css";
@@ -23,7 +23,7 @@ export function CreateTeamWizard({ config, companions, onCreated, onCancel }: Cr
   const [choice, setChoice] = useState<CoordinatorChoice>(companions[0] ? { kind: "existing", id: companions[0].id } : { kind: "new" });
   const [name, setName] = useState("");
   const [instructions, setInstructions] = useState("");
-  const [avatar, setAvatar] = useState<CompanionAvatarValue>(DEFAULT_AVATAR);
+  const [avatar, setAvatar] = useState<CompanionAvatarValue>(randomizeAvatar);
   const [templates, setTemplates] = useState<AgentTemplate[]>([]);
   const [selectedTemplateIds, setSelectedTemplateIds] = useState<string[]>([]);
   const [loadingTemplates, setLoadingTemplates] = useState(true);

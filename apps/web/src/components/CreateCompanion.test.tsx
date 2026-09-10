@@ -220,6 +220,48 @@ describe("CreateCompanion", () => {
     expect(await screen.findByRole("checkbox", { name: /Researcher/ })).toBeInTheDocument();
     expect(workspaceApi.templates).toHaveBeenCalledTimes(2);
   });
+
+  it("sends a randomized avatar in the creation request when no template or session is restored", async () => {
+    const user = userEvent.setup();
+    const create = vi.spyOn(api, "createCompanion").mockResolvedValue({ companion });
+    render(<CreateCompanion config={config} onCreated={vi.fn()}/>);
+    await enterBasics(user);
+    await user.click(screen.getByRole("button", { name: "Create companion" }));
+    await waitFor(() => expect(create).toHaveBeenCalled());
+    const sent = create.mock.calls[0][0].avatar!;
+    expect(sent.shape).toBeGreaterThanOrEqual(0);
+    expect(sent.shape).toBeLessThanOrEqual(7);
+    expect(sent.color).toBeGreaterThanOrEqual(0);
+    expect(sent.color).toBeLessThanOrEqual(10);
+    expect(sent.face).toBeGreaterThanOrEqual(0);
+    expect(sent.face).toBeLessThanOrEqual(4);
+  });
+
+  it("overrides random avatar with the chosen template avatar", async () => {
+    const user = userEvent.setup();
+    const create = vi.spyOn(api, "createCompanion").mockResolvedValue({ companion });
+    render(<CreateCompanion config={config} onCreated={vi.fn()}/>);
+    await screen.findByRole("heading", { name: "Linear" });
+    await user.click(screen.getByText("Starting profile"));
+    await user.selectOptions(screen.getByLabelText("Start from"), "researcher");
+    await user.click(screen.getByRole("button", { name: "Create companion" }));
+    await waitFor(() => expect(create).toHaveBeenCalled());
+    expect(create.mock.calls[0][0].avatar).toEqual({ shape: 3, color: 5, face: 2 });
+  });
+
+  it("keeps the same avatar across retries so uncertain create retries produce the same logo", async () => {
+    const user = userEvent.setup();
+    const create = vi.spyOn(api, "createCompanion")
+      .mockRejectedValueOnce(new Error("Lost."))
+      .mockResolvedValueOnce({ companion });
+    render(<CreateCompanion config={config} onCreated={vi.fn()}/>);
+    await enterBasics(user);
+    await user.click(screen.getByRole("button", { name: "Create companion" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Lost.");
+    await user.click(screen.getByRole("button", { name: "Resume setup" }));
+    await waitFor(() => expect(create).toHaveBeenCalledTimes(2));
+    expect(create.mock.calls[0][0].avatar).toEqual(create.mock.calls[1][0].avatar);
+  });
 });
 
 

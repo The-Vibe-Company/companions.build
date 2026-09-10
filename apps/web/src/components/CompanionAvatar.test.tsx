@@ -1,7 +1,26 @@
 import {render,screen} from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import {expect,it,vi} from 'vitest';
-import {AvatarPicker,CompanionAvatar} from './CompanionAvatar';
+import {describe,expect,it,vi} from 'vitest';
+import {AvatarPicker,CompanionAvatar,randomizeAvatar} from './CompanionAvatar';
+
+describe('randomizeAvatar', () => {
+  it('returns values within the valid avatar ranges', () => {
+    for (let i = 0; i < 20; i++) {
+      const av = randomizeAvatar();
+      expect(av.shape).toBeGreaterThanOrEqual(0);
+      expect(av.shape).toBeLessThanOrEqual(7);
+      expect(av.color).toBeGreaterThanOrEqual(0);
+      expect(av.color).toBeLessThanOrEqual(10);
+      expect(av.face).toBeGreaterThanOrEqual(0);
+      expect(av.face).toBeLessThanOrEqual(4);
+    }
+  });
+
+  it('does not always return the same value', () => {
+    const values = new Set(Array.from({ length: 30 }, () => JSON.stringify(randomizeAvatar())));
+    expect(values.size).toBeGreaterThan(1);
+  });
+});
 
 it('renders the sticker outline with padded bounds, small highlighted eyes and its accessible name',()=>{
  const {container}=render(<CompanionAvatar name="Nova" avatar={{shape:7,color:4,face:0}}/>);

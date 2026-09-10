@@ -15,7 +15,7 @@ import {
   AVATAR_COLORS,
   CompanionAvatar,
   CompanionShape,
-  DEFAULT_AVATAR,
+  randomizeAvatar,
   type CompanionAvatarValue,
 } from "@/components/CompanionAvatar";
 import { Button } from "@/components/ui/button";
@@ -65,7 +65,7 @@ export function CreateCompanion({ config, onCreated, compact = false, ownerId, o
   const [name, setName] = useState(restored.current?.request.name ?? "");
   const [instructions, setInstructions] = useState(restored.current?.request.instructions ?? "");
   const [provider, setProvider] = useState<"local" | "box">(restored.current?.request.provider ?? firstProvider);
-  const [avatar, setAvatar] = useState<CompanionAvatarValue>(restored.current?.request.avatar ?? DEFAULT_AVATAR);
+  const [avatar, setAvatar] = useState<CompanionAvatarValue>(() => restored.current?.request.avatar ?? randomizeAvatar());
   const [templates, setTemplates] = useState<AgentTemplate[]>([]);
   const [accounts, setAccounts] = useState<PluginAccount[]>([]);
   const [catalog, setCatalog] = useState<PluginServer[]>([]);

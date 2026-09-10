@@ -11,7 +11,12 @@ import type {ArtifactPublication} from '../../../packages/workbench/artifacts';
 beforeAll(async()=>{await migrate();await db`INSERT INTO "user"(id,name,email,"emailVerified") VALUES(${other},'Other owner','workbench-other@example.test',true) ON CONFLICT DO NOTHING`;});
 const owner='00000000-0000-4000-8000-000000000001',other='00000000-0000-4000-8000-000000000002';
 async function signIn(label:string){let link='';setMagicLinkDeliveryForTests(message=>{link=message.url;});await handler(new Request('http://127.0.0.1:4310/api/auth/sign-in/magic-link',{method:'POST',headers:{'content-type':'application/json',origin:'http://127.0.0.1:4310'},body:JSON.stringify({email:`${label}-${crypto.randomUUID()}@example.com`,callbackURL:'/'})}));const verified=await handler(new Request(link,{redirect:'manual'}));const cookie=verified.headers.get('set-cookie')!.split(';')[0]!;const me=await handler(new Request('http://127.0.0.1:4310/api/me',{headers:{cookie}}));return {cookie,ownerId:(await me.json() as any).user.id as string};}
-async function designCompanion(ownerId=owner){return createCompanion(ownerId,{name:'Design workbench',provider:'local',profileId:'design-v1'});}
+async function designCompanion(ownerId=owner){
+ const id=crypto.randomUUID();
+ await db`INSERT INTO companions(id,owner_id,name,instructions,provider,create_key,agent_secret,profile_id)
+  VALUES(${id},${ownerId},'Design workbench','',${'local'},${crypto.randomUUID()},${'historical-secret'},'design-v1')`;
+ return {id,profileId:'design-v1' as const};
+}
 async function run(companionId:string,lane:'main'|'background'='main',responseRootId:string|null=null){const id=crypto.randomUUID();await db`INSERT INTO runs(id,companion_id,client_message_id,content,lane,response_root_id) VALUES(${id},${companionId},${crypto.randomUUID()},'Create artifact',${lane},${responseRootId})`;return id;}
 function publication(companionId:string,runId:string,artifactId=crypto.randomUUID(),revision=1,previousRevisionId:string|null=null,status:'ready'|'failed'='ready',conversationId=companionId,conversationKind:'main'|'background'='main'):ArtifactPublication{
  const html=status==='ready'?`<main>revision ${revision}</main>`:null;
@@ -36,7 +41,8 @@ test('profile migration preserves legacy null and profiles are immutable',async(
 test('creation API validates and returns profile IDs',async()=>{
  const {cookie}=await signIn('profile');
  const create=(profileId:string)=>handler(new Request('http://127.0.0.1:4310/api/companions',{method:'POST',headers:{cookie,'content-type':'application/json'},body:JSON.stringify({name:'Profiled',provider:'local',prepare:false,profileId})}));
- const accepted=await create('design-v1');expect(accepted.status).toBe(201);const companion=(await accepted.json() as any).companion;expect(companion.profileId).toBe('design-v1');expect((await create('made-up-v1')).status).toBe(400);
+ const accepted=await create('design-v2');expect(accepted.status).toBe(201);const companion=(await accepted.json() as any).companion;expect(companion.profileId).toBe('design-v2');
+ expect((await create('design-v1')).status).toBe(409);expect((await create('made-up-v1')).status).toBe(400);
  const patch=await handler(new Request(`http://127.0.0.1:4310/api/companions/${companion.id}`,{method:'PATCH',headers:{cookie,'content-type':'application/json'},body:JSON.stringify({profileId:'default-v1'})}));expect(patch.status).toBe(400);
 });
 

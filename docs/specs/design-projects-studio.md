@@ -22,6 +22,23 @@ the brief affects later requests. A message for another project or brief revisio
 active response to settle; matching snapshots retain native Pi steering. Background histories,
 compaction, main transcript continuation, cancellation and request IDs retain their existing owners.
 
+The desktop workbench follows the supplied Studio prototype: a resizable conversation, a persistent
+preview stage with design tabs and a revision strip, and a collapsible Brief/Assets/History inspector.
+Module descriptors declare their first-party region; profile data selects available modules. The
+project switcher opens a nonmodal drawer over the conversation, with paginated search and the
+current project pinned even outside the loaded page. The chat stays mounted underneath the drawer.
+Creation drafts and submitted creation identities survive reload. Inspector tabs keep unsaved brief
+edits mounted while another module is consulted. Selecting an older revision survives latest-page
+refreshes; a late history response cannot replace a newer refreshed snapshot.
+
+At widths of 1000px and below, only chat is rendered: no studio navigation, preview or inspector,
+and no workbench/preview fetch. Reading the selected project metadata still identifies and validates
+the chat destination; this is chat context, not a mounted studio. The selected destination remains
+explicit in the composer; changing
+viewport does not remount the conversation or silently rebind its project. The supplied prototype's
+mobile studio, fake messages/assets/files, cosmetic progress and mock website are not shipped.
+Its layout is implemented in native React with existing product navigation and real persisted data.
+
 Projects can be renamed, edited, archived and restored with optimistic revision checks. Archiving
 preserves files, briefs, history and previews; it blocks new project messages and publication.
 Already accepted work retains its original context and can finish its local work. A stale brief

@@ -4,7 +4,10 @@ export type ModuleId = "chat" | "artifact-preview" | "artifact-history" | "asset
 export interface ModuleDescriptor {
   readonly id: ModuleId;
   readonly title: string;
+  readonly shortTitle?: string;
+  readonly order?: number;
   readonly placement: "central" | "side";
+  readonly region: "conversation" | "stage" | "inspector";
 }
 export interface SkillReference { readonly id: string; readonly version: string }
 export interface ProfileDescriptor {
@@ -20,11 +23,11 @@ export interface ProfileDescriptor {
 }
 
 export const moduleRegistry: Readonly<Record<ModuleId, ModuleDescriptor>> = {
-  chat: { id: "chat", title: "Chat", placement: "central" },
-  "artifact-preview": { id: "artifact-preview", title: "Preview", placement: "side" },
-  "artifact-history": { id: "artifact-history", title: "History", placement: "side" },
-  assets: { id: "assets", title: "Assets", placement: "side" },
-  "design-brief": { id: "design-brief", title: "Design brief", placement: "side" },
+  chat: { id: "chat", title: "Chat", placement: "central", region: "conversation" },
+  "artifact-preview": { id: "artifact-preview", title: "Preview", placement: "side", region: "stage" },
+  "artifact-history": { id: "artifact-history", title: "History", order: 2, placement: "side", region: "inspector" },
+  assets: { id: "assets", title: "Assets", order: 1, placement: "side", region: "inspector" },
+  "design-brief": { id: "design-brief", title: "Design brief", shortTitle: "Brief", order: 0, placement: "side", region: "inspector" },
 };
 
 export const designSkill = { id: "first-party/design-foundation", version: "1.0.0" } as const;

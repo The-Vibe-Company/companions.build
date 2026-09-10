@@ -109,3 +109,15 @@ test('legacy and general companions cannot bind design projects',async()=>{
  await expect(acceptMessage(owner,design.id,crypto.randomUUID(),'Wrong project',0,crypto.randomUUID())).rejects.toBeInstanceOf(Conflict);
  expect(await acceptMessage(owner,design.id,crypto.randomUUID(),'General design chat')).not.toBeNull();
 });
+
+test('retired profiles remain readable and exactly retryable but cannot be created afresh',async()=>{
+ const clientCreationId=crypto.randomUUID(),id=crypto.randomUUID(),name='Legacy design foundation';
+ const fingerprint=createHash('sha256').update(JSON.stringify({name,instructions:null,provider:'local',prepare:false,avatar:null,templateId:null,templateRevision:null,profileId:'design-v1'})).digest('hex');
+ await db`INSERT INTO companions(id,owner_id,name,instructions,provider,create_key,agent_secret,client_creation_id,creation_fingerprint,profile_id)
+  VALUES(${id},${owner},${name},'',${'local'},${crypto.randomUUID()},${'historical-secret'},${clientCreationId},${fingerprint},'design-v1')`;
+ const retry=await createCompanion(owner,{name,provider:'local',clientCreationId,profileId:'design-v1'});
+ expect(retry).toMatchObject({id,profileId:'design-v1'});
+ await expect(createCompanion(owner,{name:'Changed retry',provider:'local',clientCreationId,profileId:'design-v1'})).rejects.toThrow('creation identifier');
+ await expect(createCompanion(owner,{name:'Fresh retired profile',provider:'local',clientCreationId:crypto.randomUUID(),profileId:'design-v1'})).rejects.toThrow('no longer available');
+ await expect((async()=>{await db`UPDATE companions SET profile_id='design-v2' WHERE id=${id}`;})()).rejects.toThrow('profile is immutable');
+});

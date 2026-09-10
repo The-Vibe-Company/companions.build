@@ -27,7 +27,7 @@ it.each([390, 1440])("isolates generated documents and keeps chat/modules usable
       import {ChatViewport} from ${JSON.stringify(path.resolve("src/components/ChatViewport.tsx"))};
       import {safePreviewDocument} from ${JSON.stringify(path.resolve("src/components/workbench/preview.ts"))};
       import {api} from ${JSON.stringify(path.resolve("src/api.ts"))};
-      api.workbench=async()=>({revisions:[],events:[],hasMore:false});
+      let reads=0;api.workbench=async()=>{reads++;return {revisions:[],events:[],hasMore:false};};
       const detail={companion:{id:'00000000-0000-4000-8000-000000000001',profileId:'design-v1',name:'Design',instructions:'An editorial website',provider:'local',status:'ready'},messages:[],runs:[],activity:[]};
       createRoot(document.getElementById('app')).render(<CompanionWorkbench detail={detail} refreshVersion={0}><section className="chat-column"><ChatViewport storageKey="workbench-browser" entries={[]} ready={true} loading={false} older={false} onOlder={()=>{}} error="" onRetry={()=>{}}><div style={{height:900}}>Persistent chat</div></ChatViewport><div className="test-composer" style={{height:160,flexShrink:0}}>Composer</div></section></CompanionWorkbench>);
       const frame=document.createElement('iframe'); frame.setAttribute('sandbox',''); frame.referrerPolicy='no-referrer';
@@ -36,12 +36,15 @@ it.each([390, 1440])("isolates generated documents and keeps chat/modules usable
       const raw=document.createElement('iframe');raw.setAttribute('sandbox','');raw.srcdoc='<script>parent.compromised=true<\\/script>';document.body.append(raw);
       setTimeout(()=>{
         let opaque=false;try{opaque=frame.contentDocument===null;}catch{opaque=true;}
+        const composer=document.querySelector('.test-composer');
+        const contained=composer.getBoundingClientRect().bottom<=document.querySelector('.workbench-chat').getBoundingClientRect().bottom+1;
         const modules=[...document.querySelectorAll('.workbench-modules button')];
-        const brief=modules.find(button=>button.textContent==='Design brief');brief.scrollIntoView({block:'center'});brief.click();
+        const brief=modules.find(button=>button.getAttribute('aria-label')==='Design brief');
+        if(brief)brief.click();
         setTimeout(()=>{
-          const rect=brief.getBoundingClientRect();const exposed=document.elementFromPoint(rect.x+rect.width/2,rect.y+rect.height/2)===brief;
-          const contained=document.querySelector('.test-composer').getBoundingClientRect().bottom<=document.querySelector('.workbench-chat').getBoundingClientRect().bottom+1;
-          const checks={moduleExposed:exposed,composerContained:contained,hostSafe:window.compromised!==true,opaque,noOverflow:document.documentElement.scrollWidth<=innerWidth,chatPresent:document.querySelector('.workbench-chat').textContent.includes('Persistent chat'),briefVisible:document.querySelector('.workbench-content').textContent.includes('An editorial website'),moduleCount:modules.length};
+          const rect=brief?.getBoundingClientRect();
+          const exposed=brief ? brief.contains(document.elementFromPoint(rect.x+rect.width/2,rect.y+rect.height/2)) : false;
+          const checks={moduleExposed:exposed,composerContained:contained,hostSafe:window.compromised!==true,opaque,noOverflow:document.documentElement.scrollWidth<=innerWidth,chatPresent:document.querySelector('.workbench-chat').textContent.includes('Persistent chat'),stagePresent:!!document.querySelector('.studio-stage'),briefVisible:!!document.querySelector('.design-brief-text'),moduleCount:modules.length,workbenchReads:reads};
           const result=document.createElement('pre');result.id='browser-result';result.textContent=JSON.stringify(checks);document.body.append(result);
         },100);
       },1000);
@@ -56,7 +59,7 @@ it.each([390, 1440])("isolates generated documents and keeps chat/modules usable
     const { stdout } = await promisify(execFile)(process.env.CHROME_BIN || "google-chrome", ["--headless", "--no-sandbox", "--disable-gpu", "--disable-dev-shm-usage", "--no-first-run", "--disable-background-networking", "--disable-component-update", "--disable-extensions", "--disable-sync", "--allow-file-access-from-files", "--virtual-time-budget=5000", `--window-size=${width},900`, `--user-data-dir=${path.join(directory, "profile")}`, "--dump-dom", pathToFileURL(html).href], { encoding: "utf8", timeout: 45_000 });
     const found = stdout.match(/<pre id="browser-result">(.*?)<\/pre>/);
     expect(found, stdout.slice(-2500)).not.toBeNull();
-    expect(JSON.parse(found![1])).toEqual({ moduleExposed: true, composerContained: true, hostSafe: true, opaque: true, noOverflow: true, chatPresent: true, briefVisible: true, moduleCount: 4 });
+    expect(JSON.parse(found![1])).toEqual({ moduleExposed: width > 1000, composerContained: true, hostSafe: true, opaque: true, noOverflow: true, chatPresent: true, stagePresent: width > 1000, briefVisible: width > 1000, moduleCount: width > 1000 ? 3 : 0, workbenchReads: width > 1000 ? 1 : 0 });
     expect(networkRequests).toEqual([]);
   } finally {
     await new Promise<void>(resolve => server.close(() => resolve()));

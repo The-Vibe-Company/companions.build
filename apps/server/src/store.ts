@@ -3,7 +3,7 @@ import { createHash, randomBytes } from "node:crypto";
 import { config, encrypt } from "./config";
 import { requireSoftwareReady, SoftwareReadinessError } from "./software-readiness";
 import {requestMachineAdmissionInTransaction} from './admission';
-import {activeDesignSkill} from '../../../packages/workbench/profiles';
+import {activeDesignSkill,profiles} from '../../../packages/workbench/profiles';
 import {designRunContextSchema} from '../../../packages/workbench/projects';
 export const db = new SQL(config.databaseUrl, { max: 8, connectionTimeout: 10 });
 const migrationNames = ["schema.sql", "auth-schema.sql", "product.sql", "plugins.sql", "storage-schema.sql", "automations.sql", "triggers.sql", "lifecycle.sql", "software.sql", "desktop.sql", "box-observation.sql", "billing.sql", "delivery.sql", "maintenance.sql", "delivery-skills.sql", "software-results.sql", "events.sql", "model-gateway.sql", "specialist-drafts.sql", "admission.sql", "conversation.sql", "chat.sql", "managed-base-image.sql", "runtime-updates.sql", "workbench.sql", "design-projects.sql"] as const;
@@ -84,6 +84,7 @@ export async function createCompanion(ownerId: string, input: { name: string; in
         return (await sql.unsafe(`SELECT ${companionColumns} FROM companions WHERE owner_id=$1 AND client_creation_id=$2`,[ownerId,input.clientCreationId]))[0];
       }
     }
+    if(input.profileId&&profiles[input.profileId].selectable===false)throw new Conflict('This Companion profile is no longer available for new creations.');
     if(input.provider==="local"&&!config.localAvailable)throw new Conflict("Local runtime is disabled. Set LOCAL_RUNTIME=1 for local testing.");
     let template:any;
     if(input.templateId){

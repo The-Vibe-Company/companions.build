@@ -1,3 +1,5 @@
+import { compareEntries } from "@/lib/chat-history";
+import type { ChatEntry } from "@/api";
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { ArrowLeft, ChevronRight, CircleAlert, FileText, Repeat2, X } from "lucide-react";
 import { api, type ChatMessage, type CompanionDetail, type Run, type RunStatus, type TaskDetail, type ThreadFile } from "@/api";
@@ -17,20 +19,21 @@ export function routineRunLabel(run: Pick<Run, "status" | "publishToChat">) {
 
 // Messages, questions and other conversation entries are grouping boundaries. Only
 // successful silent runs of the same routine and local day can collapse together.
-export function withRoutineActivity(items: ChatTimelineItem[], detail: Pick<CompanionDetail, "runs" | "messages" | "questions">): ChatTimelineItem[] {
+export function withRoutineActivity(items: ChatTimelineItem[], detail: Pick<CompanionDetail, "runs" | "messages" | "questions">, entries?: ChatEntry[], boundaries: Set<string> = new Set()): ChatTimelineItem[] {
   const published = new Set(detail.messages.filter(message => message.role === "assistant").map(message => message.runId));
   const questioned = new Set(detail.questions?.map(question => question.runId));
-  const all: ChatTimelineItem[] = [...items, ...detail.runs.filter(run => run.source === "routine" && !published.has(run.id)).map(run => ({
+  const all: ChatTimelineItem[] = [...items, ...detail.runs.filter(run => run.source === "routine" && !run.hasPublishedMessage && !published.has(run.id)).map(run => ({
     id: `routine-${run.id}`, createdAt: run.createdAt, message: null, content: null, routineRuns: [run],
   }))];
-  all.sort((a, b) => timestamp(a.createdAt) - timestamp(b.createdAt) || (a.message && b.message && a.message.runId === b.message.runId ? (a.message.sequence ?? 0) - (b.message.sequence ?? 0) : 0) || a.id.localeCompare(b.id));
+  const persisted = new Map(entries?.map(entry => [entry.id, entry]));
+  all.sort((a, b) => persisted.has(a.id) && persisted.has(b.id) ? compareEntries(persisted.get(a.id)!, persisted.get(b.id)!) : timestamp(a.createdAt) - timestamp(b.createdAt) || (a.message && b.message && a.message.runId === b.message.runId ? (a.message.sequence ?? 0) - (b.message.sequence ?? 0) : 0) || a.id.localeCompare(b.id));
   const result: ChatTimelineItem[] = [];
-  const quiet = (run: Run) => run.status === "succeeded" && !run.publishToChat && !questioned.has(run.id);
+  const quiet = (run: Run) => run.status === "succeeded" && !run.publishToChat && !run.hasQuestion && !questioned.has(run.id);
   for (const item of all) {
     const previous = result.at(-1);
     const prior = previous?.routineRuns?.at(-1);
     const current = item.routineRuns?.[0];
-    if (prior && current && quiet(prior) && quiet(current) && current.routineId && prior.routineId === current.routineId
+    if (prior && current && !boundaries.has(item.id) && quiet(prior) && quiet(current) && current.routineId && prior.routineId === current.routineId
       && prior.routineName === current.routineName && new Date(prior.createdAt).toDateString() === new Date(current.createdAt).toDateString()) {
       previous!.routineRuns = [...previous!.routineRuns!, current];
     } else result.push(item);

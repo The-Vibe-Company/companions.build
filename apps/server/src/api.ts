@@ -16,13 +16,14 @@ import {deleteTemplate,listTemplateRevisions,rollbackTemplate} from "./templates
 import { LifecycleConflict } from "./templates";
 import { z } from "zod";
 import { config } from "./config";
-import { db, migrateForService, listCompanions, createCompanion, detail, acceptMessage, cancel, Conflict } from "./store";
+import { db, migrateForService, listCompanions, createCompanion, acceptMessage, cancel, Conflict } from "./store";
+import {chatPage,companionHttpDetail,parseChatQuery,ChatPaginationError} from './chat';
 import { BoxClient, BoxError } from "../../../packages/box/client";
 import { auth, AuthenticationRequired, requireUser, sessionUser } from "./auth";
 
 import { handleWebhook, handleTriggers } from "./triggers";
 import { handlePlugins, PluginError } from "./plugins";
-import { handleFiles, filesForThread, FILE_REQUEST_MAX_BYTES } from "./files";
+import { handleFiles, FILE_REQUEST_MAX_BYTES } from "./files";
 import { handleAutomations } from "./automation-routes";
 import { handleTasks } from "./tasks";
 import { avatarSchema, configureCompanion } from "./control";
@@ -171,20 +172,15 @@ export async function handler(request: Request): Promise<Response> {
         return json({ companion: await createCompanion(ownerId, input) }, 201);
       }
     }
-    const match = url.pathname.match(/^\/api\/companions\/([^/]+)(?:\/(messages|cancel|desktop|events|skills))?$/);
+    const match = url.pathname.match(/^\/api\/companions\/([^/]+)(?:\/(messages|cancel|desktop|events|skills|chat))?$/);
     if (match) {
       const id = idSchema.parse(match[1]);
       if (match[2] === "skills" && request.method === "GET") return await companionSkillCommands(ownerId, id);
+      if (match[2] === "chat" && request.method === "GET") { const result=await chatPage(ownerId,id,parseChatQuery(url,id));return result?json(result):json({error:"Companion not found."},404); }
       if (!match[2] && request.method === "DELETE") { const result=await retireCompanion(ownerId,id); return result ? json(result,202) : json({error:"Companion not found."},404); }
       if (!match[2] && request.method === "PATCH") { const companion=await configureCompanion(ownerId,id,await request.json()); return companion ? json({companion}) : json({error:"Companion not found."},404); }
-      if (!match[2] && request.method === "GET") { const result = await detail(ownerId, id);
-        if(!result)return json({error:"Companion not found."},404);
-        const files=await filesForThread(ownerId,id);
-        const questions=await db`SELECT q.id,q.run_id AS "runId",q.question,q.options,q.answer,q.created_at AS "createdAt",q.context_text AS "contextText",r.status AS "runStatus" FROM task_questions q JOIN runs r ON r.id=q.run_id WHERE q.companion_id=${id} ORDER BY q.created_at,q.id`;
-        // Output attachments belong to the latest assistant message, not every update.
-        const lastAssistant=new Map<string,string>();
-        for(const message of result.messages)if(message.role==='assistant')lastAssistant.set(message.runId,message.id);
-        return json({...result,questions,files,messages:result.messages.map((m:any)=>({...m,files:files.filter(f=>f.runId===m.runId&&f.kind===(m.role==='user'?'user_upload':'agent_output')&&(m.role==='user'||lastAssistant.get(m.runId)===m.id))}))}); }
+      if (!match[2] && request.method === "GET") { const result = await companionHttpDetail(ownerId,id,parseChatQuery(url,id));
+        return result?json(result):json({error:"Companion not found."},404); }
       if (match[2] === "events" && request.method === "GET") return handleCompanionEvents(request, ownerId, id);
       if (match[2] === "messages" && request.method === "POST") {
         const body = z.object({ clientMessageId: idSchema, content: z.string().trim().min(1).max(50_000), attachmentCount: z.number().int().min(0).max(5).default(0) }).parse(await request.json());
@@ -209,6 +205,7 @@ export async function handler(request: Request): Promise<Response> {
     if (error instanceof ProductActivationRequired) return json({error:error.message},402);
     if (error instanceof LifecycleConflict) return json({error:error.message},409);
     if (error instanceof AdmissionConflict) return json({error:error.message},409);
+    if (error instanceof ChatPaginationError) return json({error:error.message},400);
     if (error instanceof Conflict) return json({ error: error.message }, 409);
     console.error(error instanceof BoxError ? `api_request_failed:${error.code}:${error.status}` : "api_request_failed");
     return json({ error: "The request could not be completed. Please try again." }, 500);

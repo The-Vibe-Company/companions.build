@@ -250,14 +250,15 @@ export async function handoffDelegationFiles(ownerId:string,delegationId:string,
 }
 
 type HandoffAttachment=StoredAttachment&{targetRunId:string};
-async function handoffRows(database:FilesDatabase,ownerId:string,companionId:string,runId:string|null=null):Promise<HandoffAttachment[]>{
+async function handoffRows(database:FilesDatabase,ownerId:string,companionId:string,runId:string|null=null,runIds:string[]|null=null):Promise<HandoffAttachment[]>{
  return await database.unsafe(`SELECT ${joinedSelectColumns},h.target_run_id AS "targetRunId"
   FROM delegation_files h JOIN delegations d ON d.id=h.delegation_id AND d.returned_run_id=h.target_run_id AND d.parent_id=h.target_companion_id
   JOIN attachments a ON a.id=h.attachment_id AND a.owner_id=h.owner_id AND a.companion_id=d.target_id AND a.run_id=d.run_id AND a.kind='agent_output'
   JOIN companions parent ON parent.id=h.target_companion_id AND parent.owner_id=h.owner_id
   JOIN companions child ON child.id=a.companion_id AND child.owner_id=h.owner_id
   WHERE h.owner_id=$1 AND h.target_companion_id=$2 AND ($3::uuid IS NULL OR h.target_run_id=$3)
-  ORDER BY h.created_at,h.position,a.id`,[ownerId,companionId,runId]) as HandoffAttachment[];
+    AND ($4::jsonb IS NULL OR h.target_run_id=ANY(ARRAY(SELECT jsonb_array_elements_text($4::jsonb)::uuid)))
+  ORDER BY h.created_at,h.position,a.id`,[ownerId,companionId,runId,runIds]) as HandoffAttachment[];
 }
 
 export async function filesForAgent(
@@ -299,16 +300,19 @@ function responseFile(attachment: Attachment): ThreadFile {
 export async function filesForThread(
   ownerId: string,
   companionId: string,
-  dependencies: Pick<FilesDependencies, "database"> & {runId?:string} = {},
+  dependencies: Pick<FilesDependencies, "database"> & {runId?:string;runIds?:string[]} = {},
 ): Promise<ThreadFile[]> {
   if (!ownerId || !UUID.test(companionId)) throw new FileRequestError("Companion not found.", 404);
   const database = dependencies.database ?? db;
+  if(dependencies.runIds?.length===0)return [];
   const rows = await database.unsafe(
     `SELECT ${joinedSelectColumns} FROM attachments a JOIN companions c ON c.id=a.companion_id
-     WHERE a.companion_id=$1 AND a.owner_id=$2 AND c.owner_id=$2 ${dependencies.runId ? "AND a.run_id=$3" : ""} ORDER BY a.created_at,a.position,a.id`,
-    [companionId, ownerId, ...(dependencies.runId ? [dependencies.runId] : [])],
+     WHERE a.companion_id=$1 AND a.owner_id=$2 AND c.owner_id=$2
+       AND ($3::uuid IS NULL OR a.run_id=$3) AND ($4::jsonb IS NULL OR a.run_id=ANY(ARRAY(SELECT jsonb_array_elements_text($4::jsonb)::uuid)))
+     ORDER BY a.created_at,a.position,a.id`,
+    [companionId, ownerId, dependencies.runId??null, dependencies.runIds??null],
   ) as StoredAttachment[];
-  const handoffs=await handoffRows(database,ownerId,companionId,dependencies.runId??null);
+  const handoffs=await handoffRows(database,ownerId,companionId,dependencies.runId??null,dependencies.runIds??null);
   return [...rows.map(responseFile),...handoffs.map(({targetRunId,...row})=>responseFile({...publicAttachment(row),runId:targetRunId}))];
 }
 

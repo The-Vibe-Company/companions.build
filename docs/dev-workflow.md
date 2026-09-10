@@ -331,3 +331,36 @@ enables the local runtime in its isolated test environment.
 See [Background agent runtime updates](runtime-updates.md) for same-Box update eligibility,
 data preservation, recovery, and the coordinated first rollout. Railway deployment and Box
 runtime version are distinct; the executor reconciles compatible runtime releases when safe.
+
+### Long chat pagination
+
+The Companion HTTP snapshot contains the most recent 50 timeline entries in `chat`, plus
+current runs and actionable questions in `live`. Its compatible top-level arrays have the
+same bounded scope; consumers must not treat them as the complete history. Pi transcripts,
+request journals and native compaction are unaffected.
+
+`GET /api/companions/:id/chat` returns an ascending `ChatPage` with entries, associated
+messages/questions/run metadata, files and specialists. Opaque, versioned cursors retain
+PostgreSQL microseconds and bind to one Companion. `before` and `after` are exclusive;
+`around` selects a nearby page even when its anchor disappeared. `from` and `through` are
+inclusive bounds for refreshing a previously loaded interval; follow `nextCursor` with
+`after` until null. `beforeCursor` and `afterCursor` describe availability outside the page.
+The default and maximum page size is 50. No total-history cutoff is applied.
+
+On an event-stream invalidation or reconnect, the web refreshes loaded intervals in bounded
+pages and reads the recent snapshot. Disjoint intervals have an explicit load control.
+Off-page questions and routines already displayed are retained after settlement using a
+targeted cursor read, so an answer or completion does not remove the visible card. Invalid
+saved cursors fall back to the recent page; network failures remain explicitly retryable.
+Reading anchors are scoped to account and Companion in sessionStorage, with memory fallback;
+sign-out removes them. Only entry identifiers, sort metadata and viewport offsets are stored.
+
+The added indexes are additive and installed through normal startup migration. Deploy API
+and web together: an older web client does not follow the new pagination cursors. Rollback
+may retain the indexes and does not require changing agent disks or transcripts.
+
+Regression coverage lives in the chat server suite, the web history controller tests,
+`Chat.performance.test.tsx` and `ChatViewport.browser.test.tsx`. The latter uses real Chrome
+geometry at mobile and desktop widths; the typing test counts timeline work and Markdown
+parser calls rather than asserting an unstable wall-clock threshold. Loaded pages remain in
+memory and the DOM during the visit; this change does not claim virtualized rendering.

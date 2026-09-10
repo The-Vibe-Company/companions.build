@@ -92,3 +92,9 @@ describe("routine execution drawer", () => {
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3));
   });
 });
+
+it("uses global metadata and never groups across a missing page", () => {
+  const runs = [run('a', 1), run('b', 2), run('c', 3, {hasQuestion:true}), run('d', 4, {hasPublishedMessage:true})];
+  const timeline = withRoutineActivity([], {runs,messages:[]}, undefined, new Set(['routine-b']));
+  expect(timeline.map(item => item.routineRuns?.map(run => run.id))).toEqual([['a'],['b'],['c']]);
+});

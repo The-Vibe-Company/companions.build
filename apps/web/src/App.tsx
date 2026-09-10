@@ -1,32 +1,23 @@
+import { clearReadingPositions } from "@/lib/chat-reading";
+import { Chat } from "@/components/Chat";
 import {
-  ArrowUp,
   Box,
   Check,
   ChevronRight,
   CircleAlert,
-  CircleStop,
   Computer,
   ExternalLink,
-  FileText,
   LoaderCircle,
   Mail,
   Menu,
   PanelLeftClose,
-  Paperclip,
   Plus,
   Trash2,
   UserRound,
   Waypoints,
   X,
 } from "lucide-react";
-import { DragEvent, FormEvent, type ReactNode, lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import {
-  Conversation,
-  ConversationContent,
-  ConversationEmptyState,
-  ConversationScrollButton,
-} from "@/components/ai-elements/conversation";
-import { Message, MessageContent, MessageResponse } from "@/components/ai-elements/message";
+import { FormEvent, lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { CompanionHeader, type CompanionSection } from "@/components/CompanionHeader";
 import { ApplicationAccess } from "@/components/ApplicationAccess";
@@ -39,7 +30,6 @@ import {
   type AccountUser,
   type Companion,
   type CompanionDetail,
-  type CompanionSkill,
   type CustomPluginInput,
   isActiveRun,
   type RunStatus,
@@ -47,12 +37,10 @@ import {
   type PluginAccount,
   type PluginServer,
 } from "@/api";
-import { Question } from "@/components/Question";
 import { cn } from "@/lib/utils";
 import { CompanionAvatar, DEFAULT_AVATAR, AVATAR_COLORS } from "@/components/CompanionAvatar";
 import { AccountProduct, DesktopSheet } from "@/components/ProductPanels";
 import { RoutineSettings, TriggerSettings } from "@/components/AutomationPanels";
-import { RoutineActivityRow, RoutineProvenance, RoutineRunSheet, withRoutineActivity } from "@/components/RoutineChat";
 const CreateCompanion = lazy(() => import("@/components/CreateCompanion").then(module => ({ default: module.CreateCompanion })));
 const TaskActivity = lazy(() => import("@/components/TaskActivity").then(module => ({ default: module.TaskActivity })));
 const SpecialistLibrary = lazy(() => import("@/components/SpecialistLibrary").then(module => ({ default: module.SpecialistLibrary })));
@@ -62,13 +50,10 @@ const CreateTeamWizard = lazy(() => import("@/components/CreateTeamWizard").then
 import { ProviderMark } from "@/components/ProviderMark";
 import { SettingsSheet, type SettingsSheetHandle } from "@/components/SettingsSheet";
 import { SpecialistPreparation } from "@/components/SpecialistPreparation";
-import { SpecialistImprovements } from "@/components/SpecialistImprovements";
 import { LandingPage } from "@/components/LandingPage";
 import { LegalPage, type LegalPageKind } from "@/components/LegalPage";
 
 const LIST_INTERVAL = 8_000;
-const MAX_CHAT_FILES = 5;
-const MAX_CHAT_FILE_BYTES = 10 * 1024 * 1024;
 
 function selectedIdFromPath() {
   return window.location.pathname.match(/^\/companions\/([^/]+)$/)?.[1] ?? null;
@@ -96,22 +81,6 @@ function statusLabel(status: Companion["status"] | RunStatus) {
 
 function StatusDot({ status }: { status: Companion["status"] }) {
   return <span className={cn("status-dot", `status-dot--${status}`)} aria-hidden="true" />;
-}
-
-function SpecialistsForRun({ detail, runId, onOpen }: { detail: CompanionDetail; runId: string; onOpen: (id: string) => void }) {
-  const specialists = detail.specialists?.filter(item => item.parentRunId === runId) ?? [];
-  if (!specialists.length) return null;
-  return <div className="task-specialists" aria-label="Specialists for this task">
-    {specialists.map(({ delegationId, companion }) => {
-      const finished = Boolean(companion.retiredAt);
-      const status = finished ? "archived" : companion.status;
-      return <button type="button" key={delegationId} className="task-specialist" onClick={() => onOpen(companion.id)} aria-label={`Open ${companion.name}'s chat`}>
-        <CompanionAvatar name={companion.name} avatar={companion.avatar} size={28} />
-        <span><strong>{companion.name}</strong><small><StatusDot status={status} />{finished ? "Finished" : statusLabel(status)}</small></span>
-        <ChevronRight />
-      </button>;
-    })}
-  </div>;
 }
 
 function AccessGate() {
@@ -226,355 +195,9 @@ function Sidebar({
   );
 }
 
-const CHAT_IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/webp", "image/gif"]);
-
-function PendingFile({ file, onRemove }: { file: File; onRemove: () => void }) {
-  const [image, setImage] = useState<{ file: File; url: string }>();
-  const preview = image?.file === file ? image.url : undefined;
-  useEffect(() => {
-    if (!CHAT_IMAGE_TYPES.has(file.type)) return;
-    const url = URL.createObjectURL(file);
-    setImage({ file, url });
-    return () => URL.revokeObjectURL(url);
-  }, [file]);
-
-  return <span className={preview ? "pending-image" : undefined}>
-    {preview ? <img src={preview} alt={`Preview of ${file.name}`} /> : <FileText />}
-    <span className="pending-file-name">{file.name}</span>
-    <button type="button" onClick={onRemove} aria-label={`Remove ${file.name}`}><X /></button>
-  </span>;
-}
-
-function Chat({ detail, onRefresh, onUnauthorized, onOpenCompanion, specialistTemplateId, specialistCards, specialistHistory = [], readOnly = false, onOpenRoutine }: { onOpenRoutine?: (id: string) => void; detail: CompanionDetail; onRefresh: () => Promise<void>; onUnauthorized: () => void; onOpenCompanion: (id: string) => void; specialistTemplateId?: string | null; specialistCards?: ReactNode; specialistHistory?: Array<{id:string;runId?:string;createdAt:string;content:ReactNode}>; readOnly?: boolean }) {
-  const [draft, setDraft] = useState("");
-  const [routineRunIds, setRoutineRunIds] = useState<string[]>([]);
-  const routineRuns = detail.runs.filter(run => routineRunIds.includes(run.id));
-  const runsById = new Map(detail.runs.map(run => [run.id, run]));
-  const [files, setFiles] = useState<File[]>([]);
-  const [sending, setSending] = useState(false);
-  const [actionError, setActionError] = useState("");
-  const [fileNotice, setFileNotice] = useState("");
-  const [dragActive, setDragActive] = useState(false);
-  const [skills, setSkills] = useState<CompanionSkill[]>([]);
-  const [skillCommandsEnabled, setSkillCommandsEnabled] = useState<boolean | null>(null);
-  const [skillsUnavailable, setSkillsUnavailable] = useState(false);
-  const [commandToken, setCommandToken] = useState<{ start: number; end: number; query: string } | null>(null);
-  const [activeSkillIndex, setActiveSkillIndex] = useState(0);
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const suppressCommandDetection = useRef(false);
-  const dismissedSelection = useRef<{ value: string; start: number; end: number } | null>(null);
-  const skillsCompanion = useRef<string | null>(null);
-  const skillsRequest = useRef(0);
-  const activeCommandStart = useRef<number | null>(null);
-  const dragDepth = useRef(0);
-  const activeRun = detail.runs.find((run) => run.lane !== "background" && isActiveRun(run.status));
-  const visibleSkills = commandToken
-    ? skills.filter(skill => skill.name.toLocaleLowerCase().includes(commandToken.query.toLocaleLowerCase().replace(/^skill:/, "")))
-    : [];
-  const paletteOpen = Boolean(commandToken && skillCommandsEnabled !== false);
-  const activeSkill = visibleSkills[Math.min(activeSkillIndex, Math.max(visibleSkills.length - 1, 0))];
-
-  useEffect(() => {
-    if (!paletteOpen || !activeSkill) return;
-    document.getElementById(`skill-option-${detail.companion.id}-${Math.min(activeSkillIndex, visibleSkills.length - 1)}`)
-      ?.scrollIntoView?.({ block: "nearest" });
-  }, [activeSkill, activeSkillIndex, detail.companion.id, paletteOpen, visibleSkills.length]);
-
-  useEffect(() => {
-    skillsCompanion.current = null;
-    skillsRequest.current += 1;
-    activeCommandStart.current = null;
-    dismissedSelection.current = null;
-    setSkills([]);
-    setSkillCommandsEnabled(null);
-    setSkillsUnavailable(false);
-  }, [detail.companion.id]);
-
-  function discoverSkills() {
-    const companionId = detail.companion.id;
-    skillsCompanion.current = companionId;
-    const request = ++skillsRequest.current;
-    setSkills([]);
-    setSkillsUnavailable(false);
-    setSkillCommandsEnabled(null);
-    void api.getCompanionSkills(companionId).then(result => {
-      if (request !== skillsRequest.current || skillsCompanion.current !== companionId) return;
-      setSkills(result.skills);
-      setSkillCommandsEnabled(result.enabled);
-    }).catch(() => {
-      if (request !== skillsRequest.current || skillsCompanion.current !== companionId) return;
-      setSkillsUnavailable(true);
-      setSkillCommandsEnabled(true);
-    });
-  }
-
-  function findCommandToken(value: string, caret: number | null) {
-    if (caret == null) return null;
-    const separator = /[\s,;!?()[\]{}<>"'`]/;
-    let start = caret - 1;
-    while (start >= 0 && !separator.test(value[start]) && value[start] !== "/") start -= 1;
-    if (start < 0 || value[start] !== "/") return null;
-    let end = caret;
-    while (end < value.length && !separator.test(value[end])) end += 1;
-    return { start, end, query: value.slice(start + 1, end) };
-  }
-
-  function updateCommandToken(value: string, caret: number | null) {
-    const token = findCommandToken(value, caret);
-    setCommandToken(token);
-    if (token && activeCommandStart.current !== token.start) discoverSkills();
-    activeCommandStart.current = token?.start ?? null;
-    setActiveSkillIndex(0);
-  }
-
-  function insertSkill(skill: CompanionSkill) {
-    if (!commandToken) return;
-    const command = `/skill:${skill.name}`;
-    const nextDraft = draft.slice(0, commandToken.start) + command + draft.slice(commandToken.end);
-    const nextCaret = commandToken.start + command.length;
-    setDraft(nextDraft);
-    setCommandToken(null);
-    activeCommandStart.current = null;
-    suppressCommandDetection.current = true;
-    dismissedSelection.current = { value: nextDraft, start: nextCaret, end: nextCaret };
-    requestAnimationFrame(() => {
-      textareaRef.current?.focus();
-      textareaRef.current?.setSelectionRange(nextCaret, nextCaret);
-      suppressCommandDetection.current = false;
-    });
-  }
-  const activePreview = activeRun
-    && activeRun.messageVersion == null
-    && (activeRun.status === "running" || activeRun.status === "needs_input")
-    && activeRun.previewText
-    && !(detail.questions ?? []).some(question => question.contextText === activeRun.previewText)
-    && !detail.messages.some((message) => message.role === "assistant" && message.runId === activeRun.id)
-      ? activeRun.previewText
-      : null;
-
-  const timestamp = (value: string | undefined) => value && Number.isFinite(Date.parse(value)) ? Date.parse(value) : 0;
-  const latestConversationAt = Math.max(0,...detail.messages.map(message=>timestamp(message.createdAt)),...specialistHistory.filter(item=>!activeRun||item.runId!==activeRun.id).map(item=>timestamp(item.createdAt)),...(detail.questions??[]).filter(question=>question.answer!=null).map(question=>timestamp(question.createdAt)));
-  const pendingQuestion = activeRun ? (detail.questions??[]).find(question=>question.runId===activeRun.id && question.answer==null) : undefined;
-  // A resumed turn may retain an older question/run timestamp; new output stays after prior chat.
-  const streamingAt = Math.max(latestConversationAt+2,timestamp(activeRun?.createdAt)+2,timestamp(pendingQuestion?.createdAt)-1);
-  const timeline = withRoutineActivity([
-    ...detail.messages.map(message => ({ id: message.id, createdAt: message.createdAt, message, content: null as ReactNode })),
-    ...specialistHistory.map(item => ({ ...item, createdAt: detail.runs.some(run => run.id === item.runId && run.messageVersion != null) ? item.createdAt : new Date(Math.max(timestamp(item.createdAt),
-      ...(item.runId ? detail.messages.filter(message=>message.runId===item.runId && message.role==='assistant').map(message=>timestamp(message.createdAt)+1) : []),
-      item.runId && item.runId===activeRun?.id ? streamingAt+1 : 0)).toISOString(), message: null })),
-    ...detail.runs.filter(run => run.thinkingText && run.lane !== 'background').map(run => ({ id: 'thinking-' + run.id, createdAt: new Date(isActiveRun(run.status) ? streamingAt-1 : Math.max(timestamp(run.createdAt), ...detail.messages.filter(message=>message.role==='assistant' && message.runId===run.id).map(message=>timestamp(message.createdAt)-1))).toISOString(), message: null, content: <details className="thinking-panel" ><summary>{isActiveRun(run.status) ? 'Thinking' : 'Thought process'}</summary><div><MessageResponse>{run.thinkingText!}</MessageResponse></div></details> })),
-    ...(activePreview && activeRun ? [{ id: 'preview-' + activeRun.id, message: null, createdAt: new Date(streamingAt).toISOString(), content: <Message from="assistant" className="thread-message message-preview">
-              <div className="thread-avatar" aria-hidden="true"><CompanionAvatar name={detail.companion.name} avatar={detail.companion.avatar} size={32} /></div>
-              <div className="thread-message-body"><div className="message-meta"><span className="message-author">{detail.companion.name}</span></div>
-              <MessageContent className="thread-content"><MessageResponse>{activePreview}</MessageResponse></MessageContent></div>
-            </Message> }] : []),
-    ...(detail.questions ?? []).map(question => ({ id: question.id, createdAt: question.createdAt ?? detail.runs.find(run => run.id === question.runId)?.createdAt ?? '', message: null, content: <>
-      {question.contextText && !detail.messages.some(message => message.runId === question.runId && message.content === question.contextText) && <div className="question-context"><MessageResponse>{question.contextText}</MessageResponse></div>}
-      <RoutineProvenance run={runsById.get(question.runId)} onOpen={setRoutineRunIds}/>
-      <Question companionId={detail.companion.id} question={question} onAnswered={onRefresh}/>
-    </> })),
-  ], detail);
-
-  async function send(event: FormEvent) {
-    event.preventDefault();
-    const content = draft.trim();
-    if (!content || sending) return;
-    setSending(true);
-    setActionError("");
-    try {
-      await api.sendMessage(detail.companion.id, content, files);
-      setDraft("");
-      setCommandToken(null);
-      activeCommandStart.current = null;
-      setFiles([]);
-      setFileNotice("");
-      await onRefresh();
-      textareaRef.current?.focus();
-    } catch (cause) {
-      if (cause instanceof ApiError && cause.status === 401) onUnauthorized();
-      else setActionError(cause instanceof Error ? cause.message : "Could not send message");
-    } finally {
-      setSending(false);
-    }
-  }
-
-  function addFiles(incoming: File[]) {
-    if (!incoming.length) return;
-    if (files.length + incoming.length > MAX_CHAT_FILES) {
-      setActionError(`A message accepts at most ${MAX_CHAT_FILES} files.`); setFileNotice(""); return;
-    }
-    if (incoming.some(file => file.size < 1 || file.size > MAX_CHAT_FILE_BYTES)) {
-      setActionError("Each file must be between 1 byte and 10 MB."); setFileNotice(""); return;
-    }
-    setFiles(current => [...current, ...incoming]); setActionError("");
-    setFileNotice(`${incoming.length} ${incoming.length === 1 ? "file" : "files"} attached.`);
-  }
-
-  function carriesFiles(event: DragEvent) { return Array.from(event.dataTransfer.types).includes("Files"); }
-  function dragEnter(event: DragEvent<HTMLFormElement>) { if (!carriesFiles(event)) return; event.preventDefault(); dragDepth.current += 1; setDragActive(true); setFileNotice(`Drop up to ${MAX_CHAT_FILES} files here.`); }
-  function dragOver(event: DragEvent<HTMLFormElement>) { if (!carriesFiles(event)) return; event.preventDefault(); event.dataTransfer.dropEffect = "copy"; }
-  function dragLeave(event: DragEvent<HTMLFormElement>) { if (!dragDepth.current) return; event.preventDefault(); dragDepth.current = Math.max(0, dragDepth.current - 1); if (!dragDepth.current) { setDragActive(false); setFileNotice(""); } }
-  function drop(event: DragEvent<HTMLFormElement>) { if (!carriesFiles(event)) return; event.preventDefault(); dragDepth.current = 0; setDragActive(false); addFiles(Array.from(event.dataTransfer.files)); }
-
-  async function cancel() {
-    setActionError("");
-    try {
-      await api.cancel(detail.companion.id);
-      await onRefresh();
-    } catch (cause) {
-      setActionError(cause instanceof Error ? cause.message : "Could not cancel work");
-    }
-  }
-
-  return (
-    <section className="chat-column">
-      {detail.companion.status === "preparing" && (
-        <div className="state-banner state-banner--progress" role="status">
-          <LoaderCircle className="spin" />
-          <span><strong>Preparing {detail.companion.name}</strong><small>The chat is ready. Messages will wait safely while the computer starts.</small></span>
-        </div>
-      )}
-      {detail.companion.status === "error" && (
-        <div className="state-banner state-banner--error" role="alert">
-          <CircleAlert />
-          <span><strong>Preparation failed</strong><small>{detail.companion.error || "The Companion could not be prepared."}</small></span>
-        </div>
-      )}
-      <Conversation className="conversation">
-        <ConversationContent className="conversation-content">
-          {timeline.length === 0 ? (
-            <ConversationEmptyState className="chat-empty">
-              <CompanionAvatar name={detail.companion.name} avatar={detail.companion.avatar} size={72} />
-              <h2>{specialistTemplateId ? "What should this specialist do?" : "A little less on your mind."}</h2>
-              <p>{specialistTemplateId ? "Describe its role, then prepare its tools together." : `Make room for what matters. ${detail.companion.name} can help.`}</p>
-              {!readOnly && !specialistTemplateId && <div className="chat-suggestions">{(specialistTemplateId ? ['Set up GitHub & Linear', 'Prepare my repositories', 'Help me test this specialist'] : ['Plan my day', 'Help with a project', 'Set up a routine']).map(prompt=><button type="button" key={prompt} onClick={()=>{setDraft(prompt);textareaRef.current?.focus();}}>{prompt}<ChevronRight/></button>)}</div>}
-            </ConversationEmptyState>
-          ) : timeline.map(({id, message, content, routineRuns}) => routineRuns ? <RoutineActivityRow key={id} runs={routineRuns} onOpen={setRoutineRunIds}/> : message ? (
-            <Message from={message.role} key={message.id} className="thread-message">
-              <div className="thread-avatar" aria-hidden="true">{message.role === "assistant" ? <CompanionAvatar name={detail.companion.name} avatar={detail.companion.avatar} size={32} /> : <span className="user-avatar"><UserRound /></span>}</div>
-              <div className="thread-message-body"><div className="message-meta"><span className="message-author">{message.role === "assistant" ? detail.companion.name : "You"}</span><time className="message-time" dateTime={message.createdAt}>{readableDate(message.createdAt)}</time>{message.complete === false && detail.runs.some(run => run.id === message.runId && !isActiveRun(run.status)) && <span className="message-time">Incomplete response</span>}</div>
-              {message.role === "assistant" && <RoutineProvenance run={runsById.get(message.runId)} onOpen={setRoutineRunIds}/>}
-              <MessageContent className="thread-content"><MessageResponse>{message.content}</MessageResponse></MessageContent>
-              {message.files?.length ? <div className="message-files">{message.files.map((file) => <a key={file.id} href={file.url} target="_blank" rel="noreferrer"><FileText /><span>{file.name}</span></a>)}</div> : null}
-              {message.role === "user" && <SpecialistsForRun detail={detail} runId={message.runId} onOpen={onOpenCompanion} />}
-              </div>
-            </Message>
-          ) : <div className="conversation-action" key={id}>{content}</div>)}
-          {activeRun && !pendingQuestion && (
-            <div className="working-row" role="status">
-              <span className="working-dots"><i /><i /><i /></span>
-              {activeRun.status === "queued" ? "Queued" : activeRun.status === "preparing" ? "Preparing" : activeRun.status === "needs_input" ? "Waiting for your answer" : activeRun.thinkingText && !activePreview ? "Thinking…" : `${detail.companion.name} is working`}
-            </div>
-          )}
-          {specialistCards}
-          {!readOnly && <SpecialistImprovements companionId={detail.companion.id} onOpenCompanion={onOpenCompanion}/>}
-        </ConversationContent>
-        <ConversationScrollButton aria-label="Scroll to latest message" latestMessageId={detail.messages.at(-1)?.id} />
-      </Conversation>
-      {!!routineRuns.length && <RoutineRunSheet key={routineRunIds.join(":")} companionId={detail.companion.id} runs={routineRuns} onClose={() => setRoutineRunIds([])} onOpenRoutine={onOpenRoutine ? id => { setRoutineRunIds([]); onOpenRoutine(id); } : undefined}/>}
-      {!readOnly && <form className={cn("composer-wrap", dragActive && "composer-wrap--drop")} onSubmit={send} onDragEnter={dragEnter} onDragOver={dragOver} onDragLeave={dragLeave} onDrop={drop}>
-        <span className="sr-only" aria-live="polite">{fileNotice}</span>
-        {actionError && <p className="composer-error" role="alert">{actionError}</p>}
-        {files.length > 0 && <div className="pending-files">{files.map((file, index) => <PendingFile key={index} file={file} onRemove={() => setFiles(current => current.filter((_, item) => item !== index))} />)}</div>}
-        <div className="composer">
-          {dragActive && <div className="drop-indicator" aria-hidden="true"><Paperclip />Drop files here</div>}
-          {paletteOpen && <div className="skill-palette" role="listbox" id={`skill-palette-${detail.companion.id}`} aria-label="Skills">
-            {skillCommandsEnabled == null ? <p role="status">Loading skills…</p>
-              : skillsUnavailable ? <p>Skills are unavailable. You can still send your message.</p>
-              : skills.length === 0 ? <p>No skills available.</p>
-              : visibleSkills.length === 0 ? <p>No matching skills.</p>
-              : visibleSkills.map((skill, index) => <button
-                type="button"
-                role="option"
-                id={`skill-option-${detail.companion.id}-${index}`}
-                aria-selected={index === activeSkillIndex}
-                className={cn(index === activeSkillIndex && "skill-option--active")}
-                key={skill.name}
-                onMouseDown={event => event.preventDefault()}
-                onMouseEnter={() => setActiveSkillIndex(index)}
-                onClick={() => insertSkill(skill)}
-              >
-                <span><strong>/skill:{skill.name}</strong>{skill.source && <small>{skill.source}</small>}</span>
-                {skill.description && <p>{skill.description}</p>}
-              </button>)}
-          </div>}
-          <Textarea
-            ref={textareaRef}
-            value={draft}
-            onChange={(event) => { dismissedSelection.current = null; setDraft(event.target.value); updateCommandToken(event.target.value, event.target.selectionStart); }}
-            onClick={(event) => { dismissedSelection.current = null; updateCommandToken(event.currentTarget.value, event.currentTarget.selectionStart); }}
-            onSelect={(event) => {
-              if (suppressCommandDetection.current) return;
-              const input = event.currentTarget, dismissed = dismissedSelection.current;
-              // setSelectionRange queues a native select event after the animation frame.
-              // Keep the inserted/dismissed token closed until the user edits or moves the caret.
-              if (dismissed && dismissed.value === input.value && dismissed.start === input.selectionStart && dismissed.end === input.selectionEnd) return;
-              dismissedSelection.current = null;
-              updateCommandToken(input.value, input.selectionStart);
-            }}
-            onPaste={(event) => {
-              const images = Array.from(event.clipboardData.items)
-                .filter(item => item.kind === "file" && CHAT_IMAGE_TYPES.has(item.type))
-                .map(item => item.getAsFile())
-                .filter((file): file is File => file !== null);
-              addFiles(images);
-              // Keep native text insertion, including mixed text/image clipboard content.
-            }}
-            onKeyDown={(event) => {
-              if (event.nativeEvent.isComposing) return;
-              if (paletteOpen && event.key === "Escape") {
-                event.preventDefault();
-                dismissedSelection.current = { value: event.currentTarget.value, start: event.currentTarget.selectionStart, end: event.currentTarget.selectionEnd };
-                setCommandToken(null);
-                activeCommandStart.current = null;
-                return;
-              }
-              if (paletteOpen && visibleSkills.length && (event.key === "ArrowDown" || event.key === "ArrowUp")) {
-                event.preventDefault();
-                setActiveSkillIndex(current => event.key === "ArrowDown"
-                  ? (current + 1) % visibleSkills.length
-                  : (current - 1 + visibleSkills.length) % visibleSkills.length);
-                return;
-              }
-              if (paletteOpen && activeSkill && event.key === "Enter") {
-                event.preventDefault();
-                insertSkill(activeSkill);
-                return;
-              }
-              if (event.key === "Enter" && !event.shiftKey) {
-                event.preventDefault();
-                event.currentTarget.form?.requestSubmit();
-              }
-            }}
-            placeholder={`Message ${detail.companion.name}`}
-            aria-label={`Message ${detail.companion.name}`}
-            aria-autocomplete="list"
-            aria-expanded={paletteOpen}
-            aria-controls={paletteOpen ? `skill-palette-${detail.companion.id}` : undefined}
-            aria-activedescendant={paletteOpen && activeSkill ? `skill-option-${detail.companion.id}-${Math.min(activeSkillIndex, visibleSkills.length - 1)}` : undefined}
-            rows={2}
-          />
-          <div className="composer-actions">
-            <span className="composer-hint">Enter to send · Shift + Enter for a new line</span>
-            <div className="composer-buttons">
-              <label className="attach-button" aria-label="Attach files"><Plus /><input type="file" multiple accept="image/png,image/jpeg,image/webp,image/gif,application/pdf,text/plain,text/csv,text/markdown,application/json,.md,.markdown,.txt,.csv,.json" onChange={(event) => { addFiles(Array.from(event.target.files ?? [])); event.currentTarget.value = ""; }} /></label>
-              {(activeRun || (actionError && api.hasPendingUpload(detail.companion.id))) && (
-                <Button type="button" variant="outline" size="sm" onClick={cancel}><CircleStop />Cancel</Button>
-              )}
-              <Button type="submit" size="icon" disabled={!draft.trim() || sending} aria-label="Send message">
-                {sending ? <LoaderCircle className="spin" /> : <ArrowUp />}
-              </Button>
-            </div>
-          </div>
-        </div>
-      </form>}
-    </section>
-  );
-}
-
 type NavigationGuard = (action: () => void, updateHistory?: boolean) => boolean;
 
-function CompanionView({ detail, models, onRefresh, onUnauthorized, onMenu, onOpenCompanion, onDeleted, onRegisterNavigationGuard, onLocationChange, refreshVersion, onNavigate }: { onNavigate: (path: string) => void; detail: CompanionDetail; models: Array<{ id: string; name: string }>; onDeleted: (ids: string[]) => void; onRefresh: () => Promise<void>; onUnauthorized: () => void; onMenu: () => void; onOpenCompanion: (id: string) => void; onRegisterNavigationGuard: (guard: NavigationGuard | null) => void; onLocationChange: (location: string) => void; refreshVersion: number }) {
+function CompanionView({ accountId, detail, models, onRefresh, onUnauthorized, onMenu, onOpenCompanion, onDeleted, onRegisterNavigationGuard, onLocationChange, refreshVersion, onNavigate }: { accountId: string; onNavigate: (path: string) => void; detail: CompanionDetail; models: Array<{ id: string; name: string }>; onDeleted: (ids: string[]) => void; onRefresh: () => Promise<void>; onUnauthorized: () => void; onMenu: () => void; onOpenCompanion: (id: string) => void; onRegisterNavigationGuard: (guard: NavigationGuard | null) => void; onLocationChange: (location: string) => void; refreshVersion: number }) {
   const finished = Boolean(detail.companion.retiredAt);
   const specialistTemplateId = new URLSearchParams(window.location.search).get("specialist");
   const readView = (): CompanionSection => {
@@ -617,7 +240,7 @@ function CompanionView({ detail, models, onRefresh, onUnauthorized, onMenu, onOp
     <main className="workspace" id="main-content">
       {(!specialistTemplateId || finished || view !== "chat") && <CompanionHeader detail={detail} section={view} refreshVersion={refreshVersion} onSection={changeView} onMenu={onMenu} />}
       <div className="workspace-body" hidden={view !== 'chat'}>
-        {specialistTemplateId && !finished ? <Suspense fallback={<div role="status">Opening specialist…</div>}><SpecialistDraftPanel templateId={specialistTemplateId} companionId={detail.companion.id} avatar={detail.companion.avatar ?? undefined} onClose={() => onNavigate('/specialists')} onComputer={detail.companion.provider === 'box' ? () => changeView('computer') : undefined} onOpenCompanion={onOpenCompanion} onContinued={onRefresh} renderChat={(cards, history) => <Chat detail={detail} onRefresh={onRefresh} onUnauthorized={onUnauthorized} onOpenCompanion={onOpenCompanion} specialistTemplateId={specialistTemplateId} specialistCards={cards} specialistHistory={history}/>} /></Suspense> : <Chat detail={detail} onRefresh={onRefresh} onUnauthorized={onUnauthorized} onOpenCompanion={onOpenCompanion} readOnly={finished} onOpenRoutine={finished ? undefined : id => { setRoutineTarget(id); changeView("automations"); }}/>}
+        {specialistTemplateId && !finished ? <Suspense fallback={<div role="status">Opening specialist…</div>}><SpecialistDraftPanel templateId={specialistTemplateId} companionId={detail.companion.id} avatar={detail.companion.avatar ?? undefined} onClose={() => onNavigate('/specialists')} onComputer={detail.companion.provider === 'box' ? () => changeView('computer') : undefined} onOpenCompanion={onOpenCompanion} onContinued={onRefresh} renderChat={(cards, history) => <Chat accountId={accountId} detail={detail} onRefresh={onRefresh} onUnauthorized={onUnauthorized} onOpenCompanion={onOpenCompanion} specialistTemplateId={specialistTemplateId} specialistCards={cards} specialistHistory={history}/>} /></Suspense> : <Chat accountId={accountId} detail={detail} onRefresh={onRefresh} onUnauthorized={onUnauthorized} onOpenCompanion={onOpenCompanion} readOnly={finished} onOpenRoutine={finished ? undefined : id => { setRoutineTarget(id); changeView("automations"); }}/>}
       </div>
       {!finished && view === 'automations' && <section className="companion-page" aria-label="Automations"><div className="companion-page-inner"><header className="section-intro"><h2>A little help, on repeat.</h2><p>Set the timing. Your companion takes it from there.</p></header><div className="automation-group"><RoutineSettings companionId={detail.companion.id} initialRoutineId={routineTarget}/></div><div className="automation-group" id="events"><TriggerSettings companionId={detail.companion.id}/></div></div></section>}
       {!finished && view === 'team' && <section className="companion-page" aria-label="Team"><Suspense fallback={<div className="companion-page-inner" role="status">Opening your team…</div>}><TeamPanel onOpenDraft={(companionId, templateId) => onNavigate(`/companions/${companionId}?specialist=${encodeURIComponent(templateId)}`)} companion={detail.companion} refreshVersion={refreshVersion} onOpenCompanion={onOpenCompanion}/></Suspense></section>}
@@ -917,6 +540,7 @@ export function App() {
 
   async function signOut() {
     await api.signOut();
+    clearReadingPositions();
     setUser(null); setAuthRequired(true); setCompanions([]); setDetail(null);
     navigate("/");
   }
@@ -992,7 +616,7 @@ export function App() {
       ) : !selectedId ? (
         <Home companions={companions} onSelect={selectCompanion} onCreateTeam={() => leaveCompanion(() => setTeamCreateOpen(true))} onCreate={() => navigate("/new")} onMenu={() => setSidebarOpen(true)} />
       ) : detail && detail.companion.id === selectedId ? (
-        <CompanionView onNavigate={navigate} onDeleted={handleDeleted} key={detail.companion.id} detail={detail} refreshVersion={detailVersion} models={config.models ?? [{ id: config.model, name: config.model }]} onRefresh={loadDetail} onUnauthorized={() => setAuthRequired(true)} onMenu={() => setSidebarOpen(true)} onOpenCompanion={selectCompanion} onRegisterNavigationGuard={registerNavigationGuard} onLocationChange={location => { acceptedLocation.current = location; }} />
+        <CompanionView accountId={user.id} onNavigate={navigate} onDeleted={handleDeleted} key={detail.companion.id} detail={detail} refreshVersion={detailVersion} models={config.models ?? [{ id: config.model, name: config.model }]} onRefresh={loadDetail} onUnauthorized={() => setAuthRequired(true)} onMenu={() => setSidebarOpen(true)} onOpenCompanion={selectCompanion} onRegisterNavigationGuard={registerNavigationGuard} onLocationChange={location => { acceptedLocation.current = location; }} />
       ) : (
         <main className="detail-loading" id="main-content"><LoaderCircle className="spin" /><span>Opening Companion…</span></main>
       )}

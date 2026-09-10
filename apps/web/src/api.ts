@@ -52,6 +52,9 @@ export interface ChatMessage {
 export interface ThreadFile { id: string; runId: string; kind: "user_upload" | "agent_output"; name: string; mimeType: string; size: number; url: string }
 
 export interface Run {
+  cursor?: string;
+  hasPublishedMessage?: boolean;
+  hasQuestion?: boolean;
   routineId?: string | null;
   routineName?: string | null;
   publicationMode?: RoutinePublicationMode;
@@ -96,9 +99,34 @@ export interface TaskDetail extends TaskSummary {
   publishToChat: boolean;
 }
 
+export interface ChatEntry {
+  id: string;
+  kind: "message" | "question" | "routine" | "thinking";
+  createdAt: string;
+  sequence: number;
+  cursor: string;
+  runId: string;
+}
+export interface ChatPage {
+  entries: ChatEntry[];
+  messages: ChatMessage[];
+  runs: Run[];
+  questions: NonNullable<CompanionDetail["questions"]>;
+  files: ThreadFile[];
+  specialists: NonNullable<CompanionDetail["specialists"]>;
+  beforeCursor: string | null;
+  afterCursor: string | null;
+  nextCursor: string | null;
+}
+export interface ChatQuery { before?: string; after?: string; around?: string; from?: string; through?: string; limit?: number }
 export interface CompanionDetail {
+  /** Previously displayed off-page routines, retained for this visit after settlement. */
+  retainedRuns?: Run[];
+  chat?: ChatPage;
+  live?: { runs: Run[]; questions: NonNullable<CompanionDetail["questions"]> };
+
   files?: ThreadFile[];
-  questions?: Array<{id:string;runId:string;question:string;options:string[];answer:string|null;createdAt?:string;contextText?:string|null;runStatus?:string}>;
+  questions?: Array<{cursor?:string;id:string;runId:string;question:string;options:string[];answer:string|null;createdAt?:string;contextText?:string|null;runStatus?:string}>;
   specialists?: Array<{
     delegationId: string;
     parentRunId: string;
@@ -223,6 +251,10 @@ export const api = {
   signOut: () => request<unknown>("/api/auth/sign-out", { method: "POST" }),
   getConfig: () => request<AppConfig>("/api/config"),
   getCompanions: () => request<{ companions: Companion[] }>("/api/companions"),
+  getChatPage: (id: string, query: ChatQuery = {}, signal?: AbortSignal) => {
+    const params = new URLSearchParams(Object.entries(query).map(([key, value]) => [key, String(value)]));
+    return request<ChatPage>(`/api/companions/${id}/chat${params.size ? `?${params}` : ""}`, { signal });
+  },
   getCompanion: (id: string) => request<CompanionDetail>(`/api/companions/${id}`),
   getCompanionSkills: (id: string) => request<{ skills: CompanionSkill[]; enabled: boolean }>(`/api/companions/${id}/skills`),
   deleteCompanion: (id: string) => request<{ deleted: true; companionIds?: string[] }>(`/api/companions/${id}`, { method: "DELETE" }),

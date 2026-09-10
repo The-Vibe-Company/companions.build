@@ -259,8 +259,11 @@ retaining messages and tool results.
 DeepSeek developer messages become system messages because its Responses API treats
 `developer` as a user role.
 
-Deploy API, executor and worker from the same release, then enable Fast. The additive
-provider constraint migration preserves every existing gateway request tombstone.
+Deploy the API first with Fast disabled: its Railway pre-deploy command applies the
+additive provider constraint migration and preserves every existing gateway request
+tombstone. Then deploy executor and worker from the same release; they require the
+current schema fingerprint at startup. Enable Fast on the API only after all three
+services are healthy.
 For rollback, disable Fast selection first, finish accepted Fast runs, then remove the
 key or revert the application. Keep the expanded provider constraint and histories.
 

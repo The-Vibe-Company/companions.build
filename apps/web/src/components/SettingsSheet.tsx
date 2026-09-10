@@ -32,12 +32,13 @@ type Props = {
 export type SettingsSheetHandle = { requestLeave: (action: () => void) => boolean };
 
 export const SettingsSheet = forwardRef<SettingsSheetHandle, Props>(function SettingsSheet({ embedded = false, active = true, activity, computer, detail, models, initialPage = 'home', onPageChange, onClose, onDeleted, onSaved, onActivity, onDesktop, connections }, ref) {
+  const defaultModelId = models?.find(model => model.isDefault)?.id ?? '';
   const [appearanceOpen, setAppearanceOpen] = useState(false);
   const [page, setPage] = useState<Page>(embedded && initialPage === 'home' ? 'identity' : initialPage);
   const [name, setName] = useState(detail.companion.name);
   const [instructions, setInstructions] = useState(detail.companion.instructions);
   const [avatar, setAvatar] = useState(detail.companion.avatar ?? DEFAULT_AVATAR);
-  const [modelId, setModelId] = useState(detail.companion.modelId ?? '');
+  const [modelId, setModelId] = useState(detail.companion.modelId ?? defaultModelId);
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState('');
@@ -61,13 +62,13 @@ export const SettingsSheet = forwardRef<SettingsSheetHandle, Props>(function Set
   useEffect(() => { if (embedded) setPage(initialPage === 'home' ? 'identity' : initialPage); }, [embedded, initialPage]);
   useEffect(() => { if (!active) return; if (page === 'delete' && !pendingAction) keepCompanion.current?.focus(); else heading.current?.focus(); }, [page, pendingAction, active]);
   useEffect(() => {
-    const next = { name: detail.companion.name, instructions: detail.companion.instructions, avatar: detail.companion.avatar ?? DEFAULT_AVATAR, modelId: detail.companion.modelId ?? '' };
+    const next = { name: detail.companion.name, instructions: detail.companion.instructions, avatar: detail.companion.avatar ?? DEFAULT_AVATAR, modelId: detail.companion.modelId ?? defaultModelId };
     setName(current => current === baseline.name ? next.name : current);
     setInstructions(current => current === baseline.instructions ? next.instructions : current);
     setAvatar(current => JSON.stringify(current) === JSON.stringify(baseline.avatar) ? next.avatar : current);
     setModelId(current => current === baseline.modelId ? next.modelId : current);
     setBaseline(next);
-  }, [detail.companion.name, detail.companion.instructions, detail.companion.avatar, detail.companion.modelId]);
+  }, [detail.companion.name, detail.companion.instructions, detail.companion.avatar, detail.companion.modelId, defaultModelId]);
   useEffect(() => {
     if (!dirty) return;
     const preventLoss = (event: BeforeUnloadEvent) => { event.preventDefault(); event.returnValue = ''; };
@@ -105,11 +106,11 @@ export const SettingsSheet = forwardRef<SettingsSheetHandle, Props>(function Set
       ...(nameChanged ? { name: name.trim() } : {}),
       ...(instructionsChanged ? { instructions: instructions.trim() } : {}),
       ...(avatarChanged ? { avatar } : {}),
-      ...(modelChanged ? { modelId: modelId || null } : {}),
+      ...(modelChanged ? { modelId: !modelId || modelId === defaultModelId ? null : modelId } : {}),
     };
     try {
       const result = await api.updateCompanion(detail.companion.id, changes);
-      const saved = { name: result.companion.name, instructions: result.companion.instructions, avatar: result.companion.avatar ?? DEFAULT_AVATAR, modelId: result.companion.modelId ?? '' };
+      const saved = { name: result.companion.name, instructions: result.companion.instructions, avatar: result.companion.avatar ?? DEFAULT_AVATAR, modelId: result.companion.modelId ?? defaultModelId };
       setName(saved.name); setInstructions(saved.instructions); setAvatar(saved.avatar); setModelId(saved.modelId);
       setBaseline(saved);
       setSaved(true);
@@ -195,7 +196,7 @@ export const SettingsSheet = forwardRef<SettingsSheetHandle, Props>(function Set
               <section className="settings-computer" aria-labelledby="settings-computer-title">
                 <h3 id="settings-computer-title">Computer & model</h3>
                 <div className="settings-computer-state"><div><strong>Own computer</strong><span>{detail.companion.provider === 'box' ? 'Box' : 'Local'} · {detail.companion.status === 'ready' ? 'ready' : detail.companion.status === 'archived' ? 'asleep' : detail.companion.status === 'preparing' ? 'preparing' : detail.companion.status === 'error' ? 'unavailable' : 'not started'}</span></div>{detail.companion.provider === 'box' && <Button type="button" variant="outline" size="sm" onClick={() => leave(onDesktop)}>Open desktop</Button>}</div>
-                {!!models?.length && <div className="field"><label htmlFor="identity-model">Model</label><select id="identity-model" form="companion-identity-form" disabled={saving} value={modelId} onChange={event => { setModelId(event.target.value); setSaved(false); }}><option value="">Default model</option>{models.map(model => <option value={model.id} key={model.id}>{model.name}</option>)}</select></div>}
+                {!!models?.length && <div className="field"><label htmlFor="identity-model">Model</label><select id="identity-model" form="companion-identity-form" disabled={saving} value={modelId} onChange={event => { setModelId(event.target.value); setSaved(false); }}>{!defaultModelId && <option value="">Default model</option>}{modelId && !models.some(model => model.id === modelId) && <option value={modelId} disabled>{modelId === 'deepseek-flash' ? 'Fast' : 'Selected model'} (unavailable)</option>}{models.map(model => <option value={model.id} key={model.id}>{model.name}{model.isDefault ? ' (default)' : ''}</option>)}</select></div>}
               </section>
               <section className="settings-client" aria-labelledby="settings-client-title"><h3 id="settings-client-title">Share with a client</h3><p>Delivers a copy of {detail.companion.name} with its skills and specialists. Your conversation, files and accounts are never included.</p><DeliverySettings companionId={detail.companion.id} compact /></section>
             </div>

@@ -20,6 +20,9 @@ This is a new product, independent of the old Companion Skills Hub. Product deci
   `docs/dev-workflow.md`. Use `./dev status --json` for endpoints and current evidence, focused
   `./dev check` profiles while iterating, and full verification before integration.
 - Commit and PR titles use Commitizen style, e.g. `feat(chat): persist accepted messages`.
+- For PR delivery, use the repository's [ship-pr-dev](.agents/skills/ship-pr-dev/SKILL.md)
+  and its bundled dependencies in `.agents/skills/`, preferring these over global copies.
+  Shared skill usage and prerequisites are in `docs/dev-workflow.md#shared-agent-skills`.
 - Issues live in Linear project companions.build, team THE. GitHub is for code and PRs.
 
 When parallel work helps, use independent worktrees with bounded ownership. The repository owner

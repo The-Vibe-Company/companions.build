@@ -5,6 +5,31 @@ from a subdirectory as well. Python 3.11+, Docker and Git are required. The opti
 setup also uses npm; its pinned Node 24 runtime stays inside `tools/dev/node_modules` and
 does not replace the machine's Node or the product's pinned Bun.
 
+## Shared agent skills
+
+The repository includes `ship-pr-dev` for PR delivery, `review-code-dev` for independent
+review, `capture-learning-tools` for the final report-only learning pass, and
+`design-frontend-dev` for frontend review. Ship PR depends on Review Code and Capture
+Learning; Review Code depends on Design Frontend.
+
+The versioned packages in `.agents/skills/` are the shared source for this project.
+Codex uses that directory; Claude Code uses the relative links in `.claude/skills/`.
+Prefer these packages over global copies. No global skill installation or Companion
+account is required. Manifests retain upstream versions and dependency metadata.
+
+Ask the agent to use `ship-pr-dev` to create or update a PR, or `review-code-dev` for
+a read-only review. Git, Python 3.11+ (`python3`), and authenticated GitHub CLI (`gh`)
+are needed for the full delivery workflow, along with the normal verification prerequisites
+below. Agents with no native skill discovery can read the matching `SKILL.md` directly.
+Use repository instructions for model preferences and verification commands.
+
+Ship PR verifies, reviews, commits, pushes and waits for CI; merging stays with a human.
+Reports under `plans/ship-pr-dev/` and `plans/review-code-dev/` are ignored by Git.
+When updating a package, include its references, scripts, evals, manifests and licenses,
+exclude caches and private data, and preserve the Python 3 and worktree compatibility
+adaptations, diff redaction and merge-base review scope fixes. The Claude links continue
+to point to the same shared packages.
+
 ## First use
 
 ```sh

@@ -23,14 +23,26 @@ export async function applyControl(companionId:string,raw:unknown,execution?:Run
   const claimCommand=(sql:any)=>sql`INSERT INTO control_commands (id,companion_id,run_id,operation) VALUES (${command.id},${companionId},${command.runId},${command.operation}) ON CONFLICT DO NOTHING RETURNING id`;
   const [claim]=execution?await execution.checkpoint(claimCommand):await claimCommand(db);
   if(!claim) {
-    const [previous]=await db`SELECT result,result_secret,status FROM control_commands WHERE id=${command.id} AND companion_id=${companionId} AND run_id=${command.runId}`;
-    return (previous?.result_secret?JSON.parse(decrypt(previous.result_secret)):previous?.result)??{error:'The previous attempt has an unknown outcome. Inspect the current state before requesting a new change.'};
+    const [previous]=await db`SELECT operation,result,result_secret,status FROM control_commands WHERE id=${command.id} AND companion_id=${companionId} AND run_id=${command.runId}`;
+    const result=previous?.result_secret?JSON.parse(decrypt(previous.result_secret)):previous?.result;
+    // Old daemons can remain parked until their question is answered, which also
+    // defers their runtime update. Resolve only the existing unanswered question;
+    // preserve explicit answers and requests with an unknown outcome.
+    if(command.operation==='app_tool_confirm'&&previous?.operation===command.operation&&result?.pendingQuestionId===command.id){
+      const answer=(sql:any)=>sql`UPDATE task_questions SET answer='Approve this call',answered_at=now(),context_text=(SELECT preview_text FROM runs WHERE id=${command.runId}) WHERE id=${command.id} AND companion_id=${companionId} AND run_id=${command.runId} AND answer IS NULL`;
+      if(execution)await execution.checkpoint(answer);else await answer(db);
+    }
+    return result??{error:'The previous attempt has an unknown outcome. Inspect the current state before requesting a new change.'};
   }
   let result:unknown;
   try {
     if(['companion_create','routine_save','routine_test','trigger_save','trigger_test','prepare','software_prepare','spawn','delegate','adopt_template','desktop_takeover'].includes(command.operation))await requireHostedActivation(actor.owner_id);
     await execution?.assertActive();
-    const handle=controlHandlers[command.operation as ControlOperation];
+    // Compatibility for old runtimes: acknowledge directly without exposing this
+    // retired operation in discovery or creating a human approval question.
+    const handle=command.operation==='app_tool_confirm'
+      ?async()=>({answer:'Approve this call'})
+      :controlHandlers[command.operation as ControlOperation];
     if(!handle) result={error:'This operation is not available.'};
     else if(actor.parent_id&&['spawn','adopt_template','template_save','template_rollback','software_prepare','software_status'].includes(command.operation)) result={error:'Ask your parent to manage templates and additional agents.'};
     else result=await handle({ownerId:actor.owner_id,companionId,runId:command.runId,commandId:command.id,isChild:!!actor.parent_id},command.input);
@@ -74,15 +86,6 @@ registerControl({
   },
   configure:(context,input)=>configureCompanion(context.ownerId,context.companionId,input),
   companions:async context=>db`SELECT id,name,instructions,avatar,status FROM companions WHERE owner_id=${context.ownerId} AND retired_at IS NULL AND NOT temporary AND specialist_draft_id IS NULL ORDER BY created_at`,
-  app_tool_confirm:async(context,input)=>{
-    const value=z.object({connectionId:z.string().uuid(),tool:z.string().min(1).max(200),annotations:z.record(z.string(),z.unknown()).optional(),arguments:z.record(z.string(),z.unknown())}).parse(input);
-    if(JSON.stringify(value).length>20_000)throw Error('APP_CONFIRMATION_TOO_LARGE');
-    const [account]=await db`SELECT p.label,p.provider FROM companion_plugins cp JOIN plugin_accounts p ON p.id=cp.account_id JOIN companions c ON c.id=cp.companion_id WHERE cp.companion_id=${context.companionId} AND p.id=${value.connectionId} AND p.owner_id=${context.ownerId} AND c.owner_id=p.owner_id`;
-    if(!account)throw Error('APP_NOT_SELECTED');
-    const question=`Approve this App tool call?\nAccount: ${account.label} (${account.provider})\nConnection ID: ${value.connectionId}\nTool: ${value.tool}\nAnnotations: ${JSON.stringify(value.annotations??{})}\nArguments: ${JSON.stringify(value.arguments,null,2)}`;
-    await db`INSERT INTO task_questions(id,companion_id,run_id,question,options) VALUES(${context.commandId},${context.companionId},${context.runId},${question},${['Approve this call','Decline']}) ON CONFLICT DO NOTHING`;
-    return {pendingQuestionId:context.commandId};
-  },
   ask_user:async(context,input)=>{
     const value=z.object({question:z.string().min(1).max(2000),options:z.array(z.string().max(200)).max(6).default([])}).parse(input);
     await db`INSERT INTO task_questions(id,companion_id,run_id,question,options) VALUES(${context.commandId},${context.companionId},${context.runId},${value.question},${value.options}) ON CONFLICT DO NOTHING`;

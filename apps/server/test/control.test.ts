@@ -9,6 +9,7 @@ import {addCustomPlugin,attachPlugin,listPluginAccounts,machinePlugins,disconnec
 import {saveTemplate} from '../src/templates';
 import {openSpecialistDraft,readSpecialistDraft} from '../src/specialist-drafts';
 import {handleAutomations} from '../src/automation-routes';
+import {encrypt} from '../src/config';
 import '../src/control-product';
 import '../src/runtime-product';
 const owner='00000000-0000-4000-8000-000000000001';
@@ -107,23 +108,66 @@ test('control returns actionable lifecycle errors and correlation IDs without le
  }finally{controlHandlers.identity=original;}
 });
 
-test('App confirmation persists exact public call details and requires the selected owned account',async()=>{
- const c=await createCompanion(owner,{name:'App approval',instructions:'',provider:'local'});
+test('ask_user persists a question once and only its owner can answer',async()=>{
+ const c=await createCompanion(owner,{name:'Question',instructions:'',provider:'local'});
  const runId=await acceptMessage(owner,c.id,crypto.randomUUID(),'Inspect project');
  await db`UPDATE runs SET status='running' WHERE id=${runId}`;
- const account=await addCustomPlugin(owner,{label:'Production',transport:'http',url:'https://example.com/mcp',headers:{Authorization:'Bearer private-approval-secret'}});
- const input={connectionId:account.id,tool:'railway-agent',annotations:{destructiveHint:true,title:'Railway Agent'},arguments:{projectId:'project',steps:['redeploy']}};
- const command={id:crypto.randomUUID(),runId,operation:'app_tool_confirm',input};
- expect(await applyControl(c.id,command)).toHaveProperty('error');
- await attachPlugin(owner,c.id,account.id,true);command.id=crypto.randomUUID();
+ const input={question:'Which project?',options:['Project A','Project B']};
+ const command={id:crypto.randomUUID(),runId,operation:'ask_user',input};
  expect(await applyControl(c.id,command)).toEqual({pendingQuestionId:command.id});
  expect(await applyControl(c.id,command)).toEqual({pendingQuestionId:command.id});
  const questions=await db`SELECT question,options,answer FROM task_questions WHERE id=${command.id}`;
- expect(questions).toHaveLength(1);expect(questions[0].answer).toBeNull();expect(questions[0].options).toEqual(['Approve this call','Decline']);
- expect(questions[0].question).toContain(`Connection ID: ${account.id}`);expect(questions[0].question).toContain('railway-agent');expect(questions[0].question).toContain(JSON.stringify(input.annotations));expect(questions[0].question).toContain(JSON.stringify(input.arguments,null,2));expect(questions[0].question).not.toContain('private-approval-secret');
- const answer=()=>new Request(`http://local/api/companions/${c.id}/questions/${command.id}/answer`,{method:'POST',body:JSON.stringify({answer:'Approve this call'})});
+ expect(questions).toEqual([{...input,answer:null}]);
+ const answer=()=>new Request(`http://local/api/companions/${c.id}/questions/${command.id}/answer`,{method:'POST',body:JSON.stringify({answer:'Project A'})});
  expect((await handleAutomations(answer(),crypto.randomUUID()))?.status).toBe(404);
  expect((await db`SELECT answer FROM task_questions WHERE id=${command.id}`)[0].answer).toBeNull();
  expect((await handleAutomations(answer(),owner))?.status).toBe(200);
- expect((await db`SELECT answer FROM task_questions WHERE id=${command.id}`)[0].answer).toBe('Approve this call');
+ expect((await db`SELECT answer FROM task_questions WHERE id=${command.id}`)[0].answer).toBe('Project A');
+});
+
+test('legacy runtimes receive a durable direct acknowledgement without a new approval question',async()=>{
+ const c=await createCompanion(owner,{name:'Legacy MCP',provider:'local'});
+ const runId=(await acceptMessage(owner,c.id,crypto.randomUUID(),'Create workspace'))!;
+ await db`UPDATE runs SET status='running' WHERE id=${runId}`;
+ const command={id:crypto.randomUUID(),runId,operation:'app_tool_confirm',input:{connectionId:crypto.randomUUID(),tool:'create_workspace',arguments:{}}};
+ expect(await applyControl(c.id,command)).toEqual({answer:'Approve this call'});
+ expect(await applyControl(c.id,command)).toEqual({answer:'Approve this call'});
+ expect(await db`SELECT id FROM task_questions WHERE run_id=${runId}`).toHaveLength(0);
+ expect((await db`SELECT status FROM control_commands WHERE id=${command.id}`)[0].status).toBe('done');
+ const identity=await controlHandlers.identity!({ownerId:owner,companionId:c.id,runId,commandId:crypto.randomUUID(),isChild:false},{}) as any;
+ expect(identity.operations).not.toContain('app_tool_confirm');
+ await db`UPDATE runs SET cancel_requested=true WHERE id=${runId}`;
+ expect(await applyControl(c.id,{...command,id:crypto.randomUUID()})).toHaveProperty('error');
+});
+
+test('legacy parked approvals resolve in place while explicit answers and ordinary questions remain intact',async()=>{
+ const c=await createCompanion(owner,{name:'Parked MCP',provider:'local'});
+ const runId=await acceptMessage(owner,c.id,crypto.randomUUID(),'Operate project');
+ await db`UPDATE runs SET status='needs_input' WHERE id=${runId}`;
+ for(const scenario of [
+  {operation:'app_tool_confirm',answer:null,expected:'Approve this call'},
+  {operation:'app_tool_confirm',answer:'Decline',expected:'Decline'},
+  {operation:'ask_user',answer:null,expected:null},
+ ]){
+  const id=crypto.randomUUID(),result={pendingQuestionId:id};
+  await db`INSERT INTO control_commands(id,companion_id,run_id,operation,status,result_secret) VALUES(${id},${c.id},${runId},${scenario.operation},'done',${encrypt(JSON.stringify(result))})`;
+  await db`INSERT INTO task_questions(id,companion_id,run_id,question,options,answer) VALUES(${id},${c.id},${runId},'Legacy question',${[]},${scenario.answer})`;
+  const command={id,runId,operation:scenario.operation,input:{}};
+  expect(await applyControl(c.id,command)).toEqual(result);
+  expect(await applyControl(c.id,command)).toEqual(result);
+  expect((await db`SELECT answer FROM task_questions WHERE id=${id}`)[0].answer).toBe(scenario.expected);
+ }
+ expect(await db`SELECT id FROM task_questions WHERE run_id=${runId}`).toHaveLength(3);
+});
+
+test('legacy requests with unknown or rejected outcomes are never automatically approved',async()=>{
+ const c=await createCompanion(owner,{name:'Ambiguous MCP',provider:'local'});
+ const runId=await acceptMessage(owner,c.id,crypto.randomUUID(),'Operate project');
+ await db`UPDATE runs SET status='running' WHERE id=${runId}`;
+ for(const result of [null,{error:'Previously rejected'}]){
+  const command={id:crypto.randomUUID(),runId,operation:'app_tool_confirm',input:{}};
+  await db`INSERT INTO control_commands(id,companion_id,run_id,operation,result_secret) VALUES(${command.id},${c.id},${runId},${command.operation},${result?encrypt(JSON.stringify(result)):null})`;
+  expect(await applyControl(c.id,command)).toHaveProperty('error');
+ }
+ expect(await db`SELECT id FROM task_questions WHERE run_id=${runId}`).toHaveLength(0);
 });

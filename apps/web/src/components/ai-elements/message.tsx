@@ -2,7 +2,7 @@
 
 import { cn } from "@/lib/utils";
 import type { UIMessage } from "ai";
-import type { HTMLAttributes } from "react";
+import { memo, type HTMLAttributes } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
@@ -42,16 +42,18 @@ export type MessageResponseProps = Omit<HTMLAttributes<HTMLDivElement>, "childre
 };
 
 /** Markdown response renderer with the same public shape as AI Elements MessageResponse. */
-export const MessageResponse = ({ children, className, ...props }: MessageResponseProps) => (
+const markdownPlugins = [remarkGfm];
+const markdownComponents = {
+  a: ({ href, children }: React.ComponentProps<"a">) => <a href={href} target="_blank" rel="noreferrer">{children}</a>,
+  input: ({ checked, ...props }: React.ComponentProps<"input">) => <input {...props} checked={checked} readOnly />,
+};
+export const MessageResponse = memo(({ children, className, ...props }: MessageResponseProps) => (
   <div className={cn("markdown-body", className)} {...props}>
     <ReactMarkdown
-      remarkPlugins={[remarkGfm]}
-      components={{
-        a: ({ href, children: label }) => <a href={href} target="_blank" rel="noreferrer">{label}</a>,
-        input: ({ checked, ...inputProps }) => <input {...inputProps} checked={checked} readOnly />,
-      }}
+      remarkPlugins={markdownPlugins}
+      components={markdownComponents}
     >
       {children}
     </ReactMarkdown>
   </div>
-);
+));

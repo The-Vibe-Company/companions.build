@@ -8,3 +8,5 @@ dist/
 !.env.example
 __pycache__/
 *.pyc
+/plans/ship-pr-dev/
+/plans/review-code-dev/

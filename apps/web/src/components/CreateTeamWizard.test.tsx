@@ -73,7 +73,7 @@ describe("CreateTeamWizard", () => {
       ["new-coordinator", "writer", 2],
     ]);
     expect(spawn).not.toHaveBeenCalled();
-    expect(JSON.parse(JSON.stringify(create.mock.calls[0][0]))).toMatchObject({ clientCreationId: expect.stringMatching(/^[0-9a-f-]{36}$/), name: "Maya", instructions: "Keep my app moving", provider: "box", prepare: false });
+    expect(JSON.parse(JSON.stringify(create.mock.calls[0][0]))).toMatchObject({ clientCreationId: expect.stringMatching(/^[0-9a-f-]{36}$/), name: "Maya", instructions: "Keep my app moving", provider: "box", prepare: true });
   });
 
   it("reuses its creation id when the coordinator response is lost", async () => {
@@ -95,7 +95,8 @@ describe("CreateTeamWizard", () => {
     await user.click(screen.getByRole("button", { name: "Try again" }));
     await waitFor(() => expect(onCreated).toHaveBeenCalledWith(created));
     expect(create).toHaveBeenCalledTimes(2);
-    expect(create.mock.calls[1][0].clientCreationId).toBe(create.mock.calls[0][0].clientCreationId);
+    expect(create.mock.calls[1][0]).toEqual(create.mock.calls[0][0]);
+    expect(create.mock.calls[0][0].prepare).toBe(true);
   });
 
   it("preserves active permission limits and only re-enables revoked profiles", async () => {
@@ -138,4 +139,22 @@ describe("CreateTeamWizard", () => {
     resolvePermission({ templateId: "research", maxChildren: 2 });
     await waitFor(() => expect(onCreated).toHaveBeenCalledWith(coordinator));
   });
+});
+
+it.each(["box", "local"] as const)("prepares a new %s coordinator without launching specialist tasks", async (provider) => {
+  const create = vi.spyOn(api, "createCompanion").mockResolvedValue({ companion: coordinator });
+  const prepare = vi.spyOn(workspaceApi, "prepare");
+  const spawn = vi.spyOn(workspaceApi, "spawnReplica");
+  const user = userEvent.setup();
+  render(<CreateTeamWizard config={{ ...config, boxAvailable: provider === "box", localAvailable: provider === "local" }} companions={[]} onCreated={vi.fn()} onCancel={vi.fn()}/>);
+  await user.type(screen.getByLabelText("Name"), "Maya");
+  await user.type(screen.getByLabelText("Purpose"), "Coordinate the team");
+  await user.click(screen.getByRole("button", { name: "Continue" }));
+  await screen.findByText("Researcher");
+  await user.click(screen.getByRole("button", { name: "Review team" }));
+  expect(screen.getByText(/computer will start preparing/)).toBeInTheDocument();
+  await user.click(screen.getByRole("button", { name: "Create team" }));
+  await waitFor(() => expect(create).toHaveBeenCalledWith(expect.objectContaining({ provider, prepare: true })));
+  expect(prepare).not.toHaveBeenCalled();
+  expect(spawn).not.toHaveBeenCalled();
 });

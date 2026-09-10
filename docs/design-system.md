@@ -50,9 +50,12 @@ specialists and their tasks stay in each companion’s Team and Activity surface
 Creation is a full split view: a live character preview and appearance choices on the left,
 identity, connected accounts and specialist choices on the right. Mobile folds appearance controls
 behind a single disclosure. `/new` is directly accessible. Creation persists one owner-scoped
-session intent, creates with `prepare:false`, then grants the selected accounts and specialists.
-Retries resume that intent. The user can open an already-created companion and finish optional
-access setup later if an account is no longer available. Chat sending remains the wake action.
+session intent, creates with `prepare:true`, then grants the selected accounts and specialists
+while the executor prepares the computer. Retries resume the same intent. Older saved
+`prepare:false` requests retain their exact creation fingerprint and request preparation after
+acknowledgement. The user can open an already-created companion and finish optional access
+setup later if an account is no longer available. Sending a message can still wake an archived
+computer; new creation no longer waits for that first message to request preparation.
 
 ## Validation
 

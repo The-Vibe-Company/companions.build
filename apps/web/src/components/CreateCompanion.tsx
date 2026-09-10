@@ -39,6 +39,7 @@ type StoredCreation = {
   completedAccountIds: string[];
   completedSpecialistIds: string[];
   createdCompanionId?: string;
+  legacyPreparationRequested?: boolean;
 };
 
 function storageKey(ownerId: string) { return `companions.create.pending.${ownerId}`; }
@@ -81,6 +82,7 @@ export function CreateCompanion({ config, onCreated, compact = false, ownerId, o
   const creationId = useRef(restored.current?.request.clientCreationId ?? crypto.randomUUID());
   const frozenCreation = useRef<FrozenCreation | null>(restored.current?.request ?? null);
   const createdCompanion = useRef<Companion | null>(null);
+  const legacyPreparationRequested = useRef(restored.current?.legacyPreparationRequested ?? false);
   const completedAccounts = useRef(new Set(restored.current?.completedAccountIds ?? []));
   const completedSpecialists = useRef(new Set(restored.current?.completedSpecialistIds ?? []));
   const submissionPending = useRef(false);
@@ -96,6 +98,7 @@ export function CreateCompanion({ config, onCreated, compact = false, ownerId, o
       specialistIds: [...specialistIds],
       completedAccountIds: [...completedAccounts.current],
       completedSpecialistIds: [...completedSpecialists.current],
+      legacyPreparationRequested: legacyPreparationRequested.current,
       ...(companionId ? { createdCompanionId: companionId } : {}),
     };
     try { window.sessionStorage.setItem(storageKey(ownerId), JSON.stringify(progress)); } catch { /* Storage is an optional recovery aid. */ }
@@ -195,7 +198,7 @@ export function CreateCompanion({ config, onCreated, compact = false, ownerId, o
         instructions: instructions.trim(),
         provider,
         avatar,
-        prepare: false,
+        prepare: true,
         clientCreationId: creationId.current,
         ...(sourceTemplate ? { templateId: sourceTemplate.id, templateRevision: sourceTemplate.revision } : {}),
       };
@@ -210,6 +213,14 @@ export function CreateCompanion({ config, onCreated, compact = false, ownerId, o
         setCreatedId(result.companion.id);
       }
       const companion = createdCompanion.current;
+      // Keep pre-upgrade requests identical for creation idempotency, then enqueue
+      // their preparation through the existing durable lifecycle admission.
+      if (frozenCreation.current?.prepare === false && !legacyPreparationRequested.current) {
+        await workspaceApi.prepare(companion.id);
+        legacyPreparationRequested.current = true;
+        persistProgress(companion.id);
+        if (!mounted.current) return;
+      }
       for (const accountId of accountIds) {
         if (completedAccounts.current.has(accountId)) continue;
         await workspaceApi.selectPlugin(companion.id, accountId);

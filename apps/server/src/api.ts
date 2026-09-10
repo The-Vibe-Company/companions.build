@@ -1,3 +1,5 @@
+import { MEMORY_TRANSPORT_MAX_BYTES } from "../../../packages/agent/src/memory-protocol";
+import { handleMemory } from "./memory";
 import {privateBetaEmails} from "./private-beta";
 import { companionSkillCommands } from "./skill-commands";
 import {createSpecialistDraft,openSpecialistDraft,readSpecialistDraft,updateSpecialistDraft,requestSpecialistPublication,requestSpecialistTest,assessSpecialistTest} from './specialist-drafts';
@@ -134,7 +136,7 @@ export async function handler(request: Request): Promise<Response> {
   // Reject cross-origin browser writes, including login. Vite forwards same origin.
   const origin = request.headers.get("origin");
   if (origin && ![url.origin, process.env.APP_URL ?? "http://127.0.0.1:4310", `http://localhost:${process.env.WEB_PORT ?? 4310}`].includes(origin)) return json({ error: "Origin not allowed." }, 403);
-  if (Number(request.headers.get("content-length") ?? 0) > (url.pathname.endsWith("/files") ? FILE_REQUEST_MAX_BYTES : 100_000)) return json({ error: "Request too large." }, 413);
+  if (Number(request.headers.get("content-length") ?? 0) > (url.pathname.endsWith("/files") ? FILE_REQUEST_MAX_BYTES : url.pathname.endsWith("/memory/legacy") ? MEMORY_TRANSPORT_MAX_BYTES : 100_000)) return json({ error: "Request too large." }, 413);
   try {
     if (url.pathname.startsWith("/api/auth/")) return auth.handler(request);
     if (request.method === "GET" && url.pathname === "/api/me") {
@@ -143,6 +145,8 @@ export async function handler(request: Request): Promise<Response> {
     }
     const ownerId = await requireUser(request);
     if(mutationStartsWork(url.pathname,request.method))await requireHostedActivation(ownerId);
+    const memoryResponse=await handleMemory(request,ownerId);
+    if(memoryResponse)return memoryResponse;
     const maintenanceResponse=await handleMaintenance(request,ownerId);
     if(maintenanceResponse)return maintenanceResponse;
     const billingResponse = await handleBilling(request,ownerId);

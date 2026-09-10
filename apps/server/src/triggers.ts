@@ -1,3 +1,4 @@
+import { acceptMemoryWebhook } from "./memory";
 import {requireHostedActivation} from './activation';
 import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { z } from "zod";
@@ -32,7 +33,7 @@ export const triggerInputSchema = z.object({
   if (value.mode === "direct" && value.filterRequests.length) context.addIssue({ code: "custom", message: "API requests require a code filter." });
   if (value.source === "github" && !value.target?.repo) context.addIssue({ code: "custom", message: "A GitHub repository is required." });
   if (value.source === "sentry" && (!value.target?.organization || !value.target.project)) context.addIssue({ code: "custom", message: "A Sentry project is required." });
-  if (value.source === "github" && value.target?.events?.some(event => event !== "workflow_run")) context.addIssue({ code: "custom", message: "GitHub failed-CI triggers use workflow_run events." });
+  if (value.source === "github" && value.target?.events?.some(event => !["workflow_run", "pull_request"].includes(event))) context.addIssue({ code: "custom", message: "GitHub triggers support workflow_run and pull_request lifecycle events." });
   if (value.source === "sentry" && value.target?.events?.some(event => event !== "event.created")) context.addIssue({ code: "custom", message: "Sentry issue triggers use event.created events." });
 });
 export type TriggerInput = z.infer<typeof triggerInputSchema>;
@@ -150,6 +151,8 @@ export const triggerProviderAdapters: Record<"github" | "sentry", TriggerProvide
   github: {
     async register({ target, webhookUrl, secret, token, fetchImpl }) {
     const [owner, repository] = target.repo!.split("/");
+    // Reuse this signed endpoint for mission closure without launching a PR-event agent run.
+    const events = [...new Set([...(target.events ?? ["workflow_run"]), "pull_request"])];
     const endpoint = `https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repository)}/hooks`;
     const listed = z.array(z.object({ id: z.union([z.string(), z.number()]), config: z.object({ url: z.string().optional() }).passthrough() }).passthrough())
         .parse(await providerList(endpoint, token, fetchImpl));
@@ -158,12 +161,12 @@ export const triggerProviderAdapters: Record<"github" | "sentry", TriggerProvide
     if (found) {
       remoteHookId = String(found.id);
         await providerJson(`${endpoint}/${encodeURIComponent(remoteHookId)}`, token, {
-        method: "PATCH", body: JSON.stringify({ active: true, events: target.events ?? ["workflow_run"],
+        method: "PATCH", body: JSON.stringify({ active: true, events,
           config: { url: webhookUrl, content_type: "json", insecure_ssl: "0", secret } }),
       }, fetchImpl);
     } else {
         const created = z.object({ id: z.union([z.string(), z.number()]) }).passthrough().parse(await providerJson(endpoint, token, {
-        method: "POST", body: JSON.stringify({ name: "web", active: true, events: target.events ?? ["workflow_run"],
+        method: "POST", body: JSON.stringify({ name: "web", active: true, events,
           config: { url: webhookUrl, content_type: "json", insecure_ssl: "0", secret } }),
       }, fetchImpl));
       remoteHookId = String(created.id);
@@ -325,7 +328,10 @@ export async function handleWebhook(request: Request, dependencies: { database?:
       if (!inserted[0]) {
         const existing = await tx.unsafe(`SELECT payload_hash AS "payloadHash" FROM trigger_deliveries WHERE trigger_id=$1 AND delivery_key=$2`, [trigger.id, deliveryKey]) as { payloadHash: string }[];
         if (existing[0]?.payloadHash !== payloadHash) throw new TriggerError("Delivery identifier was reused with different content.", 409);
-      } else await tx.unsafe(`UPDATE triggers SET last_delivery_at=now() WHERE id=$1`, [trigger.id]);
+      } else {
+        await tx.unsafe(`UPDATE triggers SET last_delivery_at=now() WHERE id=$1`, [trigger.id]);
+        if(trigger.source === "github") await acceptMemoryWebhook(tx,trigger.companionId,request.headers.get("x-github-event"),payload);
+      }
       return inserted;
     });
     return Response.json({ ok: true, duplicate: !inserted[0] }, { status: 202 });

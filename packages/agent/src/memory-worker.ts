@@ -1,6 +1,7 @@
 import { createInterface } from "node:readline";
 import { MemoryStore } from "./memory-store";
-import type { MemoryRequest } from "./memory-protocol";
+import { MEMORY_TRANSPORT_MAX_BYTES } from "./memory-protocol";
+import type { MemoryRequest, MemoryAuthority } from "./memory-protocol";
 
 /** Private newline RPC on inherited pipes. EOF ends the child after a daemon crash. */
 export async function runMemoryWorker(stateDir: string) {
@@ -22,8 +23,8 @@ export async function runMemoryWorker(stateDir: string) {
     for await (const line of lines) {
       let id: unknown;
       try {
-        if (Buffer.byteLength(line) > 40_000) throw new Error("MEMORY_INVALID");
-        const input = JSON.parse(line) as { id: string; request: MemoryRequest };
+        if (Buffer.byteLength(line) > MEMORY_TRANSPORT_MAX_BYTES) throw new Error("MEMORY_INVALID");
+        const input = JSON.parse(line) as { id: string; request: MemoryRequest; authority?: MemoryAuthority };
         id = input.id;
         if (typeof id !== "string" || id.length > 100) throw new Error("MEMORY_INVALID");
         // Only the explicit scripted test boundary can simulate stalled initialization.
@@ -32,7 +33,7 @@ export async function runMemoryWorker(stateDir: string) {
           if (delay > 0) await Bun.sleep(delay);
         }
         store ??= new MemoryStore(stateDir);
-        const response = store.handle(input.request);
+        const response = store.handle(input.request, input.authority ?? "agent");
         process.stdout.write(JSON.stringify({ id, response }) + "\n");
         if ("more" in response && response.more) scheduleMaintenance();
       } catch {

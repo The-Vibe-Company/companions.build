@@ -38,6 +38,9 @@ test("bounded startup snapshot includes only unexpired standing preferences and 
   mkdirSync(join(state, "memory"));
   writeFileSync(join(state, "memory", "startup.json"), JSON.stringify({ memories: [
     { scope: "user", kind: "preference", content: "Keep summaries concise" },
+    { scope: "global", kind: "preference", content: "Retired advice", status: "retired" },
+    { scope: "global", kind: "preference", content: "Pending advice", approval: "pending" },
+    { scope: "global", kind: "preference", content: "Changed advice", verification: "changed" },
     { scope: "companion", kind: "correction", content: "Use the corrected spelling" },
     { scope: "project", kind: "preference", content: "Other project" },
     { scope: "user", kind: "preference", content: "Expired", expiresAt: "2000-01-01T00:00:00Z" },
@@ -45,8 +48,11 @@ test("bounded startup snapshot includes only unexpired standing preferences and 
   ] }));
   const snapshot = await service.startupContext();
   expect(snapshot).toContain("Keep summaries concise");
+  expect(snapshot).toContain("legacy:startup-snapshot");
+  expect(Buffer.byteLength(snapshot)).toBeLessThanOrEqual(4096);
   expect(snapshot).toContain("corrected spelling");
   expect(snapshot).not.toContain("Expired");
+  for (const hidden of ["Retired advice", "Pending advice", "Changed advice"]) expect(snapshot).not.toContain(hidden);
   expect(snapshot).not.toContain("Other project");
   expect(snapshot).not.toContain("Private mission");
 });
@@ -118,4 +124,27 @@ test("durable delete retries survive a new execution while temporary deletes sta
     expect((await remove("later-run", scoped)).details).toMatchObject({ status: "conflict" });
     expect((await remove("first-run", { ...scoped, operationId: "forget-owned" })).details).toMatchObject({ status: "ok", deleted: true });
   } finally { store.close(); }
+});
+
+
+test("the private transport preserves a fully escaped maximum-size legacy record", async () => {
+  const { service } = fixture([process.execPath, "-e", `
+    const readline=require('node:readline');
+    readline.createInterface({input:process.stdin}).on('line',line=>{
+      const {id}=JSON.parse(line);
+      console.log(JSON.stringify({id,response:{status:'ok',memory:{content:String.fromCharCode(0).repeat(30000)}}}));
+    });
+  `]);
+  const response = await service.request({ op: "read", id: "legacy-shared-memory" });
+  expect(response).toMatchObject({ status: "ok", memory: { content: "\u0000".repeat(30_000) } });
+});
+
+
+test("confirmed legacy replacement crosses daemon and worker input limits without truncation", async () => {
+  const { service } = fixture();
+  const content = "\u0000".repeat(30_000);
+  const request = { op: "legacy_replace", operationId: "escaped-replace", expectedVersion: "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855", content };
+  const response = await service.handleRequest(new Request("http://daemon/memory", { method: "POST",
+    body: JSON.stringify({ request, authority: "human" }) }));
+  expect(await response!.json()).toMatchObject({ status: "ok", legacy: { content } });
 });

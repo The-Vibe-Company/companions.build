@@ -84,6 +84,8 @@ export class PiExecutor implements RunExecutor {
     return new PiExecutor(stateDir, modelRuntime, provider, modelId,gatewayUrl);
   }
 
+  handleMemoryRequest(request: Request) { return this.persistentMemory.handleRequest(request); }
+
   async listSkillCommands(): Promise<SkillCommands> {
     const session = [...this.active.values()].find(run => run.lane === "main")?.session;
     if (session) return skillCommands(session.resourceLoader, session.settingsManager);
@@ -204,7 +206,7 @@ export class PiExecutor implements RunExecutor {
     if (!model) throw new Error("MODEL_NOT_FOUND");
     const sessionDir = execution.lane === "main" ? this.sessionsDir : join(this.sessionsDir, "background", execution.id);
     const testTools = this.provider === "companion-test" ? [scriptedHumanTool(execution.id, this.cwd)] : [];
-    const memoryTools = [...this.memory.tools(), ...this.persistentMemory.tools(execution.id)];
+    const memoryTools = [...this.memory.tools(() => this.persistentMemory.request({ op: "read", id: "legacy-shared-memory" })), ...this.persistentMemory.tools(execution.id)];
     mkdirSync(sessionDir, { recursive: true });
     const session = (await createAgentSession({
       cwd: this.cwd, agentDir: this.agentDir, modelRuntime: this.modelRuntime, model,

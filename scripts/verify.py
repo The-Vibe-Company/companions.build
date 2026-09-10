@@ -229,7 +229,7 @@ class Verifier:
     def run_agent_checks(self):
         self.run("agent-unit", [self.bun, "--no-env-file", "test", "packages/plugins/definitions.test.ts", "packages/plugins/tools.test.ts", "packages/agent/test/daemon.test.ts",
             "packages/agent/test/environment.test.ts", "packages/agent/test/initialization.test.ts",
-            "packages/agent/test/memory.test.ts", "packages/agent/test/memory-store.test.ts",
+            "packages/agent/test/memory.test.ts", "packages/agent/test/memory-store.test.ts", "packages/agent/test/memory-lifecycle.test.ts",
             "packages/agent/test/memory-service.test.ts", "packages/agent/test/skills.test.ts",
             "packages/desktop/desktop.test.ts", "packages/control/software.test.ts",
             "packages/box/software-install.test.ts", "packages/box/software-build.test.ts",

@@ -100,6 +100,7 @@ describe("durable trigger intake", () => {
     const providerFetch = async (_input: RequestInfo | URL, init?: RequestInit) => {
       if (init?.method === "GET") return Response.json([]);
       const body = JSON.parse(String(init?.body)); registeredSecret = body.config.secret;
+      expect(body.events).toEqual(["workflow_run", "pull_request"]);
       return Response.json({ id: 42 }, { status: 201 });
     };
     const createdResponse = await handleTriggers(new Request(`http://localhost/api/companions/${COMPANION}/triggers`, {
@@ -117,6 +118,13 @@ describe("durable trigger intake", () => {
       "x-github-delivery": crypto.randomUUID(), "x-github-event": "workflow_run", "x-hub-signature-256": `sha256=${signature}`,
     } }));
     let enqueued = 0;
+    await processTriggerInbox({ enqueueBackground: async () => { enqueued++; return crypto.randomUUID(); } });
+    expect(enqueued).toBe(0);
+    const merged = JSON.stringify({ action: "closed", number: 23, repository: { full_name: "acme/project" }, pull_request: { merged: true } });
+    expect((await handleWebhook(new Request(`http://localhost/api/webhooks/${created.trigger.id}`, { method: "POST", body: merged, headers: {
+      "x-github-delivery": crypto.randomUUID(), "x-github-event": "pull_request", "x-hub-signature-256": "sha256=" + createHmac("sha256", registeredSecret).update(merged).digest("hex"),
+    } })))!.status).toBe(202);
+    expect(await db`SELECT operation_id FROM memory_commands WHERE companion_id=${COMPANION}`).toHaveLength(1);
     await processTriggerInbox({ enqueueBackground: async () => { enqueued++; return crypto.randomUUID(); } });
     expect(enqueued).toBe(0);
   });

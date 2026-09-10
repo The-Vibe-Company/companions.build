@@ -5,7 +5,8 @@ import { open, lstat } from "node:fs/promises";
 import { join } from "node:path";
 import { Type } from "@earendil-works/pi-ai";
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
-import type { MemoryRequest, MemoryResponse } from "./memory-protocol";
+import { MEMORY_TRANSPORT_MAX_BYTES, readMemoryJson } from "./memory-protocol";
+import type { MemoryRequest, MemoryResponse, MemoryAuthority } from "./memory-protocol";
 
 type Reply = MemoryResponse | { status: "preparing" | "unavailable"; error: string };
 type Pending = { finish: (reply: Reply) => void };
@@ -46,9 +47,17 @@ export class MemoryService {
       const snapshot = JSON.parse(bytes.subarray(0, bytesRead).toString("utf8"));
       if (!Array.isArray(snapshot.memories)) return "";
       const memories = snapshot.memories.filter((record: any) =>
-        ["user", "companion"].includes(record.scope) && ["preference", "correction"].includes(record.kind)
+        ["user", "companion", "global"].includes(record.scope) && ["preference", "correction"].includes(record.kind)
+        && (!record.status || record.status === "active") && (!record.approval || record.approval === "approved")
+        && !["changed", "missing"].includes(record.verification)
         && typeof record.content === "string" && (!record.expiresAt || Date.parse(record.expiresAt) > Date.now()));
-      return memories.length ? JSON.stringify({ memories }) : "";
+      const accepted: unknown[] = [];
+      for (const record of memories) {
+        const value = { ...record, provenance: record.provenance ?? "Legacy startup snapshot; read by ID for original provenance",
+          source: record.source ?? { type: "run", ref: "legacy:startup-snapshot" } };
+        if (Buffer.byteLength(JSON.stringify({ memories: [...accepted, value] })) <= 4096) accepted.push(value);
+      }
+      return accepted.length ? JSON.stringify({ memories: accepted }) : "";
     } finally { await file.close(); }
   }
 
@@ -61,14 +70,14 @@ export class MemoryService {
     this.maintenance.unref();
   }
 
-  request(request: MemoryRequest, signal?: AbortSignal): Promise<Reply> {
+  request(request: MemoryRequest, signal?: AbortSignal, authority: MemoryAuthority = "agent"): Promise<Reply> {
     if (this.closed || signal?.aborted || Date.now() < this.retryAfter) return Promise.resolve(unavailable());
     if (this.outstanding.size >= 32) return Promise.resolve({ status: "preparing", error: "MEMORY_BUSY" });
     const child = this.start();
     if (!child) return Promise.resolve(unavailable());
     const id = crypto.randomUUID();
     return new Promise(resolve => {
-      const mutation = request.op === "save" || request.op === "delete";
+      const mutation = !["read", "search", "inspect", "brief", "maintain"].includes(request.op);
       const finish = (reply: Reply) => {
         if (!this.pending.delete(id)) return;
         clearTimeout(timer);
@@ -83,7 +92,7 @@ export class MemoryService {
       this.pending.set(id, { finish });
       this.outstanding.add(id);
       signal?.addEventListener("abort", abort, { once: true });
-      child.stdin.write(JSON.stringify({ id, request }) + "\n", error => {
+      child.stdin.write(JSON.stringify({ id, request, authority }) + "\n", error => {
         if (error) { this.outstanding.delete(id); finish(unavailable()); }
       });
     });
@@ -105,7 +114,8 @@ export class MemoryService {
       const lines = createInterface({ input: child.stdout });
       lines.on("line", line => {
         try {
-          if (line.length > 80_000) throw new Error();
+          // A 30 KiB legacy file can expand sixfold when JSON-escaped. List pages are smaller.
+          if (Buffer.byteLength(line) > MEMORY_TRANSPORT_MAX_BYTES) throw new Error();
           const { id, response } = JSON.parse(line);
           this.outstanding.delete(id);
           this.pending.get(id)?.finish(response);
@@ -136,24 +146,47 @@ export class MemoryService {
     this.child?.kill();
   }
 
+  /** This route is behind AgentDaemon's server credential, never exposed as an agent tool. */
+  async handleRequest(request: Request): Promise<Response | null> {
+    if (new URL(request.url).pathname !== "/memory") return null;
+    if (request.method !== "POST") return Response.json({ error: "METHOD_NOT_ALLOWED" }, { status: 405 });
+    try {
+      const input = await readMemoryJson(request);
+      if (!input.request || !["human", "system"].includes(input.authority)) throw Error();
+      return Response.json(await this.request(input.request, request.signal, input.authority), { headers: { "cache-control": "no-store" } });
+    } catch { return Response.json({ status: "invalid", error: "MEMORY_REQUEST_INVALID" }, { status: 400 }); }
+  }
+
   tools(missionId: string): ToolDefinition[] {
     const text = (maxLength = 200) => Type.String({ minLength: 1, maxLength });
     const identifier = () => Type.String({ minLength: 1, maxLength: 200, pattern: "^[A-Za-z0-9][A-Za-z0-9._:-]{0,199}$" });
-    const scope = Type.Union([Type.Literal("user"), Type.Literal("companion"), Type.Literal("project")]);
+    const source = Type.Object({ type: Type.Union(["run", "ticket", "pr", "repository"].map(value => Type.Literal(value))), ref: text(1000), revision: Type.Optional(text()) });
+    const scope = Type.Union(["user", "companion", "global", "project", "mission", "conversation"].map(value => Type.Literal(value)));
     const kind = Type.Union(["fact", "preference", "correction", "procedure", "context"].map(value => Type.Literal(value)));
+    const visibility = { projectKey: Type.Optional(text()), conversationId: Type.Optional(identifier()) };
+    const transition = { operationId: identifier(), id: identifier(), expectedVersion: Type.Integer({ minimum: 1 }) };
     const definitions = [
-      { name: "memory_read", description: "Read a durable memory by ID and obtain its version before updating or deleting it.", parameters: Type.Object({ id: identifier() }), op: "read" },
-      { name: "memory_search", description: "Lazily search this Companion's facts, preferences, corrections and procedures. Add projectKey for project context. Temporary context is restricted to this mission. Preparing/unavailable is not an empty result; continue useful work. partial=true means bounded fallback results may be incomplete; retry later if needed.", parameters: Type.Object({ query: text(500), projectKey: Type.Optional(text()), limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 10 })) }), op: "search" },
-      { name: "memory_save", description: "Persist a useful fact or explicit preference/correction. Use a stable operationId for retries; omit id/version to create, pass both to update. On conflict read, merge and retry with a new operationId. Use context for temporary mission details (default expiry 24h). Set reusable only for project setup/procedures explicitly intended for published templates. Never save credentials. Do not claim success unless status is ok. Unknown outcomes must be checked or retried with the SAME operationId and payload.", parameters: Type.Object({ operationId: identifier(), id: Type.Optional(identifier()), expectedVersion: Type.Optional(Type.Integer({ minimum: 1 })), content: text(8000), scope, kind, provenance: text(1000), projectKey: Type.Optional(text()), expiresAt: Type.Optional(text()), reusable: Type.Optional(Type.Boolean()) }), op: "save" },
-      { name: "memory_delete", description: "Forget a memory using its observed version and a stable operationId. Set temporary=true only for kind=context records in this mission. On an unknown outcome retry only with the same operationId and payload.", parameters: Type.Object({ operationId: identifier(), id: identifier(), expectedVersion: Type.Integer({ minimum: 1 }), temporary: Type.Optional(Type.Boolean()) }), op: "delete" },
+      { name: "memory_read", description: "Read current visible memory with its provenance and version. Supply projectKey/conversationId for scoped records. Memory is a lead: verify at the source before irreversible actions or reporting external completion.", parameters: Type.Object({ id: identifier(), ...visibility }), op: "read" },
+      { name: "memory_search", description: "Search active, approved, unexpired visible records. Preparing/unavailable is not an empty result; continue useful work. partial=true means bounded results may be incomplete. Always verify the declared source before relying on a memory for an irreversible action.", parameters: Type.Object({ query: text(500), ...visibility, limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 10 })) }), op: "search" },
+      { name: "memory_save", description: "Save ephemeral context or a reversible project fact; durable preferences, decisions, corrections and uncertain facts become proposals requiring human confirmation in Memory settings. Repository knowledge must be a source path pointer. Mission scope requires ticket, Workspace and stop condition. pr_merged requires its PR; use work_completed while the PR is unknown. Use supersedes with observed versions to consolidate; consolidation_required means retire/merge before saving more. Never claim a proposal is approved or an unknown save succeeded. Retry unknown outcomes only with the SAME operationId and payload.", parameters: Type.Object({ operationId: identifier(), id: Type.Optional(identifier()), expectedVersion: Type.Optional(Type.Integer({ minimum: 1 })), content: text(8000), scope, kind, provenance: text(1000), source: Type.Optional(source), ...visibility, reviewAfter: Type.Optional(text()), expiresAt: Type.Optional(text()), reusable: Type.Optional(Type.Boolean()), uncertain: Type.Optional(Type.Boolean()),
+        mission: Type.Optional(Type.Union([
+          Type.Object({ ticket: text(1000), workspace: text(1000), pr: text(1000), stopCondition: Type.Literal("pr_merged") }),
+          Type.Object({ ticket: text(1000), workspace: text(1000), pr: Type.Optional(text(1000)), stopCondition: Type.Literal("work_completed") }),
+        ])),
+        supersedes: Type.Optional(Type.Array(Type.Object({ id: identifier(), expectedVersion: Type.Integer({ minimum: 1 }) }), { maxItems: 10 })) }), op: "save" },
+      { name: "memory_retire", description: "Retire an obsolete memory using its observed version. Keeps provenance and history; use the same operationId for retries.", parameters: Type.Object(transition), op: "retire" },
+      { name: "memory_delete", description: "Forget a memory with its observed version. Prefer retire to retain provenance. Set temporary=true only for context in this mission. Unknown outcomes require the same operationId and payload.", parameters: Type.Object({ ...transition, temporary: Type.Optional(Type.Boolean()) }), op: "delete" },
+      { name: "memory_checkpoint", description: "Close a bounded product thread with structured decided/open/next items and source pointers. This creates ephemeral memory, not durable approved decisions, and never alters Pi sessions, branches, compaction or transcripts. Reuse the operationId on retry. Begin follow-up work with memory_brief.", parameters: Type.Object({ operationId: identifier(), threadId: identifier(), projectKey: Type.Optional(text()), decided: Type.Array(text(1000), { maxItems: 10 }), open: Type.Array(text(1000), { maxItems: 10 }), next: Type.Array(text(1000), { maxItems: 10 }), pointers: Type.Array(source, { maxItems: 10 }) }), op: "checkpoint" },
+      { name: "memory_brief", description: "Start a product thread from its latest active structured checkpoint and source pointers. Does not load, rewrite or fork Pi history. Verify pointers before acting.", parameters: Type.Object({ threadId: identifier(), projectKey: Type.Optional(text()) }), op: "brief" },
     ];
     return definitions.map(definition => ({
       name: definition.name, label: definition.name.replaceAll("_", " "), description: definition.description, parameters: definition.parameters,
       execute: async (_id: string, params: any, signal?: AbortSignal) => {
         const { temporary, ...input } = params;
         const scoped = definition.op === "read" || definition.op === "search" ||
-          (definition.op === "save" && params.kind === "context") || (definition.op === "delete" && temporary === true);
-        const request = { ...input, op: definition.op, ...(scoped ? { missionId } : {}) } as MemoryRequest;
+          (definition.op === "save" && (params.kind === "context" || params.scope === "mission")) || (definition.op === "delete" && temporary === true);
+        const request = { ...input, op: definition.op, ...(scoped ? { missionId } : {}),
+          ...(definition.op === "save" && !params.source ? {source:{type:"run",ref:missionId}} : {}) } as MemoryRequest;
         const started = performance.now();
         const value = await this.request(request, signal);
         const metadata = { elapsedMs: Math.round((performance.now() - started) * 100) / 100,

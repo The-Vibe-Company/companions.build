@@ -1,3 +1,4 @@
+import type { MemoryRecord, MemoryResponse } from "../../../packages/agent/src/memory-protocol";
 import type { CompanionAvatarValue } from "@/components/CompanionAvatar";
 
 export type CompanionStatus = "new" | "preparing" | "ready" | "archived" | "error";
@@ -242,6 +243,10 @@ async function fingerprintFile(file: File): Promise<string> {
 }
 
 export const api = {
+  adoptLegacyMemory: (id:string,operationId:string) => request<{command:{operationId:string}}>(`/api/companions/${id}/memory/adopt-legacy`,{method:"POST",body:JSON.stringify({operationId})}),
+  getMemory: (id:string,cursor?:string) => request<{status:'ok';memories:MemoryRecord[];nextCursor?:string}>(`/api/companions/${id}/memory${cursor?`?cursor=${encodeURIComponent(cursor)}`:''}`),
+  changeMemory: (id:string,action:'approve'|'retire',input:{operationId:string;id:string;expectedVersion:number}) => request<{command:{operationId:string}}>(`/api/companions/${id}/memory/${action}`,{method:'POST',body:JSON.stringify(input)}),
+  memoryCommand: (id:string,operationId:string) => request<{command:{operationId:string;settledAt:string|null;response:MemoryResponse|null}}>(`/api/companions/${id}/memory/commands/${encodeURIComponent(operationId)}`),
   hasPendingUpload: (id: string) => (readPendingMessage(id)?.fileIds.length ?? 0) > 0,
   getMe: () => request<{ user: AccountUser }>("/api/me"),
   requestMagicLink: (email: string) => request<unknown>("/api/auth/sign-in/magic-link", {

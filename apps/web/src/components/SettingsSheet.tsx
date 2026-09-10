@@ -1,3 +1,4 @@
+import { MemoryPanel } from "./MemoryPanel";
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { ArrowLeft, ChevronRight, Computer, CalendarClock, LoaderCircle, Pencil, UserRound, Waypoints, Send, Trash2, X } from 'lucide-react';
 import { api, type CompanionDetail, type AppConfig } from '@/api';
@@ -200,6 +201,7 @@ export const SettingsSheet = forwardRef<SettingsSheetHandle, Props>(function Set
               </section>
               <section className="settings-client" aria-labelledby="settings-client-title"><h3 id="settings-client-title">Share with a client</h3><p>Delivers a copy of {detail.companion.name} with its skills and specialists. Your conversation, files and accounts are never included.</p><DeliverySettings companionId={detail.companion.id} compact /></section>
             </div>
+            {active && <MemoryPanel key={detail.companion.id} companionId={detail.companion.id} />}
             <div className="settings-delete-row"><div><strong>Delete {detail.companion.name}</strong><span>Removes the conversation, files, automations and computer. Specialists are shared and stay.</span></div><Button type="button" variant="outline" disabled={saving || deleting} onClick={() => { setDeleteError(''); goToPage('delete'); }}>Delete…</Button></div>
           </>}
           {page === 'activity' && activity}

@@ -1,3 +1,4 @@
+import { MemoryCoordinator } from "./memory-reconciliation";
 import {agentModelId,selectedProvider} from './model-selection';
 import {ManagedBaseImageCoordinator} from './managed-base-image';
 import {runtimeUpdateMachine} from "./runtime-updates";
@@ -447,6 +448,8 @@ if (import.meta.main) {
   const observations=new BoxObserver();
   const runs=new RunCoordinator();
   const software=new SoftwareBuildCoordinator();
-  try { while(!shutdown.signal.aborted) { await baseImage.schedule(sql); if(productHooks.software)await software.schedule(sql,productHooks.software); await observations.schedule(sql); await tick(sql, productHooks,lifecycle,runs); await Bun.sleep(500); } }
-  finally { await Promise.allSettled([baseImage.close(),lifecycle.close(),observations.close(),runs.close(),software.close()]); sql.release(); await db.close(); }
+  const memory=new MemoryCoordinator();
+  const [memoryLeader]=await sql`SELECT pg_backend_pid() AS pid`;
+  try { while(!shutdown.signal.aborted) { memory.schedule(memoryLeader.pid); await baseImage.schedule(sql); if(productHooks.software)await software.schedule(sql,productHooks.software); await observations.schedule(sql); await tick(sql, productHooks,lifecycle,runs); await Bun.sleep(500); } }
+  finally { await Promise.allSettled([memory.close(),baseImage.close(),lifecycle.close(),observations.close(),runs.close(),software.close()]); sql.release(); await db.close(); }
 }

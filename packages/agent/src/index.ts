@@ -9,7 +9,6 @@ import { AgentFiles } from "../../control/files";
 import { AgentSkills } from "../../control/skills";
 import { desktopTools } from "../../desktop/tools";
 import {runDesktopBroker} from '../../desktop/run';
-import { runMemoryWorker } from "./memory-worker";
 
 async function startupPhase<T>(phase:string,body:()=>T|Promise<T>):Promise<T>{
   try{return await body();}catch(error){
@@ -38,7 +37,7 @@ export async function startAgent() {
       try {return await fetch('http://desktop/state',{unix:desktopSocket,signal:AbortSignal.timeout(2000)} as RequestInit & {unix:string});}
       catch{return Response.json({error:'desktop_unavailable'},{status:503});}
     }
-    return await control.handleRequest(request) ?? await files.handleRequest(request) ?? await skills.handleRequest(request);
+    return await executor.handleMemoryRequest(request) ?? await control.handleRequest(request) ?? await files.handleRequest(request) ?? await skills.handleRequest(request);
   },desktopSocket?1:0);
   const server = await startupPhase("SERVER",()=>Bun.serve({ hostname: "0.0.0.0", port, maxRequestBodySize: 15 * 1024 * 1024, fetch: request => daemon.fetch(request) }));
   const shutdown = () => { server.stop(true); executor.close(); daemon.close(); control.close(); files.close(); process.exit(0); };
@@ -59,7 +58,8 @@ if (import.meta.main) {
   if(process.argv.includes('--memory-worker')) {
     const stateDir = process.argv[process.argv.indexOf('--memory-worker') + 1];
     if (!stateDir || !stateDir.startsWith('/')) process.exit(1);
-    runMemoryWorker(stateDir).then(() => process.exit(0), () => process.exit(1));
+    import("./memory-worker").then(({ runMemoryWorker }) => runMemoryWorker(stateDir))
+      .then(() => process.exit(0), () => process.exit(1));
   }else if(credentialHelper>=0){
     const socketPath=process.argv[credentialHelper+1]??'',operation=process.argv[credentialHelper+2]??'';
     runGitCredentialHelper(socketPath,operation).then(code=>{if(code===2)console.error('GITHUB_CREDENTIAL_AMBIGUOUS');process.exit(code===2?1:code);},()=>process.exit(1));

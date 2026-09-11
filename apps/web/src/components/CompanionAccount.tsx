@@ -109,15 +109,17 @@ function ReceivedDelivery({ item, busy, onAccept }: { item: DeliveryReceived; bu
 
 export function DesktopSheet({ companion, onClose, onRefresh, embedded = false, active = true }: { companion: Companion; onClose: () => void; onRefresh: () => Promise<void>; embedded?: boolean; active?: boolean }) {
   const [waiting, setWaiting] = useState<"pause" | "release" | "prepare" | "">(""); const [error, setError] = useState("");
-  const desktopPoll = useRef<{ cancelled: boolean; popup: Window; timer?: number } | null>(null);
+  const [desktopUrl, setDesktopUrl] = useState<string | null>(null);
+  const desktopPoll = useRef<{ cancelled: boolean; popup: Window | null; timer?: number } | null>(null);
   useEffect(() => {
+    setDesktopUrl(null);
     if (!active) setWaiting("");
     return () => {
       // Only the pending viewer belongs to this panel; human control stays durable.
       if (!desktopPoll.current) return;
       desktopPoll.current.cancelled = true;
       if (desktopPoll.current.timer) window.clearTimeout(desktopPoll.current.timer);
-      if (!desktopPoll.current.popup.closed) desktopPoll.current.popup.close();
+      if (desktopPoll.current.popup && !desktopPoll.current.popup.closed) desktopPoll.current.popup.close();
       desktopPoll.current = null;
     };
   }, [active, companion.id]);
@@ -128,31 +130,34 @@ export function DesktopSheet({ companion, onClose, onRefresh, embedded = false, 
     const timer = window.setInterval(() => void onRefresh(), 1_200); return () => window.clearInterval(timer);
   }, [active, waiting, companion.desktopPausedAt, companion.error, onRefresh]);
   async function open() {
-    const popup = window.open("about:blank", "_blank"); setError("");
-    if (!popup) { setError("Allow pop-ups to open the desktop."); return; }
-    popup.document.title = `Preparing ${companion.name}`;
-    popup.document.body.textContent = "Preparing desktop…";
-    popup.document.body.style.cssText = "font:16px system-ui;display:grid;place-items:center;min-height:100vh;margin:0;color:#444;background:#fafafa";
+    const popup = window.open("about:blank", "_blank"); setError(""); setDesktopUrl(null);
+    if (popup && !popup.closed) {
+      popup.document.title = `Preparing ${companion.name}`;
+      popup.document.body.textContent = "Preparing desktop…";
+      popup.document.body.style.cssText = "font:16px system-ui;display:grid;place-items:center;min-height:100vh;margin:0;color:#444;background:#fafafa";
+    }
     if (desktopPoll.current) { desktopPoll.current.cancelled = true; if (desktopPoll.current.timer) window.clearTimeout(desktopPoll.current.timer); }
-    const poll = { cancelled: false, popup } as { cancelled: boolean; popup: Window; timer?: number };
+    const poll = { cancelled: false, popup } as { cancelled: boolean; popup: Window | null; timer?: number };
     desktopPoll.current = poll; setWaiting("prepare"); const startedAt = Date.now();
     const attempt = async () => {
       if (poll.cancelled) return;
-      if (popup.closed) { poll.cancelled = true; desktopPoll.current = null; setWaiting(""); return; }
       try {
         const result = await api.openDesktop(companion.id);
         if (poll.cancelled) return;
-        if (result.url) { poll.cancelled = true; desktopPoll.current = null; popup.location.replace(result.url); setWaiting(""); void onRefresh(); return; }
-        if (Date.now() - startedAt >= 5 * 60_000) { poll.cancelled = true; desktopPoll.current = null; popup.close(); setWaiting(""); setError("The desktop is taking longer than expected. Try again shortly."); return; }
+        if (result.url) { poll.cancelled = true; desktopPoll.current = null; setDesktopUrl(result.url); setWaiting("");
+          // A browser may block navigation even after returning a popup handle.
+          try { if (popup && !popup.closed) popup.location.replace(result.url); } catch { /* The same-tab link remains available. */ }
+          void onRefresh(); return; }
+        if (Date.now() - startedAt >= 5 * 60_000) { poll.cancelled = true; desktopPoll.current = null; popup?.close(); setWaiting(""); setError("The desktop is taking longer than expected. Try again shortly."); return; }
         poll.timer = window.setTimeout(() => void attempt(), 2_000);
-      } catch (cause) { if (poll.cancelled) return; poll.cancelled = true; desktopPoll.current = null; popup.close(); setWaiting(""); setError(errorText(cause)); }
+      } catch (cause) { if (poll.cancelled) return; poll.cancelled = true; desktopPoll.current = null; popup?.close(); setWaiting(""); setError(errorText(cause)); }
     };
     await attempt();
   }
   async function toggle() { const releasing = !!companion.desktopTaken; setWaiting(releasing ? "release" : "pause"); setError(""); try { if (releasing) await workspaceApi.releaseDesktop(companion.id); else await workspaceApi.takeDesktop(companion.id); await onRefresh(); } catch (cause) { setWaiting(""); setError(errorText(cause)); } }
   const confirmedPaused = !!companion.desktopPausedAt;
   if (!active) return null;
-  const content = <div className="desktop-content"><div className={`desktop-state ${confirmedPaused ? "desktop-state--paused" : ""}`}><CompanionAvatar name={companion.name} avatar={companion.avatar} size={68} /><span>{confirmedPaused ? <Pause /> : <MonitorUp />}</span></div><div><h3>{confirmedPaused ? "You have control" : waiting === "prepare" ? "Preparing desktop…" : waiting === "pause" ? "Taking control…" : "Open the computer"}</h3><p>{confirmedPaused ? "The desktop is yours. Chat and background work continue." : waiting === "prepare" ? "The new tab will open when the desktop is ready." : "View the desktop, or take control to make changes."}</p></div>{error && <p className="field-error" role="alert">{error}</p>}<div className="desktop-actions"><Button variant="outline" onClick={() => void open()} disabled={!!waiting}>{waiting === "prepare" ? <LoaderCircle className="spin" /> : <ArrowUpRight />}{waiting === "prepare" ? "Preparing…" : "Open desktop"}</Button><Button onClick={() => void toggle()} disabled={!!waiting}>{waiting && waiting !== "prepare" ? <LoaderCircle className="spin" /> : confirmedPaused ? <Play /> : <Pause />}{waiting === "release" ? "Releasing…" : waiting === "pause" ? "Taking control…" : confirmedPaused ? "Release desktop" : "Take control"}</Button></div><div className="trust-note"><ShieldCheck />Control is shown only after the computer confirms it.</div></div>;
+  const content = <div className="desktop-content"><div className={`desktop-state ${confirmedPaused ? "desktop-state--paused" : ""}`}><CompanionAvatar name={companion.name} avatar={companion.avatar} size={68} /><span>{confirmedPaused ? <Pause /> : <MonitorUp />}</span></div><div><h3>{confirmedPaused ? "You have control" : waiting === "prepare" ? "Preparing desktop…" : waiting === "pause" ? "Taking control…" : "Open the computer"}</h3><p>{confirmedPaused ? "The desktop is yours. Chat and background work continue." : waiting === "prepare" ? "A desktop link will appear when the computer is ready." : "View the desktop, or take control to make changes."}</p></div>{error && <p className="field-error" role="alert">{error}</p>}<div className="desktop-actions"><Button variant="outline" onClick={() => void open()} disabled={!!waiting}>{waiting === "prepare" ? <LoaderCircle className="spin" /> : <ArrowUpRight />}{waiting === "prepare" ? "Preparing…" : "Open desktop"}</Button><Button onClick={() => void toggle()} disabled={!!waiting}>{waiting && waiting !== "prepare" ? <LoaderCircle className="spin" /> : confirmedPaused ? <Play /> : <Pause />}{waiting === "release" ? "Releasing…" : waiting === "pause" ? "Taking control…" : confirmedPaused ? "Release desktop" : "Take control"}</Button></div>{desktopUrl && <a className="desktop-current-tab" href={desktopUrl} rel="noreferrer">Open desktop in this tab</a>}<div className="trust-note"><ShieldCheck />Control is shown only after the computer confirms it.</div></div>;
   if (embedded) return <section aria-label="Computer controls">{content}</section>;
   return <div className="sheet-layer"><button className="sheet-scrim" onClick={onClose} aria-label="Close desktop controls" /><aside className="desktop-sheet" role="dialog" aria-modal="true" aria-labelledby="desktop-title"><header className="sheet-header"><div><span>{companion.name}</span><h2 id="desktop-title">Desktop</h2></div><Button variant="ghost" size="icon" onClick={onClose} aria-label="Close desktop controls"><X /></Button></header>{content}</aside></div>;
 }

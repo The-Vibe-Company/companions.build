@@ -28,7 +28,10 @@ function discussion(row:any) {
 }
 export async function listDiscussions(ownerId:string,archived=false,companionId?:string) {
  if(companionId) await availableCompanion(ownerId,companionId);
- const discussions = await db.unsafe(`SELECT ${columns} FROM discussions WHERE owner_id=$1 AND (archived_at IS NOT NULL)=$2 AND ($3::uuid IS NULL OR direct_companion_id=$3) ORDER BY updated_at DESC,id LIMIT 500`,[ownerId,archived,companionId??null]);
+ const discussions = await db.unsafe(`SELECT ${columns},COALESCE((SELECT jsonb_agg(p.companion_id ORDER BY p.joined_at,p.companion_id)
+  FROM discussion_participants p JOIN companions c ON c.id=p.companion_id
+  WHERE p.discussion_id=d.id AND p.removed_at IS NULL AND c.owner_id=d.owner_id AND c.retired_at IS NULL),'[]'::jsonb) AS "participantIds"
+  FROM discussions d WHERE owner_id=$1 AND (archived_at IS NOT NULL)=$2 AND ($3::uuid IS NULL OR direct_companion_id=$3) ORDER BY updated_at DESC,id LIMIT 500`,[ownerId,archived,companionId??null]);
  const folders = await db`SELECT id,name,to_jsonb(companion_ids) AS "companionIds",created_at AS "createdAt" FROM discussion_folders WHERE owner_id=${ownerId} ORDER BY created_at,id`;
  return {discussions,folders};
 }
@@ -154,13 +157,13 @@ export async function discussionSnapshot(ownerId:string,id:string,before?:string
   db`SELECT id,companion_id AS "companionId",reason,prompt,status FROM discussion_proposals WHERE discussion_id=${id} ORDER BY (status='pending') DESC,created_at DESC,id LIMIT 100`
  ]);
  const pageRunIds=page.messages.map((m:any)=>m.runId);
- const messageRuns=pageRunIds.length?await db`SELECT id,companion_id FROM runs WHERE discussion_id=${id} AND id IN (SELECT jsonb_array_elements_text(${pageRunIds}::jsonb)::uuid)`:[];
+ const messageRuns=pageRunIds.length?await db`SELECT id,companion_id,coordinator_run_id FROM runs WHERE discussion_id=${id} AND id IN (SELECT jsonb_array_elements_text(${pageRunIds}::jsonb)::uuid)`:[];
  const allFiles:any[]=(await Promise.all(participants.map((p:any)=>filesForThread(ownerId,p.companionId,{runIds:[...new Set([...tasks.filter((t:any)=>t.companionId===p.companionId).map((t:any)=>t.id),...messageRuns.filter((r:any)=>r.companion_id===p.companionId).map((r:any)=>r.id)])]})))).flat();
  const uploads=pageRunIds.length?await db`SELECT id,run_id AS "runId",filename AS name,content_type AS "mimeType",byte_size AS size FROM discussion_uploads WHERE discussion_id=${id} AND ready AND run_id IN (SELECT jsonb_array_elements_text(${pageRunIds}::jsonb)::uuid) ORDER BY position`:[];
  allFiles.push(...uploads.map((f:any)=>({...f,kind:'user_upload',url:`/api/discussions/${id}/files/${f.id}`})));
  const taskIds=tasks.map((t:any)=>t.id);
  const questions=taskIds.length?await db`SELECT q.id,q.run_id AS "runId",q.question,q.options,q.answer FROM task_questions q JOIN runs r ON r.id=q.run_id WHERE r.discussion_id=${id} AND r.id IN (SELECT jsonb_array_elements_text(${taskIds}::jsonb)::uuid) ORDER BY q.created_at,q.id`:[];
- return {discussion:discussion(d),participants,messages:page.messages.map((m:any)=>({...m,files:allFiles.filter(f=>f.runId===m.runId&&(m.role==='user'?f.kind==='user_upload':f.kind==='agent_output'))})),
+ return {discussion:discussion(d),participants,messages:page.messages.map((m:any)=>({...m,delegated:messageRuns.some((run:any)=>run.id===m.runId&&run.coordinator_run_id!==null),files:allFiles.filter(f=>f.runId===m.runId&&(m.role==='user'?f.kind==='user_upload':f.kind==='agent_output'))})),
   tasks:tasks.map((t:any)=>({...t,questions:questions.filter((q:any)=>q.runId===t.id),files:allFiles.filter(f=>f.runId===t.id)})),centralRuns,proposals,beforeCursor:page.beforeCursor};
 }
 export async function answerDiscussionQuestion(ownerId:string,id:string,questionId:string,answer:string) {

@@ -1,6 +1,6 @@
 import {AccountProduct} from '@/components/CompanionAccount';
 import { lazy, Suspense, useCallback, useEffect, useState, type FormEvent } from "react";
-import { CircleAlert, LoaderCircle, Mail, Menu } from "lucide-react";
+import { ArrowLeft, CircleAlert, LoaderCircle, Mail } from "lucide-react";
 import { api, ApiError, type AccountUser, type AppConfig, type Companion } from "@/api";
 import { Button } from "@/components/ui/button";
 import { CompanionAvatar } from "@/components/CompanionAvatar";
@@ -8,6 +8,7 @@ import { DiscussionsWorkspace } from "@/components/DiscussionsWorkspace";
 import { LandingPage } from "@/components/LandingPage";
 import { LegalPage, type LegalPageKind } from "@/components/LegalPage";
 import { ConnectionsPage } from "@/components/WorkspaceConnections";
+import "./StandalonePages.css";
 
 const CreateCompanion = lazy(() => import("@/components/CreateCompanion").then(module => ({ default: module.CreateCompanion })));
 
@@ -39,7 +40,7 @@ function AccessGate() {
 function LoadingApp() { return <div className="discussion-loading" aria-label="Loading companions.build"><div/><div/><main><span/><span/></main></div>; }
 
 function AccountPage({ user, onBack, onSignOut }: { user: AccountUser; onBack: () => void; onSignOut: () => Promise<void> }) {
-  return <main className="account-page"><header className="standalone-header"><Button variant="ghost" size="icon" onClick={onBack} aria-label="Back to discussions"><Menu/></Button><span className="wordmark">companions.build</span></header><div className="account-inner"><h1>Account</h1><AccountProduct user={user} onSignOut={onSignOut}/></div></main>;
+  return <main className="account-page"><header className="standalone-header"><Button variant="ghost" size="icon" onClick={onBack} aria-label="Back to discussions"><ArrowLeft/></Button><span className="wordmark">companions.build</span></header><div className="account-inner"><h1>Account</h1><AccountProduct user={user} onSignOut={onSignOut}/></div></main>;
 }
 
 export function App() {
@@ -86,7 +87,7 @@ export function App() {
   if (loading) return <LoadingApp/>;
   if (!user || !config) return <main className="load-failure"><CircleAlert/><h1>Couldn’t load companions.build</h1><p>{error || "The service did not return its configuration."}</p><Button onClick={() => void bootstrap()}>Try again</Button></main>;
 
-  if (route === "/new") return <main className="onboarding" id="main-content"><div className="onboarding-mobile-header"><Button variant="ghost" size="icon" onClick={() => navigate("/")} aria-label="Back to discussions"><Menu/></Button><span className="wordmark">companions.build</span></div><Suspense fallback={<div className="detail-loading" role="status">Opening creation…</div>}><CreateCompanion ownerId={user.id} config={config} compact={companions.length > 0} onCreated={companion => { setCompanions(current => [companion, ...current]); navigate(`/companions/${companion.id}`, true); }}/></Suspense></main>;
+  if (route === "/new") return <main className="onboarding" id="main-content"><div className="onboarding-mobile-header"><Button variant="ghost" size="icon" onClick={() => navigate("/")} aria-label="Back to discussions"><ArrowLeft/></Button><span className="wordmark">companions.build</span></div><Suspense fallback={<div className="detail-loading" role="status">Opening creation…</div>}><CreateCompanion ownerId={user.id} config={config} compact={companions.length > 0} onCreated={companion => { setCompanions(current => [companion, ...current]); navigate(`/companions/${companion.id}`, true); }}/></Suspense></main>;
   if (route === "/connections") return <ConnectionsPage onBack={() => navigate("/")}/>;
   if (route === "/account") return <AccountPage user={user} onBack={() => navigate("/")} onSignOut={signOut}/>;
   return <DiscussionsWorkspace user={user} companions={companions} initialDiscussionId={discussionIdFromPath()} legacyCompanionId={legacyCompanionIdFromPath()} onUnauthorized={() => setAuthRequired(true)} onCreateCompanion={() => navigate("/new")} onApplications={() => navigate("/connections")} onAccount={() => navigate("/account")}/>;

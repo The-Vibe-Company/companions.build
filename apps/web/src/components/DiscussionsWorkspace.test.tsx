@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DiscussionsWorkspace } from "./DiscussionsWorkspace";
@@ -69,6 +69,15 @@ describe("discussions workspace", () => {
     expect(await screen.findByRole("heading", { name: "Ada" })).toBeInTheDocument();
     expect(screen.getByText("Existing context")).toBeInTheDocument();
     expect(screen.getByRole("textbox", { name: "Message Ada" })).toBeInTheDocument();
+  });
+
+  it("downloads documents without opening a popup", async () => {
+    const file = { id:"document-1", name:"result.txt", url:"/files/result.txt", mimeType:"text/plain", size:12 };
+    setupFetch(path => path === "/api/discussions/discussion-1" ? response({ ...snapshot, messages:[{ id:"m1", sequence:"1", role:"assistant", content:"Ready", companionId:"ada", runId:"r1", createdAt:discussion.createdAt, complete:true, files:[file] }] }) : undefined);
+    renderWorkspace();
+    const link = await screen.findByRole("link", { name:"result.txt" });
+    expect(link).toHaveAttribute("download", "result.txt");
+    expect(link).not.toHaveAttribute("target");
   });
 
   it("preserves composing text and dismisses mentions without altering the draft", async () => {
@@ -221,5 +230,87 @@ it('shows a failed central turn and keeps companion work available in its own ta
  await actor.click(screen.getByRole('button',{name:'Ada'}));
  expect(await screen.findByRole('heading',{name:'Ada'})).toBeInTheDocument();
  expect(screen.getByRole('textbox',{name:'Message Central'})).toBeInTheDocument();
+ cleanup();vi.unstubAllGlobals();
+});
+
+
+it('collapses earlier terminal failures while keeping current and concurrent failures visible', async () => {
+ const task=(id:string,status:string,finishedAt:string|null)=>({id,companionId:'ada',status,content:id,previewText:null,resultText:null,error:status==='running'?null:`Error ${id}`,createdAt:'2026-09-11T09:00:00.000Z',finishedAt,questions:[],files:[]});
+ const state={...snapshot,messages:[{id:'latest',sequence:'2',role:'user',content:'Try again',companionId:null,runId:'latest',createdAt:'2026-09-11T10:00:00.000Z',complete:true,files:[]}],tasks:[task('old-failure','failed','2026-09-11T09:30:00.000Z'),task('recent-failure','failed','2026-09-11T10:01:00.000Z'),task('still-running','running',null)],centralRuns:[{id:'old-central',status:'interrupted',previewText:null,error:'Old central failure',createdAt:'2026-09-11T09:00:00.000Z',finishedAt:'2026-09-11T09:30:00.000Z'}]};
+ setupFetch(path=>path==='/api/discussions/discussion-1'?response(state):undefined);
+ const actor=userEvent.setup(),view=renderWorkspace();
+ const summary=await screen.findByText('Earlier activity (2)');
+ const history=summary.closest('details')!;
+ expect(history).not.toHaveAttribute('open');
+ expect(within(history).getByText('Error old-failure')).toBeInTheDocument();
+ expect(within(history).getByText('Old central failure')).toBeInTheDocument();
+ expect(screen.getByText('Error recent-failure').closest('details')).toBeNull();
+ expect(screen.getByRole('button',{name:'Stop Ada'})).toBeInTheDocument();
+ await actor.click(summary);
+ expect(history).toHaveAttribute('open');
+ view.unmount();renderWorkspace();
+ expect((await screen.findByText('Earlier activity (2)')).closest('details')).not.toHaveAttribute('open');
+ cleanup();vi.unstubAllGlobals();
+});
+
+
+it('archives a folder discussion from the sidebar, restores it, and archives the selected discussion', async () => {
+ const other={...discussion,id:'discussion-2',title:'Folder discussion',folderId:'folder-1'};
+ let archivedAt:string|null=null;
+ const updates:Array<unknown>=[];
+ const fetchMock=setupFetch((path,options)=>{
+  if(path==='/api/discussions/discussion-2'&&options?.method==='PATCH') { const body=JSON.parse(String(options.body)); updates.push(body);archivedAt=body.archived?discussion.createdAt:null;return response({discussion:{...other,archivedAt}}); }
+  if(path==='/api/discussions'||path==='/api/discussions?archived=true')return response({discussions:[discussion,...(!archivedAt||path.includes('?')?[{...other,archivedAt}]:[])],folders:[{id:'folder-1',name:'Project',companionIds:[],createdAt:discussion.createdAt}]});
+  if(path==='/api/discussions/discussion-2')return response({...snapshot,discussion:{...other,archivedAt}});
+ });
+ const actor=userEvent.setup();renderWorkspace();
+ await actor.click(await screen.findByRole('button',{name:'Archive Folder discussion'}));
+ await waitFor(()=>expect(screen.queryByRole('button',{name:'Archive Folder discussion'})).not.toBeInTheDocument());
+ expect(screen.getByRole('heading',{name:'Launch'})).toBeInTheDocument();
+ await actor.click(screen.getByRole('button',{name:'Archived discussions'}));
+ await actor.click(await screen.findByRole('button',{name:/Folder discussion Archived.*Restore/}));
+ expect(await screen.findByRole('heading',{name:'Folder discussion'})).toBeInTheDocument();
+ await actor.click(screen.getByRole('button',{name:'Archive Folder discussion'}));
+ expect(await screen.findByRole('heading',{name:'Launch'})).toBeInTheDocument();
+ expect(updates).toEqual([{archived:true},{archived:false},{archived:true}]);
+ expect(fetchMock.mock.calls.some(([path])=>String(path).endsWith('/cancel'))).toBe(false);
+ cleanup();vi.unstubAllGlobals();
+});
+
+
+it('shows companion avatars next to inactive and folder discussion rows',async()=>{
+ const other={...discussion,id:'other',title:'Other discussion',participantIds:['june'],folderId:'folder-1'};
+ setupFetch(path=>path==='/api/discussions'?response({discussions:[{...discussion,participantIds:['ada']},other],folders:[{id:'folder-1',name:'Project',companionIds:[],createdAt:discussion.createdAt}]}):undefined);
+ renderWorkspace();
+ const sidebar=await screen.findByRole('complementary',{name:'Discussions'});
+ expect(await within(sidebar).findByLabelText('Companions: Ada')).toBeInTheDocument();
+ expect(within(sidebar).getByLabelText('Companions: June').closest('.discussion-row')).toHaveTextContent('Other discussion');
+ expect(within(within(sidebar).getByLabelText('Companions: June')).getByRole('img',{name:'June, Companion'})).toBeInTheDocument();
+ cleanup();vi.unstubAllGlobals();
+});
+
+
+it('lets Central present delegated results once while direct replies stay in the thread',async()=>{
+ const message=(id:string,content:string,companionId:string|null,delegated=false)=>({id,sequence:id,role:'assistant',content,companionId,delegated,runId:id,createdAt:discussion.createdAt,complete:true,files:[]});
+ setupFetch(path=>path==='/api/discussions/discussion-1'?response({...snapshot,messages:[message('1','Delegated detail','ada',true),message('2','Central summary',null),message('3','Direct answer','ada')],tasks:[{id:'1',companionId:'ada',status:'succeeded',content:'Research for Central',previewText:null,resultText:'Delegated detail',error:null,createdAt:discussion.createdAt,finishedAt:discussion.createdAt,questions:[],files:[]}]}):undefined);
+ const actor=userEvent.setup();renderWorkspace();
+ const timeline=await screen.findByRole('log');
+ expect(await within(timeline).findByText('Central summary')).toBeInTheDocument();
+ expect(within(timeline).getByText('Direct answer')).toBeInTheDocument();
+ expect(within(timeline).queryByText('Delegated detail')).not.toBeInTheDocument();
+ await actor.click(screen.getByRole('button',{name:'Ada'}));
+ expect(await within(screen.getByRole('complementary',{name:'Ada workbench'})).findByText('Delegated detail')).toBeInTheDocument();
+ cleanup();vi.unstubAllGlobals();
+});
+
+
+it('keeps older delegated responses inspectable when their tasks are outside the workbench page',async()=>{
+ setupFetch(path=>path==='/api/discussions/discussion-1'?response({...snapshot,messages:[{id:'old',sequence:'1',role:'assistant',content:'Older delegated result',companionId:'ada',delegated:true,runId:'outside-task-window',createdAt:discussion.createdAt,complete:true,files:[]}]}):undefined);
+ const actor=userEvent.setup();renderWorkspace();
+ const summary=await screen.findByText('Earlier delegated response');
+ expect(summary.closest('details')).not.toHaveAttribute('open');
+ await actor.click(summary);
+ expect(summary.closest('details')).toHaveAttribute('open');
+ expect(screen.getByText('Older delegated result')).toBeInTheDocument();
  cleanup();vi.unstubAllGlobals();
 });

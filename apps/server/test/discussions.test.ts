@@ -88,6 +88,7 @@ test('repeated native results yield one timeline message and one central continu
   await db.begin(projectDiscussionResults);await db.begin(projectDiscussionResults);
   expect((await db`SELECT id FROM discussion_runs WHERE source_run_id=${task.runId}`)).toHaveLength(1);
   expect((await discussionSnapshot(owner,d.id)).messages.filter((m:any)=>m.content==='Result')).toHaveLength(1);
+  expect((await discussionSnapshot(owner,d.id)).messages.find((m:any)=>m.content==='Result').delegated).toBe(true);
  }finally{await l.close();}
 });
 
@@ -257,4 +258,29 @@ test('folder companion defaults are JSON arrays across creation, listing, rename
  expect((await listDiscussions(owner)).folders.find((folder:any)=>folder.id===id).companionIds).toEqual([c.id]);
  expect((await saveFolder(owner,id,input,true)).companionIds).toEqual([c.id]);
  expect((await saveFolder(owner,id,{name:'Renamed'})).companionIds).toEqual([c.id]);
+});
+
+
+test('discussion list exposes only current owned participant ids as JSON arrays',async()=>{
+ const a=await companion(),b=await companion(),d=await discussion();
+ const listed=async()=> (await listDiscussions(owner)).discussions.find((item:any)=>item.id===d.id);
+ expect((await listed()).participantIds).toEqual([]);
+ await changeParticipant(owner,d.id,a.id);await changeParticipant(owner,d.id,b.id);
+ expect((await listed()).participantIds).toEqual([a.id,b.id]);
+ await changeParticipant(owner,d.id,a.id,true);
+ expect((await listed()).participantIds).toEqual([b.id]);
+ await db`UPDATE companions SET retired_at=now() WHERE id=${b.id}`;
+ expect((await listed()).participantIds).toEqual([]);
+ expect((await listDiscussions('other-user')).discussions.some((item:any)=>item.id===d.id)).toBe(false);
+});
+
+
+test('direct companion replies remain distinct from coordinator delegation in paged snapshots',async()=>{
+ const c=await companion(),d=await discussion();
+ const direct=await send(d.id,'Direct question',{targetCompanionId:c.id});
+ await db`INSERT INTO messages(id,companion_id,run_id,role,content) VALUES(${crypto.randomUUID()},${c.id},${direct.runId},'assistant','Direct reply')`;
+ await db.begin(projectDiscussionResults);
+ const page=await discussionSnapshot(owner,d.id);
+ expect(page.messages.find((m:any)=>m.content==='Direct reply').delegated).toBe(false);
+ expect(page.messages.find((m:any)=>m.content==='Direct question').delegated).toBe(false);
 });

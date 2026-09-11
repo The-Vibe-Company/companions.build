@@ -1,0 +1,62 @@
+/* The pages outside the discussion shell share its Atelier surfaces and spacing. */
+.account-page,.connections-page,.onboarding {
+  --background:oklch(.975 .01 85);
+  --foreground:oklch(.25 .02 60);
+  --muted-foreground:oklch(.5 .02 70);
+  --border:oklch(.9 .015 80);
+  height:100%; min-height:0; width:100%; overflow-y:auto;
+  background:var(--background); color:var(--foreground);
+  font-family:"DM Sans",ui-sans-serif,system-ui,sans-serif;
+}
+.standalone-header,.onboarding .onboarding-mobile-header {
+  position:static; display:flex; align-items:center; gap:16px;
+  width:min(100%,1120px); min-height:96px; margin:0 auto;
+  padding:calc(24px + env(safe-area-inset-top)) 32px 24px; border-bottom:1px solid var(--border);
+}
+.standalone-header>button,.onboarding-mobile-header>button { flex-shrink:0; min-width:44px; min-height:44px; }
+.standalone-header>div { min-width:0; }
+.standalone-header h1,.account-inner>h1,.create-heading h1 {
+  font-family:"Instrument Serif",Georgia,serif; font-weight:400;
+  font-size:36px; line-height:1.15; letter-spacing:-.02em; margin:0;
+}
+.standalone-header p { margin:6px 0 0; color:var(--muted-foreground); line-height:1.5; }
+.account-inner,.connections-inner { width:calc(100% - 64px); margin:0 auto; padding:36px 0 64px; }
+.account-inner { max-width:700px; }
+.connections-inner { max-width:1040px; }
+.connections-inner .connection-card { background:var(--card); }
+.account-page .account-identity small { overflow-wrap:anywhere; }
+.account-page .plan-line { flex-wrap:wrap; gap:12px; }
+main.onboarding { display:block; padding:0; }
+.onboarding .create-form { width:calc(100% - 64px); max-width:600px; margin:40px auto 64px; }
+.create-heading { display:flex; align-items:center; gap:20px; margin-bottom:32px; }
+.create-heading>svg { flex-shrink:0; }
+.create-heading>div { min-width:0; }
+.create-heading p { margin:10px 0 0; color:var(--muted-foreground); line-height:1.6; }
+.create-form form>fieldset { display:grid; gap:22px; min-width:0; padding:0; border:0; }
+.create-form .field { display:grid; min-width:0; gap:8px; margin:0; }
+.create-form .field>label { font-size:14px; font-weight:600; }
+.create-form .field input,.create-form .field textarea,.create-form .field select {
+  width:100%; min-width:0; min-height:44px; padding:10px 12px;
+  border:1px solid var(--input); border-radius:10px; background:var(--card); color:inherit; font:inherit;
+}
+.create-form .field textarea { resize:vertical; }
+.appearance-toggle { display:flex; min-height:44px; align-items:center; justify-content:space-between; gap:12px; border:0; border-block:1px solid var(--border); padding:12px 0; text-align:left; cursor:pointer; }
+.appearance-toggle span { color:var(--muted-foreground); font-size:13px; }
+.create-form .avatar-picker { min-width:0; }
+.create-form .avatar-options { flex-wrap:wrap; }
+.create-setup-section { min-width:0; }
+.create-form .create-setup-section h2 { margin:0 0 8px; font-size:17px; font-weight:600; }
+.create-setup-section p { color:var(--muted-foreground); font-size:14px; line-height:1.6; }
+.create-setup-section .muted-copy { margin-top:18px; }
+.create-form form>button[type=submit] { min-height:46px; margin-top:28px; border-radius:10px; }
+@media(max-width:600px) {
+  .standalone-header,.onboarding .onboarding-mobile-header { min-height:80px; gap:10px; padding:calc(16px + env(safe-area-inset-top)) 16px 16px; }
+  .standalone-header h1,.account-inner>h1,.create-heading h1 { font-size:30px; }
+  .account-inner,.connections-inner { width:calc(100% - 32px); padding-top:24px; }
+  .connections-inner .connection-card { min-height:170px; border-radius:16px; }
+  .onboarding .create-form { width:calc(100% - 32px); margin:28px auto 48px; }
+  .create-heading { align-items:flex-start; gap:14px; }
+  .create-heading>svg { width:54px; height:54px; }
+  .create-heading p { font-size:14px; }
+}
+.desktop-current-tab { display:inline-flex; align-items:center; justify-content:center; min-height:44px; padding:8px 12px; color:var(--foreground); text-decoration:underline; text-underline-offset:3px; }

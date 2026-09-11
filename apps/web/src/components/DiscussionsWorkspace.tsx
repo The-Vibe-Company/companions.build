@@ -74,7 +74,7 @@ function activeStatus(value: string) { return ["queued", "preparing", "running",
 function compareSequence(left: string, right: string) { const a=String(left).replace(/^0+(?=\d)/,""),b=String(right).replace(/^0+(?=\d)/,""); return a.length-b.length||a.localeCompare(b); }
 function mergeMessages(...groups: DiscussionSnapshot["messages"][]) { const byId=new Map(groups.flat().map(message=>[message.id,message])); return [...byId.values()].sort((a,b)=>compareSequence(a.sequence,b.sequence)||a.id.localeCompare(b.id)); }
 function fileList(files: ThreadFile[]) {
-  return files.length ? <div className="discussion-files">{files.map(file => <a className={file.mimeType.startsWith("image/") ? "discussion-file discussion-file--image" : "discussion-file"} href={file.url} key={file.id} target="_blank" rel="noreferrer">{file.mimeType.startsWith("image/") ? <img src={file.url} alt="" loading="lazy" /> : <FileText />}<span>{file.name}</span></a>)}</div> : null;
+  return files.length ? <div className="discussion-files">{files.map(file => <a className={file.mimeType.startsWith("image/") ? "discussion-file discussion-file--image" : "discussion-file"} href={file.url} key={file.id} target={file.mimeType.startsWith("image/") ? "_blank" : undefined} download={file.mimeType.startsWith("image/") ? undefined : file.name} rel="noreferrer">{file.mimeType.startsWith("image/") ? <img src={file.url} alt="" loading="lazy" /> : <FileText />}<span>{file.name}</span></a>)}</div> : null;
 }
 
 export function DiscussionsWorkspace({ user, companions, initialDiscussionId, legacyCompanionId, onUnauthorized, onCreateCompanion, onApplications, onAccount }: Props) {
@@ -165,7 +165,7 @@ export function DiscussionsWorkspace({ user, companions, initialDiscussionId, le
       if (currentId.current !== id) return;
       if (olderCursor.current !== undefined && snapshotRef.current?.discussion.id === id) setOlderMessages(current => mergeMessages(current, snapshotRef.current!.messages.filter(message => !result.messages.some(next => next.id === message.id))));
       setSnapshot({...result,beforeCursor:olderCursor.current===undefined?result.beforeCursor:olderCursor.current});
-      setDiscussions(current => current.map(item => item.id === result.discussion.id ? result.discussion : item));
+      setDiscussions(current => current.map(item => item.id === result.discussion.id ? { ...result.discussion, participantIds: result.participants.filter(participant => !participant.removedAt).map(participant => participant.companionId) } : item));
       setError("");
     } catch (cause) { if (currentId.current === id) handleError(cause, "Could not open this discussion."); }
     finally { if (currentId.current === id && !quiet) setLoadingDiscussion(false); }
@@ -203,16 +203,18 @@ export function DiscussionsWorkspace({ user, companions, initialDiscussionId, le
     catch (cause) { handleError(cause); }
   }
 
-  async function archiveCurrent() {
-    if (!snapshot) return;
+  async function archiveDiscussion(id: string) {
     try {
-      await discussionApi.update(snapshot.discussion.id, { archived: true });
-      const next = discussions.find(item => item.id !== snapshot.discussion.id);
-      setDiscussions(current => current.filter(item => item.id !== snapshot.discussion.id));
-      setSnapshot(null);
-      if (next) openDiscussion(next.id, true); else await createDiscussion({ title: "New discussion" });
+      await discussionApi.update(id, { archived: true });
+      setDiscussions(current => current.filter(item => item.id !== id));
+      if (currentId.current === id) {
+        setDetailOpen(false);
+        const next = discussions.find(item => item.id !== id);
+        if (next) openDiscussion(next.id, true); else await createDiscussion({ title: "New discussion" });
+      }
     } catch (cause) { handleError(cause, "Could not archive this discussion."); }
   }
+  async function archiveCurrent() { if (snapshot) await archiveDiscussion(snapshot.discussion.id); }
 
   const grouped = useMemo(() => folders.map(folder => ({ folder, discussions: discussions.filter(item => item.folderId === folder.id) })), [folders, discussions]);
   const ungrouped = discussions.filter(item => !item.folderId || !folders.some(folder => folder.id === item.folderId));
@@ -225,8 +227,8 @@ export function DiscussionsWorkspace({ user, companions, initialDiscussionId, le
     <aside className={cn("discussion-sidebar", sidebarOpen && "discussion-sidebar--open")} aria-label="Discussions">
       <header><button className="discussion-wordmark" onClick={() => void createDiscussion()} aria-label="New central discussion"><img src="/favicon.svg" alt="" /></button><Button variant="ghost" size="icon" onClick={() => void createDiscussion()} aria-label="New discussion"><Plus /></Button><Button className="discussion-sidebar-close" variant="ghost" size="icon" onClick={() => setSidebarOpen(false)} aria-label="Close navigation"><X /></Button></header>
       <nav className="discussion-nav">
-        <DiscussionGroup title="Discussions" items={ungrouped} selectedId={selectedId} onOpen={openDiscussion} />
-        {grouped.map(group => <FolderGroup key={group.folder.id} folder={group.folder} items={group.discussions} companions={companions} selectedId={selectedId} onOpen={openDiscussion} onCreate={() => void createDiscussion({ folderId: group.folder.id })} onChanged={loadList} onError={handleError} />)}
+        <DiscussionGroup title="Discussions" companions={companions} items={ungrouped} selectedId={selectedId} onOpen={openDiscussion} onArchive={archiveDiscussion} />
+        {grouped.map(group => <FolderGroup key={group.folder.id} folder={group.folder} items={group.discussions} companions={companions} selectedId={selectedId} onOpen={openDiscussion} onArchive={archiveDiscussion} onCreate={() => void createDiscussion({ folderId: group.folder.id })} onChanged={loadList} onError={handleError} />)}
         <FolderCreator companions={companions} onCreated={folder => setFolders(current => [...current, folder])} onError={handleError} />
         <button className="archived-link" onClick={() => void showArchived()}><Archive />Archived discussions</button>
       </nav>
@@ -266,11 +268,19 @@ export function DiscussionsWorkspace({ user, companions, initialDiscussionId, le
   </div>;
 }
 
-function DiscussionGroup({ title, items, selectedId, onOpen }: { title: string; items: Discussion[]; selectedId: string | null; onOpen: (id: string) => void }) {
-  return <section className="discussion-group"><h2>{title}</h2>{items.map(item => <button key={item.id} className={cn("discussion-link", selectedId === item.id && "discussion-link--active")} aria-current={selectedId === item.id ? "page" : undefined} onClick={() => onOpen(item.id)}><MessageCircle /><span>{item.title || "Untitled discussion"}</span></button>)}</section>;
+function DiscussionGroup({ title, companions, items, selectedId, onOpen, onArchive }: { title: string; companions: Companion[]; items: Discussion[]; selectedId: string | null; onOpen: (id: string) => void; onArchive: (id: string) => Promise<void> }) {
+  return <section className="discussion-group"><h2>{title}</h2>{items.map(item => <div className="discussion-row" key={item.id}><button className={cn("discussion-link", selectedId === item.id && "discussion-link--active")} aria-current={selectedId === item.id ? "page" : undefined} onClick={() => onOpen(item.id)}><MessageCircle /><span>{item.title || "Untitled discussion"}</span><DiscussionCompanions discussion={item} companions={companions}/></button><button className="discussion-archive" title="Archive discussion" aria-label={`Archive ${item.title || "Untitled discussion"}`} onClick={() => void onArchive(item.id)}><Archive /></button></div>)}</section>;
 }
 
-function FolderGroup({ folder, items, companions, selectedId, onOpen, onCreate, onChanged, onError }: { folder: DiscussionFolder; items: Discussion[]; companions: Companion[]; selectedId: string | null; onOpen: (id: string) => void; onCreate: () => void; onChanged: () => Promise<unknown>; onError: (cause: unknown) => void }) {
+function DiscussionCompanions({ discussion, companions }: { discussion: Discussion; companions: Companion[] }) {
+  const ids = discussion.participantIds ?? (discussion.directCompanionId ? [discussion.directCompanionId] : []);
+  const participants = ids.map(id => companions.find(companion => companion.id === id && !companion.retiredAt)).filter((companion): companion is Companion => Boolean(companion));
+  if (!participants.length) return null;
+  const names = participants.map(companion => companion.name).join(", ");
+  return <span className="discussion-row-companions" aria-label={`Companions: ${names}`} title={names}>{participants.slice(0, 3).map(companion => <CompanionAvatar key={companion.id} name={companion.name} avatar={companion.avatar} size={20}/>)}{participants.length > 3 && <small>+{participants.length - 3}</small>}</span>;
+}
+
+function FolderGroup({ folder, items, companions, selectedId, onOpen, onArchive, onCreate, onChanged, onError }: { folder: DiscussionFolder; items: Discussion[]; companions: Companion[]; selectedId: string | null; onOpen: (id: string) => void; onArchive: (id: string) => Promise<void>; onCreate: () => void; onChanged: () => Promise<unknown>; onError: (cause: unknown) => void }) {
   const [editing, setEditing] = useState(false);
   const [name, setName] = useState(folder.name);
   const [defaults, setDefaults] = useState(new Set(folder.companionIds));
@@ -279,7 +289,7 @@ function FolderGroup({ folder, items, companions, selectedId, onOpen, onCreate, 
   const folderCompanions=companions.filter(item=>folder.companionIds.includes(item.id));
   return <details className="discussion-folder" open><summary><ChevronRight /><Folder /><span>{folder.name}</span><i className="folder-companions" aria-label={`${folderCompanions.length} default companions`}>{folderCompanions.slice(0,3).map(companion=><CompanionAvatar key={companion.id} name={companion.name} avatar={companion.avatar} size={18}/>)}</i><button type="button" aria-label={`Edit ${folder.name}`} onClick={event => { event.preventDefault(); setEditing(value => !value); }}><MoreHorizontal /></button></summary>
     {editing && <div className="folder-editor"><label>Name<input value={name} onChange={event => setName(event.target.value)} /></label><fieldset><legend>Default companions</legend>{companions.filter(item => !item.retiredAt).map(companion => <label key={companion.id}><input type="checkbox" checked={defaults.has(companion.id)} onChange={() => setDefaults(current => { const next = new Set(current); if (next.has(companion.id)) next.delete(companion.id); else next.add(companion.id); return next; })}/><CompanionAvatar name={companion.name} avatar={companion.avatar} size={24}/>{companion.name}</label>)}</fieldset><div><Button size="sm" onClick={() => void save()} disabled={!name.trim()}>Save</Button><Button size="sm" variant="ghost" onClick={() => setEditing(false)}>Cancel</Button><Button size="sm" variant="ghost" className="danger-text" onClick={() => void remove()}><Trash2 />Delete</Button></div></div>}
-    <DiscussionGroup title="" items={items} selectedId={selectedId} onOpen={onOpen} />
+    <DiscussionGroup title="" companions={companions} items={items} selectedId={selectedId} onOpen={onOpen} onArchive={onArchive} />
     <button className="folder-new-discussion" onClick={onCreate}><Plus />New in {folder.name}</button>
   </details>;
 }
@@ -305,6 +315,16 @@ function DiscussionView({ user, snapshot, olderMessages, companions, folders, on
   const allMessages = mergeMessages(olderMessages, snapshot.messages);
   const activeCentral = snapshot.centralRuns.find(run => activeStatus(run.status));
   const activeTasks = snapshot.tasks.filter(task => activeStatus(task.status));
+  const latestUserTime = allMessages.reduce((latest, message) => message.role === "user" ? Math.max(latest, Date.parse(message.createdAt)) : latest, 0);
+  const isEarlierActivity = (run: { status: string; finishedAt: string | null }) => !activeStatus(run.status) && run.finishedAt !== null && Date.parse(run.finishedAt) < latestUserTime;
+  const centralFailures = snapshot.centralRuns.filter(run => ['failed', 'interrupted', 'cancelled'].includes(run.status));
+  const visibleTasks = snapshot.tasks.filter(task => activeStatus(task.status) || task.status !== 'succeeded' || !allMessages.some(message => message.runId === task.id && message.role === 'assistant'));
+  const earlierCentral = centralFailures.filter(isEarlierActivity);
+  const earlierTasks = visibleTasks.filter(isEarlierActivity);
+  const earlierCount = earlierCentral.length + earlierTasks.length;
+  const centralCard = (run: DiscussionSnapshot["centralRuns"][number]) => <section className="discussion-task" key={run.id}><strong>Central · {statusLabel(run.status)}</strong>{run.previewText && <MessageResponse>{run.previewText}</MessageResponse>}{run.error && <p className="task-error" role="status">{run.error}</p>}</section>;
+  const taskCard = (task: DiscussionSnapshot["tasks"][number]) => <TaskCard key={task.id} discussionId={discussion.id} task={task} companion={companionMap.get(task.companionId)} onRefresh={onRefresh} onError={onError} />;
+
   const participantIds=new Set(snapshot.participants.filter(item=>!item.removedAt).map(item=>item.companionId));
   const authorized=(folders.find(folder=>folder.id===discussion.folderId)?.companionIds??[]).map(id=>companionMap.get(id)).filter((companion):companion is Companion=>Boolean(companion&&!companion.retiredAt&&!participantIds.has(companion.id)));
   return <section className="discussion-view">
@@ -314,11 +334,12 @@ function DiscussionView({ user, snapshot, olderMessages, companions, folders, on
     <div className={cn("discussion-stage",tab!=="conversation"&&"discussion-stage--workspace")}><div className="discussion-timeline" role="log" aria-live="polite">
       {snapshot.beforeCursor && <Button className="load-older" variant="outline" size="sm" disabled={loadingOlder} onClick={() => void onLoadOlder()}>{loadingOlder ? <LoaderCircle className="spin" /> : <ArrowUp />}Load earlier messages</Button>}
       {!allMessages.length && !snapshot.proposals.length && !activeCentral && !activeTasks.length && <div className="discussion-empty"><div className="central-mark">c.</div><h2>{direct ? `Start a conversation with ${direct.name}` : "What are we working on?"}</h2><p>{direct ? `This is a private, direct history with ${direct.name}.` : "Describe the outcome you want. Central can bring in the right companions as the work develops."}</p>{!direct&&<div className="discussion-starters">{["Plan a new project","Research a decision","Turn an idea into a draft"].map(value=><button key={value} onClick={()=>setStarter(value)}>{value}</button>)}</div>}</div>}
-      {allMessages.map(message => { const author = message.role === "user" ? null : message.companionId ? companionMap.get(message.companionId) : null; return <article className={cn("discussion-message", message.role === "user" && "discussion-message--user")} key={message.id} data-sequence={message.sequence}><div className="discussion-message-avatar">{message.role === "user" ? <span>{(user.name || user.email).slice(0, 1).toUpperCase()}</span> : author ? <CompanionAvatar name={author.name} avatar={author.avatar} size={32}/> : <span className="central-mark central-mark--small">c.</span>}</div><div><header><strong>{message.role === "user" ? "You" : author?.name ?? "Central"}</strong>{message.role === "user" && message.companionId && <span>to @{companionMap.get(message.companionId)?.name ?? "companion"}</span>}<time dateTime={message.createdAt}>{dateLabel(message.createdAt)}</time>{!message.complete && <em>In progress</em>}</header><MessageResponse>{message.content}</MessageResponse>{fileList(message.files)}</div></article>; })}
+      {allMessages.filter(message => message.role !== "assistant" || !message.delegated || !snapshot.tasks.some(task => task.id === message.runId)).map(message => { const author = message.role === "user" ? null : message.companionId ? companionMap.get(message.companionId) : null; return <article className={cn("discussion-message", message.role === "user" && "discussion-message--user")} key={message.id} data-sequence={message.sequence}><div className="discussion-message-avatar">{message.role === "user" ? <span>{(user.name || user.email).slice(0, 1).toUpperCase()}</span> : author ? <CompanionAvatar name={author.name} avatar={author.avatar} size={32}/> : <span className="central-mark central-mark--small">c.</span>}</div><div><header><strong>{message.role === "user" ? "You" : author?.name ?? "Central"}</strong>{message.role === "user" && message.companionId && <span>to @{companionMap.get(message.companionId)?.name ?? "companion"}</span>}<time dateTime={message.createdAt}>{dateLabel(message.createdAt)}</time>{!message.complete && <em>In progress</em>}</header><>{message.role === "assistant" && message.delegated ? <details className="discussion-delegated-history"><summary>Earlier delegated response</summary><MessageResponse>{message.content}</MessageResponse>{fileList(message.files)}</details> : <><MessageResponse>{message.content}</MessageResponse>{fileList(message.files)}</>}</></div></article>; })}
       {snapshot.proposals.filter(proposal => proposal.status === "pending").map(proposal => { const companion = companionMap.get(proposal.companionId); return <section className="invitation-proposal" key={proposal.id}><UserPlus /><div><strong>Invite {companion?.name ?? "this companion"}?</strong><p>{proposal.reason}</p>{proposal.prompt && <blockquote>{proposal.prompt}</blockquote>}<div><Button size="sm" onClick={async () => { try { await discussionApi.answerProposal(discussion.id, proposal.id, true); await onRefresh(); } catch (cause) { onError(cause); } }}><Check />Accept</Button><Button size="sm" variant="outline" onClick={async () => { try { await discussionApi.answerProposal(discussion.id, proposal.id, false); await onRefresh(); } catch (cause) { onError(cause); } }}>Decline</Button></div></div></section>; })}
       {activeCentral && <div className="discussion-working" role="status"><span/><span/><span/><strong>{activeCentral.status === "needs_input" ? "Central needs your answer" : statusLabel(activeCentral.status)}</strong>{activeCentral.previewText && <p>{activeCentral.previewText}</p>}<Button variant="outline" size="sm" onClick={async () => { try { await discussionApi.cancel(discussion.id); await onRefresh(); } catch (cause) { onError(cause); } }}><CircleStop />Stop chat</Button></div>}
-      {snapshot.centralRuns.filter(run=>['failed','interrupted','cancelled'].includes(run.status)).map(run=><section className="discussion-task" key={run.id}><strong>Central · {statusLabel(run.status)}</strong>{run.previewText&&<MessageResponse>{run.previewText}</MessageResponse>}{run.error&&<p className="task-error" role="status">{run.error}</p>}</section>)}
-      {snapshot.tasks.filter(task=>activeStatus(task.status)||task.status!=='succeeded'||!allMessages.some(m=>m.runId===task.id&&m.role==='assistant')).map(task => { const companion = companionMap.get(task.companionId); return <TaskCard key={task.id} discussionId={discussion.id} task={task} companion={companion} onRefresh={onRefresh} onError={onError} />; })}
+      {earlierCount > 0 && <details className="discussion-earlier-activity"><summary>Earlier activity ({earlierCount})</summary>{earlierCentral.map(centralCard)}{earlierTasks.map(taskCard)}</details>}
+      {centralFailures.filter(run => !isEarlierActivity(run)).map(centralCard)}
+      {visibleTasks.filter(task => !isEarlierActivity(task)).map(taskCard)}
     </div>{tab!=="conversation"&&<aside className="discussion-workbench" aria-label={tab==="work"?"All companion work":`${companionMap.get(tab)?.name??"Companion"} workbench`}><button className="workbench-close" onClick={()=>setTab("conversation")} aria-label="Close workbench"><X /></button>{tab==="work"?<WorkPanel snapshot={snapshot} companions={companions} onRefresh={onRefresh} onError={onError} />:<CompanionWorkbench key={tab} snapshot={snapshot} companionId={tab} onRefresh={onRefresh} onError={onError}/>}</aside>}
     {!discussion.archivedAt ? <DiscussionComposer userId={user.id} snapshot={snapshot} companions={companions} initialDraft={starter} onInitialDraftApplied={()=>setStarter(null)} onRefresh={onRefresh} onError={onError} onSent={id=>{if(id)setTab(id);}}/> : <p className="discussion-archived-note">This discussion is archived. Restore it to send a message.</p>}</div>
     <nav className="discussion-mobile-nav" aria-label="Mobile workspace"><button aria-label="Show discussion" aria-current={tab==="conversation"?"page":undefined} onClick={()=>setTab("conversation")}><MessageCircle/>Thread</button>{participants.slice(0,2).map(participant=><button key={participant.companionId} aria-label={`Open ${participant.companion.name} workbench`} aria-current={tab===participant.companionId?"page":undefined} onClick={()=>setTab(participant.companionId)}><CompanionAvatar name={participant.companion.name} avatar={participant.companion.avatar} size={20}/>{participant.companion.name}</button>)}<button onClick={onMenu}><Folder/>Folders</button><details className="mobile-participant-picker" onKeyDown={event => { if (event.key === "Escape") { event.currentTarget.open = false; event.currentTarget.querySelector("summary")?.focus(); } }}>

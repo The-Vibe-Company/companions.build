@@ -206,3 +206,15 @@ it('retries an uncertain delivery with its immutable identity and only reports p
  expect(bodies[0]).toMatchObject({companionId:'c1',clientEmail:'client@example.com',includeSkills:true,clientDeliveryId:expect.any(String)});
  expect(screen.getByRole('textbox',{name:'Client email'})).toHaveValue('');
 });
+
+it.each([null, { closed: true }])('keeps a same-tab desktop link when the viewer window is unavailable (%s)', async popup => {
+  vi.spyOn(window, 'open').mockReturnValue(popup as Window | null);
+  vi.stubGlobal('fetch', vi.fn(() => response({ url: 'https://desktop.example/session' })));
+  const companion: Companion = { id:'c1', name:'Luna', instructions:'', provider:'box', status:'ready', error:null, createdAt:'2026-09-07T00:00:00Z' };
+  const view = render(<DesktopSheet companion={companion} onClose={vi.fn()} onRefresh={vi.fn().mockResolvedValue(undefined)}/>);
+  await userEvent.setup().click(screen.getByRole('button', { name:'Open desktop' }));
+  expect(await screen.findByRole('link', { name:'Open desktop in this tab' })).toHaveAttribute('href','https://desktop.example/session');
+  view.rerender(<DesktopSheet companion={companion} active={false} onClose={vi.fn()} onRefresh={vi.fn().mockResolvedValue(undefined)}/>);
+  view.rerender(<DesktopSheet companion={companion} active onClose={vi.fn()} onRefresh={vi.fn().mockResolvedValue(undefined)}/>);
+  expect(screen.queryByRole('link', { name:'Open desktop in this tab' })).not.toBeInTheDocument();
+});

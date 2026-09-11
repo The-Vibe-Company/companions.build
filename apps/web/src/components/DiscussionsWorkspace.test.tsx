@@ -51,6 +51,82 @@ describe("discussions workspace", () => {
     expect(bodies[0]).toEqual({ clientMessageId: expect.stringMatching(/^[0-9a-f-]{36}$/), content: "Draft the announcement", targetCompanionId: "june", attachmentCount: 0 });
   });
 
+  it("selects an @ recipient by keyboard without sending and keeps the thread beside the workbench", async () => {
+    const existing = { id: "existing", sequence: "1", role: "assistant" as const, content: "Existing context", companionId: null, runId: "run-existing", createdAt: discussion.createdAt, complete: true, files: [] };
+    const fetchMock = setupFetch(path => path === "/api/discussions/discussion-1" ? response({ ...snapshot, messages: [existing] }) : undefined);
+    const actor = userEvent.setup();
+    renderWorkspace();
+    const composer = await screen.findByRole("textbox", { name: "Message Central" });
+    await actor.type(composer, "Ask @Ad");
+    const suggestions = screen.getByRole("listbox", { name: "Companion suggestions" });
+    expect(composer).toHaveAttribute("aria-controls", suggestions.id);
+    expect(document.getElementById(composer.getAttribute("aria-activedescendant")!)).toHaveAttribute("aria-selected", "true");
+    await actor.keyboard("{Enter}");
+    expect(composer).toHaveValue("Ask @Ada ");
+    expect(screen.getByRole("textbox", { name: "Message Ada" })).toBeInTheDocument();
+    expect(fetchMock.mock.calls.some(([, options]) => options?.method === "POST")).toBe(false);
+    await actor.click(screen.getByRole("button", { name: "Ada" }));
+    expect(await screen.findByRole("heading", { name: "Ada" })).toBeInTheDocument();
+    expect(screen.getByText("Existing context")).toBeInTheDocument();
+    expect(screen.getByRole("textbox", { name: "Message Ada" })).toBeInTheDocument();
+  });
+
+  it("preserves composing text and dismisses mentions without altering the draft", async () => {
+    const fetchMock = setupFetch(); renderWorkspace();
+    const composer = await screen.findByRole("textbox", { name: "Message Central" });
+    fireEvent.change(composer, { target: { value: "@Ad" } });
+    fireEvent.keyDown(composer, { key: "Enter", isComposing: true });
+    expect(composer).toHaveValue("@Ad");
+    expect(screen.getByRole("combobox", { name: "Message recipient" })).toHaveValue("");
+    fireEvent.keyDown(composer, { key: "Escape" });
+    expect(composer).toHaveValue("@Ad");
+    expect(screen.queryByRole("listbox")).not.toBeInTheDocument();
+    expect(fetchMock.mock.calls.some(([, options]) => options?.method === "POST")).toBe(false);
+  });
+
+  it("shows persisted companion files without changing the recipient or losing the draft", async () => {
+    const file = { id: "file-1", name: "design.png", url: "/files/design.png", mimeType: "image/png", size: 123 };
+    setupFetch(path => path === "/api/discussions/discussion-1" ? response({ ...snapshot, tasks: [{ id: "task-1", companionId: "ada", status: "succeeded", content: "Design", resultText: "Design ready", previewText: null, error: null, createdAt: discussion.createdAt, finishedAt: discussion.createdAt, files: [file], questions: [] }] }) : undefined);
+    const actor = userEvent.setup(); renderWorkspace();
+    const composer = await screen.findByRole("textbox", { name: "Message Central" });
+    await actor.type(composer, "Keep this draft");
+    await actor.click(screen.getByRole("button", { name: "Ada" }));
+    await actor.click(screen.getByRole("button", { name: /Files.*1/ }));
+    const links = screen.getAllByRole("link", { name: "design.png" });
+    expect(links.at(-1)).toHaveAttribute("href", "/files/design.png");
+    expect(screen.getByRole("combobox", { name: "Message recipient" })).toHaveValue("");
+    await actor.click(screen.getByRole("button", { name: "Close workbench" }));
+    expect(composer).toHaveValue("Keep this draft");
+  });
+
+  it("opens later and removed participant workspaces from the mobile picker", async () => {
+    const third = { ...ada, id: "third", name: "Third" };
+    const removed = { ...ada, id: "removed", name: "Previous" };
+    setupFetch(path => path === "/api/discussions/discussion-1" ? response({ ...snapshot, participants: [snapshot.participants[0], { companionId: june.id, companion: june, removedAt: null }, { companionId: third.id, companion: third, removedAt: null }, { companionId: removed.id, companion: removed, removedAt: discussion.createdAt }] }) : undefined);
+    const actor = userEvent.setup(); renderWorkspace();
+    const composer = await screen.findByRole("textbox", { name: "Message Central" });
+    await actor.type(composer, "A draft for Central");
+    await actor.click(screen.getByLabelText("Choose discussion companion"));
+    await actor.click(screen.getByRole("button", { name: "View Third workspace" }));
+    expect(screen.getByRole("heading", { name: "Third" })).toBeInTheDocument();
+    expect(screen.getByRole("combobox", { name: "Message recipient" })).toHaveValue("");
+    await actor.click(screen.getByLabelText("Choose discussion companion"));
+    await actor.click(screen.getByRole("button", { name: "View Previous workspace" }));
+    expect(screen.getByRole("heading", { name: "Previous" })).toBeInTheDocument();
+    expect(composer).toHaveValue("A draft for Central");
+  });
+
+  it("moves the active mention descendant while focus stays in the composer", async () => {
+    setupFetch(); renderWorkspace();
+    const composer = await screen.findByRole("textbox", { name: "Message Central" });
+    const actor = userEvent.setup(); await actor.type(composer, "@");
+    const first = composer.getAttribute("aria-activedescendant");
+    await actor.keyboard("{ArrowDown}");
+    expect(composer).toHaveFocus();
+    expect(composer.getAttribute("aria-activedescendant")).not.toBe(first);
+    expect(document.getElementById(composer.getAttribute("aria-activedescendant")!)).toHaveTextContent("June");
+  });
+
   it("loads older messages before the current snapshot without duplicating the page", async () => {
     const old = { id: "old", sequence: 4, role: "assistant", content: "Earlier", companionId: null, runId: "run-old", createdAt: "2026-09-11T08:00:00.000Z", complete: true, files: [] };
     const current = { ...old, id: "current", sequence: 55, content: "Current" };

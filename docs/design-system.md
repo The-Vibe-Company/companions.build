@@ -1,80 +1,71 @@
-# companions.build interface
+# companions.build — Atelier
 
-The visual reference is the owner-provided **Companions.build design système** archive,
-`Companions.dc.html`, retained direction 4a (Discussion, Settings, Create and Specialists).
-Its example people, accounts, statuses and counts are illustrations, not application data.
+The current visual reference is the owner-provided **Companions.build design système**
+archive, retained Atelier direction in `DirectionA.dc.html` and `Discussions.dc.html`,
+approved on 11 September 2026. It supersedes the former companion-only rail and specialist
+screens. The nine reference views cover home, folders, mentions, delegation, discussion menu,
+companion workbench, direct discussion and two mobile views.
+
+Reference people, proposals, applications, counts, installation results and memories illustrate
+the layout. They are not production fixtures or evidence of available backend capabilities.
+The design export runtime is for preview only and is not a production dependency.
 
 ## Foundation
 
-- Light ivory canvas `oklch(.988 .003 95)`; rail `oklch(.97 .005 95)`.
-- Ink `oklch(.255 .008 120)`; muted text `oklch(.49 .009 100)`.
-- White account tiles, quiet borders `oklch(.925 .004 95)`, input borders
-  `oklch(.855 .006 95)`. Companion colors provide the expressive palette.
-- Inter, restrained fixed sizes, generous whitespace. Primary actions use dark ink.
-- Avatars retain their persisted eight shapes, eleven colors and five expressions. A padded
-  SVG view box, rounded dark outline and dot eyes with highlights give them the sticker treatment.
-  Sleeping is a presentation of persisted lifecycle state, not a stored appearance change.
+- Warm ivory canvas `oklch(.975 .01 85)` and rail `oklch(.955 .012 80)`.
+- Dark warm ink `oklch(.25 .02 60)`, readable muted text `oklch(.5 .02 70)`,
+  quiet borders `oklch(.9 .015 80)` and white composer/workbench surfaces.
+- DM Sans for body text and controls; Instrument Serif for discussion and empty-state headings.
+  Keep labels in sans, use fixed readable sizes and system fallbacks.
+- Existing persisted companion avatars remain the expressive color system. The supplied favicon
+  is the product mark. No appearance choices are overwritten by the reference characters.
+- Rounded pills for recipients and participant presence, restrained outlines, circular send action.
+  State animation follows real work and respects reduced motion.
 
-## Navigation
+## Navigation and conversation
 
-The desktop rail is 96px wide: home, companion avatars with persisted status, creation,
-Specialists, Apps and account access. Names remain accessible and appear as native hover titles.
-On mobile the rail opens from the menu and has an explicit close control and backdrop.
+A compact 264px desktop sidebar groups independent discussions by optional folders, shows
+folder-authorized companions, and anchors the companion avatar dock above applications/account
+access. Creation, archived discussions, folder editing and direct chats remain reachable.
 
-Each companion follows the reference header: identity on the left; Team with allowed profile
-avatars/count, Automations with enabled count/next scheduled fire, and Activity with actual state
-on the right, followed by a circular Settings action. Missing summaries stay absent instead of
-showing invented counts. Clicking the identity returns to Discussion. Apps and Computer remain
-accessible in Settings; Apps also has a workspace rail entry. URL history and direct links keep
-their existing meanings. Narrow screens scroll the control row. There are no nested tabs.
+The header pairs a serif discussion title and folder context with participant pills and discussion
+controls. Invited and folder-authorized companions have different affordances. Mentions provide
+an accessible picker; selecting a recipient persists the destination with an explicit return to
+Central. Viewing a workbench alone must not silently address or send a message.
 
-## Main surfaces
+The common timeline uses aligned avatar/content rows, readable author/time labels and an
+approximately 760px reading column. Invitation proposals, questions and task states are attached
+to persisted work. An empty conversation offers editable starter prompts and direct-companion
+shortcuts. The rounded white composer stays available while delegated work runs.
 
-The discussion uses aligned avatar/content rows for both participants, with author and time on
-one line. Markdown, streamed output, attachments, questions, task links and cancellation remain
-functional. The composer is a white rounded rectangle with a circular send action.
+## Companion workspace
 
-Settings places identity and Save together, with the avatar pencil revealing appearance controls, then granted
-application accounts, computer/model and client delivery, and deletion. Appearance and model
-changes belong to one form. Dirty fields survive section changes and exits require a deliberate
-discard; only changed fields are patched. Applications and Computer keep their direct URLs. Client delivery is visible inline.
+On wide screens, opening a participant creates a split view: conversation/composer on the left,
+companion results and files on the right. Closing it returns space to the conversation. Render
+actual file previews and task outputs, with downloads and machine controls where available.
+A visual reference to three logo proposals does not authorize inventing proposals, comments,
+selection state or an installed-tool inventory absent from the API.
 
-Application tiles group real connected accounts by provider. Each account grants access separately.
-Writes are serialized and the persisted selection is re-read after both success and failure;
-superseded responses cannot replace a newer acknowledged state. Connection setup remains in Apps.
+Direct discussions retain the same conversation grammar and expose the companion's existing
+identity, configuration, applications and machine controls. Durable memory remains the companion's
+real behavior; do not display fictional memories or reversible-state controls without an API.
 
-Specialists is the reusable profile library. Profile revisions, edits and restores use the existing
-API; running status and usage counts are shown only where the backing projection exists. Runtime
-specialists and their tasks stay in each companion’s Team and Activity surfaces.
+## Mobile and recovery
 
-Creation is a full split view: a live character preview and appearance choices on the left,
-identity, connected accounts and specialist choices on the right. Mobile folds appearance controls
-behind a single disclosure. `/new` is directly accessible. Creation persists one owner-scoped
-session intent, creates with `prepare:true`, then grants the selected accounts and specialists
-while the executor prepares the computer. Retries resume the same intent. Older saved
-`prepare:false` requests retain their exact creation fingerprint and request preparation after
-acknowledgement. The user can open an already-created companion and finish optional access
-setup later if an account is no longer available. Sending a message can still wake an archived
-computer; new creation no longer waits for that first message to request preparation.
+Use a drawer for the sidebar and a compact bottom navigation for the thread, participants and
+navigation access. A companion workspace becomes full width; conversation and composer remain
+reachable without losing the draft. Check narrow widths, long names, safe areas, keyboard focus,
+scroll boundaries and reduced motion. Interactive targets must remain comfortably tappable.
+
+Retain the existing invariants during visual changes: owner/discussion-scoped drafts, stable
+message and upload identities/positions after partial failure, precision-safe history pagination,
+real permission reconciliation, trusted OAuth completion and distinct chat/companion cancellation.
+Archive and participant removal do not cancel already-accepted work.
 
 ## Validation
 
-Check desktop and narrow mobile sizes, keyboard navigation, focus visibility, long names and
-purposes, multiple accounts of one provider, loading/error states, unsaved forms and reduced motion.
-Visual work never needs to start a Box. Local preview and browser artifacts stay private in `.local`.
-Behavior coverage should protect grants, drafts, version conflicts and partial setup recovery rather
-than assert the exact CSS structure of a screenshot.
-
-The Create screen uses a 440px preview column and 200px character on desktop, 64px form insets,
-two equal identity fields, three account columns and inline Create/Advanced actions. Six main
-swatches and outline silhouettes match the reference; extra colors and expressions remain in a
-small disclosure. Mobile stacks the panels and preserves 44px interaction targets.
-
-### Reference fidelity verification — 2026-09-07
-
-Compared the supplied HTML reference and authenticated local UI at 1440×900: Discussion header,
-Create, Settings, and Specialists (including inline editor). Checked 390×844 responsive layouts
-and header access without document overflow. Saved drafts, guarded exits, creation retry and
-account grants remain covered by the web suite: 124 tests passed with one worker. Production
-web build passed. Reference fixtures were not copied into product data; profile-level account
-grants and usage statuses remain absent where the API does not provide them. No Box was launched.
+Compare the rendered reference and actual persisted application at 1440×900 and 390×844, plus a
+narrow 320px layout. Exercise @ selection, split-view open/close, mobile navigation, direct chat,
+folder controls, scrolling, file recovery and error states. Use focused web checks while iterating
+and full verification before publishing. Reference preview fixtures remain in ignored artifacts;
+production displays only real API state. No Box is required for this visual work.

@@ -2,7 +2,7 @@ import {agentModelId,FAST_MODEL_ID} from './model-selection';
 import {createHash} from 'node:crypto';
 import {db} from './store';
 import {requireHostedActivation} from './activation';
-import {verifyModelGatewayToken,type ModelGatewayClaims} from './model-gateway-token';
+import {verifyModelGatewayToken,verifyDiscussionModelToken,type DiscussionModelClaims,type ModelGatewayClaims} from './model-gateway-token';
 import {normalizeAzureOpenAIBaseUrl} from './azure-openai';
 import {azureReasoningOverride,type AzureReasoningOverride} from './azure-reasoning';
 
@@ -165,7 +165,15 @@ export function createModelGateway(deps:Dependencies={}){
  const sql=deps.sql??db,send=deps.fetch??fetch,authorize=deps.authorize??requireHostedActivation,lookup=deps.modelApi??modelApi;
  const active=new Set<Promise<void>>();let admitted=0;
  const bodyBudget=deps.bodyBudgetBytes===undefined?sharedBodyBudget:{used:0,limit:deps.bodyBudgetBytes};
- async function allowed(claims:ModelGatewayClaims){
+ async function allowed(claims:ModelGatewayClaims|DiscussionModelClaims){
+  if("discussion" in claims){
+   const [run]=await sql`SELECT r.id,r.model_provider,r.model_id,d.owner_id FROM discussion_runs r JOIN discussions d ON d.id=r.discussion_id
+    WHERE r.id=${claims.runId} AND d.owner_id=${claims.ownerId} AND r.status='running' AND NOT r.cancel_requested AND r.leader_pid=${claims.leaderPid}
+    AND EXISTS(SELECT 1 FROM pg_locks WHERE locktype='advisory' AND pid=${claims.leaderPid} AND objid=721440139 AND granted)`;
+   if(!run||claims.expiresAt<=Date.now())fail('model_run_forbidden',403);
+   try{await authorize(run.owner_id,sql);}catch{fail('subscription_required',403);}
+   return run;
+  }
   const [run]=await sql`SELECT r.id,r.model_provider,r.model_id,c.owner_id,c.agent_secret,c.endpoint_secret FROM runs r JOIN companions c ON c.id=r.companion_id
    WHERE r.id=${claims.runId} AND c.id=${claims.companionId} AND r.dispatched=true AND r.usage_source='gateway'
    AND r.status IN ('preparing','running','needs_input') AND NOT r.cancel_requested AND c.retired_at IS NULL AND c.archive_requested_at IS NULL`;
@@ -183,7 +191,8 @@ export function createModelGateway(deps:Dependencies={}){
   const releaseBody=()=>{bodyBudget.used-=bodyBytes;bodyBytes=0;};
   try{
    if(request.method!=='POST')fail('model_method_forbidden',405);
-   const claims=verifyModelGatewayToken(request.headers.get('x-companions-model-token')??'');
+   const suppliedToken=request.headers.get('x-companions-model-token')??'';
+   const claims=verifyModelGatewayToken(suppliedToken)??verifyDiscussionModelToken(suppliedToken);
    const id=request.headers.get('x-companions-model-request-id')??'',runId=request.headers.get('x-companions-run-id');
    if(!claims||claims.runId!==runId||!uuid.test(id))fail('model_authentication_required',401);
    if(admitted>=(deps.maxConcurrent??8))fail('model_gateway_busy',503);admitted++;release=()=>{admitted--;};
@@ -203,13 +212,17 @@ export function createModelGateway(deps:Dependencies={}){
    const streaming=wire.api==='google-generative-ai'?suffix.endsWith(':streamGenerateContent'):body.stream===true;
    const hash=sha(wire.url+'\n'+encoded);
    // A duplicate UUID is always a tombstone, including after process loss. Never replay it.
-   const rows=await sql`INSERT INTO model_gateway_requests(id,run_id,companion_id,owner_id,provider,model_id,api,request_hash)
+   const rows="discussion" in claims ? await sql`INSERT INTO model_gateway_requests(id,discussion_run_id,owner_id,provider,model_id,api,request_hash)
+    SELECT ${id},r.id,d.owner_id,${provider},${run.model_id},${api},${hash} FROM discussion_runs r JOIN discussions d ON d.id=r.discussion_id
+    WHERE r.id=${claims.runId} AND d.owner_id=${claims.ownerId} AND r.status='running' AND NOT r.cancel_requested AND r.leader_pid=${claims.leaderPid} AND r.model_provider=${provider} AND r.model_id=${run.model_id}
+    AND EXISTS(SELECT 1 FROM pg_locks WHERE locktype='advisory' AND pid=${claims.leaderPid} AND objid=721440139 AND granted)
+    ON CONFLICT DO NOTHING RETURNING id` : await sql`INSERT INTO model_gateway_requests(id,run_id,companion_id,owner_id,provider,model_id,api,request_hash)
     SELECT ${id},r.id,c.id,c.owner_id,${provider},${run.model_id},${api},${hash} FROM runs r JOIN companions c ON c.id=r.companion_id
     WHERE r.id=${claims.runId} AND c.id=${claims.companionId} AND r.dispatched AND r.usage_source='gateway' AND r.status IN ('preparing','running','needs_input') AND NOT r.cancel_requested
     AND c.retired_at IS NULL AND c.archive_requested_at IS NULL AND c.agent_secret=${run.agent_secret} AND c.endpoint_secret IS NOT DISTINCT FROM ${run.endpoint_secret} AND r.model_provider=${provider} AND r.model_id=${run.model_id}
     ON CONFLICT DO NOTHING RETURNING id`;
    if(!rows.length)fail('model_request_not_replayable',409);claimed=id;
-   if(!verifyModelGatewayToken(request.headers.get('x-companions-model-token')??''))fail('model_authentication_required',401);
+   if(!verifyModelGatewayToken(suppliedToken)&&!verifyDiscussionModelToken(suppliedToken))fail('model_authentication_required',401);
    await allowed(claims);
    const headers=new Headers({'content-type':'application/json','accept':streaming?'text/event-stream':'application/json'});
    if(provider==='google')headers.set('x-goog-api-key',key);

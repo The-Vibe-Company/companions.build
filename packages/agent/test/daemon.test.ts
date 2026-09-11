@@ -5,7 +5,6 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { AgentDaemon } from "../src/daemon";
 import type { RunExecutor, RunInput } from "../src/types";
-import { InitializationRunner, type InitializationProcess } from "../src/initialization";
 
 const token = "test-secret";
 const open: AgentDaemon[] = [];
@@ -29,8 +28,8 @@ class ControlledExecutor implements RunExecutor {
   fail(id: string, error: Error) { this.rejects.get(id)?.(error); }
 }
 
-function daemon(state = mkdtempSync(join(tmpdir(), "companion-agent-")), executor = new ControlledExecutor(), initialization?: InitializationRunner) {
-  const value = new AgentDaemon(state, token, executor, undefined, 0, initialization); open.push(value); return { state, executor, daemon: value };
+function daemon(state = mkdtempSync(join(tmpdir(), "companion-agent-")), executor = new ControlledExecutor()) {
+  const value = new AgentDaemon(state, token, executor, undefined, 0); open.push(value); return { state, executor, daemon: value };
 }
 function request(path: string, init: RequestInit = {}) {
   return new Request(`http://agent${path}`, { ...init, headers: { authorization: `Bearer ${token}`, "content-type": "application/json", ...init.headers } });
@@ -61,64 +60,6 @@ describe("agent daemon protocol", () => {
     expect((await app.daemon.fetch(request(`/runs/${id}`, { method: "PUT", body }))).status).toBe(200);
     expect((await app.daemon.fetch(request(`/runs/${id}`, { method: "PUT", body: JSON.stringify({ content: "changed", instructions: "" }) }))).status).toBe(409);
     expect(app.executor.calls).toHaveLength(1);
-  });
-
-  test("runs specialist initialization once, persists its warning, and continues the mission", async () => {
-    const state = mkdtempSync(join(tmpdir(), "companion-agent-"));
-    let launches = 0;
-    const initialization = new InitializationRunner(state, () => {
-      launches += 1;
-      return { pid: 1, exited: Promise.resolve(7), killGroup() {} } satisfies InitializationProcess;
-    });
-    const app = daemon(state, new ControlledExecutor(), initialization);
-    const body = (content: string) => JSON.stringify({ content, instructions: "base", initScript: "prepare", initTimeoutMs: 5_000 });
-    expect((await app.daemon.fetch(request(`/runs/${id}`, { method: "PUT", body: body("first") }))).status).toBe(202);
-    await Bun.sleep(0);
-    expect(app.executor.calls[0]!.input.instructions).toContain("initialization script failed");
-    app.executor.finish(id, "repaired during mission"); await Bun.sleep(0);
-    expect(await (await app.daemon.fetch(request(`/runs/${id}`))).json()).toMatchObject({ status: "succeeded", initWarning: expect.stringContaining("initialization script failed") });
-
-    const followup = "01993c9a-b0c2-7000-8000-000000000009";
-    await app.daemon.fetch(request(`/runs/${followup}`, { method: "PUT", body: body("follow-up") }));
-    await Bun.sleep(0);
-    expect(launches).toBe(1);
-    expect(app.executor.calls[1]!.input.instructions).toContain("initialization script failed");
-  });
-
-  test("does not start the mission when initialization was ambiguous before restart", async () => {
-    const state = mkdtempSync(join(tmpdir(), "companion-agent-"));
-    const seed = new InitializationRunner(state, () => ({ pid: 1, exited: Promise.resolve(0), killGroup() {} }));
-    await seed.run("prepare", 5_000); seed.close();
-    const db = new Database(join(state, "initialization.sqlite"));
-    db.query("UPDATE initialization SET status='running',finished_at=NULL").run(); db.close();
-    const app = daemon(state);
-    await app.daemon.fetch(request(`/runs/${id}`, { method: "PUT", body: JSON.stringify({ content: "mission", instructions: "", initScript: "prepare" }) }));
-    await Bun.sleep(0);
-    expect(app.executor.calls).toHaveLength(0);
-    expect(await (await app.daemon.fetch(request(`/runs/${id}`))).json()).toMatchObject({ status: "interrupted", error: "INIT_SCRIPT_OUTCOME_UNKNOWN" });
-  });
-
-  test("does not steer or accept another main turn while initialization is running", async () => {
-    const state = mkdtempSync(join(tmpdir(), "companion-agent-"));
-    let finish!: (code: number) => void;
-    const exited = new Promise<number>(resolve => { finish = resolve; });
-    // Pi does not expose an accepting root until execute() starts, after initialization.
-    class InitializingExecutor extends ControlledExecutor { acceptingRoot() { return null; } }
-    const app = daemon(state, new InitializingExecutor(), new InitializationRunner(state, () => ({ pid: 1, exited, killGroup() {} })));
-    await app.daemon.fetch(request(`/runs/${id}`, { method: "PUT", body: JSON.stringify({ content: "mission", instructions: "", initScript: "prepare" }) }));
-    await Bun.sleep(0);
-    const next = "01993c9a-b0c2-7000-8000-000000000008";
-    expect((await app.daemon.fetch(request(`/runs/${next}`, { method: "PUT", body: JSON.stringify({ content: "follow-up", instructions: "", initScript: "prepare" }) }))).status).toBe(409);
-    expect((await app.daemon.fetch(request(`/runs/${next}`))).status).toBe(404);
-    expect(app.executor.steers).toHaveLength(0);
-    expect((await app.daemon.fetch(request(`/runs/${next}`, { method: "PUT", body: JSON.stringify({ content: "background", instructions: "", lane: "background", initScript: "prepare" }) }))).status).toBe(409);
-    expect((await app.daemon.fetch(request(`/runs/${next}`))).status).toBe(404);
-    finish(0); await Bun.sleep(0);
-    expect(app.executor.calls).toHaveLength(1);
-    app.executor.finish(id, "first done"); await Bun.sleep(0);
-    expect((await app.daemon.fetch(request(`/runs/${next}`, { method: "PUT", body: JSON.stringify({ content: "follow-up", instructions: "", initScript: "prepare" }) }))).status).toBe(202);
-    await Bun.sleep(0);
-    expect(app.executor.calls).toHaveLength(2);
   });
 
   test("a run-bound gateway token is required in gateway mode, rotates across retries, and is never journaled",async()=>{
@@ -272,6 +213,7 @@ describe("agent daemon protocol", () => {
       { content: "", instructions: "" },
       { content: "x".repeat(55_001), instructions: "" },
       { content: "valid", instructions: "x".repeat(20_001) },
+      { content: "valid", instructions: "x".repeat(40_001), conversationId: crypto.randomUUID() },
     ]) {
       expect((await app.daemon.fetch(request(`/runs/${id}`, { method: "PUT", body: JSON.stringify(body) }))).status).toBe(400);
     }
@@ -344,4 +286,31 @@ test('maintenance waits for in-flight configuration/file mutations and rejects l
  release();await mutation;
  expect((await app.fetch(request('/maintenance',{method:'POST'}))).status).toBe(200);
  expect((await app.fetch(request('/configuration',{method:'PUT',body:'{}'}))).status).toBe(503);
+});
+
+describe('independent discussions on one persistent machine',()=>{
+ test('concurrent discussions execute separately, steer locally and cancel only their own root',async()=>{
+  const app=daemon(),a=crypto.randomUUID(),b=crypto.randomUUID(),first=crypto.randomUUID(),second=crypto.randomUUID(),followup=crypto.randomUUID();
+  const put=(run:string,conversationId:string,content='hello')=>app.daemon.fetch(request(`/runs/${run}`,{method:'PUT',body:JSON.stringify({content,instructions:'',conversationId})}));
+  expect((await put(first,a)).status).toBe(202);expect((await put(second,b)).status).toBe(202);await Bun.sleep(0);
+  expect(app.executor.calls.map(c=>c.input.conversationId).sort()).toEqual([a,b].sort());
+  expect((await put(followup,a,'followup')).status).toBe(202);await Bun.sleep(0);
+  expect(app.executor.steers).toMatchObject([{rootId:first,id:followup,input:{conversationId:a}}]);
+  await app.daemon.fetch(request(`/runs/${first}/cancel`,{method:'POST'}));await Bun.sleep(0);
+  expect(app.executor.cancelled).toEqual([first]);
+  expect(await(await app.daemon.fetch(request(`/runs/${second}`))).json()).toMatchObject({status:'running'});
+  app.executor.finish(second,'separate result');await Bun.sleep(0);
+  expect(await(await app.daemon.fetch(request(`/runs/${second}`))).json()).toMatchObject({status:'succeeded',text:'separate result'});
+ });
+ test('discussion identity is part of immutable request identity and survives restart',async()=>{
+  const state=mkdtempSync(join(tmpdir(),'discussion-recovery-')),first=daemon(state),run=crypto.randomUUID(),conversationId=crypto.randomUUID();
+  const body={content:'hello',instructions:'',conversationId};
+  await first.daemon.fetch(request(`/runs/${run}`,{method:'PUT',body:JSON.stringify(body)}));
+  expect((await first.daemon.fetch(request(`/runs/${run}`,{method:'PUT',body:JSON.stringify({...body,conversationId:crypto.randomUUID()})}))).status).toBe(409);
+  first.daemon.close();open.splice(open.indexOf(first.daemon),1);
+  const recovered=daemon(state);
+  expect((await recovered.daemon.fetch(request(`/runs/${run}`,{method:'PUT',body:JSON.stringify(body)}))).status).toBe(200);
+  expect(recovered.executor.calls).toHaveLength(0);
+  expect(await(await recovered.daemon.fetch(request(`/runs/${run}`))).json()).toMatchObject({status:'interrupted',conversationId});
+ });
 });

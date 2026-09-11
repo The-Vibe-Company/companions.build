@@ -1,7 +1,15 @@
--- Sequence zero preserves user messages and final responses from older runtimes.
--- New runtimes keep a stable sequence for every visible assistant message.
 ALTER TABLE messages ADD COLUMN IF NOT EXISTS sequence integer NOT NULL DEFAULT 0;
 ALTER TABLE messages ADD COLUMN IF NOT EXISTS complete boolean NOT NULL DEFAULT true;
 ALTER TABLE messages DROP CONSTRAINT IF EXISTS messages_run_id_role_key;
 CREATE UNIQUE INDEX IF NOT EXISTS messages_run_role_sequence ON messages(run_id,role,sequence);
 ALTER TABLE runs ADD COLUMN IF NOT EXISTS message_version bigint;
+ALTER TABLE companions ADD COLUMN IF NOT EXISTS snapshot_name text;
+ALTER TABLE companions ADD COLUMN IF NOT EXISTS ready_at timestamptz;
+ALTER TABLE companions ADD COLUMN IF NOT EXISTS archive_requested_at timestamptz;
+ALTER TABLE companions ADD COLUMN IF NOT EXISTS archived_at timestamptz;
+ALTER TABLE companions ADD COLUMN IF NOT EXISTS desktop_paused_at timestamptz;
+ALTER TABLE companions ADD COLUMN IF NOT EXISTS preparation_started_at timestamptz;
+CREATE TABLE IF NOT EXISTS delegations (id uuid PRIMARY KEY,parent_id uuid NOT NULL REFERENCES companions(id),parent_run_id uuid REFERENCES runs(id),target_id uuid NOT NULL REFERENCES companions(id),run_id uuid NOT NULL UNIQUE REFERENCES runs(id),result jsonb,files_saved_at timestamptz,returned_run_id uuid REFERENCES runs(id),created_at timestamptz NOT NULL DEFAULT now(),finished_at timestamptz);
+CREATE TABLE IF NOT EXISTS machine_usage_events (id uuid PRIMARY KEY,companion_id uuid NOT NULL REFERENCES companions(id),owner_id text NOT NULL REFERENCES "user"(id),event text NOT NULL CHECK(event IN ('starting','ready','archived')),occurred_at timestamptz NOT NULL DEFAULT now(),reported_at timestamptz);
+CREATE TABLE IF NOT EXISTS delegation_files (delegation_id uuid NOT NULL REFERENCES delegations(id),attachment_id uuid NOT NULL REFERENCES attachments(id) ON DELETE RESTRICT,owner_id text NOT NULL,target_companion_id uuid NOT NULL,target_run_id uuid NOT NULL,position integer NOT NULL CHECK(position BETWEEN 0 AND 4),created_at timestamptz NOT NULL DEFAULT now(),PRIMARY KEY(target_run_id,position),UNIQUE(delegation_id,attachment_id),FOREIGN KEY(target_companion_id,owner_id) REFERENCES companions(id,owner_id),FOREIGN KEY(target_run_id,target_companion_id) REFERENCES runs(id,companion_id) ON DELETE CASCADE);
+CREATE INDEX IF NOT EXISTS delegation_files_target ON delegation_files(owner_id,target_companion_id,target_run_id);

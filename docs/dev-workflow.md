@@ -148,30 +148,13 @@ the old unique constraint after multi-message runs exist requires a separately r
 migration; do not delete conversation rows to make an old binary start. This change cannot
 recover intermediate messages that older runtimes never saved.
 
-### Routine publication mode rollout
+### Discussions rollout
 
-This release requires a coordinated update of API, worker and executor. The new columns are
-additive, but old executors ignore `publication_mode` and old workers admit scheduled runs with
-the default mode. Applying the migration alone does not stop an existing executor leader.
-Do not expose the new settings while any old application role remains running.
-
-1. Pause automatic deployments for all three application services **before merging** this release.
-   Build the release image and its agent distribution before deployment.
-2. Stop the old API to stop new admissions, then stop the old worker and executor. Verify all
-   three old roles have stopped before running the migration. Preserve agent journals, durable
-   request IDs, Boxes and disks; stopping the services is not permission to replay agent work.
-3. Run `migrate` from the new image. Start the updated executor and worker, verify startup and
-   recovery, then start the updated API from that same image and restore user access. Resume
-   automatic deployments only after every role is on the new version.
-
-For rollback, stop admission through the API and stop the worker first. Keep the updated
-executor until all accepted `always` and `silent` executions have settled under their recorded
-policy, including queued and waiting-for-input work. If this cannot be completed, retain the
-updated release; do not downgrade a pending publication decision. Before downgrading, change
-future routine modes to `auto` through the updated control/API in an operator-only maintenance
-window, with the worker still stopped, then stop all application roles. Retain the additive
-columns and deploy the previous compatible image to all roles together. Do not delete runs,
-messages or journals, or automatically replay ambiguous work as part of rollback.
+Follow [the discussions migration procedure](discussions-migration.md). Stop old API,
+worker and executor roles before applying the destructive schema update. Preserve permanent
+Companion machines, request journals and Pi transcripts. Reconcile old provider resources
+before purging specialist, routine and trigger records. The current product and HTTP contract
+are described in [the discussion specification](specs/discussions.md).
 
 ### Real model or scripted responses
 
@@ -192,7 +175,7 @@ Only `MODEL_PROVIDER`, `MODEL_ID`, the selected provider’s API key and endpoin
 remain local. Scripted mode does not inherit these external credentials.
 
 Use `./dev restart --live --direct` to apply changes. With both Box settings present,
-new specialists use Box; existing Docker specialists retain their provider.
+new companions use Box; existing Docker companions retain their provider.
 For ZAI Coding Plan, use `MODEL_PROVIDER=zai` and `MODEL_ID=glm-5.3-flash` in the
 main `.env`. Pi’s `zai` provider uses `https://api.z.ai/api/coding/paas/v4`.
 
@@ -281,41 +264,6 @@ Use `./dev up --live` in a new worktree to activate the external runtime setting
 while keeping development infrastructure isolated. Local `.env` copies take
 precedence over later changes to the main file.
 
-### Specialist images and Box snapshot capacity
-
-New specialist versions retain a sealed, archived Box and store a `box:<id>` image
-reference. Missions fork that Box with an idempotency key, `noEnv: true`, and an
-empty environment. The configuration source is archived before its sanitation
-copy is made; the sanitized image is archived and retired before publication.
-Published images must never be resumed, mutated or deleted while referenced by
-versions or shared copies. Existing named snapshot versions still work.
-
-Retention policy checked on 2026-09-08 against [Snapshots & Copies](https://docs.ascii.dev/box/snapshots#retention),
-[Data retention](https://docs.ascii.dev/box/data-retention), and the [FAQ](https://docs.ascii.dev/box/faq):
-there is no documented seven-day expiry for the latest snapshot. It remains usable
-for the lifetime of the archived Box, including months later. Seven days refers to
-the free trial. Stopped Boxes and their latest snapshot are included without running
-compute charges; this is the documented service policy, not an independent backup.
-
-Keep the sealed-Box strategy; do not schedule periodic wakeups or rotation to extend
-retention. Account zero-data-retention must remain disabled: read it with
-`GET /account/data-retention` before adopting this storage strategy. Enabling it
-queues existing archived Boxes for deletion and discards future archives; disabling
-it does not cancel accepted deletions. Explicit Box deletion also removes the restore
-source. Closing the Box account starts a 30-day recovery window before data purge.
-Named snapshots have no expiry but remain limited to 10. An independent off-provider
-backup would require its own export and tested restore path.
-
-Specialist names and avatars are live metadata: saving them updates the library,
-configuration chat and existing active mission identities immediately. It does not
-publish instructions, increment the technical revision, or invalidate a tested image.
-
-A development distribution can use the same mechanism:
-`python3 scripts/bun.py scripts/prepare-box-template.ts <unique-release> --archived`.
-The command builds first, verifies every file on an independent fork, archives both
-owned Boxes, and prints the `BOX_TEMPLATE=box:<id>` setting for the worktree `.env`.
-
-
 ### Backend-managed base named snapshot
 
 Hosted executors publish the already-built `dist/agent` distribution as a named
@@ -336,8 +284,7 @@ reconciliation; they are never automatically replayed.
 Only snapshots registered as managed base images are eligible for automatic cleanup.
 After switching to a verified replacement, unreferenced older managed snapshots are
 removed. A companion already pinned to the fallback keeps that immutable source once
-its Box creation starts; pending creations and specialist/software references protect
-their sources.
+its Box creation starts; pending creations protect their sources.
 Unrelated snapshots are never removed to make room: a full account without an eligible
 managed image leaves publication visibly pending or blocked until capacity is freed.
 Existing Boxes keep their disks when their original base named snapshot is removed.
@@ -351,16 +298,13 @@ Both local development launchers force `BOX_MANAGED_TEMPLATE=0` and
 settings. They consume an existing `BOX_TEMPLATE` and never publish or delete managed
 snapshots, even when sharing the production Box account. `BOX_MANAGED_TEMPLATE=0`
 also retains the explicit operator-managed `BOX_TEMPLATE` path in hosted mode.
-Specialist sealed-Box images remain independent
-of the common base named snapshot. The production container builds its distribution
+The production container builds its distribution
 before deployment; backend publication does not compile source at runtime.
 
 ### Box by default; opt-in local testing
 
-The product does not expose a local/cloud computer picker. New companions and
-specialist configuration environments use Box by default. Existing local companions
-remain readable and runnable; a prepared specialist always launches a Box child,
-even when its coordinator is local.
+New companions use Box by default. Existing local companions remain readable and runnable.
+The local runtime picker is available only when local testing is explicitly enabled.
 
 For fast Docker-backed local testing, set `LOCAL_RUNTIME=1` in the worktree `.env`
 or shell and restart with `./dev restart`. Remove it or set `LOCAL_RUNTIME=0` to
@@ -375,35 +319,23 @@ See [Background agent runtime updates](runtime-updates.md) for same-Box update e
 data preservation, recovery, and the coordinated first rollout. Railway deployment and Box
 runtime version are distinct; the executor reconciles compatible runtime releases when safe.
 
-### Long chat pagination
+### Discussion history and validation
 
-The Companion HTTP snapshot contains the most recent 50 timeline entries in `chat`, plus
-current runs and actionable questions in `live`. Its compatible top-level arrays have the
-same bounded scope; consumers must not treat them as the complete history. Pi transcripts,
-request journals and native compaction are unaffected.
+`GET /api/discussions/:id` returns the latest 50 messages in ascending sequence order,
+current tasks, questions, central runs and participants. `before` is an exclusive decimal
+sequence cursor. The web retains loaded earlier pages while polling persisted current state;
+folder membership never imports another discussion's history. Recipient and retry identity
+are scoped to the account and discussion. Files from another discussion require an exact
+user-provided file ID or download link and the same account owner.
 
-`GET /api/companions/:id/chat` returns an ascending `ChatPage` with entries, associated
-messages/questions/run metadata, files and specialists. Opaque, versioned cursors retain
-PostgreSQL microseconds and bind to one Companion. `before` and `after` are exclusive;
-`around` selects a nearby page even when its anchor disappeared. `from` and `through` are
-inclusive bounds for refreshing a previously loaded interval; follow `nextCursor` with
-`after` until null. `beforeCursor` and `afterCursor` describe availability outside the page.
-The default and maximum page size is 50. No total-history cutoff is applied.
+The companion daemon advertises `conversationVersion: 1`. Every discussion has an independent
+Pi directory while the companion machine, workspace, apps and durable memory stay shared.
+A bounded arrival briefing fits alongside the full Companion configuration; the agent can
+retrieve older messages through `discussion_history`. Stop chat and Stop companion target
+separate persisted requests. Archiving a discussion does not cancel either.
 
-On an event-stream invalidation or reconnect, the web refreshes loaded intervals in bounded
-pages and reads the recent snapshot. Disjoint intervals have an explicit load control.
-Off-page questions and routines already displayed are retained after settlement using a
-targeted cursor read, so an answer or completion does not remove the visible card. Invalid
-saved cursors fall back to the recent page; network failures remain explicitly retryable.
-Reading anchors are scoped to account and Companion in sessionStorage, with memory fallback;
-sign-out removes them. Only entry identifiers, sort metadata and viewport offsets are stored.
-
-The added indexes are additive and installed through normal startup migration. Deploy API
-and web together: an older web client does not follow the new pagination cursors. Rollback
-may retain the indexes and does not require changing agent disks or transcripts.
-
-Regression coverage lives in the chat server suite, the web history controller tests,
-`Chat.performance.test.tsx` and `ChatViewport.browser.test.tsx`. The latter uses real Chrome
-geometry at mobile and desktop widths; the typing test counts timeline work and Markdown
-parser calls rather than asserting an unstable wall-clock threshold. Loaded pages remain in
-memory and the DOM during the visit; this change does not claim virtualized rendering.
+Use `./dev check server --test discussion` for coordinator, gateway, attachment, cursor and
+complete previous-schema migration coverage; `./dev check server --test permanent-companions`
+for admission, retirement and cross-discussion control boundaries. `./dev check web` covers
+rendering, recipient/retry state, pagination, account flows and desktop controls. Full verification
+also exercises compiled Linux Pi histories, shared files and cancellation.

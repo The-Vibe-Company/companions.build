@@ -1,313 +1,65 @@
-import { type FormEvent, useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
-import { Check, ChevronRight, LoaderCircle, Plus } from "lucide-react";
-import {
-  api,
-  ApiError,
-  workspaceApi,
-  type AgentTemplate,
-  type AppConfig,
-  type Companion,
-  type PluginAccount,
-  type PluginServer,
-} from "@/api";
-import { AccountTiles } from "@/components/ApplicationAccess";
-import {
-  AVATAR_COLORS,
-  CompanionAvatar,
-  CompanionShape,
-  randomizeAvatar,
-  type CompanionAvatarValue,
-} from "@/components/CompanionAvatar";
-import { Button } from "@/components/ui/button";
-import { Textarea } from "@/components/ui/textarea";
-import { cn } from "@/lib/utils";
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import { Check, LoaderCircle } from "lucide-react";
+import { api, workspaceApi, type AppConfig, type Companion, type PluginAccount, type PluginServer } from "@/api";
+import { AccountTiles } from "./ApplicationAccess";
+import { AvatarPicker, CompanionAvatar, randomizeAvatar, type CompanionAvatarValue } from "./CompanionAvatar";
+import { Button } from "./ui/button";
+import { Textarea } from "./ui/textarea";
 import "./CreateCompanion.css";
 
-type CreateCompanionProps = {
-  config: AppConfig;
-  onCreated: (companion: Companion) => void;
-  compact?: boolean;
-  ownerId?: string;
-  onSetupLockedChange?: (locked: boolean) => void;
-};
+type Props = { config: AppConfig; onCreated: (companion: Companion) => void; compact?: boolean; ownerId?: string; onSetupLockedChange?: (locked: boolean) => void };
+type Frozen = Parameters<typeof api.createCompanion>[0];
+type Stored = { request: Frozen; accountIds: string[]; completedAccountIds: string[]; companionId?: string };
+function key(ownerId: string) { return `companions.create.pending.${ownerId}`; }
+function read(ownerId?: string): Stored | null { try { const value = ownerId ? JSON.parse(sessionStorage.getItem(key(ownerId)) ?? "null") as Stored | null : null; return value?.request?.clientCreationId ? value : null; } catch { return null; } }
 
-type FrozenCreation = Parameters<typeof api.createCompanion>[0];
-type StoredCreation = {
-  request: FrozenCreation;
-  accountIds: string[];
-  specialistIds: string[];
-  completedAccountIds: string[];
-  completedSpecialistIds: string[];
-  createdCompanionId?: string;
-  legacyPreparationRequested?: boolean;
-};
-
-function storageKey(ownerId: string) { return `companions.create.pending.${ownerId}`; }
-
-function readStoredCreation(ownerId?: string): StoredCreation | null {
-  if (!ownerId || typeof window === "undefined") return null;
-  try {
-    const value = JSON.parse(window.sessionStorage.getItem(storageKey(ownerId)) ?? "null") as StoredCreation | null;
-    if (!value?.request || typeof value.request.clientCreationId !== "string" || !Array.isArray(value.accountIds) || !Array.isArray(value.specialistIds)) return null;
-    return value;
-  } catch { return null; }
-}
-
-function failureMessage(cause: unknown, fallback: string) {
-  return cause instanceof Error ? cause.message : fallback;
-}
-
-export function CreateCompanion({ config, onCreated, compact = false, ownerId, onSetupLockedChange }: CreateCompanionProps) {
-  const restored = useRef(readStoredCreation(ownerId));
-  const appearanceId = useId();
-  const [appearanceExpanded, setAppearanceExpanded] = useState(false);
-  const firstProvider: "local" | "box" = config.defaultProvider ?? (config.localAvailable && !config.boxAvailable ? "local" : "box");
+export function CreateCompanion({ config, onCreated, compact = false, ownerId, onSetupLockedChange }: Props) {
+  const restored = useRef(read(ownerId));
   const [name, setName] = useState(restored.current?.request.name ?? "");
   const [instructions, setInstructions] = useState(restored.current?.request.instructions ?? "");
-  const [provider, setProvider] = useState<"local" | "box">(restored.current?.request.provider ?? firstProvider);
-  const [avatar, setAvatar] = useState<CompanionAvatarValue>(() => restored.current?.request.avatar ?? randomizeAvatar());
-  const [templates, setTemplates] = useState<AgentTemplate[]>([]);
+  const [provider, setProvider] = useState<"local" | "box">(restored.current?.request.provider ?? config.defaultProvider ?? (config.boxAvailable ? "box" : "local"));
+  const [avatar, setAvatar] = useState<CompanionAvatarValue>(restored.current?.request.avatar ?? randomizeAvatar());
+  const [appearance, setAppearance] = useState(false);
   const [accounts, setAccounts] = useState<PluginAccount[]>([]);
   const [catalog, setCatalog] = useState<PluginServer[]>([]);
-  const [sourceTemplateId, setSourceTemplateId] = useState(restored.current?.request.templateId ?? "");
-  const [accountIds, setAccountIds] = useState<Set<string>>(() => new Set(restored.current?.accountIds ?? []));
-  const [specialistIds, setSpecialistIds] = useState<Set<string>>(() => new Set(restored.current?.specialistIds ?? []));
+  const [selected, setSelected] = useState(new Set(restored.current?.accountIds ?? []));
   const [loadingSetup, setLoadingSetup] = useState(true);
   const [setupError, setSetupError] = useState("");
-  const [attempted, setAttempted] = useState(Boolean(restored.current));
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
-  const [mayLeaveToResolve, setMayLeaveToResolve] = useState(false);
-  const [createdId, setCreatedId] = useState(restored.current?.createdCompanionId ?? "");
-  const creationId = useRef(restored.current?.request.clientCreationId ?? crypto.randomUUID());
-  const frozenCreation = useRef<FrozenCreation | null>(restored.current?.request ?? null);
-  const createdCompanion = useRef<Companion | null>(null);
-  const legacyPreparationRequested = useRef(restored.current?.legacyPreparationRequested ?? false);
-  const completedAccounts = useRef(new Set(restored.current?.completedAccountIds ?? []));
-  const completedSpecialists = useRef(new Set(restored.current?.completedSpecialistIds ?? []));
-  const submissionPending = useRef(false);
-  const mounted = useRef(true);
-  const setupLockCallback = useRef(onSetupLockedChange);
-  setupLockCallback.current = onSetupLockedChange;
+  const frozen = useRef<Frozen | null>(restored.current?.request ?? null);
+  const completed = useRef(new Set(restored.current?.completedAccountIds ?? []));
+  const created = useRef<Companion | null>(null);
 
-  function persistProgress(companionId = createdCompanion.current?.id) {
-    if (!ownerId || !frozenCreation.current) return;
-    const progress: StoredCreation = {
-      request: frozenCreation.current,
-      accountIds: [...accountIds],
-      specialistIds: [...specialistIds],
-      completedAccountIds: [...completedAccounts.current],
-      completedSpecialistIds: [...completedSpecialists.current],
-      legacyPreparationRequested: legacyPreparationRequested.current,
-      ...(companionId ? { createdCompanionId: companionId } : {}),
-    };
-    try { window.sessionStorage.setItem(storageKey(ownerId), JSON.stringify(progress)); } catch { /* Storage is an optional recovery aid. */ }
-  }
-
-  function finishSetup(companion: Companion) {
-    if (ownerId) {
-      try { window.sessionStorage.removeItem(storageKey(ownerId)); } catch { /* Ignore unavailable storage. */ }
-    }
-    setAttempted(false);
-    setupLockCallback.current?.(false);
-    if (mounted.current) onCreated(companion);
-  }
-
-  const loadSetup = useCallback(async () => {
-    setLoadingSetup(true);
-    setSetupError("");
-    try {
-      const [templateResult, pluginResult] = await Promise.all([workspaceApi.templates(), workspaceApi.plugins()]);
-      if (!mounted.current) return;
-      setTemplates(templateResult.templates);
-      setAccounts(pluginResult.accounts);
-      setCatalog(pluginResult.catalog);
-    } catch (cause) {
-      if (mounted.current) setSetupError(failureMessage(cause, "Could not load setup choices."));
-    } finally {
-      if (mounted.current) setLoadingSetup(false);
-    }
-  }, []);
-
+  const loadSetup = useCallback(async () => { setLoadingSetup(true); setSetupError(""); try { const result = await workspaceApi.plugins(); setAccounts(result.accounts); setCatalog(result.catalog); } catch (cause) { setSetupError(cause instanceof Error ? cause.message : "Could not load applications."); } finally { setLoadingSetup(false); } }, []);
   useEffect(() => { void loadSetup(); }, [loadSetup]);
-  useEffect(() => {
-    mounted.current = true;
-    if (restored.current) setupLockCallback.current?.(true);
-    return () => { mounted.current = false; setupLockCallback.current?.(false); };
-  }, []);
-  useEffect(() => {
-    if (!restored.current?.createdCompanionId) return;
-    void api.getCompanion(restored.current.createdCompanionId).then(result => {
-      if (!mounted.current) return;
-      createdCompanion.current = result.companion;
-      setCreatedId(result.companion.id);
-    }).catch(() => { /* Retrying the frozen create safely recovers an uncertain response. */ });
-  }, []);
-  useEffect(() => {
-    if (!attempted) return;
-    const preventClose = (event: BeforeUnloadEvent) => { event.preventDefault(); event.returnValue = ""; };
-    window.addEventListener("beforeunload", preventClose);
-    return () => window.removeEventListener("beforeunload", preventClose);
-  }, [attempted]);
-
-  const sourceTemplate = templates.find(template => template.id === sourceTemplateId);
-  const selectionLocked = attempted || submitting;
-  const selectedAccountIds = useMemo(() => accountIds, [accountIds]);
-
-  function chooseSourceTemplate(id: string) {
-    if (selectionLocked) return;
-    setSourceTemplateId(id);
-    const template = templates.find(item => item.id === id);
-    if (!template) return;
-    setName(template.name);
-    setInstructions(template.instructions);
-    setAvatar(template.avatar);
-    if ((template.hasSnapshot || template.softwareBuildId || template.softwareResultId) && config.boxAvailable) setProvider("box");
-  }
-
-  function toggleAccount(id: string) {
-    if (selectionLocked) return;
-    setAccountIds(current => {
-      const next = new Set(current);
-      if (next.has(id)) next.delete(id); else next.add(id);
-      return next;
-    });
-  }
-
-  function toggleSpecialist(id: string) {
-    if (selectionLocked) return;
-    setSpecialistIds(current => {
-      const next = new Set(current);
-      if (next.has(id)) next.delete(id); else next.add(id);
-      return next;
-    });
-  }
+  useEffect(() => { if (!restored.current?.companionId) return; void api.getCompanion(restored.current.companionId).then(result => { created.current = result.companion; }).catch(() => {}); }, []);
+  useEffect(() => { onSetupLockedChange?.(submitting); return () => onSetupLockedChange?.(false); }, [submitting, onSetupLockedChange]);
+  const canSubmit = name.trim() && instructions.trim() && !submitting && !loadingSetup && !setupError;
+  const persist = (companionId?: string) => { if (!ownerId || !frozen.current) return; try { sessionStorage.setItem(key(ownerId), JSON.stringify({ request: frozen.current, accountIds: [...selected], completedAccountIds: [...completed.current], ...(companionId ? { companionId } : {}) } satisfies Stored)); } catch {} };
 
   async function submit(event: FormEvent) {
-    event.preventDefault();
-    if (!name.trim() || !instructions.trim() || loadingSetup || setupError || submissionPending.current) return;
-    submissionPending.current = true;
-    setAttempted(true);
-    setupLockCallback.current?.(true);
-    setSubmitting(true);
-    setError("");
-    setMayLeaveToResolve(false);
-    if (!frozenCreation.current) {
-      frozenCreation.current = {
-        name: name.trim(),
-        instructions: instructions.trim(),
-        provider,
-        avatar,
-        prepare: true,
-        clientCreationId: creationId.current,
-        ...(sourceTemplate ? { templateId: sourceTemplate.id, templateRevision: sourceTemplate.revision } : {}),
-      };
-    }
-    persistProgress();
+    event.preventDefault(); if (!canSubmit) return; setSubmitting(true); setError("");
+    frozen.current ??= { clientCreationId: crypto.randomUUID(), name: name.trim(), instructions: instructions.trim(), provider, avatar, prepare: true };
+    persist(restored.current?.companionId);
     try {
-      if (!createdCompanion.current) {
-        const result = await api.createCompanion(frozenCreation.current);
-        createdCompanion.current = result.companion;
-        persistProgress(result.companion.id);
-        if (!mounted.current) return;
-        setCreatedId(result.companion.id);
-      }
-      const companion = createdCompanion.current;
-      // Keep pre-upgrade requests identical for creation idempotency, then enqueue
-      // their preparation through the existing durable lifecycle admission.
-      if (frozenCreation.current?.prepare === false && !legacyPreparationRequested.current) {
-        await workspaceApi.prepare(companion.id);
-        legacyPreparationRequested.current = true;
-        persistProgress(companion.id);
-        if (!mounted.current) return;
-      }
-      for (const accountId of accountIds) {
-        if (completedAccounts.current.has(accountId)) continue;
-        await workspaceApi.selectPlugin(companion.id, accountId);
-        completedAccounts.current.add(accountId);
-        persistProgress(companion.id);
-        if (!mounted.current) return;
-      }
-      for (const templateId of specialistIds) {
-        if (completedSpecialists.current.has(templateId)) continue;
-        await workspaceApi.setTemplatePermission(companion.id, templateId, 2);
-        completedSpecialists.current.add(templateId);
-        persistProgress(companion.id);
-        if (!mounted.current) return;
-      }
-      finishSetup(companion);
-    } catch (cause) {
-      if (mounted.current) {
-        setError(failureMessage(cause, "Could not finish creating this companion."));
-        if (!createdCompanion.current && cause instanceof ApiError && [400, 401, 402, 403, 404, 409].includes(cause.status)) {
-          setMayLeaveToResolve(true);
-          setupLockCallback.current?.(false);
-        }
-      }
-    } finally {
-      submissionPending.current = false;
-      if (mounted.current) setSubmitting(false);
-    }
+      if (!created.current) { const result = await api.createCompanion(frozen.current); created.current = result.companion; persist(result.companion.id); }
+      const granted = await workspaceApi.companionPlugins(created.current.id);
+      completed.current = new Set(granted.accounts.map(account => account.id)); persist(created.current.id);
+      for (const accountId of [...completed.current]) { if (selected.has(accountId)) continue; await workspaceApi.unselectPlugin(created.current.id, accountId); completed.current.delete(accountId); persist(created.current.id); }
+      for (const accountId of selected) { if (completed.current.has(accountId)) continue; await workspaceApi.selectPlugin(created.current.id, accountId); completed.current.add(accountId); persist(created.current.id); }
+      if (ownerId) try { sessionStorage.removeItem(key(ownerId)); } catch {}
+      onCreated(created.current);
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "Could not create this companion. Retry to continue the same request."); }
+    finally { setSubmitting(false); }
   }
 
-  const canCreate = Boolean(name.trim() && instructions.trim() && !loadingSetup && !setupError && (config.localAvailable || config.boxAvailable));
-
-  return <form className={cn("create-companion", compact && "create-companion--compact")} onSubmit={submit}>
-    <section className="create-companion-preview" aria-label="Companion preview">
-      <CompanionAvatar name={name.trim() || "Your companion"} avatar={avatar} size={200}/>
-      <div className="create-companion-preview-copy">
-        <h2>{name.trim() || "Your companion"}</h2>
-        <p>{instructions.trim() || "What would you like them to take care of?"}</p>
-      </div>
-      <button className="create-appearance-toggle" type="button" aria-expanded={appearanceExpanded} aria-controls={appearanceId} onClick={() => setAppearanceExpanded(value => !value)}>Customize appearance<ChevronRight /></button>
-      <div id={appearanceId} className={cn("create-appearance-controls", appearanceExpanded && "is-expanded")}>
-      <fieldset disabled={selectionLocked} className="create-avatar-choice create-avatar-colors">
-        <legend>Color</legend>
-        <div>{[2, 4, 7, 5, 6, 9].map(index => <button key={index} type="button" aria-label={`Color ${index + 1}`} aria-pressed={avatar.color === index} onClick={() => setAvatar(current => ({ ...current, color: index }))}><span style={{ background: AVATAR_COLORS[index] }}/></button>)}</div>
-      </fieldset>
-      <fieldset disabled={selectionLocked} className="create-avatar-choice create-avatar-icons">
-        <legend>Shape</legend>
-        <div>{Array.from({ length: 8 }, (_, shape) => <button key={shape} type="button" aria-label={`Shape ${shape + 1}`} aria-pressed={avatar.shape === shape} onClick={() => setAvatar(current => ({ ...current, shape }))}><CompanionShape shape={shape}/></button>)}</div>
-      </fieldset>
-      <details className="create-face-options"><summary>More colors &amp; expressions</summary><fieldset disabled={selectionLocked} className="create-avatar-choice create-avatar-colors"><legend>More colors</legend><div>{[0, 1, 3, 8, 10].map(index => <button key={index} type="button" aria-label={`Color ${index + 1}`} aria-pressed={avatar.color === index} onClick={() => setAvatar(current => ({ ...current, color: index }))}><span style={{ background: AVATAR_COLORS[index] }}/></button>)}</div></fieldset><fieldset disabled={selectionLocked} className="create-avatar-choice create-avatar-icons">
-        <legend>Face</legend>
-        <div>{Array.from({ length: 5 }, (_, face) => <button key={face} type="button" aria-label={`Face ${face + 1}`} aria-pressed={avatar.face === face} onClick={() => setAvatar(current => ({ ...current, face }))}><CompanionAvatar name={`Face ${face + 1}`} avatar={{ ...avatar, face }} size={32}/></button>)}</div>
-      </fieldset></details>
-      </div>
-    </section>
-
-    <section className="create-companion-fields">
-      <header><h1>{compact ? "New companion" : "Create your first Companion"}</h1></header>
-      <div className="create-companion-basics">
-        <div className="field"><label htmlFor="create-companion-name">Name</label><input id="create-companion-name" value={name} maxLength={80} disabled={selectionLocked} onChange={event => setName(event.target.value)} placeholder="Ada" autoFocus={!compact}/></div>
-        <div className="field"><label htmlFor="create-companion-purpose">Role</label><Textarea id="create-companion-purpose" value={instructions} maxLength={20_000} disabled={selectionLocked} onChange={event => setInstructions(event.target.value)} placeholder="Research customer questions and turn the findings into clear briefs." rows={1}/></div>
-      </div>
-
-      {loadingSetup ? <div className="create-setup-state" role="status"><LoaderCircle className="spin"/>Loading accounts and specialists…</div> : setupError ? <div className="create-setup-state create-setup-error" role="alert"><p>{setupError}</p><Button type="button" variant="outline" onClick={() => void loadSetup()}>Try again</Button></div> : <>
-        <section className="create-option-section"><div className="create-section-heading"><h2>Apps &amp; accounts</h2><span>{accountIds.size} selected</span></div>
-          {accounts.length ? <AccountTiles accounts={accounts} catalog={catalog} selectedIds={selectedAccountIds} disabled={selectionLocked} onToggle={toggleAccount}/> : <p className="create-empty-option">Connected accounts will appear here when they are available.</p>}
-        </section>
-        <section className="create-option-section"><div className="create-section-heading"><h2>Team</h2><span>{specialistIds.size} selected</span></div>
-          {templates.length ? <div className="create-specialist-list">{templates.map(template => {
-            const selected = specialistIds.has(template.id);
-            return <label key={template.id} className={cn("create-specialist", selected && "create-specialist--selected")}><input type="checkbox" checked={selected} disabled={selectionLocked} onChange={() => toggleSpecialist(template.id)}/><CompanionAvatar name={template.name} avatar={template.avatar} size={32}/><span>{template.name}<small>v{template.revision}</small></span>{selected && <Check aria-hidden="true"/>}</label>;
-          })}</div> : <p className="create-empty-option">Create a specialist profile to add a team here.</p>}
-        </section>
-      </>}
-
-      <div className="create-companion-footer">
-      <Button className="create-companion-submit" type="submit" aria-label={attempted ? "Resume setup" : "Create companion"} disabled={!canCreate || submitting}>
-        {submitting ? <LoaderCircle className="spin"/> : attempted ? <><Plus/>Resume setup</> : <>Create {name.trim() || "companion"}</>}
-      </Button>
-      {templates.length > 0 && <details className="create-companion-advanced"><summary>Starting profile<ChevronRight/></summary>
-        {templates.length > 0 && <div className="field"><label htmlFor="create-source-template">Start from</label><select id="create-source-template" value={sourceTemplateId} disabled={selectionLocked} onChange={event => chooseSourceTemplate(event.target.value)}><option value="">Blank companion</option>{templates.map(template => { const needsBox = Boolean(template.hasSnapshot || template.softwareBuildId || template.softwareResultId); return <option key={template.id} value={template.id} disabled={needsBox && !config.boxAvailable}>{template.name} · v{template.revision}{needsBox && !config.boxAvailable ? " · cloud unavailable" : ""}</option>; })}</select><span className="field-hint">Pins this companion to the profile version shown. Team access is selected separately above.</span></div>}
-
-      </details>}</div>
-      {attempted && !submitting && error && <p className="create-lock-note">Setup is locked so retrying cannot create a different companion.</p>}
-      {mayLeaveToResolve && <p className="create-lock-note">You can leave this page to resolve the account issue, then return to resume this exact setup.</p>}
-      {error && <p className="field-error" role="alert">{error}</p>}
-      {createdId && error && <Button type="button" variant="outline" onClick={() => createdCompanion.current && finishSetup(createdCompanion.current)}>Open companion and finish later</Button>}
-
-    </section>
-  </form>;
+  return <div className={`create-form${compact ? " create-form--compact" : ""}`}><header className="create-heading"><CompanionAvatar name={name || "New companion"} avatar={avatar} size={70}/><div><h1>{compact ? "Create a Companion" : "Create your first Companion"}</h1><p>Give them a role, a computer, and the accounts they need.</p></div></header><form onSubmit={submit}><fieldset disabled={submitting}>
+    <div className="field"><label htmlFor="companion-name">Name</label><input id="companion-name" value={name} onChange={event => setName(event.target.value)} maxLength={80} autoFocus/></div>
+    <div className="field"><label htmlFor="companion-role">Role</label><Textarea id="companion-role" value={instructions} onChange={event => setInstructions(event.target.value)} maxLength={20_000} rows={3} placeholder="What should this companion own?"/></div>
+    <button className="appearance-toggle" type="button" aria-expanded={appearance} onClick={() => setAppearance(value => !value)}>Appearance <span>{appearance ? "Hide" : "Change"}</span></button>
+    {appearance && <AvatarPicker value={avatar} onChange={setAvatar}/>}
+    {config.localAvailable && config.boxAvailable && <div className="field"><label htmlFor="companion-computer">Computer</label><select id="companion-computer" value={provider} onChange={event => setProvider(event.target.value as "local" | "box")}><option value="box">Own Box computer</option><option value="local">Local development computer</option></select></div>}
+    <section className="create-setup-section"><h2>Applications</h2><p>Choose existing accounts. You can change access later.</p>{loadingSetup ? <div className="application-access-loading" role="status" aria-label="Loading applications"><span/><span/><span/></div> : setupError ? <div className="application-access-state" role="alert"><p>{setupError}</p><Button type="button" variant="outline" onClick={() => void loadSetup()}>Try again</Button></div> : accounts.length ? <AccountTiles accounts={accounts} catalog={catalog} selectedIds={selected} disabled={submitting} onToggle={id => setSelected(current => { const next = new Set(current); if (next.has(id)) next.delete(id); else next.add(id); return next; })}/> : <p className="muted-copy">No accounts connected yet. You can continue without one.</p>}</section>
+  </fieldset>{error && <p className="field-error" role="alert">{error}</p>}<Button className="create-submit" type="submit" disabled={!canSubmit}>{submitting ? <LoaderCircle className="spin"/> : <Check/>}{submitting ? "Creating…" : "Create companion"}</Button></form></div>;
 }

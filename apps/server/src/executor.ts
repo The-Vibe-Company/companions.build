@@ -1,8 +1,7 @@
+import {DiscussionCoordinator} from './discussion-executor';
 import {agentModelId,selectedProvider} from './model-selection';
 import {ManagedBaseImageCoordinator} from './managed-base-image';
 import {runtimeUpdateMachine} from "./runtime-updates";
-import { SoftwareBuildCoordinator, type SoftwareRuntimeHooks } from './software-runtime';
-import {specialistConfigurationInstructions} from './specialist-drafts';
 import {tracePreparation} from './preparation-trace';
 import {BoxObserver} from './box-observation';
 import { db, migrateForService } from "./store";
@@ -11,7 +10,6 @@ import { mintModelGatewayToken } from './model-gateway-token';
 import { prepareLocal, agentRequest, ExecutionStopped } from "./machines";
 import { SQL, type ReservedSQL } from "bun";
 import {z} from "zod";
-import { scheduleDueRoutines } from "./automations";
 import { progressLifecycle, ownerMayStartWork, SUBSCRIPTION_REQUIRED, type LifecycleHooks, type LifecycleMachines } from "./lifecycle";
 
 // A reserved PostgreSQL session owns the lock; detached checkpoints carry its captured PID.
@@ -52,17 +50,12 @@ export async function waitForExecutor(options:ExecutorWaitOptions={}):Promise<Re
  }
  return null;
 }
-function routinePublicationInstructions(mode: string) {
-  if (mode === "always") return "Routine publication policy: every successful final answer is automatically posted to the main conversation. Write the final answer for the user; publish_to_chat is optional.";
-  if (mode === "silent") return "Routine publication policy: results stay in this task's history. Do not call publish_to_chat; publication requests are suppressed. You can still ask the human a necessary question.";
-  return "Routine publication policy: call publish_to_chat only if the result is useful to the user according to the routine's instructions. Otherwise the final answer stays in task history.";
-}
 async function settle(sql: any, run: any, status: string, text: string | null, error: string | null,
   rootId = run.id, publishToChat = false, leaderPid?:number) {
-  publishToChat = status === "succeeded" && !!text && (run.publication_mode === "silent" ? false : run.publication_mode === "always" || publishToChat);
+  publishToChat = status === "succeeded" && !!text && publishToChat;
   await sql`WITH settled AS (
     UPDATE runs SET status=${status},error=${error},finished_at=now(),result_text=${text},publish_to_chat=${publishToChat},
-      response_root_id=COALESCE((SELECT id FROM runs root WHERE root.id=${rootId} AND root.companion_id=${run.companion_id}),id)
+      response_root_id=COALESCE((SELECT id FROM runs root WHERE root.id=${rootId} AND root.companion_id=${run.companion_id} AND root.discussion_id IS NOT DISTINCT FROM ${run.discussion_id??null}::uuid),id)
       WHERE id=${run.id} AND status IN ('preparing','running','needs_input')
       AND EXISTS(SELECT 1 FROM pg_locks WHERE locktype='advisory' AND pid=COALESCE(${leaderPid??null}::int,pg_backend_pid()) AND objid=721440139 AND granted)
       RETURNING id,companion_id,lane,message_version
@@ -84,7 +77,7 @@ export async function persistObservation(sql:any,run:any,result:any,leaderPid?:n
  if(rootId!==run.id){
   // This also repairs the projection when the PUT acknowledgment was lost.
   await sql`UPDATE runs r SET response_root_id=root.id,model_provider=root.model_provider,model_id=root.model_id,usage_source=root.usage_source
-   FROM runs root WHERE r.id=${run.id} AND root.id=${rootId} AND root.companion_id=r.companion_id AND r.companion_id=${run.companion_id}
+   FROM runs root WHERE r.id=${run.id} AND root.id=${rootId} AND root.companion_id=r.companion_id AND root.discussion_id IS NOT DISTINCT FROM r.discussion_id AND r.companion_id=${run.companion_id}
    AND EXISTS(SELECT 1 FROM pg_locks WHERE locktype='advisory' AND pid=COALESCE(${leaderPid??null}::int,pg_backend_pid()) AND objid=721440139 AND granted)`;
   return;
  }
@@ -107,12 +100,11 @@ export async function persistObservation(sql:any,run:any,result:any,leaderPid?:n
    ON CONFLICT(run_id,role,sequence) DO UPDATE SET content=EXCLUDED.content,complete=EXCLUDED.complete
     WHERE NOT messages.complete AND (messages.content,messages.complete) IS DISTINCT FROM (EXCLUDED.content,EXCLUDED.complete)`;
  }
- const warning=typeof result.initWarning==='string'?result.initWarning.slice(0,2000):null;
  const thinking=typeof result.thinkingText==='string'?result.thinkingText.slice(0,20_000):null;
  const preview=typeof result.previewText==='string'?result.previewText.slice(0,20_000):null;
  const parsed=usageShape.safeParse(result.usage);const usage=parsed.success?parsed.data:null;
- if(preview===null&&usage===null&&warning===null&&thinking===null)return;
- await sql`UPDATE runs SET thinking_text=COALESCE(${thinking},thinking_text),init_warning=COALESCE(${warning},init_warning),preview_text=COALESCE(${preview},preview_text),usage=COALESCE(${usage},usage)
+ if(preview===null&&usage===null&&thinking===null)return;
+ await sql`UPDATE runs SET thinking_text=COALESCE(${thinking},thinking_text),preview_text=COALESCE(${preview},preview_text),usage=COALESCE(${usage},usage)
    WHERE id=${run.id} AND companion_id=${run.companion_id}
    AND EXISTS(SELECT 1 FROM pg_locks WHERE locktype='advisory' AND pid=COALESCE(${leaderPid??null}::int,pg_backend_pid()) AND objid=721440139 AND granted)`;
 }
@@ -139,7 +131,6 @@ export function runExecution(run:any,leaderPid:number):RunExecution {
  };
 }
 export interface ExecutorHooks {
-  software?: SoftwareRuntimeHooks;
   canStartWork?(ownerId: string): Promise<boolean>;
   lifecycle?: LifecycleHooks;
   /** Test boundary; production uses the sole machine adapter. */
@@ -161,18 +152,17 @@ export async function claimQueuedRuns(sql: ReservedSQL) {
     SELECT id FROM companions WHERE retired_at IS NULL AND archive_requested_at IS NULL
      AND runtime_update_status NOT IN ('updating','blocked') FOR UPDATE SKIP LOCKED
    ) UPDATE runs r SET status='preparing',started_at=COALESCE(started_at,now()) WHERE r.id IN (
-    SELECT DISTINCT ON (q.companion_id,q.lane) q.id FROM runs q WHERE (q.status='queued' OR (q.status='needs_input' AND q.resume_requested_at IS NOT NULL))
+    SELECT DISTINCT ON (q.companion_id,q.lane,q.discussion_id) q.id FROM runs q WHERE (q.status='queued' OR (q.status='needs_input' AND q.resume_requested_at IS NOT NULL))
       AND EXISTS (SELECT 1 FROM available c WHERE c.id=q.companion_id)
       AND NOT EXISTS (SELECT 1 FROM machine_admission_requests m WHERE m.companion_id=q.companion_id AND m.state IN ('queued','cancelling'))
-      AND NOT EXISTS (SELECT 1 FROM runs a WHERE a.companion_id=q.companion_id AND a.lane=q.lane
+      AND NOT EXISTS (SELECT 1 FROM runs a WHERE a.companion_id=q.companion_id AND a.lane=q.lane AND a.discussion_id IS NOT DISTINCT FROM q.discussion_id
         AND (a.status='preparing' OR (q.lane='background' AND a.status='running')))
-    ORDER BY q.companion_id,q.lane,COALESCE(q.resume_requested_at,q.created_at),q.id)
+    ORDER BY q.companion_id,q.lane,q.discussion_id,COALESCE(q.resume_requested_at,q.created_at),q.id)
     AND EXISTS(SELECT 1 FROM pg_locks WHERE locktype='advisory' AND pid=pg_backend_pid() AND objid=721440139 AND granted)`;
 }
 export async function tick(sql: ReservedSQL, hooks: ExecutorHooks = {}, lifecycle?:LifecycleCoordinator,coordinator?:RunCoordinator) {
   const [ownership] = await sql`SELECT pg_backend_pid() AS pid,EXISTS(SELECT 1 FROM pg_locks WHERE locktype='advisory' AND pid=pg_backend_pid() AND objid=721440139 AND granted) AS owned`;
   if (!ownership.owned) throw new Error("Executor ownership lost");
-  await scheduleDueRoutines(sql);
   // Accepted work retains a visible denial. Previously dispatched requests continue through
   // journal reconciliation, cancellation, output harvest and human-answer resumption.
   for(const owner of await sql`SELECT DISTINCT c.owner_id FROM runs r JOIN companions c ON c.id=r.companion_id WHERE NOT r.dispatched AND r.status IN ('queued','preparing')`){
@@ -190,7 +180,7 @@ export async function tick(sql: ReservedSQL, hooks: ExecutorHooks = {}, lifecycl
     AND NOT EXISTS(SELECT 1 FROM runs r WHERE r.companion_id=c.id AND r.dispatched AND r.status IN ('running','preparing','needs_input'))`;
   if(lifecycle)await lifecycle.schedule(sql,hooks);
   else await progressLifecycle(sql, {...hooks.lifecycle,canStartWork:hooks.canStartWork??hooks.lifecycle?.canStartWork??ownerMayStartWork}, hooks.lifecycleMachines);
-  const runs = await sql`SELECT r.id,r.companion_id,r.client_message_id,r.content,r.status,r.dispatched,r.cancel_requested,r.error,r.created_at,r.started_at,r.finished_at,r.prepared_at,r.lane,r.source,r.response_root_id,r.result_text,r.publish_to_chat,r.routine_id,r.routine_name,r.publication_mode,r.scheduled_for,r.resume_requested_at,r.attachment_count,c.provider,c.box_id,c.create_key,c.create_started_at,c.preparation_started_at,c.agent_secret,c.endpoint_secret,c.instructions,c.specialist_draft_id,c.init_script,c.config_digest,c.snapshot_name,c.template_id,c.template_revision,c.model_id,c.owner_id
+  const runs = await sql`SELECT r.id,r.companion_id,r.discussion_id,r.coordinator_run_id,r.client_message_id,r.content,r.status,r.dispatched,r.cancel_requested,r.error,r.created_at,r.started_at,r.finished_at,r.prepared_at,r.lane,r.source,r.response_root_id,r.result_text,r.publish_to_chat,r.resume_requested_at,r.attachment_count,c.provider,c.box_id,c.create_key,c.create_started_at,c.preparation_started_at,c.agent_secret,c.endpoint_secret,c.instructions,c.config_digest,c.snapshot_name,c.model_id,c.owner_id
     FROM runs r JOIN companions c ON c.id=r.companion_id WHERE r.status IN ('preparing','running','needs_input') AND c.retired_at IS NULL AND c.archive_requested_at IS NULL ORDER BY r.created_at`;
   const progressSql=coordinator?db:sql;
   const groups=[...Map.groupBy(runs as any[],run=>`${run.companion_id}:${runJobKind(run)}`).entries()];
@@ -272,7 +262,8 @@ export async function tick(sql: ReservedSQL, hooks: ExecutorHooks = {}, lifecycl
           try {
             const health = await tracePreparation(run.companion_id,'admission_health',()=>request(endpoint!, token, "/health"),value=>value?.ready?'ready':'not_ready',run.id);
             if (!health?.ready) throw new Error("agent_not_ready");
-            const active = health.activeRuns?.[run.lane] ?? (run.lane === "main" ? health.activeRunId : null);
+            if(run.discussion_id&&health.conversationVersion!==1){await finish("failed",null,"This Companion runtime must be updated to support independent discussions.");return;}
+            const active = run.discussion_id ? health.activeDiscussions?.[run.discussion_id] : health.activeRuns?.[run.lane] ?? (run.lane === "main" ? health.activeRunId : null);
             if (active) {
               const [prior] = await sql`SELECT status,cancel_requested FROM runs WHERE id=${active} AND companion_id=${run.companion_id}`;
               if (!prior || prior.cancel_requested || ["interrupted", "cancelled", "failed"].includes(prior.status)) {
@@ -308,16 +299,15 @@ export async function tick(sql: ReservedSQL, hooks: ExecutorHooks = {}, lifecycl
             RETURNING id`;
           if (!dispatch) return;
           await execution.checkpoint(async tx=>tx`UPDATE companions SET status='ready',error=null WHERE id=${run.companion_id}`);
-          const accepted = await tracePreparation(run.companion_id,'admission_put',()=>request(endpoint!, token, `/runs/${run.id}`, "PUT", { content: run.content, instructions: [run.specialist_draft_id ? specialistConfigurationInstructions : run.instructions, run.source === "routine" ? routinePublicationInstructions(run.publication_mode) : ""].filter(Boolean).join("\n\n"), lane: run.lane,
-            ...(run.init_script?{initScript:run.init_script,initTimeoutMs:600_000}:{}),
+          const accepted = await tracePreparation(run.companion_id,'admission_put',()=>request(endpoint!, token, `/runs/${run.id}`, "PUT", { ...(run.discussion_id?{conversationId:run.discussion_id}:{}), content: run.content, instructions: [run.instructions,run.discussion_context].filter(Boolean).join("\n\n"), lane: run.lane,
             ...(run.model_id ? {modelId: agentModelId(provider,selectedModel)} : {}),
             ...(useGateway?{modelGateway:{token:mintModelGatewayToken(run.companion_id,run.id,run.agent_secret,undefined,run.endpoint_secret)}}:{}) }),undefined,run.id);
           if (accepted?.responseRootId) {
-            await execution.checkpoint(async tx=>tx`UPDATE runs SET response_root_id=(SELECT id FROM runs root WHERE root.id=${accepted.responseRootId} AND root.companion_id=${run.companion_id}) WHERE id=${run.id}`);
+            await execution.checkpoint(async tx=>tx`UPDATE runs SET response_root_id=(SELECT id FROM runs root WHERE root.id=${accepted.responseRootId} AND root.companion_id=${run.companion_id} AND root.discussion_id IS NOT DISTINCT FROM ${run.discussion_id??null}::uuid) WHERE id=${run.id}`);
             // Pi's native steer joins the root's existing model session. A changed selection
             // applies to the next response root, never retroactively to this shared reply.
             await execution.checkpoint(async tx=>tx`UPDATE runs r SET model_provider=root.model_provider,model_id=root.model_id,usage_source=root.usage_source
-              FROM runs root WHERE r.id=${run.id} AND root.id=r.response_root_id AND root.companion_id=r.companion_id AND root.id<>r.id`);
+              FROM runs root WHERE r.id=${run.id} AND root.id=r.response_root_id AND root.companion_id=r.companion_id AND root.discussion_id IS NOT DISTINCT FROM r.discussion_id AND root.id<>r.id`);
           }
           return;
         }
@@ -403,18 +393,9 @@ export class LifecycleCoordinator {
   const targetRuntime=runtimeUpdateMachine()?.release.id??null;
   const pending=await leader`SELECT c.id FROM companions c WHERE
    EXISTS(SELECT 1 FROM runtime_updates u WHERE u.companion_id=c.id AND u.finished_at IS NULL)
-   OR (${targetRuntime}::text IS NOT NULL AND c.provider='box' AND c.box_id IS NOT NULL AND c.status='ready' AND c.archived_at IS NULL AND c.retired_at IS NULL AND NOT c.temporary AND c.specialist_draft_id IS NULL
+   OR (${targetRuntime}::text IS NOT NULL AND c.provider='box' AND c.box_id IS NOT NULL AND c.status='ready' AND c.archived_at IS NULL AND c.retired_at IS NULL
     AND (c.runtime_update_target IS DISTINCT FROM ${targetRuntime} OR (c.runtime_update_status IN ('pending','deferred') AND (c.runtime_update_checked_at IS NULL OR c.runtime_update_checked_at<now()-interval '5 minutes'))))
-   OR
-   (c.retired_at IS NULL AND (c.prepare_requested OR ((c.desktop_boundary_version=1 OR c.desktop_taken) AND c.status='ready' AND c.endpoint_secret IS NOT NULL AND (c.desktop_checked_at IS NULL OR c.desktop_checked_at<now()-interval '30 seconds' OR (c.desktop_observed_generation IS DISTINCT FROM c.desktop_generation AND c.desktop_checked_at<now()-interval '2 seconds'))) OR c.archive_requested_at IS NOT NULL
-    OR EXISTS(SELECT 1 FROM machine_admission_requests m WHERE m.companion_id=c.id AND m.state IN ('queued','cancelling'))
-    OR ((c.temporary OR c.specialist_draft_id IS NOT NULL) AND c.archived_at IS NULL AND EXISTS(SELECT 1 FROM machine_admission_requests m WHERE m.owner_id=c.owner_id AND m.state='queued' AND m.waiting_reason='active_limit'))
-    OR (c.status='ready' AND c.prepare_requested=false AND NOT c.desktop_taken AND COALESCE(c.keep_alive_until,'-infinity')<=now()
-      AND COALESCE(c.machine_activity_at,c.ready_at,c.created_at)<=now()-interval '30 minutes')
-    OR ((c.temporary OR c.specialist_draft_id IS NOT NULL) AND c.box_id IS NOT NULL AND c.archived_at IS NULL AND (c.provider_ttl_checked_at IS NULL OR c.provider_ttl_checked_at<now()-interval '15 minutes') AND (c.keep_alive_until>now() OR EXISTS(SELECT 1 FROM runs active WHERE active.companion_id=c.id AND active.dispatched AND active.status='running')))
-    OR EXISTS(SELECT 1 FROM specialist_operations o JOIN specialist_drafts d ON d.template_id=o.template_id WHERE d.companion_id=c.id AND o.status IN ('queued','freezing','capturing','preparing','running'))
-    OR EXISTS(SELECT 1 FROM template_candidates t WHERE t.source_companion_id=c.id AND t.status IN ('queued','capturing','ready'))
-    OR EXISTS(SELECT 1 FROM delegations d JOIN runs r ON r.id=d.run_id WHERE d.target_id=c.id AND d.finished_at IS NULL AND r.status IN ('succeeded','failed','interrupted','cancelled'))))
+   OR (c.retired_at IS NULL AND (c.prepare_requested OR ((c.desktop_boundary_version=1 OR c.desktop_taken) AND c.status='ready' AND c.endpoint_secret IS NOT NULL AND (c.desktop_checked_at IS NULL OR c.desktop_checked_at<now()-interval '30 seconds' OR (c.desktop_observed_generation IS DISTINCT FROM c.desktop_generation AND c.desktop_checked_at<now()-interval '2 seconds'))) OR c.archive_requested_at IS NOT NULL OR EXISTS(SELECT 1 FROM machine_admission_requests m WHERE m.companion_id=c.id AND m.state IN ('queued','cancelling')) OR EXISTS(SELECT 1 FROM delegations d JOIN runs r ON r.id=d.run_id WHERE d.target_id=c.id AND d.finished_at IS NULL AND r.status IN ('succeeded','failed','interrupted','cancelled'))))
    OR (c.retired_at IS NOT NULL AND c.archive_requested_at IS NOT NULL AND (c.archived_at IS NULL OR c.archived_at<c.archive_requested_at))
    OR EXISTS(SELECT 1 FROM machine_usage_events e WHERE e.companion_id=c.id AND e.reported_at IS NULL)
    ORDER BY CASE WHEN ${this.cursor}::uuid IS NULL OR c.id>${this.cursor}::uuid THEN 0 ELSE 1 END,c.id LIMIT 100`;
@@ -446,7 +427,7 @@ if (import.meta.main) {
   const lifecycle=new LifecycleCoordinator();
   const observations=new BoxObserver();
   const runs=new RunCoordinator();
-  const software=new SoftwareBuildCoordinator();
-  try { while(!shutdown.signal.aborted) { await baseImage.schedule(sql); if(productHooks.software)await software.schedule(sql,productHooks.software); await observations.schedule(sql); await tick(sql, productHooks,lifecycle,runs); await Bun.sleep(500); } }
-  finally { await Promise.allSettled([baseImage.close(),lifecycle.close(),observations.close(),runs.close(),software.close()]); sql.release(); await db.close(); }
+  const discussions=new DiscussionCoordinator();
+  try { while(!shutdown.signal.aborted) { await baseImage.schedule(sql); await observations.schedule(sql); await tick(sql, productHooks,lifecycle,runs); await discussions.schedule(sql); await Bun.sleep(500); } }
+  finally { await Promise.allSettled([baseImage.close(),lifecycle.close(),observations.close(),runs.close(),discussions.close()]); sql.release(); await db.close(); }
 }

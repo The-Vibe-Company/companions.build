@@ -8,8 +8,6 @@ import { createCompanion, db, migrate } from "../src/store";
 import { migrateBilling } from "../src/billing";
 import { acceptDelivery, createDelivery, migrateDelivery, sendDeliveryReadyInvite, setDeliveryMailerForTests } from "../src/delivery";
 import { migrateLifecycle } from "../src/lifecycle";
-import { allowTemplate, saveTemplate } from "../src/templates";
-import { spawnChild } from "../src/delegation";
 import { migrateDeliverySkills, progressDeliverySkills, progressDeliverySkillsForCompanion, stageDeliverySkills } from "../src/delivery-skills";
 import { encrypt } from "../src/config";
 import { createObjectStorage } from "../src/storage";
@@ -32,35 +30,24 @@ function skills(name:string,content:string){const state=mkdtempSync(join(tmpdir(
 async function call(handler:AgentSkills,path:string,method="GET",body?:unknown){const response=await handler.handleRequest(new Request(`http://agent${path}`,{method,...(body===undefined?{}:{body:JSON.stringify(body)})}));if(!response?.ok)throw Error(`agent ${response?.status}`);return response.json();}
 function manifestFile(path:string,value:string){const bytes=Buffer.from(value);return {path,data:bytes.toString("base64"),sha256:createHash("sha256").update(bytes).digest("hex")};}
 
-test("a ready immutable S3 bundle is imported into the client and its delivered specialist replica",async()=>{
+test("a ready immutable S3 bundle is imported once into the independent client companion",async()=>{
  process.env.BILLING_TEST_MODE="1";const sender=await user(),recipient=await user();
  const source=await createCompanion(sender,{name:"Studio",instructions:"Work",provider:"local"});
- const specialistSource=await createCompanion(sender,{name:"Builder source",instructions:"Build",provider:"local"});
- const main=skills("writer","main bytes"),specialist=skills("builder","specialist bytes"),receivedMain=skills("placeholder","remove me"),receivedReplica=skills("placeholder","remove me");
- rmSync(join(receivedMain.state,"pi","skills","placeholder"),{recursive:true});rmSync(join(receivedReplica.state,"pi","skills","placeholder"),{recursive:true});
+ const main=skills("writer","main bytes"),receivedMain=skills("placeholder","remove me");
+ rmSync(join(receivedMain.state,"pi","skills","placeholder"),{recursive:true});
  await db`UPDATE companions SET status='ready',prepare_requested=false,endpoint_secret=${encrypt("main")},agent_secret=${encrypt("token")} WHERE id=${source.id}`;
- await db`UPDATE companions SET status='ready',prepare_requested=false,endpoint_secret=${encrypt("specialist")},agent_secret=${encrypt("token")} WHERE id=${specialistSource.id}`;
- const template=await saveTemplate(sender,{name:"Builder",instructions:"Build well"});
- await db`UPDATE agent_templates SET source_companion_id=${specialistSource.id} WHERE id=${template.id}`;
- await allowTemplate(sender,source.id,{templateId:template.id,maxChildren:2});
  const storage=process.env.RUN_STORAGE_ACCEPTANCE==="1"?createObjectStorage():new MemoryStorage();let mails=0;setDeliveryMailerForTests(async()=>{mails++;});
- const delivery=await createDelivery(sender,{clientDeliveryId:crypto.randomUUID(),companionId:source.id,clientEmail:`${recipient}@example.test`,templateIds:[template.id]});
+ const delivery=await createDelivery(sender,{clientDeliveryId:crypto.randomUUID(),companionId:source.id,clientEmail:`${recipient}@example.test`});
  expect(delivery?.skillsStatus).toBe("pending");expect(mails).toBe(0);
  await expect(acceptDelivery(recipient,delivery!.id,false)).rejects.toThrow("still being prepared");
- const requestAgent=async(endpoint:string,_token:string,path:string,method?:string,body?:unknown)=>call(endpoint==="main"?main.handler:specialist.handler,path,method,body);
+ const requestAgent=async(endpoint:string,_token:string,path:string,method?:string,body?:unknown)=>call(main.handler,path,method,body);
  await progressDeliverySkillsForCompanion(executor,source.id,"main","token",{storage,requestAgent,notifyReady:sendDeliveryReadyInvite});
- await progressDeliverySkillsForCompanion(executor,specialistSource.id,"specialist","token",{storage,requestAgent,notifyReady:sendDeliveryReadyInvite});
  expect(mails).toBe(1);expect((await db`SELECT skills_status FROM companion_deliveries WHERE id=${delivery!.id}`)[0].skills_status).toBe("ready");
  const accepted=await acceptDelivery(recipient,delivery!.id,false);const parentId=accepted!.companionId;
  let imports=0;const importMain=async(_e:string,_t:string,path:string,method?:string,body?:unknown)=>{imports++;return call(receivedMain.handler,path,method,body);};
  expect(await stageDeliverySkills(parentId,"recipient","token",{storage,requestAgent:importMain})).toMatchObject({staged:true});
  expect(await stageDeliverySkills(parentId,"recipient","token",{storage,requestAgent:importMain})).toMatchObject({staged:false});expect(imports).toBe(1);
  expect(readFileSync(join(receivedMain.state,"pi","skills","writer","SKILL.md"),"utf8")).toContain("main bytes");
- const [copied]=await db`SELECT t.id,t.skill_bundle_id FROM agent_templates t JOIN template_permissions p ON p.template_id=t.id WHERE p.parent_id=${parentId}`;expect(copied.skill_bundle_id).not.toBeNull();
- const replica=await spawnChild(recipient,parentId,null,crypto.randomUUID(),{templateId:copied.id,prompt:"Build"});
- await db`UPDATE companions SET box_id='replica-box' WHERE id=${replica.companionId}`;
- await stageDeliverySkills(replica.companionId,"replica","token",{storage,requestAgent:(_e,_t,path,method,body)=>call(receivedReplica.handler,path,method,body)});
- expect(readFileSync(join(receivedReplica.state,"pi","skills","builder","SKILL.md"),"utf8")).toContain("specialist bytes");
 });
 
 test("revoked deliveries, crafted secret manifests, and cross-owner jobs fail closed before storage",async()=>{
@@ -77,7 +64,7 @@ test("revoked deliveries, crafted secret manifests, and cross-owner jobs fail cl
  const secret=await createDelivery(sender,{clientDeliveryId:crypto.randomUUID(),companionId:source.id,clientEmail:`${recipient}@example.test`}),writes=storage.puts;
  await progressDeliverySkillsForCompanion(executor,source.id,"source","token",{storage,requestAgent:async()=>({version:1,skills:[{name:"leaky",files:[manifestFile("SKILL.md","---\ndescription: Leaky\n---\n"),manifestFile("references/setup.md","-----BEGIN OPENSSH PRIVATE KEY-----\nprivate\n-----END OPENSSH PRIVATE KEY-----")]}]}),notifyReady:async()=>{}});
  expect(storage.puts).toBe(writes);expect((await db`SELECT skills_status FROM companion_deliveries WHERE id=${secret!.id}`)[0].skills_status).toBe("error");
- const forged=crypto.randomUUID();await db`INSERT INTO portable_skill_exports(id,source_owner_id,source_companion_id,target_kind,source_template_id,target_revision) VALUES(${forged},${other},${source.id},'template_revision',${crypto.randomUUID()},91)`;
+ const [forgedJob]=await db`UPDATE portable_skill_exports SET source_owner_id=${other},status='pending' WHERE delivery_id=${secret!.id} RETURNING id`;const forged=forgedJob.id;
  await progressDeliverySkills(executor,{storage,requestAgent:async()=>{throw Error("must not contact agent")}});expect(storage.puts).toBe(writes);expect((await db`SELECT status FROM portable_skill_exports WHERE id=${forged}`)[0].status).toBe("error");
  const empty=await createDelivery(sender,{clientDeliveryId:crypto.randomUUID(),companionId:source.id,clientEmail:`${recipient}@example.test`});
  await progressDeliverySkillsForCompanion(executor,source.id,"source","token",{storage,requestAgent:async()=>({version:1,skills:[]}),notifyReady:sendDeliveryReadyInvite});

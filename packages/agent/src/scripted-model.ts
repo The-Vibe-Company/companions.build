@@ -118,11 +118,6 @@ export function scriptedModel(model: any, context: any) {
       ? "MINIO_INPUT_BYTES -> agent output\n" : "attachment input missing\n" });
     else if (results.length === 2) tool("send_file", { path: "attachment-result.txt" });
     else message.content = [{ type: "text", text: lastResult().includes("queued for attachment") ? "Attachment roundtrip verified" : "Attachment roundtrip failed" }];
-  } else if (text === "control-create-routine") {
-    if (results.length === 0) tool("companion_control", { operation: "routine_save", input: {
-      name: "Daily acceptance", prompt: "Check the acceptance fixture", cron: "17 9 * * 1-5", timezone: "Europe/Paris", enabled: true,
-    } });
-    else message.content = [{ type: "text", text: lastResult().includes("Daily acceptance") ? "Routine created" : "Routine creation failed" }];
   } else if (text === "control-ask-background") {
     if (results.length === 0) tool("bash", { command: "printf 'asked\\n' >> control-question-dispatches.txt" });
     else if (results.length === 1) tool("companion_control", { operation: "ask_user", input: {

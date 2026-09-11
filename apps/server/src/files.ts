@@ -318,7 +318,7 @@ export async function filesForThread(
 
 const json = (body: unknown, status = 200) => Response.json(body, { status, headers: { "Cache-Control": "no-store" } });
 
-async function boundedFormData(request: Request) {
+export async function boundedFormData(request: Request) {
   if (!request.body) throw new FileRequestError("A multipart body is required.", 400);
   const reader = request.body.getReader();
   const chunks: Uint8Array[] = [];

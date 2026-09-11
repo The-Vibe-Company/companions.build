@@ -3,7 +3,6 @@ import { migrate, createCompanion, acceptMessage, detail, db } from "../src/stor
 import { migrateBilling } from "../src/billing";
 import { acceptDelivery, canMaintainCompanion, createDelivery, handleDelivery, migrateDelivery, sendDeliveryReadyInvite, setDeliveryMailerForTests } from "../src/delivery";
 import { migrateDeliverySkills } from "../src/delivery-skills";
-import { allowTemplate, listTemplateRevisions, listTemplates, saveTemplate } from "../src/templates";
 import { attachPlugin, selectedPlugins } from "../src/plugins";
 import { config, encrypt } from "../src/config";
 
@@ -42,77 +41,6 @@ test("a verified matching client receives an independent copy with explicit revo
   const revoked = await handleDelivery(new Request(`http://localhost/api/deliveries/${delivery!.id}/maintenance`, { method: "DELETE" }), recipient);
   expect(revoked?.status).toBe(200);
   expect(await canMaintainCompanion(sender, accepted!.companionId)).toBe(false);
-});
-
-test("two clients receive isolated copies from one source without history, files, connections, or later propagation", async () => {
-  process.env.BILLING_TEST_MODE = "1";
-  const sender = await user(`sender-${crypto.randomUUID()}@example.com`);
-  const firstEmail = `first-${crypto.randomUUID()}@example.com`;
-  const secondEmail = `second-${crypto.randomUUID()}@example.com`;
-  const firstOwner = await user(firstEmail);
-  const secondOwner = await user(secondEmail);
-  const source = await createCompanion(sender, {
-    name: "Shared source",
-    instructions: "Original instructions",
-    provider: "local",
-    avatar: { shape: 2, color: 3, face: 4 },
-  });
-
-  const runId = await acceptMessage(sender, source.id, crypto.randomUUID(), "Private source history", 1);
-  await db`INSERT INTO attachments (id,client_file_id,owner_id,companion_id,run_id,kind,position,filename,content_type,byte_size,sha256,storage_key)
-    VALUES (${crypto.randomUUID()},${crypto.randomUUID()},${sender},${source.id},${runId},'user_upload',0,'private.txt','text/plain',7,${"a".repeat(64)},${`test/${crypto.randomUUID()}`})`;
-  const pluginId = crypto.randomUUID();
-  await db`INSERT INTO plugin_accounts (id,owner_id,provider,label,credential_secret)
-    VALUES (${pluginId},${sender},'custom','Private connection',${encrypt(JSON.stringify({ kind: "custom", transport: "http", url: "https://example.invalid/mcp", headers: {} }))})`;
-  await attachPlugin(sender, source.id, pluginId, true);
-  expect((await detail(sender, source.id))?.messages).toHaveLength(1);
-  expect(await db`SELECT id FROM attachments WHERE companion_id=${source.id}`).toHaveLength(1);
-  expect(await selectedPlugins(sender, source.id)).toHaveLength(1);
-
-  const template = await saveTemplate(sender, { name: "Researcher", instructions: "Initial template", avatar: { shape: 1, color: 2, face: 3 }, modelId: "research-model" });
-  await allowTemplate(sender, source.id, { templateId: template.id, maxChildren: 2 });
-  setDeliveryMailerForTests(async () => {});
-  const [firstDelivery, secondDelivery] = await Promise.all([
-    createDelivery(sender, { clientDeliveryId: crypto.randomUUID(), companionId: source.id, clientEmail: firstEmail, templateIds: [template.id], includeSkills: false }),
-    createDelivery(sender, { clientDeliveryId: crypto.randomUUID(), companionId: source.id, clientEmail: secondEmail, templateIds: [template.id], includeSkills: false }),
-  ]);
-  const first = await acceptDelivery(firstOwner, firstDelivery!.id, false);
-  const second = await acceptDelivery(secondOwner, secondDelivery!.id, false);
-  expect(first?.companionId).not.toBe(second?.companionId);
-
-  const [firstCopy, secondCopy] = await Promise.all([detail(firstOwner, first!.companionId), detail(secondOwner, second!.companionId)]);
-  expect(firstCopy?.companion).toMatchObject({ name: "Shared source", instructions: "Original instructions" });
-  expect(secondCopy?.companion).toMatchObject({ name: "Shared source", instructions: "Original instructions" });
-  expect(firstCopy?.messages).toEqual([]);
-  expect(secondCopy?.messages).toEqual([]);
-  expect(firstCopy?.runs).toEqual([]);
-  expect(secondCopy?.runs).toEqual([]);
-  expect(await selectedPlugins(firstOwner, first!.companionId)).toEqual([]);
-  expect(await selectedPlugins(secondOwner, second!.companionId)).toEqual([]);
-  const copiedFiles = await db`SELECT id FROM attachments WHERE companion_id IN (${first!.companionId},${second!.companionId})`;
-  expect(copiedFiles).toHaveLength(0);
-
-  const firstTemplates = await listTemplates(firstOwner);
-  const secondTemplates = await listTemplates(secondOwner);
-  expect(firstTemplates).toHaveLength(1);
-  expect(secondTemplates).toHaveLength(1);
-  expect(firstTemplates[0]).toMatchObject({ name: "Researcher", instructions: "Initial template", modelId: "research-model", sourceCompanionId: null, hasSnapshot: false, revision: 1 });
-  expect(secondTemplates[0]).toMatchObject({ name: "Researcher", instructions: "Initial template", modelId: "research-model", sourceCompanionId: null, hasSnapshot: false, revision: 1 });
-  expect((await listTemplateRevisions(firstOwner, firstTemplates[0].id))[0]).toMatchObject({ revision: 1, modelId: "research-model" });
-  expect(firstTemplates[0].id).not.toBe(secondTemplates[0].id);
-  expect(firstTemplates[0].id).not.toBe(template.id);
-  expect(secondTemplates[0].id).not.toBe(template.id);
-
-  await saveTemplate(firstOwner, { id: firstTemplates[0].id, expectedRevision: 1, name: "Client one revision", instructions: "Only client one", avatar: { shape: 4, color: 5, face: 0 } });
-  await db`UPDATE companions SET name='Client one companion' WHERE id=${first!.companionId} AND owner_id=${firstOwner}`;
-  await saveTemplate(sender, { id: template.id, expectedRevision: 1, name: "Source revision", instructions: "Only the sender", avatar: { shape: 5, color: 6, face: 1 } });
-  await db`UPDATE companions SET name='Renamed source' WHERE id=${source.id} AND owner_id=${sender}`;
-  expect((await listTemplates(secondOwner))[0]).toMatchObject({ name: "Researcher", instructions: "Initial template", revision: 1 });
-  expect((await listTemplates(sender))[0]).toMatchObject({ name: "Source revision", instructions: "Only the sender", revision: 2 });
-  expect((await detail(secondOwner, second!.companionId))?.companion.name).toBe("Shared source");
-  expect((await detail(firstOwner, first!.companionId))?.companion.name).toBe("Client one companion");
-  expect((await detail(sender, source.id))?.companion.name).toBe("Renamed source");
-  expect(await listTemplateRevisions(secondOwner, firstTemplates[0].id)).toEqual([]);
 });
 
 test("maintenance is never granted unless the client explicitly accepts it", async () => {

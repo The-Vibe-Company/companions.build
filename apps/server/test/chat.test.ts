@@ -26,9 +26,6 @@ test('bounded traversal preserves the total microsecond order without gaps or du
  await db.unsafe(`INSERT INTO task_questions(id,companion_id,run_id,question,created_at)
   SELECT ('20000000-0000-4000-8000-'||lpad(to_hex(n),12,'0'))::uuid,$1,$2,'question '||n,
    '2026-09-01T12:00:00Z'::timestamptz+(n%23)*interval '0.000001 seconds' FROM generate_series(1,1200)n`,[id,runId]);
- await db.unsafe(`INSERT INTO runs(id,companion_id,client_message_id,content,status,source,lane,created_at)
-  SELECT ('30000000-0000-4000-8000-'||lpad(to_hex(n),12,'0'))::uuid,$1,gen_random_uuid(),'routine','succeeded','routine','background',
-   '2026-09-01T12:00:00Z'::timestamptz+(n%23)*interval '0.000001 seconds' FROM generate_series(1,600)n`,[id]);
  await db.unsafe(`INSERT INTO runs(id,companion_id,client_message_id,content,status,source,lane,thinking_text,created_at)
   SELECT ('40000000-0000-4000-8000-'||lpad(to_hex(n),12,'0'))::uuid,$1,gen_random_uuid(),'thought','succeeded','chat','main','retained thought',
    '2026-09-01T12:00:00Z'::timestamptz+(n%23)*interval '0.000001 seconds' FROM generate_series(1,100)n`,[id]);
@@ -40,14 +37,14 @@ test('bounded traversal preserves the total microsecond order without gaps or du
   expect(page.entries.every((entry:any)=>/\.\d{6}Z$/.test(entry.createdAt))).toBe(true);
   seen.push(...page.entries.map((entry:any)=>entry.kind+':'+entry.id));cursor=page.nextCursor;pages++;
  }while(cursor);
- expect(pages).toBeGreaterThan(60);expect(seen).toHaveLength(3100);expect(new Set(seen).size).toBe(3100);
+ expect(pages).toBeGreaterThan(50);expect(seen).toHaveLength(2500);expect(new Set(seen).size).toBe(2500);
  expect(allEntries).toEqual([...allEntries].sort((a,b)=>a.createdAt.localeCompare(b.createdAt)||a.sequence-b.sequence||a.kind.localeCompare(b.kind)||a.id.localeCompare(b.id)));
  const detail=await ok(await get(alice,id,''));expect(detail.chat.entries).toHaveLength(50);expect(detail.runs.length).toBeLessThanOrEqual(50);
  const pagedBytes=Buffer.byteLength(JSON.stringify(detail));
  const baseline=await exhaustiveDetail(alice.id,id);
  const baselineBytes=Buffer.byteLength(JSON.stringify({...baseline,questions:await db`SELECT * FROM task_questions WHERE companion_id=${id}`}));
  expect(pagedBytes).toBeLessThan(100_000);expect(pagedBytes).toBeLessThan(baselineBytes/5);
- console.log(JSON.stringify({fixture:'long-chat',entries:3100,initialEntries:50,baselineBytes,pagedBytes}));
+ console.log(JSON.stringify({fixture:'long-chat',entries:2500,initialEntries:50,baselineBytes,pagedBytes}));
 });
 
 test('around and inclusive range refresh use cursor sort keys even after the anchor is deleted',async()=>{
@@ -74,16 +71,15 @@ test('pagination rejects malformed, conflicting and cross-Companion cursors with
 });
 
 test('live state stays visible outside an old page and publication and file attribution use global history',async()=>{
- const id=await companion(),old=await run(id,'2025-01-01T00:00:00.000001Z','needs_input','routine');
+ const id=await companion(),old=await run(id,'2025-01-01T00:00:00.000001Z','needs_input','background');
  const question=crypto.randomUUID();await db`INSERT INTO task_questions(id,companion_id,run_id,question,options,created_at) VALUES(${question},${id},${old},'Still needed?',${['Yes']},'2025-01-01T00:00:00.000002Z')`;
- const published=await run(id,'2025-01-02T00:00:00.000001Z','succeeded','routine'),first=crypto.randomUUID(),last=crypto.randomUUID();
+ const published=await run(id,'2025-01-02T00:00:00.000001Z','succeeded','background'),first=crypto.randomUUID(),last=crypto.randomUUID();
  await db`INSERT INTO messages(id,companion_id,run_id,role,content,sequence,created_at) VALUES(${first},${id},${published},'assistant','draft',1,'2025-01-02T00:00:00.000002Z'),(${last},${id},${published},'assistant','final',2,'2025-01-02T00:00:00.000003Z')`;
  const file=crypto.randomUUID();await db`INSERT INTO attachments(id,client_file_id,owner_id,companion_id,run_id,kind,position,filename,content_type,byte_size,sha256,storage_key) VALUES(${file},${crypto.randomUUID()},${alice.id},${id},${published},'agent_output',0,'answer.txt','text/plain',1,${'a'.repeat(64)},${'private/'+file})`;
  for(let n=0;n<60;n++){const current=await run(id,`2026-09-04T00:00:${String(n).padStart(2,'0')}.000001Z`);await db`INSERT INTO messages(id,companion_id,run_id,role,content) VALUES(${crypto.randomUUID()},${id},${current},'user',${'recent '+n})`;}
  const detail=await ok(await get(alice,id,''));
  expect(detail.live.runs.map((item:any)=>item.id)).toContain(old);expect(detail.live.questions.map((item:any)=>item.id)).toContain(question);
  const historical=await ok(await get(alice,id,`/chat?around=${encodeURIComponent((await ok(await get(alice,id,'/chat?limit=50'))).beforeCursor)}`));
- expect(historical.entries.some((entry:any)=>entry.id==='routine-'+published)).toBe(false);
  const messages=historical.messages.filter((message:any)=>message.runId===published);expect(messages.find((message:any)=>message.id===first)?.files).toEqual([]);
  expect(messages.find((message:any)=>message.id===last)?.files.map((item:any)=>item.id)).toEqual([file]);
  const lastEntry=historical.entries.find((entry:any)=>entry.id===last);

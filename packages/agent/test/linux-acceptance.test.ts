@@ -69,6 +69,18 @@ acceptance("compiled Linux daemon uses real Pi tools, persists output, rejects u
     const chatHistory = crypto.randomUUID();
     await put(chatHistory, "inspect-history");
     expect((await waitTerminal(base, token, chatHistory)).text).toContain("main-private-message");
+    // Separate conversations keep Pi transcripts apart while using the same filesystem.
+    const discussionA=crypto.randomUUID(),discussionB=crypto.randomUUID();
+    const discussionPut=async(conversationId:string,content:string)=>{
+      const id=crypto.randomUUID();
+      expect((await fetch(`${base}/runs/${id}`,{method:'PUT',headers:headers(token),body:JSON.stringify({conversationId,content,instructions:''})})).status).toBe(202);
+      return waitTerminal(base,token,id);
+    };
+    await discussionPut(discussionA,'main-private-message');
+    expect((await discussionPut(discussionB,'inspect-history')).text).not.toContain('main-private-message');
+    expect((await discussionPut(discussionA,'inspect-history')).text).toContain('main-private-message');
+    expect((await discussionPut(discussionB,'write-note')).status).toBe('succeeded');
+    expect(readFileSync(join(state,'workspace','note.txt'),'utf8')).toBe('written by real Pi tools\n');
     const memoryMain = crypto.randomUUID(), memoryBackground = crypto.randomUUID();
     await Promise.all([put(memoryMain, "memory-cas:main fact"), put(memoryBackground, "memory-cas:background fact", "background")]);
     const memoryResults = await Promise.all([waitTerminal(base, token, memoryMain), waitTerminal(base, token, memoryBackground)]);

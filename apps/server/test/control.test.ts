@@ -6,9 +6,6 @@ import {AgentControl} from '../../../packages/control/agent';
 import {db,migrate,createCompanion,acceptMessage} from '../src/store';
 import {applyControl,registerControl,controlHandlers} from '../src/control';
 import {addCustomPlugin,attachPlugin,listPluginAccounts,machinePlugins,disconnectPlugin} from '../src/plugins';
-import {saveTemplate} from '../src/templates';
-import {openSpecialistDraft,readSpecialistDraft} from '../src/specialist-drafts';
-import {handleAutomations} from '../src/automation-routes';
 import {encrypt} from '../src/config';
 import '../src/control-product';
 import '../src/runtime-product';
@@ -51,15 +48,6 @@ test('plugin secrets are write-only and attaching another owner account is refus
  expect((await machinePlugins(c.id))[0].headers?.Authorization).toBe('Bearer synthetic-plugin-secret');
  await disconnectPlugin(owner,account.id);expect(await machinePlugins(c.id)).toHaveLength(0);
 });
-test('plugin_select changes the specialist generation so an earlier test cannot validate new connections',async()=>{
- const profile=await saveTemplate(owner,{name:'Connected draft'});
- const {draft}=await openSpecialistDraft(owner,profile.id,{commandId:crypto.randomUUID()});
- const account=await addCustomPlugin(owner,{label:'Draft account',transport:'http',url:'https://example.com/mcp'});
- const runId=crypto.randomUUID();
- await db`INSERT INTO runs(id,companion_id,client_message_id,content,status,dispatched,started_at) VALUES(${runId},${draft.companionId},${crypto.randomUUID()},'Configure connections','running',true,now())`;
- await applyControl(draft.companionId,{id:crypto.randomUUID(),runId,operation:'plugin_select',input:{accountId:account.id,enabled:true}});
- expect((await readSpecialistDraft(owner,profile.id)).draft.generation).toBe(draft.generation+1);
-});
 test('companion_create uses the durable control command as its creation identity',async()=>{
  const commandId=crypto.randomUUID(),context={ownerId:owner,companionId:crypto.randomUUID(),runId:crypto.randomUUID(),commandId,isChild:false};
  const first=await controlHandlers.companion_create!(context,{name:'Created by control',instructions:'Stable'} as any) as any;
@@ -70,33 +58,14 @@ test('companion_create uses the durable control command as its creation identity
 });
 
 
-test('agent control configures and tests a routine without enabling it, then rejects its deleted identity', async () => {
- const companion=await createCompanion(owner,{name:'Routine control',instructions:'',provider:'local'});
- const runId=await acceptMessage(owner,companion.id,crypto.randomUUID(),'Configure my routine');
- await db`UPDATE runs SET status='running',dispatched=true,started_at=now() WHERE id=${runId}`;
- const invoke=(operation:string,input:unknown,id=crypto.randomUUID())=>applyControl(companion.id,{id,runId,operation,input});
- const routine=await invoke('routine_save',{name:'Daily check',prompt:'Check the repository',cron:'0 9 * * *',timezone:'Europe/Paris',enabled:false}) as any;
- expect(routine.id).toBeString();
- const edited=await invoke('routine_save',{id:routine.id,prompt:'Review the repository'}) as any;
- expect(edited).toMatchObject({prompt:'Review the repository',enabled:false,nextFireAt:null});
- const commandId=crypto.randomUUID();
- const tested=await invoke('routine_test',{id:routine.id},commandId) as any;
- expect(tested.runId).toBeString();
- expect(await invoke('routine_test',{id:routine.id},commandId)).toEqual(tested);
- expect((await db`SELECT content,lane,source,status FROM runs WHERE id=${tested.runId}`)[0]).toMatchObject({content:'Review the repository',lane:'background',source:'routine',status:'queued'});
- expect(await invoke('routine_delete',{id:routine.id})).toEqual({deleted:true});
- expect(await invoke('routine_test',{id:routine.id})).toEqual({error:'Routine not found.'});
- expect(await db`SELECT id FROM runs WHERE companion_id=${companion.id} AND source='routine'`).toHaveLength(1);
-});
-
-
 test('control returns actionable lifecycle errors and correlation IDs without leaking unexpected payloads',async()=>{
  const c=await createCompanion(owner,{name:'Error control',provider:'local'});
- const runId=await acceptMessage(owner,c.id,crypto.randomUUID(),'Spawn a specialist');
+ const runId=await acceptMessage(owner,c.id,crypto.randomUUID(),'Configure the companion');
  await db`UPDATE runs SET status='running',dispatched=true,started_at=now() WHERE id=${runId}`;
- const command={id:crypto.randomUUID(),runId,operation:'spawn',input:{templateId:crypto.randomUUID(),prompt:'Hello'}};
+ const command={id:crypto.randomUUID(),runId,operation:'desktop_release',input:{}};
+ await db`UPDATE companions SET desktop_taken=true WHERE id=${c.id}`;
  const rejected=await applyControl(c.id,command);
- expect(rejected).toEqual({error:'Template is not authorized or has not been published.',code:'template_not_authorized',commandId:command.id});
+ expect(rejected).toEqual({error:'HUMAN_DESKTOP_RELEASE_REQUIRED',code:'lifecycle_conflict',commandId:command.id});
  expect(await applyControl(c.id,command)).toEqual(rejected);
  const original=controlHandlers.identity;
  try{
@@ -106,23 +75,6 @@ test('control returns actionable lifecycle errors and correlation IDs without le
   expect(result).toMatchObject({code:'operation_failed',commandId:id});
   expect(JSON.stringify(result)).not.toContain('synthetic-sensitive-provider-payload');
  }finally{controlHandlers.identity=original;}
-});
-
-test('ask_user persists a question once and only its owner can answer',async()=>{
- const c=await createCompanion(owner,{name:'Question',instructions:'',provider:'local'});
- const runId=await acceptMessage(owner,c.id,crypto.randomUUID(),'Inspect project');
- await db`UPDATE runs SET status='running' WHERE id=${runId}`;
- const input={question:'Which project?',options:['Project A','Project B']};
- const command={id:crypto.randomUUID(),runId,operation:'ask_user',input};
- expect(await applyControl(c.id,command)).toEqual({pendingQuestionId:command.id});
- expect(await applyControl(c.id,command)).toEqual({pendingQuestionId:command.id});
- const questions=await db`SELECT question,options,answer FROM task_questions WHERE id=${command.id}`;
- expect(questions).toEqual([{...input,answer:null}]);
- const answer=()=>new Request(`http://local/api/companions/${c.id}/questions/${command.id}/answer`,{method:'POST',body:JSON.stringify({answer:'Project A'})});
- expect((await handleAutomations(answer(),crypto.randomUUID()))?.status).toBe(404);
- expect((await db`SELECT answer FROM task_questions WHERE id=${command.id}`)[0].answer).toBeNull();
- expect((await handleAutomations(answer(),owner))?.status).toBe(200);
- expect((await db`SELECT answer FROM task_questions WHERE id=${command.id}`)[0].answer).toBe('Project A');
 });
 
 test('legacy runtimes receive a durable direct acknowledgement without a new approval question',async()=>{

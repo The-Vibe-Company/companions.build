@@ -6,6 +6,20 @@ const CLOCK_SKEW_MS=60_000;
 const purpose='companions.build/model-gateway/v1\0';
 const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 export type ModelGatewayClaims={companionId:string;runId:string;credentialDigest:string;endpointDigest:string;expiresAt:number};
+export type DiscussionModelClaims={discussion:true;runId:string;ownerId:string;leaderPid:number;expiresAt:number};
+export function mintDiscussionModelToken(runId:string,ownerId:string,leaderPid:number){
+ const payload=Buffer.from(JSON.stringify({discussion:true,runId,ownerId,leaderPid,expiresAt:Date.now()+30*60_000})).toString('base64url');
+ return `discussion.${payload}.${createHmac('sha256',config.authSecret).update('discussion-model/v1\0'+payload).digest('base64url')}`;
+}
+export function verifyDiscussionModelToken(token:string):DiscussionModelClaims|null{
+ if(token.length>2048)return null;const [kind,payload,signature,...rest]=token.split('.');
+ if(kind!=='discussion'||!payload||!signature||rest.length)return null;
+ const actual=Buffer.from(signature,'base64url'),expected=createHmac('sha256',config.authSecret).update('discussion-model/v1\0'+payload).digest();
+ if(actual.length!==expected.length||!timingSafeEqual(actual,expected))return null;
+ try{const c=JSON.parse(Buffer.from(payload,'base64url').toString());
+  return c.discussion===true&&uuid.test(c.runId)&&typeof c.ownerId==='string'&&c.ownerId.length<200&&Number.isInteger(c.leaderPid)&&Number.isSafeInteger(c.expiresAt)&&c.expiresAt>Date.now()&&c.expiresAt<=Date.now()+30*60_000?c:null;
+ }catch{return null;}
+}
 function sign(payload:string){return createHmac('sha256',config.authSecret).update(purpose).update(payload).digest();}
 /** Binds access to one accepted run and the current encrypted agent credential. */
 export function mintModelGatewayToken(companionId:string,runId:string,agentSecret:string,expiresAt=Date.now()+MAX_LIFETIME_MS,endpointSecret=''){

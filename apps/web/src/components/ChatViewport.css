@@ -1,8 +1,0 @@
-.chat-viewport-shell { position:relative; display:flex; flex:1; min-height:0; overflow:hidden; }
-.chat-viewport { flex:1; min-width:0; overflow-y:auto; overflow-anchor:none; scroll-behavior:auto; }
-.chat-history-content { display:flex; flex-direction:column; }
-.chat-history-entry { flex-shrink:0; min-width:0; }
-.chat-page-control { align-self:center; text-align:center; color:var(--muted-foreground); font-size:14px; }
-.chat-page-control p { margin-bottom:8px; }
-.chat-latest { position:absolute; bottom:16px; left:50%; transform:translateX(-50%); border-radius:999px; background:var(--background); }
-.chat-restore-status { position:absolute; inset:24px; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:12px; color:var(--muted-foreground); }

@@ -71,7 +71,7 @@ test('unconfirmed installation never releases new messages or replays apply',asy
   expect(calls).toBe(1);expect((await db`SELECT status,dispatched FROM runs WHERE id=${message}`)[0]).toMatchObject({status:'queued',dispatched:false});
  }finally{await f.close();}
 });
-test('unsafe temporary data defers without install; confirmed rollback keeps previous runtime usable',async()=>{
+test('unsafe ephemeral data defers without install; confirmed rollback keeps previous runtime usable',async()=>{
  const f=await fixture();f.machine.stage=async()=>({state:'deferred',code:'EPHEMERAL_DATA_PRESENT'});
  try{
   await f.run();expect(f.counts().applied).toBe(0);

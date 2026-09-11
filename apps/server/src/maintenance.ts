@@ -2,7 +2,7 @@ import {z} from 'zod';
 import {db} from './store';
 import {configureCompanion} from './control';
 import {requireHostedActivation} from './activation';
-import {enqueueBackgroundInTransaction} from './automations';
+import {enqueueBackgroundInTransaction} from './task-runtime';
 const uuid=z.string().uuid();
 const json=(body:unknown,status=200)=>Response.json(body,{status,headers:{'cache-control':'no-store'}});
 export async function handleMaintenance(request:Request,actorId:string):Promise<Response|null>{
@@ -31,7 +31,7 @@ export async function handleMaintenance(request:Request,actorId:string):Promise<
     return json({preparing:true},202);
    }
    const {clientMessageId,prompt}=z.object({clientMessageId:uuid,prompt:z.string().trim().min(1).max(50_000)}).parse(await request.json());
-   const runId=await enqueueBackgroundInTransaction({companionId:id,clientMessageId,content:prompt,source:'delegation'},tx);
+   const runId=await enqueueBackgroundInTransaction({companionId:id,clientMessageId,content:prompt,source:'background'},tx);
    await tx`INSERT INTO maintenance_actions(id,grant_id,actor_id,companion_id,operation,run_id) VALUES(${clientMessageId},${grant.delivery_id},${actorId},${id},'task',${runId}) ON CONFLICT DO NOTHING`;
    return json({runId},202);
   }

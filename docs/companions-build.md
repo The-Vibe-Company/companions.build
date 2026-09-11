@@ -1,5 +1,9 @@
 # companions.build — vision et cadrage produit
 
+> Scope update, 11 September 2026: [Discussions and companions](specs/discussions.md)
+> supersedes the specialist, routine, trigger and single-chat model below. Permanent companion
+> machines, connections and memory remain; each discussion now has an independent Pi history.
+
 Mis à jour le **6 septembre 2026**.
 
 Ce document rassemble les décisions de Stan et les fonctionnalités discutées pour **un nouveau

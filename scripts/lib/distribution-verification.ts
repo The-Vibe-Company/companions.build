@@ -5,7 +5,7 @@ import {dirname,join} from 'node:path';
 import {BoxError,type Box} from '../../packages/box/client';
 
 export type DistributionManifest={version:1;files:Array<{path:string;size:number;sha256:string}>};
-export type DistributionJournal={version:1;storage?:'archived_box';name:string;key:string;startedAt:string;boxId?:string;manifest:DistributionManifest;manifestDigest:string;sha256:string;sourceVerifiedFreshAt?:string;installedVerifiedAt?:string;snapshotRequestedAt?:string;snapshotRejectedAt?:string;snapshotRejectedCode?:string;contentVerifiedAt?:string;completedAt?:string;sourceArchivedAt?:string;verification?:{key:string;startedAt:string;boxId?:string;failedAt?:string;errorCode?:string;archivedAt?:string};software?:unknown};
+export type DistributionJournal={version:1;storage?:'archived_box';name:string;key:string;startedAt:string;boxId?:string;manifest:DistributionManifest;manifestDigest:string;sha256:string;sourceVerifiedFreshAt?:string;installedVerifiedAt?:string;snapshotRequestedAt?:string;snapshotRejectedAt?:string;snapshotRejectedCode?:string;contentVerifiedAt?:string;completedAt?:string;sourceArchivedAt?:string;verification?:{key:string;startedAt:string;boxId?:string;failedAt?:string;errorCode?:string;archivedAt?:string}};
 export interface DistributionBoxes{
  create(key:string,template?:string):Promise<Box>;get(id:string):Promise<Box>;resume(id:string):Promise<unknown>;
  command(id:string,command:string,timeoutSeconds?:number):Promise<string>;snapshot(id:string,name:string):Promise<unknown>;getSnapshot(name:string):Promise<any>;stop(id:string):Promise<unknown>;

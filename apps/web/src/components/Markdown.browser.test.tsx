@@ -16,7 +16,7 @@ it("shows Markdown list markers after Tailwind preflight without changing UI lis
     logLevel: "silent",
     build: {
       write: false,
-      rollupOptions: { input: ["src/index.css", "src/components/TaskActivity.css", "src/components/RoutineChat.css"] },
+      rollupOptions: { input: ["src/index.css", "src/components/DiscussionsWorkspace.css"] },
     },
   });
   const css = (Array.isArray(bundle) ? bundle : [bundle])
@@ -28,8 +28,8 @@ it("shows Markdown list markers after Tailwind preflight without changing UI lis
   const response = <MessageResponse>{markdown}</MessageResponse>;
   const html = renderToStaticMarkup(<>
     <Message from="assistant"><MessageContent className="thread-content">{response}</MessageContent></Message>
-    <div className="task-detail"><section>{response}</section></div>
-    <div className="routine-sheet-body"><section>{response}</section></div>
+    <div className="discussion-task"><section>{response}</section></div>
+    <div className="work-panel"><section>{response}</section></div>
     <nav><ul><li>UI bullet</li></ul><ol><li>UI number</li></ol></nav>
   </>);
   const directory = mkdtempSync(path.join(tmpdir(), "markdown-lists-"));

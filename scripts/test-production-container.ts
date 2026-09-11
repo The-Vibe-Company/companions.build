@@ -31,14 +31,6 @@ async function request(path: string, init?: RequestInit) {
 let port = "";
 try {
   await run(["docker", "build", "--tag", image, "."]);
-  const filter = await run([
-    "docker", "run", "--rm", "--entrypoint", "bun", image, "-e",
-    `import { runFilter } from "./packages/filters/index.ts";
-     const accepted = await runFilter({ code: "function shouldTrigger(payload) { return payload.status === 'failed' }", payload: { status: "failed" } });
-     if (accepted !== true) process.exit(1);
-     console.log("accepted");`,
-  ], { quiet: true });
-  if (filter.stdout !== "accepted") throw new Error("Production worker filter runtime failed");
   const dockerCli = await run(["docker", "run", "--rm", "--entrypoint", "sh", image, "-c", "command -v docker"], { quiet: true, allowFailure: true });
   if (dockerCli.code === 0) throw new Error("Production image still includes the Docker CLI");
   await run(["docker", "network", "create", "--label", label, network], { quiet: true });
@@ -80,7 +72,7 @@ try {
   if (unauthenticated.status !== 401 || unauthenticated.headers.get("cache-control") !== "no-store") throw new Error("API authentication boundary failed");
   const eventBoundary = await request("/api/companions/00000000-0000-4000-8000-000000000001/events");
   if (eventBoundary.status !== 401 || !eventBoundary.headers.get("content-type")?.startsWith("application/json")) throw new Error("Event-stream authentication boundary failed");
-  console.log("Production container ran the worker filter and served the built web app with health/auth boundaries.");
+  console.log("Production container served the built web app with health/auth boundaries.");
 } finally {
   await run(["docker", "container", "remove", "--force", api, postgres], { quiet: true, allowFailure: true });
   await run(["docker", "network", "remove", network], { quiet: true, allowFailure: true });

@@ -80,13 +80,10 @@ export async function addCustomPlugin(ownerId:string,input:unknown) {
 export async function attachPlugin(ownerId:string,companionId:string,accountId:string,enabled:boolean) {
   uuid.parse(companionId);uuid.parse(accountId);
   return db.begin(async(tx:any)=>{
-    const [draft]=await tx`SELECT status FROM specialist_drafts WHERE companion_id=${companionId} FOR UPDATE`;
-    if(draft&&!['editing','error'].includes(draft.status))throw new PluginError('Configuration is paused for capture or testing.');
     const [owned]=await tx`SELECT c.id FROM companions c JOIN plugin_accounts p ON p.owner_id=c.owner_id WHERE c.id=${companionId} AND p.id=${accountId} AND c.owner_id=${ownerId}`;
     if(!owned) throw new PluginError('Companion or connection not found.');
     if(enabled) await tx`INSERT INTO companion_plugins VALUES (${companionId},${accountId}) ON CONFLICT DO NOTHING`;
     else await tx`DELETE FROM companion_plugins WHERE companion_id=${companionId} AND account_id=${accountId}`;
-    if(draft)await tx`UPDATE specialist_drafts SET generation=generation+1,updated_at=now() WHERE companion_id=${companionId}`;
   });
 }
 export async function disconnectPlugin(ownerId:string,id:string) { uuid.parse(id); await db`DELETE FROM plugin_accounts WHERE id=${id} AND owner_id=${ownerId}`; }

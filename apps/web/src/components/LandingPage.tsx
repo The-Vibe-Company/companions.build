@@ -10,17 +10,17 @@ const people: Array<{ name: string; avatar: CompanionAvatarValue }> = [
 ];
 
 const stories = [
-  { name: "June", job: "a clearer inbox", avatar: { shape: 3, color: 7, face: 0 }, did: "Summarizes the messages that matter and drafts replies for you to review. Make it a morning routine.", who: "“Catch me up on my emails.”" },
+  { name: "June", job: "a clearer inbox", avatar: { shape: 3, color: 7, face: 0 }, did: "Summarizes the messages that matter and drafts replies for you to review in a focused discussion.", who: "“Catch me up on my emails.”" },
   { name: "Nova", job: "a head start", avatar: { shape: 1, color: 2, face: 0 }, did: "Researches a topic, compares options, and brings back a shortlist with sources you can check.", who: "“Find a place for our next weekend away.”" },
   { name: "Bo", job: "ideas into words", avatar: { shape: 6, color: 4, face: 1 }, did: "Turns scattered notes into a first draft. A document, a presentation outline, or a post, ready for your edits.", who: "“Turn these notes into something I can share.”" },
 ] satisfies Array<{ name: string; job: string; avatar: CompanionAvatarValue; did: string; who: string }>;
 
 const questions = [
-  ["What is an AI companion?", "An AI teammate you create and talk to in chat. It can use the apps you connect to do tasks, keep context between conversations, and run routines you set."],
+  ["What is an AI companion?", "An AI teammate you create and invite into discussions. It can use the apps you connect to complete tasks while each discussion keeps its own history."],
   ["Do I need to know how to code?", "No. Give your companion a name and a job in a sentence. Everything else is a conversation."],
   ["Can it do things I didn't ask for?", "It works with the accounts you explicitly grant. Its activity is written down, and you can stop active work."],
-  ["Can I give it a regular task?", "Yes. Set a routine for a daily email summary, a weekly report, or another recurring task. Your companion runs it on the schedule you choose."],
-  ["Where does it run?", "Your companion has its own computer in the cloud. It can work on your tasks and run scheduled routines even when your laptop is closed."],
+  ["Can companions work together?", "Yes. Invite the companions a discussion needs, address one directly, and follow each companion’s work and files in the same timeline."],
+  ["Where does it run?", "Your companion has its own computer in the cloud. It can keep working on accepted tasks even when your laptop is closed."],
   ["Who can join the private beta?", "Access is currently limited to invited, verified email addresses."],
 ];
 
@@ -63,9 +63,9 @@ export function LandingPage({ onLogin }: { onLogin: () => void }) {
       <div className="landing-hero-copy">
         <div className="landing-badge"><i />Open source · Private beta</div>
         <h1><span>Your AI companions.</span>{" "}<span>Give them something to do.</span></h1>
-        <p>Create your own AI teammates to research, write, organize, and handle everyday tasks. They work with your apps, remember your preferences, and follow the routines you set.</p>
+        <p>Create AI teammates to research, write, organize, and handle everyday tasks. Invite the right companions into each discussion and keep every result in one place.</p>
         <div className="landing-hero-action"><Cta onClick={onLogin} /><span>Invitation required</span></div>
-        <div className="landing-promises"><span>Your apps, connected</span><span>Your preferences, remembered</span><span>Your routines, taken care of</span></div>
+        <div className="landing-promises"><span>Your apps, connected</span><span>Your companions, coordinated</span><span>Your discussions, preserved</span></div>
       </div>
       <div className="landing-lineup" aria-label="Example conversation with your companions">
         <div className="landing-bubble landing-bubble--companion">I found three places for your weekend away, all within budget. Here’s how they compare.</div>
@@ -81,7 +81,7 @@ export function LandingPage({ onLogin }: { onLogin: () => void }) {
       <div className="landing-steps">
         <article><div className="landing-step-art landing-step-faces">{people.map(person => <CompanionAvatar key={person.name} {...person} size={84} />)}</div><span>1</span><h3>Name it</h3><p>Pick a face and a name. Tell your companion what you’d like help with.</p></article>
         <article><div className="landing-step-art landing-app-grid">{[["gmail", "Gmail"], ["notion", "Notion"], ["slack", "Slack"], ["github", "GitHub"]].map(([provider, name]) => <span key={provider}><ProviderMark provider={provider} name={name} /></span>)}</div><span>2</span><h3>Connect your apps</h3><p>Choose the accounts your companion can use. With Gmail, it can read messages and create drafts for you to review.</p></article>
-        <article><div className="landing-step-art"><div className="landing-working"><CompanionAvatar name="Pip" avatar={{ shape: 2, color: 7, face: 1 }} size={30} />Pip is on it <i /><i /><i /></div></div><span>3</span><h3>Let it work</h3><p>Send a message for a one-off task, or set a routine for the things you need regularly.</p></article>
+        <article><div className="landing-step-art"><div className="landing-working"><CompanionAvatar name="Pip" avatar={{ shape: 2, color: 7, face: 1 }} size={30} />Pip is on it <i /><i /><i /></div></div><span>3</span><h3>Let it work</h3><p>Send a message, follow the persisted task state, and find the result in the same discussion.</p></article>
       </div>
     </section>
 

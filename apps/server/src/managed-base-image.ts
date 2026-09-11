@@ -78,7 +78,7 @@ export async function resolveManagedBaseImage(sql:SQLLike=db):Promise<string|nul
 }
 
 /** Atomically pins the selected image before Box creation. Explicit template and
- * specialist snapshots are not owned by this registry and pass through unchanged. */
+ * Companion snapshots outside this registry pass through unchanged. */
 export async function pinManagedBaseImage(companionId:string,sql:SQLLike=db,guard:()=>Promise<void>=async()=>{}):Promise<string|null>{
  let digest:string;try{digest=await managedBaseImageReleaseDigest();}catch{return null;}
  return sql.begin(async(tx:SQLLike)=>{
@@ -157,15 +157,7 @@ function managedProvider(raw:ManagedBox,state:ManagedJournal,save:(state:Managed
 }
 
 async function referenced(sql:SQLLike,name:string){
- const [row]=await sql`SELECT
-   EXISTS(SELECT 1 FROM companions WHERE snapshot_name=${name} AND box_id IS NULL)
-   OR EXISTS(SELECT 1 FROM agent_templates WHERE snapshot_name=${name} OR prepared_disk_snapshot=${name})
-   OR EXISTS(SELECT 1 FROM template_revisions WHERE snapshot_name=${name} OR prepared_disk_snapshot=${name})
-   OR EXISTS(SELECT 1 FROM template_candidates WHERE snapshot_name=${name})
-   OR EXISTS(SELECT 1 FROM specialist_operations WHERE snapshot_name=${name} OR source_snapshot_name=${name})
-   OR EXISTS(SELECT 1 FROM portable_software_bases WHERE provider_snapshot_name=${name})
-   OR EXISTS(SELECT 1 FROM portable_software_builds WHERE provider_snapshot_name=${name})
-   OR EXISTS(SELECT 1 FROM portable_software_results WHERE provider_snapshot_name=${name}) AS value`;
+ const [row]=await sql`SELECT EXISTS(SELECT 1 FROM companions WHERE snapshot_name=${name} AND box_id IS NULL) AS value`;
  return !!row?.value;
 }
 

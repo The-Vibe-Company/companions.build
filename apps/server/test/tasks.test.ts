@@ -38,11 +38,11 @@ test('tasks API authenticates and scopes every list, detail and cancellation to 
 
 test('cursor pagination preserves timestamp microseconds, ties and stable boundaries during new admission',async()=>{
  const id=await companion();
- for(let i=0;i<23;i++)await task(id,{createdAt:`2026-09-07T00:00:00.${i<10?'000001':'000002'}Z`,content:i===22?'é'.repeat(200):'Brief '+i,lane:i%2?'main':'background',source:i%2?'chat':'routine'});
+ for(let i=0;i<23;i++)await task(id,{createdAt:`2026-09-07T00:00:00.${i<10?'000001':'000002'}Z`,content:i===22?'é'.repeat(200):'Brief '+i,lane:i%2?'main':'background',source:i%2?'chat':'background'});
  const expected=(await db`SELECT id FROM runs WHERE companion_id=${id} ORDER BY created_at DESC,id DESC`).map((r:any)=>r.id);
  const defaults=await body(await request(alice,id));expect(defaults.tasks).toHaveLength(20);expect(defaults.nextCursor).toBeTruthy();
  let page=await body(await request(alice,id,'?limit=2')),cursor=page.nextCursor;const seen=page.tasks.map((t:any)=>t.id);
- expect(Object.keys(page.tasks[0]).sort()).toEqual(['id','status','lane','source','createdAt','finishedAt','title','routineId','routineName','publicationMode','scheduledFor'].sort());
+ expect(Object.keys(page.tasks[0]).sort()).toEqual(['id','status','lane','source','createdAt','finishedAt','title'].sort());
  await task(id,{createdAt:'2026-09-08T00:00:00.000001Z'});
  while(cursor){page=await body(await request(alice,id,'?limit=2&before='+cursor));seen.push(...page.tasks.map((t:any)=>t.id));cursor=page.nextCursor;}
  expect(seen).toEqual(expected);expect(new Set(seen).size).toBe(23);
@@ -82,7 +82,7 @@ test('detail includes only this task inputs, outputs and authorized retained han
 });
 
 test('cancellation targets one task, persists active intent and leaves terminal tasks exactly unchanged',async()=>{
- const id=await companion();const unaffected=await task(id,{lane:'background',source:'trigger'});
+ const id=await companion();const unaffected=await task(id,{lane:'background',source:'background'});
  for(const status of ['queued','preparing','running','needs_input','succeeded','failed','interrupted','cancelled']){
   const run=await task(id,{status,lane:['preparing','running','needs_input'].includes(status)?'background':'main'});
   if(status!=='queued')await db`UPDATE runs SET dispatched=true,finished_at=${['succeeded','failed','interrupted','cancelled'].includes(status)?new Date('2026-09-01'):null} WHERE id=${run}`;

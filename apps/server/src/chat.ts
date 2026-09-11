@@ -3,10 +3,10 @@ import {db,companionColumns} from './store';
 import {filesForThread} from './files';
 
 const uuid=z.string().uuid();
-const kind=z.enum(['message','question','routine','thinking']);
+const kind=z.enum(['message','question','thinking']);
 const cursorSchema=z.object({v:z.literal(1),companionId:uuid,time:z.iso.datetime({precision:6}),sequence:z.number().int().min(0).max(2147483647),kind,id:uuid}).strict();
 const activeStatuses=['queued','preparing','running','needs_input'];
-const runColumns=`r.id,r.status,r.error,r.lane,r.source,r.routine_id AS "routineId",r.routine_name AS "routineName",r.publication_mode AS "publicationMode",r.scheduled_for AS "scheduledFor",r.started_at AS "startedAt",r.result_text AS "resultText",r.preview_text AS "previewText",r.message_version AS "messageVersion",r.thinking_text AS "thinkingText",r.publish_to_chat AS "publishToChat",r.response_root_id AS "responseRootId",r.created_at AS "createdAt",r.prepared_at AS "preparedAt",r.finished_at AS "finishedAt",
+const runColumns=`r.id,r.status,r.error,r.lane,r.source,r.started_at AS "startedAt",r.result_text AS "resultText",r.preview_text AS "previewText",r.message_version AS "messageVersion",r.thinking_text AS "thinkingText",r.publish_to_chat AS "publishToChat",r.response_root_id AS "responseRootId",r.created_at AS "createdAt",r.prepared_at AS "preparedAt",r.finished_at AS "finishedAt",
  EXISTS(SELECT 1 FROM messages published WHERE published.run_id=r.id AND published.role='assistant') AS "hasPublishedMessage",
  EXISTS(SELECT 1 FROM task_questions asked WHERE asked.run_id=r.id) AS "hasQuestion"`;
 const entryCte=`WITH entries AS NOT MATERIALIZED (
@@ -14,15 +14,12 @@ const entryCte=`WITH entries AS NOT MATERIALIZED (
  UNION ALL
  SELECT q.id,'question',q.created_at,0,q.run_id FROM task_questions q WHERE q.companion_id=$1
  UNION ALL
- SELECT r.id,'routine',r.created_at,0,r.id FROM runs r WHERE r.companion_id=$1 AND r.source='routine'
-  AND NOT EXISTS(SELECT 1 FROM messages published WHERE published.run_id=r.id AND published.role='assistant')
- UNION ALL
  SELECT r.id,'thinking',r.created_at,0,r.id FROM runs r WHERE r.companion_id=$1 AND r.lane='main'
   AND r.thinking_text IS NOT NULL AND r.status IN ('succeeded','failed','interrupted','cancelled')
 )`;
 
-export type ChatEntry={id:string;kind:'message'|'question'|'routine'|'thinking';createdAt:string;sequence:number;cursor:string;runId:string};
-export type ChatPage={entries:ChatEntry[];messages:any[];runs:any[];questions:any[];files:any[];specialists:any[];beforeCursor:string|null;afterCursor:string|null;nextCursor:string|null};
+export type ChatEntry={id:string;kind:'message'|'question'|'thinking';createdAt:string;sequence:number;cursor:string;runId:string};
+export type ChatPage={entries:ChatEntry[];messages:any[];runs:any[];questions:any[];files:any[];beforeCursor:string|null;afterCursor:string|null;nextCursor:string|null};
 type Cursor=z.infer<typeof cursorSchema>;
 type Query={limit:number;before:Cursor|null;after:Cursor|null;around:Cursor|null;from:Cursor|null;through:Cursor|null};
 export class ChatPaginationError extends Error{}
@@ -84,12 +81,11 @@ async function selectEntries(tx:any,companionId:string,query:Query){
 async function hydrate(tx:any,ownerId:string,companionId:string,query:Query):Promise<ChatPage>{
  const selected=await selectEntries(tx,companionId,query);
  const rows=selected.rows,runIds=[...new Set(rows.map((row:any)=>row.runId))] as string[],messageIds=rows.filter((row:any)=>row.kind==='message').map((row:any)=>row.id),questionIds=rows.filter((row:any)=>row.kind==='question').map((row:any)=>row.id);
- const [messages,runs,questions,files,specialists,lastAssistants]=await Promise.all([
+ const [messages,runs,questions,files,lastAssistants]=await Promise.all([
   messageIds.length?tx.unsafe(`SELECT id,role,content,sequence,complete,created_at AS "createdAt",run_id AS "runId" FROM messages WHERE companion_id=$1 AND id=ANY(ARRAY(SELECT jsonb_array_elements_text($2::jsonb)::uuid)) ORDER BY created_at,sequence,id`,[companionId,messageIds]):[],
   runIds.length?tx.unsafe(`SELECT ${runColumns} FROM runs r WHERE r.companion_id=$1 AND r.id=ANY(ARRAY(SELECT jsonb_array_elements_text($2::jsonb)::uuid)) ORDER BY r.created_at,r.id`,[companionId,runIds]):[],
   questionIds.length?tx.unsafe(`SELECT q.id,q.run_id AS "runId",q.question,q.options,q.answer,q.created_at AS "createdAt",q.context_text AS "contextText",r.status AS "runStatus" FROM task_questions q JOIN runs r ON r.id=q.run_id WHERE q.companion_id=$1 AND q.id=ANY(ARRAY(SELECT jsonb_array_elements_text($2::jsonb)::uuid)) ORDER BY q.created_at,q.id`,[companionId,questionIds]):[],
   filesForThread(ownerId,companionId,{database:tx,runIds}),
-  runIds.length?tx.unsafe(`SELECT d.id AS "delegationId",d.parent_run_id AS "parentRunId",d.run_id AS "childRunId",jsonb_build_object('id',child.id,'name',child.name,'avatar',child.avatar,'status',child.status,'retiredAt',child.retired_at) AS companion FROM delegations d JOIN companions parent ON parent.id=d.parent_id AND parent.owner_id=$1 JOIN runs parent_run ON parent_run.id=d.parent_run_id AND parent_run.companion_id=parent.id JOIN companions child ON child.id=d.target_id AND child.owner_id=parent.owner_id AND child.parent_id=parent.id AND child.temporary WHERE d.parent_id=$2 AND d.parent_run_id=ANY(ARRAY(SELECT jsonb_array_elements_text($3::jsonb)::uuid)) ORDER BY d.created_at,d.id`,[ownerId,companionId,runIds]):[],
   runIds.length?tx.unsafe(`SELECT DISTINCT ON (run_id) run_id AS "runId",id FROM messages WHERE companion_id=$1 AND run_id=ANY(ARRAY(SELECT jsonb_array_elements_text($2::jsonb)::uuid)) AND role='assistant' ORDER BY run_id,created_at DESC,sequence DESC,id DESC`,[companionId,runIds]):[],
  ]);
  const lastAssistant=new Map(lastAssistants.map((row:any)=>[row.runId,row.id]));
@@ -105,7 +101,7 @@ async function hydrate(tx:any,ownerId:string,companionId:string,query:Query):Pro
  }
  const forward=!!query.after||(!query.before&&!query.around&&!!query.from);
  const continuation=selected.more?(forward?entries.at(-1)?.cursor:entries[0]?.cursor)??null:null;
- return {entries,messages:withFiles,runs:safeRuns,questions,files,specialists,beforeCursor,afterCursor,nextCursor:continuation};
+ return {entries,messages:withFiles,runs:safeRuns,questions,files,beforeCursor,afterCursor,nextCursor:continuation};
 }
 
 async function transaction<T>(work:(tx:any)=>Promise<T>){
@@ -125,11 +121,11 @@ export async function companionHttpDetail(ownerId:string,companionId:string,quer
   const liveRunRows=await tx.unsafe(`SELECT ${runColumns},to_char(r.created_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS "cursorTime" FROM runs r WHERE r.companion_id=$1 AND r.status=ANY(ARRAY(SELECT jsonb_array_elements_text($2::jsonb))) ORDER BY r.created_at,r.id`,[companionId,activeStatuses]);
   const liveQuestionRows=await tx.unsafe(`SELECT to_char(q.created_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS "cursorTime",q.id,q.run_id AS "runId",q.question,q.options,q.answer,q.created_at AS "createdAt",q.context_text AS "contextText",r.status AS "runStatus" FROM task_questions q JOIN runs r ON r.id=q.run_id WHERE q.companion_id=$1 AND q.answer IS NULL AND r.status=ANY(ARRAY(SELECT jsonb_array_elements_text($2::jsonb))) ORDER BY q.created_at,q.id`,[companionId,activeStatuses]);
   // Off-page items carry a durable location so the web can retain their settled state.
-  const liveRuns=liveRunRows.map(({cursorTime,...run}:any)=>({...run,cursor:encode(companionId,{id:run.id,kind:'routine',sequence:0,cursorTime})}));
+  const liveRuns=liveRunRows.map(({cursorTime,...run}:any)=>({...run,cursor:encode(companionId,{id:run.id,kind:'thinking',sequence:0,cursorTime})}));
   const liveQuestions=liveQuestionRows.map(({cursorTime,...question}:any)=>({...question,createdAt:cursorTime,cursor:encode(companionId,{id:question.id,kind:'question',sequence:0,cursorTime})}));
   const runMap=new Map(chat.runs.map((run:any)=>[run.id,run]));for(const run of liveRuns)runMap.set(run.id,run);
   const questionMap=new Map(chat.questions.map((question:any)=>[question.id,question]));for(const question of liveQuestions)questionMap.set(question.id,question);
   const runs=[...runMap.values()],questions=[...questionMap.values()];
-  return {companion,messages:chat.messages,runs,questions,files:chat.files,specialists:chat.specialists,activity:runs.filter((run:any)=>run.lane==='background'),chat,live:{runs:liveRuns,questions:liveQuestions}};
+  return {companion,messages:chat.messages,runs,questions,files:chat.files,activity:runs.filter((run:any)=>run.lane==='background'),chat,live:{runs:liveRuns,questions:liveQuestions}};
  });
 }

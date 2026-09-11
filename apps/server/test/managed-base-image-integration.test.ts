@@ -67,14 +67,14 @@ test('missing managed snapshot between pin and create waits for republication wi
  expect(creates).toBe(1);
 });
 
-test('an explicit specialist image is preserved and an unknown create result keeps its pinned source',async()=>{
+test('an explicit external pinned image is preserved and an unknown create result keeps its pinned source',async()=>{
  config.managedBoxTemplate=true;
  const row=await companion();
- await db`UPDATE companions SET snapshot_name='specialist-private-source',create_started_at=now() WHERE id=${row.id}`;
+ await db`UPDATE companions SET snapshot_name='external-private-source',create_started_at=now() WHERE id=${row.id}`;
  expect(await machinePreparationReady(row)).toBe(true);
- expect(row.snapshot_name).toBe('specialist-private-source');
+ expect(row.snapshot_name).toBe('external-private-source');
  await expect(prepareBox(row,async()=>{},async()=>{},async()=>{},
   {create:async()=>{throw new BoxError('box_unreachable');}} as any)).rejects.toThrow('box_unreachable');
  expect((await db`SELECT snapshot_name,create_started_at FROM companions WHERE id=${row.id}`)[0])
-  .toMatchObject({snapshot_name:'specialist-private-source',create_started_at:expect.any(Date)});
+  .toMatchObject({snapshot_name:'external-private-source',create_started_at:expect.any(Date)});
 });

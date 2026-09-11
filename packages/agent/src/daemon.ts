@@ -4,30 +4,26 @@ import { join } from "node:path";
 import { RunJournal } from "./journal";
 import type { RunExecutor, RunInput, RunLane } from "./types";
 import { parseModelGatewayCredential } from "./model-gateway";
-import { InitializationRunner } from "./initialization";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 export class AgentDaemon {
   readonly journal: RunJournal;
   private readonly activeRuns: Record<RunLane, string | null> = { main: null, background: null };
+  private readonly discussionRuns = new Map<string, string>();
   private readonly cancelling = new Set<string>();
   private readonly parkedRuns = new Set<string>();
   private resumingBackground = false;
   private maintenance = false;
   private mutations = 0;
-  private readonly initializing = new Map<string, { controller: AbortController; done: Promise<unknown> }>();
-  private readonly initialization: InitializationRunner;
 
   constructor(stateDir: string, private readonly token: string, private readonly executor: RunExecutor,
-    private readonly handleRequest?: (request: Request) => Promise<Response | null>,private readonly desktopBoundaryVersion=0,
-    initialization?: InitializationRunner) {
+    private readonly handleRequest?: (request: Request) => Promise<Response | null>,private readonly desktopBoundaryVersion=0) {
     this.journal = new RunJournal(join(stateDir, "runs.sqlite"));
-    this.initialization = initialization ?? new InitializationRunner(stateDir);
     this.journal.interruptUnfinished();
   }
 
-  get active(): string | null { return this.activeRuns.main; }
+  get active(): string | null { return this.activeRuns.main ?? this.discussionRuns.values().next().value ?? null; }
 
   async fetch(request: Request): Promise<Response> {
     if (!authorized(request.headers.get("authorization"), this.token)) return json({ error: "UNAUTHORIZED" }, 401);
@@ -40,10 +36,10 @@ export class AgentDaemon {
       } catch { return json({ error: "SKILLS_UNAVAILABLE" }, 503); }
     }
     if (request.method === "GET" && url.pathname === "/health") {
-      return json({ ready: true, version: "0.2.0", runtimeVersion, maintenanceSupported:true, maintenance:this.maintenance, maintenanceReady:this.mutations===0&&this.initializing.size===0, desktopBoundaryVersion:this.desktopBoundaryVersion, activeRunId: this.activeRuns.main, activeRuns: this.activeRuns, parkedRuns: [...this.parkedRuns] });
+      return json({ ready: true, version: "0.2.0", runtimeVersion, maintenanceSupported:true, maintenance:this.maintenance, maintenanceReady:this.mutations===0, desktopBoundaryVersion:this.desktopBoundaryVersion, conversationVersion:1, activeRunId: this.active, activeRuns: {...this.activeRuns,main:this.active}, activeDiscussions: Object.fromEntries(this.discussionRuns), parkedRuns: [...this.parkedRuns] });
     }
     if(request.method==='POST'&&url.pathname==='/maintenance'){
-      if(this.mutations||this.initializing.size||this.activeRuns.main||this.activeRuns.background||this.parkedRuns.size||this.resumingBackground||this.cancelling.size)return json({error:'AGENT_BUSY'},409);
+      if(this.mutations||this.activeRuns.main||this.activeRuns.background||this.discussionRuns.size||this.parkedRuns.size||this.resumingBackground||this.cancelling.size)return json({error:'AGENT_BUSY'},409);
       this.maintenance=true;
       return json({maintenance:true});
     }
@@ -70,7 +66,7 @@ export class AgentDaemon {
     return json({ error: "METHOD_NOT_ALLOWED" }, 405);
   }
 
-  close(): void { this.initialization.close(); this.journal.close(); }
+  close(): void { this.journal.close(); }
 
   private async put(id: string, request: Request): Promise<Response> {
     let input: RunInput;
@@ -79,17 +75,15 @@ export class AgentDaemon {
       if (!value || typeof value !== "object" || typeof value.content !== "string" || typeof value.instructions !== "string") {
         return json({ error: "INVALID_REQUEST" }, 400);
       }
-      if (value.content.length < 1 || value.content.length > 55_000 || value.instructions.length > 20_000) {
+      if (value.content.length < 1 || value.content.length > 55_000 || value.instructions.length > (value.conversationId === undefined ? 20_000 : 40_000)) {
         return json({ error: "INVALID_REQUEST" }, 400);
       }
+      if(value.conversationId!==undefined && (typeof value.conversationId!=="string" || !UUID.test(value.conversationId) || value.lane==="background"))return json({error:"INVALID_REQUEST"},400);
       if (value.lane !== undefined && value.lane !== "main" && value.lane !== "background") return json({ error: "INVALID_REQUEST" }, 400);
       if(value.modelId!==undefined&&(typeof value.modelId!=="string"||!value.modelId.length||value.modelId.length>200))return json({error:"INVALID_REQUEST"},400);
-      if(value.initScript!==undefined&&(typeof value.initScript!=="string"||!value.initScript.length||value.initScript.length>100_000))return json({error:"INVALID_REQUEST"},400);
-      if(value.initTimeoutMs!==undefined&&(!Number.isInteger(value.initTimeoutMs)||value.initTimeoutMs<1_000||value.initTimeoutMs>3_600_000||value.initScript===undefined))return json({error:"INVALID_REQUEST"},400);
       const modelGateway=parseModelGatewayCredential(value.modelGateway),gatewayRequired=!!process.env.MODEL_GATEWAY_URL?.trim();
       if((gatewayRequired&&!modelGateway)||(!gatewayRequired&&value.modelGateway!==undefined))return json({error:"INVALID_REQUEST"},400);
-      input = { ...(value.modelId?{modelId:value.modelId}:{}),...(modelGateway?{modelGateway}:{}),
-        ...(value.initScript?{initScript:value.initScript,initTimeoutMs:value.initTimeoutMs??600_000}:{}),
+      input = { ...(value.conversationId?{conversationId:value.conversationId.toLowerCase()}:{}), ...(value.modelId?{modelId:value.modelId}:{}),...(modelGateway?{modelGateway}:{}),
         content: value.content, instructions: value.instructions, lane: value.lane ?? "main" };
     } catch { return json({ error: "INVALID_REQUEST" }, 400); }
 
@@ -100,14 +94,10 @@ export class AgentDaemon {
     }
     if(this.maintenance)return json({error:"AGENT_MAINTENANCE"},503);
     const lane = input.lane ?? "main";
-    // Pi has no accepting root before execute(), but initialization already owns
-    // this machine. Leave new requests unaccepted so either lane can retry safely.
-    const initializingRoot = this.initializing.keys().next().value;
-    if (initializingRoot) return json({ error: "BUSY", activeRunId: initializingRoot }, 409);
     if (lane === "background" && this.resumingBackground) return json({ error: "BUSY" }, 409);
     const activeRoot = lane === "main" && this.executor.acceptingRoot
-      ? this.executor.acceptingRoot(lane) : this.activeRuns[lane];
-    if (activeRoot && (lane === "background" || !this.executor.steer || this.cancelling.has(activeRoot) || this.initializing.has(activeRoot))) {
+      ? this.executor.acceptingRoot(lane,input.conversationId) : input.conversationId ? this.discussionRuns.get(input.conversationId) : this.activeRuns[lane];
+    if (activeRoot && (lane === "background" || !this.executor.steer || this.cancelling.has(activeRoot))) {
       return json({ error: "BUSY", activeRunId: activeRoot }, 409);
     }
     const accepted = this.journal.accept(id, input, activeRoot ?? id);
@@ -121,7 +111,7 @@ export class AgentDaemon {
         this.journal.settle(id, "interrupted", null, "PI_STEER_FAILED");
       });
     } else {
-      this.activeRuns[lane] = id;
+      if(input.conversationId)this.discussionRuns.set(input.conversationId,id);else this.activeRuns[lane] = id;
       void this.run(id, input);
     }
     return json(accepted.run, 202);
@@ -134,9 +124,6 @@ export class AgentDaemon {
     const rootId = run.responseRootId;
     this.cancelling.add(rootId);
     try {
-      const initialization = this.initializing.get(rootId);
-      initialization?.controller.abort();
-      await initialization?.done;
       await this.executor.cancel(rootId);
       this.journal.settleGroup(rootId, "cancelled", null, null);
       return json(this.journal.get(id) ?? run);
@@ -172,7 +159,7 @@ export class AgentDaemon {
       if (run.lane === "background" && this.activeRuns.background === rootId) this.activeRuns.background = null;
     } else {
       this.parkedRuns.delete(rootId);
-      this.activeRuns[run.lane] = rootId;
+      if(run.conversationId)this.discussionRuns.set(run.conversationId,rootId);else this.activeRuns[run.lane] = rootId;
     }
     return json(this.journal.get(id));
   }
@@ -180,32 +167,16 @@ export class AgentDaemon {
   private async run(id: string, input: RunInput): Promise<void> {
     const lane = input.lane ?? "main";
     if (this.journal.get(id)?.status !== "running") {
-      if (this.activeRuns[lane] === id) this.activeRuns[lane] = null;
+      if (input.conversationId) { if(this.discussionRuns.get(input.conversationId)===id)this.discussionRuns.delete(input.conversationId); } else if (this.activeRuns[lane] === id) this.activeRuns[lane] = null;
       return;
     }
     try {
-      if (input.initScript) {
-        const controller = new AbortController();
-        const done = this.initialization.run(input.initScript, input.initTimeoutMs ?? 600_000, controller.signal);
-        this.initializing.set(id, { controller, done });
-        const initialized = await done;
-        this.initializing.delete(id);
-        if (initialized.kind === "blocked") {
-          if (!this.cancelling.has(id)) this.journal.settleGroup(id, "interrupted", null, initialized.error);
-          return;
-        }
-        if (initialized.kind === "warning") {
-          this.journal.initializationWarning(id, initialized.warning);
-          input = { ...input, instructions: `${input.instructions}\n\nRuntime warning: ${initialized.warning}`.trim() };
-        }
-      }
       const result = await this.executor.execute(id, input, progress=>this.journal.progress(id,progress));
       this.journal.settleGroup(id, this.cancelling.has(id) ? "cancelled" : "succeeded", result.text, null, result.publishToChat);
     } catch {
       this.journal.settleGroup(id, this.cancelling.has(id) ? "cancelled" : "failed", null, this.cancelling.has(id) ? null : "PI_RUN_FAILED");
     } finally {
-      this.initializing.delete(id);
-      if (this.activeRuns[lane] === id) this.activeRuns[lane] = null;
+      if (input.conversationId) { if(this.discussionRuns.get(input.conversationId)===id)this.discussionRuns.delete(input.conversationId); } else if (this.activeRuns[lane] === id) this.activeRuns[lane] = null;
       this.parkedRuns.delete(id);
     }
   }

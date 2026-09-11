@@ -2,7 +2,6 @@ import {afterEach, beforeAll, beforeEach, expect, test} from 'bun:test';
 import {acceptMessage, createCompanion, db, detail, migrate} from '../src/store';
 import {acquireExecutor, LifecycleCoordinator, tick} from '../src/executor';
 import {requestPreparation, type LifecycleMachines} from '../src/lifecycle';
-import {saveTemplate} from '../src/templates';
 
 let owner: string;
 beforeAll(() => migrate());
@@ -45,11 +44,9 @@ async function until(check: () => Promise<boolean> | boolean) {
   throw Error('Expected preparation checkpoint did not arrive');
 }
 
-for (const provider of ['box','local'] as const) for (const profile of [false,true]) {
-  test(`${provider} ${profile?'profile':'individual/coordinator'} prepares before chat and creation retries never restart it`, async () => {
-    const template = profile ? await saveTemplate(owner,{name:'Starting profile',instructions:'Pinned role'}) : undefined;
-    const input = {clientCreationId:crypto.randomUUID(),name:'Prepared companion',provider,prepare:true,
-      ...(template ? {templateId:template.id,templateRevision:1} : {})};
+for (const provider of ['box','local'] as const) {
+  test(`${provider} companion prepares before chat and creation retries never restart it`, async () => {
+    const input = {clientCreationId:crypto.randomUUID(),name:'Prepared companion',provider,prepare:true};
     const copies = await Promise.all(Array.from({length:8}, () => createCompanion(owner,input)));
     const c = copies[0];
     expect(new Set(copies.map(copy => copy.id)).size).toBe(1);

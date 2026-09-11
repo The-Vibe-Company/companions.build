@@ -10,6 +10,7 @@ export interface RunProgress {thinkingText?:string;previewText:string;usage:RunU
 
 export interface RunRecord {
   id: string;
+  conversationId?: string;
   status: RunStatus;
   text: string | null;
   error: string | null;
@@ -21,17 +22,14 @@ export interface RunRecord {
   usage?:RunUsage;
   messages?:RunMessage[];
   messageVersion?:number;
-  initWarning?: string;
 }
 
 export interface RunInput {
+  /** Stable product discussion identity; distinct transcripts share this Companion machine. */
+  conversationId?: string;
   content: string;
   instructions: string;
   modelId?:string;
-  /** Immutable specialist initialization, journaled once per Companion state directory. */
-  initScript?: string;
-  /** Server-resolved administrative timeout; defaults to ten minutes. */
-  initTimeoutMs?: number;
   lane?: RunLane;
   /** Short-lived, run-bound credential. It is intentionally never written to the run journal. */
   modelGateway?: {token:string};
@@ -42,7 +40,7 @@ export interface RunExecutor {
   execute(id: string, input: RunInput, onProgress?:(progress:RunProgress)=>void): Promise<{ text: string; publishToChat?: boolean }>;
   /** Native Pi steering joins an existing response; it never starts a second main session. */
   steer?(rootId: string, id: string, input: RunInput): Promise<void>;
-  acceptingRoot?(lane: RunLane): string | null;
+  acceptingRoot?(lane: RunLane, conversationId?: string): string | null;
   /** Only called after the product has durably recorded a human question/answer. */
   suspend?(id: string): Promise<boolean>;
   resume?(id: string): Promise<boolean>;

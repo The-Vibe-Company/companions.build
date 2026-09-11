@@ -32,18 +32,7 @@ export async function billableBoxIntervals(sql:any=db,now=new Date()){
   return {...row,segments,seconds:Math.floor(milliseconds/1000),closed:Number.isFinite(Math.min(exact,observed,next)),ended_at:new Date(end)};
  });
 }
-/** Tenant software-build Boxes only. Operator distribution-build Boxes have no row here. */
-export async function billableSoftwareBuildIntervals(sql:any=db){
- const rows=await sql`SELECT id,build_id,owner_id,ready_at,last_observed_at,ended_at,end_reason
-  FROM portable_software_usage_intervals ORDER BY ready_at,id`;
- return rows.map((row:any)=>{
-  const start=new Date(row.ready_at),end=new Date(row.ended_at??row.last_observed_at);
-  return {...row,segments:[[start.getTime(),end.getTime()]] as [number,number][],seconds:Math.max(0,Math.floor((end.getTime()-start.getTime())/1000)),
-   closed:!!row.ended_at,ended_at:end};
- });
-}
-
-async function recordBoxInterval(interval:any,prefix:string,companionId?:string){
+async function recordBoxInterval(interval:any,prefix:string,companionId:string){
  const seconds=interval.seconds;
  const [{count}]=await db`SELECT count(*)::int AS count FROM usage_ledger WHERE owner_id=${interval.owner_id} AND operation_id LIKE ${prefix+'%'}`;
  // Complete minutes while active; checkpoint the final partial minute only after confirmed closure.
@@ -52,15 +41,14 @@ async function recordBoxInterval(interval:any,prefix:string,companionId?:string)
   const quantity=Math.min(60,seconds-bucket*60);if(quantity<=0)continue;
   let remaining=(bucket*60+quantity)*1000,occurredAt=interval.ended_at;
   for(const [from,to] of interval.segments){if(remaining<=to-from){occurredAt=new Date(from+remaining);break;}remaining-=to-from;}
-  await recordUsage({operationId:`${prefix}${bucket}`,ownerId:interval.owner_id,...(companionId?{companionId}:{}),category:'box_seconds',quantity,unit:'second',occurredAt,
-   metadata:companionId?{}:{softwareBuildId:interval.build_id}});
+  await recordUsage({operationId:`${prefix}${bucket}`,ownerId:interval.owner_id,companionId,category:'box_seconds',quantity,unit:'second',occurredAt,metadata:{}});
  }
 }
 /** Stable response-root IDs ensure native steering is counted once. No model request is made here. */
 export async function recordCompletedUsage(){
  // A Box owner controls Pi and its local journal. Hosted accounting therefore uses only
  // terminal usage independently observed by the platform gateway, including failed turns.
- const requests=await db`SELECT id,run_id,companion_id,owner_id,provider,model_id,usage,finished_at FROM model_gateway_requests g
+ const requests=await db`SELECT id,run_id,discussion_run_id,companion_id,owner_id,provider,model_id,usage,finished_at FROM model_gateway_requests g
   WHERE usage_verified AND finished_at IS NOT NULL AND (usage->>'totalTokens')::numeric>0
   AND NOT EXISTS(SELECT 1 FROM usage_ledger u WHERE u.owner_id=g.owner_id AND u.operation_id='model-request:'||g.id::text)
   ORDER BY finished_at,id LIMIT 100`;
@@ -68,7 +56,7 @@ export async function recordCompletedUsage(){
   const quantity=Number(request.usage.totalTokens);if(!Number.isSafeInteger(quantity)||quantity<=0)continue;
   await recordUsage({operationId:'model-request:'+request.id,ownerId:request.owner_id,companionId:request.companion_id,
    category:'model_tokens',quantity,unit:'token',occurredAt:request.finished_at,
-   metadata:{provider:request.provider,modelId:request.model_id,runId:request.run_id}});
+   metadata:{provider:request.provider,modelId:request.model_id,runId:request.run_id??request.discussion_run_id}});
  }
  const runs=await db`SELECT r.id,r.companion_id,c.owner_id,r.usage,r.finished_at FROM runs r JOIN companions c ON c.id=r.companion_id
   WHERE r.status IN ('succeeded','failed','interrupted','cancelled') AND r.usage IS NOT NULL AND r.usage_source='agent'
@@ -81,7 +69,6 @@ export async function recordCompletedUsage(){
  }
  const intervals=await billableBoxIntervals();
  for(const interval of intervals)await recordBoxInterval(interval,`box-time:${interval.id}:`,interval.companion_id);
- for(const interval of await billableSoftwareBuildIntervals())await recordBoxInterval(interval,`software-box-time:${interval.id}:`);
  const owners=await db`SELECT DISTINCT owner_id FROM usage_ledger WHERE stripe_delivery_status='pending' LIMIT 20`;
  for(const owner of owners)await flushPendingUsage(owner.owner_id,20);
 }

@@ -35,6 +35,7 @@ export class RunJournal {
       );
     `);
     const columns = new Set((this.db.query("PRAGMA table_info(runs)").all() as Array<{ name: string }>).map(row => row.name));
+    if (!columns.has("conversation_id")) this.db.exec("ALTER TABLE runs ADD COLUMN conversation_id TEXT");
     if (!columns.has("thinking_text")) this.db.exec("ALTER TABLE runs ADD COLUMN thinking_text TEXT");
     if (!columns.has("preview_text")) this.db.exec("ALTER TABLE runs ADD COLUMN preview_text TEXT");
     if (!columns.has("usage_json")) this.db.exec("ALTER TABLE runs ADD COLUMN usage_json TEXT");
@@ -44,7 +45,6 @@ export class RunJournal {
     if (!columns.has("response_root_id")) this.db.exec("ALTER TABLE runs ADD COLUMN response_root_id TEXT");
     if (!columns.has("publish_to_chat")) this.db.exec("ALTER TABLE runs ADD COLUMN publish_to_chat INTEGER NOT NULL DEFAULT 0");
     if (!columns.has("parked")) this.db.exec("ALTER TABLE runs ADD COLUMN parked INTEGER NOT NULL DEFAULT 0");
-    if (!columns.has("init_warning")) this.db.exec("ALTER TABLE runs ADD COLUMN init_warning TEXT");
     this.db.exec("UPDATE runs SET response_root_id=id WHERE response_root_id IS NULL");
   }
 
@@ -63,10 +63,10 @@ export class RunJournal {
       }
       const now = new Date().toISOString();
       this.db.query(`INSERT INTO runs
-        (id, request_hash, content, instructions, status, text, error, created_at, updated_at, lane, response_root_id, parked)
-        VALUES (?, ?, ?, ?, 'running', NULL, NULL, ?, ?, ?, ?, ?)`)
+        (id, request_hash, content, instructions, status, text, error, created_at, updated_at, lane, response_root_id, parked, conversation_id)
+        VALUES (?, ?, ?, ?, 'running', NULL, NULL, ?, ?, ?, ?, ?, ?)`)
         .run(id, hash, input.content, input.instructions, now, now, input.lane ?? "main", rootId,
-          this.get(rootId)?.status === "needs_input" ? 1 : 0);
+          this.get(rootId)?.status === "needs_input" ? 1 : 0, input.conversationId ?? null);
       return { kind: "accepted" as const, run: this.get(id)! };
     });
     return transaction.immediate();
@@ -104,11 +104,6 @@ export class RunJournal {
         value.messageVersion,new Date().toISOString(),rootId,value.messageVersion);
   }
 
-  initializationWarning(id: string, warning: string): void {
-    this.db.query("UPDATE runs SET init_warning=?,updated_at=? WHERE id=? AND status='running'")
-      .run(warning, new Date().toISOString(), id);
-  }
-
   parkGroup(rootId: string, parked: boolean): void {
     this.db.query("UPDATE runs SET parked=?,updated_at=? WHERE response_root_id=? AND status='running'")
       .run(parked ? 1 : 0, new Date().toISOString(), rootId);
@@ -119,26 +114,25 @@ export class RunJournal {
   }
 
   private getStored(id: string): StoredRun | null {
-    return this.db.query(`SELECT id, request_hash, CASE WHEN status='running' AND parked=1 THEN 'needs_input' ELSE status END AS status, text, error, lane,
+    return this.db.query(`SELECT id, request_hash, conversation_id AS conversationId, CASE WHEN status='running' AND parked=1 THEN 'needs_input' ELSE status END AS status, text, error, lane,
       response_root_id AS responseRootId, publish_to_chat AS publishToChat,preview_text AS previewText,thinking_text AS thinkingText,
-      usage_json,messages_json,message_version AS messageVersion,init_warning AS initWarning FROM runs WHERE id = ?`).get(id) as StoredRun | null;
+      usage_json,messages_json,message_version AS messageVersion FROM runs WHERE id = ?`).get(id) as StoredRun | null;
   }
 }
 
 function requestHash(input: RunInput): string {
   // Preserve historical main request hashes across a daemon upgrade.
   const fields = input.lane === "background" ? [input.content, input.instructions, "background"] : [input.content, input.instructions];
+  if(input.conversationId)fields.push(JSON.stringify({conversationId:input.conversationId}));
   if(input.modelId)fields.push(input.modelId);
-  if(input.initScript)fields.push(JSON.stringify({initScript:input.initScript,initTimeoutMs:input.initTimeoutMs??600_000}));
   return createHash("sha256").update(JSON.stringify(fields)).digest("hex");
 }
 
 function publicRun(run: StoredRun): RunRecord {
-  return { id: run.id, status: run.status, text: run.text, error: run.error,
+  return { id: run.id, ...(run.conversationId?{conversationId:run.conversationId}:{}), status: run.status, text: run.text, error: run.error,
     lane: run.lane, responseRootId: run.responseRootId, publishToChat: !!run.publishToChat,
     ...(run.thinkingText!=null?{thinkingText:run.thinkingText}:{}),
     ...(run.previewText!=null?{previewText:run.previewText}:{}),...(run.usage_json?{usage:JSON.parse(run.usage_json)}:{}),
     ...(run.messages_json?{messages:JSON.parse(run.messages_json)}:{}),
-    ...(run.messageVersion!=null?{messageVersion:run.messageVersion}:{}),
-    ...(run.initWarning?{initWarning:run.initWarning}:{}) };
+    ...(run.messageVersion!=null?{messageVersion:run.messageVersion}:{}) };
 }

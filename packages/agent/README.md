@@ -48,7 +48,7 @@ Production never selects it implicitly.
 
 The deterministic product fixtures exercise real Pi tools and bridges without model calls:
 `attachment-roundtrip` reads a staged upload and returns a file through `send_file`,
-`control-create-routine` and `control-ask-background` use the controller MCP, and
+`control-ask-background` uses the controller MCP, and
 `plugin-roundtrip:<connection-id>` plus `plugin-detached:<connection-id>` verify discovery,
 generic MCP execution, and configuration revocation. They are acceptance prompts, not commands
 available in production mode.

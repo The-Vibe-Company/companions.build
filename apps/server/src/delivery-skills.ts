@@ -21,39 +21,10 @@ const digest=(value:string|Uint8Array)=>createHash("sha256").update(value).diges
 
 export async function migrateDeliverySkills(sql:any=db){await sql.unsafe(await Bun.file(new URL("./delivery-skills.sql",import.meta.url)).text());}
 
-export async function queueDeliverySkillExports(sql:any,input:{deliveryId:string;ownerId:string;companionId:string;templates:Array<{sourceTemplateId:string;sourceCompanionId:string|null;skillBundleId:string|null}>}){
- await sql`INSERT INTO portable_skill_exports(id,delivery_id,source_owner_id,source_companion_id,target_kind)
-  VALUES(${crypto.randomUUID()},${input.deliveryId},${input.ownerId},${input.companionId},'delivery_main')`;
- for(const template of input.templates){
-  if(template.skillBundleId){
-   await sql`INSERT INTO portable_skill_exports(id,delivery_id,source_owner_id,source_companion_id,target_kind,source_template_id,status,bundle_id,finished_at)
-    VALUES(${crypto.randomUUID()},${input.deliveryId},${input.ownerId},${template.sourceCompanionId??input.companionId},'delivery_template',${template.sourceTemplateId},'ready',${template.skillBundleId},now())`;
-  }else if(template.sourceCompanionId){
-   const [source]=await sql`SELECT retired_at FROM companions WHERE id=${template.sourceCompanionId} AND owner_id=${input.ownerId}`;
-   await sql`INSERT INTO portable_skill_exports(id,delivery_id,source_owner_id,source_companion_id,target_kind,source_template_id,status,error,finished_at)
-    VALUES(${crypto.randomUUID()},${input.deliveryId},${input.ownerId},${template.sourceCompanionId},'delivery_template',${template.sourceTemplateId},${source&&!source.retired_at?'pending':'error'},${source&&!source.retired_at?null:'Template skills are no longer available for export.'},${source&&!source.retired_at?null:new Date()})`;
-  }
- }
- await sql`UPDATE companions SET prepare_requested=true,error=null WHERE owner_id=${input.ownerId} AND retired_at IS NULL AND id IN
-  (SELECT source_companion_id FROM portable_skill_exports WHERE delivery_id=${input.deliveryId} AND status='pending')`;
+export async function queueDeliverySkillExports(sql:any,input:{deliveryId:string;ownerId:string;companionId:string}){
+ await sql`INSERT INTO portable_skill_exports(id,delivery_id,source_owner_id,source_companion_id,target_kind) VALUES(${crypto.randomUUID()},${input.deliveryId},${input.ownerId},${input.companionId},'delivery_main')`;
+ await sql`UPDATE companions SET prepare_requested=true,error=null WHERE id=${input.companionId} AND owner_id=${input.ownerId} AND retired_at IS NULL`;
  await refreshDelivery(sql,input.deliveryId);
-}
-
-export async function queueTemplateSkillExport(sql:any,ownerId:string,templateId:string,sourceCompanionId:string,targetRevision:number){
- const [owned]=await sql`SELECT t.id FROM agent_templates t JOIN companions c ON c.id=${sourceCompanionId} AND c.owner_id=t.owner_id AND c.retired_at IS NULL WHERE t.id=${templateId} AND t.owner_id=${ownerId}`;
- if(!owned)throw Error("TEMPLATE_SKILL_SOURCE_UNAVAILABLE");
- const [row]=await sql`INSERT INTO portable_skill_exports(id,source_owner_id,source_companion_id,target_kind,source_template_id,target_revision)
-  VALUES(${crypto.randomUUID()},${ownerId},${sourceCompanionId},'template_revision',${templateId},${targetRevision})
-  ON CONFLICT(source_template_id,target_revision) WHERE target_kind='template_revision' DO NOTHING
-  RETURNING id,status,bundle_id AS "bundleId",error`;
- await sql`UPDATE companions SET prepare_requested=true,error=null WHERE id=${sourceCompanionId} AND owner_id=${ownerId} AND retired_at IS NULL`;
- if(row)return row;
- const [prior]=await sql`SELECT id,status,bundle_id AS "bundleId",error,source_owner_id,source_companion_id FROM portable_skill_exports WHERE target_kind='template_revision' AND source_template_id=${templateId} AND target_revision=${targetRevision}`;
- if(!prior||prior.source_owner_id!==ownerId||prior.source_companion_id!==sourceCompanionId)throw Error("TEMPLATE_SKILL_EXPORT_CONFLICT");return prior;
-}
-export async function templateSkillExport(sql:any,ownerId:string,templateId:string,targetRevision:number){
- const [row]=await sql`SELECT e.status,e.bundle_id AS "bundleId",e.error FROM portable_skill_exports e JOIN agent_templates t ON t.id=e.source_template_id AND t.owner_id=${ownerId} WHERE e.target_kind='template_revision' AND e.source_template_id=${templateId} AND e.target_revision=${targetRevision}`;
- return row??null;
 }
 
 /** Global executor scan: durable scheduling intent only. It never contacts agents, storage, or email. */
@@ -123,8 +94,7 @@ export async function stageDeliverySkills(companionId:string,endpoint:string,tok
  const sql=execution?.sql??db,assertLeader=execution?.assertLeader??(async()=>{});
  const checkpoint=execution?.checkpoint??(<T>(body:(tx:any)=>Promise<T>)=>sql.begin(body));
  const [row]=await sql`SELECT c.box_id,c.skills_staged_hash,c.skills_staged_box_id,b.id AS bundle_id,b.bundle_hash,b.object_sha256,b.byte_size,b.storage_key
-  FROM companions c LEFT JOIN template_revisions r ON r.template_id=c.template_id AND r.revision=c.template_revision
-  JOIN portable_skill_bundles b ON b.id=COALESCE(r.skill_bundle_id,c.skill_bundle_id) WHERE c.id=${companionId} AND c.retired_at IS NULL`;
+  FROM companions c JOIN portable_skill_bundles b ON b.id=c.skill_bundle_id WHERE c.id=${companionId} AND c.retired_at IS NULL`;
  if(!row)return {staged:false};
  if(row.skills_staged_hash===row.bundle_hash&&row.skills_staged_box_id===row.box_id)return {staged:false,bundleHash:row.bundle_hash};
  await assertLeader();const blob=await (deps.storage??createObjectStorage()).get(row.storage_key);const bytes=Buffer.from(await blob.arrayBuffer());
@@ -133,7 +103,7 @@ export async function stageDeliverySkills(companionId:string,endpoint:string,tok
  if(manifestHash(manifest)!==row.bundle_hash)throw Error("DELIVERY_SKILL_BUNDLE_INTEGRITY_FAILED");
  await assertLeader();const result=await (deps.requestAgent??agentRequest)(endpoint,token,"/skills/import","PUT",manifest);
  if(result?.bundleHash!==row.bundle_hash)throw Error("DELIVERY_SKILL_IMPORT_FAILED");
- await checkpoint(async(tx:any)=>{await tx`UPDATE companions SET skills_staged_hash=${row.bundle_hash},skills_staged_box_id=box_id WHERE id=${companionId} AND box_id IS NOT DISTINCT FROM ${row.box_id} AND COALESCE((SELECT skill_bundle_id FROM template_revisions WHERE template_id=companions.template_id AND revision=companions.template_revision),skill_bundle_id)=${row.bundle_id}`;});
+ await checkpoint(async(tx:any)=>{await tx`UPDATE companions SET skills_staged_hash=${row.bundle_hash},skills_staged_box_id=box_id WHERE id=${companionId} AND box_id IS NOT DISTINCT FROM ${row.box_id} AND skill_bundle_id=${row.bundle_id}`;});
  return {staged:true,bundleHash:row.bundle_hash};
 }
 

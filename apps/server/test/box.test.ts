@@ -1,13 +1,6 @@
 import { test, expect, spyOn } from "bun:test";
 import { BoxClient } from "../../../packages/box/client";
 import { fetchAgent } from "../../../packages/box/transport";
-import {specialistBoxMachines} from '../src/specialist-box';
-test('an ambiguous specialist image create cannot outlive the provider idempotency window',async()=>{
- let creates=0;
- const adapter=specialistBoxMachines({create:async()=>{creates++;return {id:'unwanted'};}} as any);
- await expect(adapter.createSpecialistImage!({box_id:null,create_key:'stable',create_started_at:new Date(Date.now()-24*3600_000)},async()=>{})).rejects.toThrow('image_creation_needs_reconciliation');
- expect(creates).toBe(0);
-});
 test("Box creation is isolated, templated and idempotent", async () => {
   let request: RequestInit | undefined;
   const client = new BoxClient("synthetic-secret", (async (_url: any, init: any) => {

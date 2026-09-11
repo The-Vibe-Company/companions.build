@@ -8,13 +8,13 @@ import {AgentControl} from "../../control/agent";
 import { DefaultResourceLoader, SettingsManager } from "@earendil-works/pi-coding-agent";
 import { runtimeSettings, skillCommands } from "../src/skill-commands";
 import { AgentDaemon } from "../src/daemon";
-import { PiExecutor } from "../src/pi-executor";
+import {PiExecutor,scopedResourceLoader} from "../src/pi-executor";
 
 test("command discovery uses native Pi names and safe source metadata, including explicit-only skills", async () => {
   const directory = state();
   putSkill(join(directory, "pi", "skills"), "folder", { "SKILL.md": "---\nname: native-name\ndescription: Native description\ndisable-model-invocation: true\n---\nPRIVATE SKILL BODY" });
   const settings = runtimeSettings();
-  const loader = new DefaultResourceLoader({ cwd: join(directory, "workspace"), agentDir: join(directory, "pi"), settingsManager: settings });
+  const loader=scopedResourceLoader(join(directory,"workspace"),join(directory,"pi"),settings);
   await loader.reload();
   expect(skillCommands(loader, settings)).toEqual({ enabled: true, skills: [
     { name: "native-name", description: "Native description", source: "user · top-level" },

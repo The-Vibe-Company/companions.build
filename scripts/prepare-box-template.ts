@@ -5,7 +5,6 @@ import { mkdirSync, realpathSync } from "node:fs";
 import { resolve } from "node:path";
 import {open} from "node:fs/promises";
 import {distributionManifest,manifestDigest,publishDistribution,saveDistributionJournal,validateDistributionJournal} from "./lib/distribution-verification";
-import { softwareDistributionDescriptorSchema } from "../packages/box/software-distribution";
 import {templateInstallScript} from "./lib/template-install";
 import {requirePinnedBun} from "./lib/pinned-bun";
 
@@ -16,10 +15,8 @@ const archived=process.argv.includes('--archived');
 const args = process.argv.slice(2).filter(arg=>arg!=='--archived');
 const name = args[0] ?? "companions-agent-v0";
 if (!/^[a-z0-9-]{1,60}$/.test(name)) throw new Error("Template name must contain lowercase letters, digits and hyphens.");
-let softwareConfig: string | undefined;
 if (args.length > 1) {
-  if (args.length !== 3 || args[1] !== "--software-config" || !args[2] || resolve(args[2]) !== args[2]) throw new Error("Usage: prepare-box-template.ts [name] [--software-config /absolute/operator-config.json]");
-  softwareConfig = args[2];
+  if (args.length !== 1) throw new Error('Usage: prepare-box-template.ts [name]');
 }
 const box = new BoxClient(config.boxKey);
 mkdirSync(".local/distributions", { recursive: true, mode: 0o700 });
@@ -33,15 +30,10 @@ await saveDistributionJournal(journalPath,state);
 // that exact archive, even if a later local build changes dist/agent.
 if(!state.manifest){
  if(state.boxId||state.snapshotRequestedAt||state.completedAt)throw Error("DISTRIBUTION_LEGACY_JOURNAL_UNVERIFIED");
- const build=Bun.spawn([process.execPath,"scripts/build-agent.ts",...(softwareConfig?["--software-config",softwareConfig]:[])],{stdout:"inherit",stderr:"inherit"});
+ const build=Bun.spawn([process.execPath,"scripts/build-agent.ts"],{stdout:"inherit",stderr:"inherit"});
  if(await build.exited)throw Error("Agent build failed");
  const directory=realpathSync("dist/agent");
  const manifest=await distributionManifest(directory);
- if(softwareConfig){
-  const descriptorBytes=Buffer.from(await Bun.file(`${directory}/software-builder.json`).arrayBuffer());
-  const descriptor=softwareDistributionDescriptorSchema.parse(JSON.parse(descriptorBytes.toString("utf8")));
-  state.software={baseId:descriptor.base.id,distributionDigest:descriptor.base.distributionDigest,resolverConfigDigest:descriptor.resolverConfigDigest,descriptorSha256:createHash("sha256").update(descriptorBytes).digest("hex")};
- }
  const tar=Bun.spawn(["tar","-czf",".local/agent.tar.gz","-C",directory,"."],{stdout:"inherit",stderr:"inherit"});
  if(await tar.exited)throw Error("Archive creation failed");
  // A concurrent operator modifying this release cannot silently change the pinned manifest.

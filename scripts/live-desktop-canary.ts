@@ -29,7 +29,7 @@ try {
  const detail=await api();
  if(detail.companion.provider!=='box'||detail.companion.retiredAt)fail('OWNED_LIVE_COMPANION_REQUIRED');
  if(detail.companion.desktopTaken&&!state.takeoverRequested)fail('HUMAN_ALREADY_CONTROLS_DESKTOP');
- const [row]=await db`SELECT box_id,endpoint_secret,agent_secret,template_id FROM companions WHERE id=${companionId} AND retired_at IS NULL`;
+ const [row]=await db`SELECT box_id,endpoint_secret,agent_secret FROM companions WHERE id=${companionId} AND retired_at IS NULL`;
  if(!row?.box_id||row.box_id!==detail.companion.boxId||!row.endpoint_secret)fail('READY_BOX_REQUIRED');
  const endpoint=decrypt(row.endpoint_secret),token=decrypt(row.agent_secret);
  if((await agentRequest(endpoint,token,'/health')).desktopBoundaryVersion!==1)fail('DESKTOP_UPGRADE_REQUIRED');

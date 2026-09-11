@@ -156,29 +156,6 @@ export function ApplicationAccess({ companionId, onConnect, inlineConnections = 
   const visibleCatalog = catalog.filter(server => !providers?.length || providers.includes(server.id) || Boolean(server.provider && providers.includes(server.provider)));
   const visibleAccounts = accounts.filter(account => !providers?.length || Boolean(account.provider && providers.includes(account.provider)) || visibleCatalog.some(server => server.id === account.serverId));
   const visibleGranted = providers?.length ? visibleAccounts.filter(account => selectedIds.has(account.id)).length : grantedCount;
-  if (compact && inlineConnections) {
-    const groups = groupAccounts(visibleAccounts, catalog);
-    for (const server of visibleCatalog) {
-      const key = server.provider && server.provider !== "custom" ? server.provider : server.id;
-      if (!groups.some(group => group.key === key)) groups.push({ key, name: server.name, provider: server.provider ?? undefined, accounts: [] });
-    }
-    return <div className="specialist-app-choices">
-      <p className="specialist-app-choices__intro">Choose the accounts this specialist can use.</p>
-      <div className="specialist-app-choices__list">{groups.map(group => {
-        const servers = visibleCatalog.filter(server => server.provider && server.provider !== "custom" ? server.provider === group.key : server.id === group.key);
-        const count = group.accounts.filter(account => selectedIds.has(account.id)).length;
-        return <section className="specialist-app-choice" key={group.key} aria-label={group.name}>
-          <div className="specialist-app-choice__header"><ProviderMark provider={group.provider} name={group.name}/><div className="specialist-app-choice__identity"><h3>{group.name}</h3><span className={count ? "specialist-app-choice__status is-granted" : "specialist-app-choice__status"}>{count ? <><Check aria-hidden="true"/>{count === 1 ? "1 account selected" : `${count} accounts selected`}</> : group.accounts.length ? "Select an account below" : servers.some(server => server.available) ? "No account connected" : "Connection unavailable"}</span></div>
-          <div className="specialist-app-choice__actions">{servers.filter(server => server.available).map(server => <Button key={server.id} type="button" size="sm" variant="outline" disabled={pendingId !== null} aria-label={`Connect ${server.name}`} onClick={() => void connect(server)}>{pendingId === server.id ? <><LoaderCircle className="spin"/>Connecting…</> : group.accounts.length ? "Add account" : "Connect"}</Button>)}</div></div>
-          {group.accounts.length > 0 && <div className="specialist-app-choice__accounts">{group.accounts.map(account => <label key={account.id} className="specialist-app-choice__account"><input type="checkbox" checked={selectedIds.has(account.id)} disabled={pendingId !== null} onChange={() => void toggle(account.id)}/><span>{account.label}</span>{pendingId === account.id && <LoaderCircle className="spin" aria-label="Saving account selection"/>}</label>)}</div>}
-          {servers.length > 0 && !servers.some(server => server.available) && <p className="specialist-app-choice__unavailable">New connections aren’t available here yet.{group.accounts.length > 0 ? " You can still select an existing account." : " You can continue and add access later."}</p>}
-        </section>;
-      })}</div>
-      {!groups.length && <p className="specialist-app-choices__intro">No apps are available yet. You can continue without connecting an account.</p>}
-      {onConnect && <button type="button" className="specialist-app-choices__manage" onClick={onConnect}>Manage connections</button>}
-      {error && <div className="application-access-error" role="alert"><span>{error}</span><Button size="sm" variant="outline" onClick={() => void reload()}>Reload</Button></div>}
-    </div>;
-  }
   return <div className={`application-access${compact ? " application-access--compact" : ""}`}>
     <div className="application-access-meta"><span>{visibleGranted} of {visibleAccounts.length} accounts granted</span>{onConnect && <button type="button" onClick={onConnect}>Manage connections</button>}</div>
     {visibleAccounts.length > 0 && <AccountTiles accounts={visibleAccounts} catalog={catalog} selectedIds={selectedIds} disabled={pendingId !== null} pendingId={pendingId} onToggle={accountId => void toggle(accountId)}/>}

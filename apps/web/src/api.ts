@@ -1,318 +1,61 @@
 import type { CompanionAvatarValue } from "@/components/CompanionAvatar";
 
 export type CompanionStatus = "new" | "preparing" | "ready" | "archived" | "error";
-export type RunStatus =
-  | "queued"
-  | "preparing"
-  | "running"
-  | "needs_input"
-  | "succeeded"
-  | "failed"
-  | "interrupted"
-  | "cancelled";
-
-export interface Companion {
-  id: string;
-  name: string;
-  instructions: string;
-  provider: "local" | "box";
-  status: CompanionStatus;
-  error: string | null;
-  createdAt: string;
-  avatar?: CompanionAvatarValue | null;
-  desktopTaken?: boolean;
-  desktopPausedAt?: string | null;
-  prepareRequested?: boolean;
-  runtimeVersion?: string | null;
-  runtimeUpdateTarget?: string | null;
-  runtimeUpdateStatus?: 'pending' | 'updating' | 'current' | 'deferred' | 'failed' | 'blocked';
-  runtimeUpdateError?: string | null;
-  readyAt?: string | null;
-  parentId?: string | null;
-  temporary?: boolean;
-  templateId?: string | null;
-  templateRevision?: number | null;
-  retiredAt?: string | null;
-  modelId?: string | null;
-}
-
+export type RunStatus = "queued" | "preparing" | "running" | "needs_input" | "succeeded" | "failed" | "interrupted" | "cancelled";
+export interface Companion { id: string; name: string; instructions: string; provider: "local" | "box"; status: CompanionStatus; error: string | null; createdAt: string; avatar?: CompanionAvatarValue | null; desktopTaken?: boolean; desktopPausedAt?: string | null; prepareRequested?: boolean; runtimeVersion?: string | null; runtimeUpdateTarget?: string | null; runtimeUpdateStatus?: "pending" | "updating" | "current" | "deferred" | "failed" | "blocked"; runtimeUpdateError?: string | null; readyAt?: string | null; retiredAt?: string | null; modelId?: string | null; }
 export interface AccountUser { id: string; email: string; name: string }
-
-export interface ChatMessage {
-  sequence?: number;
-  complete?: boolean;
-  id: string;
-  role: "user" | "assistant";
-  content: string;
-  createdAt: string;
-  runId: string;
-  files?: ThreadFile[];
-}
-
+export interface AppConfig { localAvailable: boolean; defaultProvider?: "local" | "box"; boxAvailable: boolean; model: string; models?: Array<{ id: string; name: string; isDefault?: boolean }> }
 export interface ThreadFile { id: string; runId: string; kind: "user_upload" | "agent_output"; name: string; mimeType: string; size: number; url: string }
+export interface Discussion { id: string; title: string; folderId: string | null; directCompanionId: string | null; archivedAt: string | null; createdAt: string; updatedAt: string }
+export interface DiscussionFolder { id: string; name: string; companionIds: string[]; createdAt: string }
+export interface DiscussionParticipant { companionId: string; removedAt: string | null; companion: Companion }
+export interface DiscussionMessage { id: string; sequence: string; role: "user" | "assistant"; content: string; companionId: string | null; runId: string; createdAt: string; complete: boolean; files: ThreadFile[] }
+export interface DiscussionQuestion { id: string; question: string; options: string[]; answer: string | null }
+export interface DiscussionTask { id: string; companionId: string; status: RunStatus; content: string; previewText: string | null; resultText: string | null; error: string | null; createdAt: string; finishedAt: string | null; questions: DiscussionQuestion[]; files: ThreadFile[] }
+export interface CentralRun { id: string; status: RunStatus; previewText: string | null; error: string | null; createdAt: string; finishedAt: string | null }
+export interface DiscussionProposal { id: string; companionId: string; reason: string; prompt: string; status: "pending" | "accepted" | "declined" }
+export interface DiscussionSnapshot { discussion: Discussion; participants: DiscussionParticipant[]; messages: DiscussionMessage[]; tasks: DiscussionTask[]; centralRuns: CentralRun[]; proposals: DiscussionProposal[]; beforeCursor: string | null }
 
-export interface Run {
-  cursor?: string;
-  hasPublishedMessage?: boolean;
-  hasQuestion?: boolean;
-  routineId?: string | null;
-  routineName?: string | null;
-  publicationMode?: RoutinePublicationMode;
-  scheduledFor?: string | null;
-  startedAt?: string | null;
-  preparedAt?: string | null;
-  finishedAt?: string | null;
-  publishToChat?: boolean;
-  lane?: "main"|"background";
-  source?: string;
-  resultText?: string|null;
-  previewText?: string|null;
-  messageVersion?: number|null;
-  thinkingText?: string|null;
-  id: string;
-  status: RunStatus;
-  error: string | null;
-  createdAt: string;
-}
-
-export interface TaskSummary {
-  routineId?: string | null;
-  routineName?: string | null;
-  publicationMode?: RoutinePublicationMode;
-  scheduledFor?: string | null;
-  id: string;
-  status: RunStatus;
-  lane: "main" | "background";
-  source: string;
-  createdAt: string;
-  finishedAt: string | null;
-  title: string;
-}
-
-export interface TaskDetail extends TaskSummary {
-  content: string;
-  resultText: string | null;
-  error: string | null;
-  startedAt: string | null;
-  preparedAt: string | null;
-  cancelRequested: boolean;
-  publishToChat: boolean;
-}
-
-export interface ChatEntry {
-  id: string;
-  kind: "message" | "question" | "routine" | "thinking";
-  createdAt: string;
-  sequence: number;
-  cursor: string;
-  runId: string;
-}
-export interface ChatPage {
-  entries: ChatEntry[];
-  messages: ChatMessage[];
-  runs: Run[];
-  questions: NonNullable<CompanionDetail["questions"]>;
-  files: ThreadFile[];
-  specialists: NonNullable<CompanionDetail["specialists"]>;
-  beforeCursor: string | null;
-  afterCursor: string | null;
-  nextCursor: string | null;
-}
-export interface ChatQuery { before?: string; after?: string; around?: string; from?: string; through?: string; limit?: number }
-export interface CompanionDetail {
-  /** Previously displayed off-page routines, retained for this visit after settlement. */
-  retainedRuns?: Run[];
-  chat?: ChatPage;
-  live?: { runs: Run[]; questions: NonNullable<CompanionDetail["questions"]> };
-
-  files?: ThreadFile[];
-  questions?: Array<{cursor?:string;id:string;runId:string;question:string;options:string[];answer:string|null;createdAt?:string;contextText?:string|null;runStatus?:string}>;
-  specialists?: Array<{
-    delegationId: string;
-    parentRunId: string;
-    childRunId: string;
-    companion: Pick<Companion, "id" | "name" | "avatar" | "status" | "retiredAt">;
-  }>;
-  companion: Companion;
-  messages: ChatMessage[];
-  runs: Run[];
-  activity: unknown[];
-}
-
-export interface AppConfig {
-  localAvailable: boolean;
-  defaultProvider?: "local" | "box";
-  boxAvailable: boolean;
-  model: string;
-  models?: Array<{ id: string; name: string; isDefault?: boolean }>;
-}
-
-export interface CompanionSkill {
-  name: string;
-  description: string;
-  source?: string;
-}
-
-export class ApiError extends Error {
-  constructor(
-    message: string,
-    public readonly status: number,
-  ) {
-    super(message);
-  }
-}
-
+export class ApiError extends Error { constructor(message: string, public readonly status: number) { super(message); } }
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
-  const response = await fetch(path, {
-    credentials: "same-origin",
-    ...options,
-    headers: {
-      ...(options?.body ? { "Content-Type": "application/json" } : {}),
-      ...options?.headers,
-    },
-  });
-
-  if (!response.ok) {
-    const body = (await response.json().catch(() => null)) as { error?: string; message?: string } | null;
-    throw new ApiError(body?.error || body?.message || `Request failed (${response.status})`, response.status);
-  }
-
+  const response = await fetch(path, { credentials: "same-origin", ...options, headers: { ...(options?.body && !(options.body instanceof FormData) ? { "Content-Type": "application/json" } : {}), ...options?.headers } });
+  if (!response.ok) { const body = await response.json().catch(() => null) as { error?: string; message?: string } | null; throw new ApiError(body?.error || body?.message || `Request failed (${response.status})`, response.status); }
   return response.json() as Promise<T>;
 }
 
-interface PendingMessage {
-  id: string;
-  content: string;
-  fileIds: string[];
-  fileFingerprints?: string[];
-}
-
-const pendingMessages = new Map<string, PendingMessage>();
-const pendingMessageKey = (companionId: string) => `companions.build:pending-message:${companionId}`;
-
-function readPendingMessage(companionId: string): PendingMessage | null {
-  const memoryValue = pendingMessages.get(companionId);
-  if (memoryValue) return memoryValue;
-
-  try {
-    const stored = sessionStorage.getItem(pendingMessageKey(companionId));
-    if (!stored) return null;
-    const value = JSON.parse(stored) as Partial<PendingMessage>;
-    if (typeof value.id !== "string" || typeof value.content !== "string" || !Array.isArray(value.fileIds)) return null;
-    const pending = { id: value.id, content: value.content, fileIds: value.fileIds.filter((id): id is string => typeof id === "string"),
-      fileFingerprints: Array.isArray(value.fileFingerprints) && value.fileFingerprints.every(item => typeof item === "string") ? value.fileFingerprints : undefined };
-    pendingMessages.set(companionId, pending);
-    return pending;
-  } catch {
-    return null;
-  }
-}
-
-function writePendingMessage(companionId: string, pending: PendingMessage) {
-  pendingMessages.set(companionId, pending);
-  try {
-    sessionStorage.setItem(pendingMessageKey(companionId), JSON.stringify(pending));
-  } catch {
-    // The in-memory copy still protects retries while this page is open.
-  }
-}
-
-function clearPendingMessage(companionId: string, acknowledgedId: string) {
-  if (readPendingMessage(companionId)?.id !== acknowledgedId) return;
-  pendingMessages.delete(companionId);
-  try {
-    sessionStorage.removeItem(pendingMessageKey(companionId));
-  } catch {
-    // Storage may be unavailable in privacy-restricted browser contexts.
-  }
-}
-
-async function fingerprintFile(file: File): Promise<string> {
-  // Read before admission: an unreadable file must not create durable work.
-  const bytes = await new Promise<ArrayBuffer>((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(reader.result as ArrayBuffer);
-    reader.onerror = () => reject(new Error("Could not read the attachment. Please select it again."));
-    reader.onabort = () => reject(new Error("Attachment reading was cancelled."));
-    reader.readAsArrayBuffer(file);
-  });
-  const digest = await crypto.subtle.digest("SHA-256", bytes);
-  const hash = Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, "0")).join("");
-  return JSON.stringify([file.name, file.type, file.size, file.lastModified, hash]);
-}
-
 export const api = {
-  hasPendingUpload: (id: string) => (readPendingMessage(id)?.fileIds.length ?? 0) > 0,
   getMe: () => request<{ user: AccountUser }>("/api/me"),
-  requestMagicLink: (email: string) => request<unknown>("/api/auth/sign-in/magic-link", {
-    method: "POST",
-    body: JSON.stringify({ email, callbackURL: "/" }),
-  }),
+  requestMagicLink: (email: string) => request<unknown>("/api/auth/sign-in/magic-link", { method: "POST", body: JSON.stringify({ email, callbackURL: "/" }) }),
   signOut: () => request<unknown>("/api/auth/sign-out", { method: "POST" }),
   getConfig: () => request<AppConfig>("/api/config"),
   getCompanions: () => request<{ companions: Companion[] }>("/api/companions"),
-  getChatPage: (id: string, query: ChatQuery = {}, signal?: AbortSignal) => {
-    const params = new URLSearchParams(Object.entries(query).map(([key, value]) => [key, String(value)]));
-    return request<ChatPage>(`/api/companions/${id}/chat${params.size ? `?${params}` : ""}`, { signal });
-  },
-  getCompanion: (id: string) => request<CompanionDetail>(`/api/companions/${id}`),
-  getCompanionSkills: (id: string) => request<{ skills: CompanionSkill[]; enabled: boolean }>(`/api/companions/${id}/skills`),
+  getCompanion: (id: string) => request<{ companion: Companion }>(`/api/companions/${id}`),
+  createCompanion: (input: Pick<Companion, "name" | "instructions" | "provider" | "avatar"> & { clientCreationId: string; prepare?: boolean }) => request<{ companion: Companion }>("/api/companions", { method: "POST", body: JSON.stringify(input) }),
+  updateCompanion: (id: string, input: Partial<Pick<Companion, "name" | "instructions" | "avatar">> & { modelId?: string | null }) => request<{ companion: Companion }>(`/api/companions/${id}`, { method: "PATCH", body: JSON.stringify(input) }),
   deleteCompanion: (id: string) => request<{ deleted: true; companionIds?: string[] }>(`/api/companions/${id}`, { method: "DELETE" }),
-  companionEvents: (id: string) => new EventSource(`/api/companions/${id}/events`),
-  taskHistory: (id: string, before?: string) =>
-    request<{ tasks: TaskSummary[]; nextCursor: string | null }>(`/api/companions/${id}/tasks?limit=20${before ? `&before=${encodeURIComponent(before)}` : ""}`),
-  taskDetail: (id: string, taskId: string) =>
-    request<{ task: TaskDetail; files: ThreadFile[] }>(`/api/companions/${id}/tasks/${taskId}`),
-  cancelTask: (id: string, taskId: string) =>
-    request<{ task: TaskDetail }>(`/api/companions/${id}/tasks/${taskId}/cancel`, { method: "POST" }),
-  createCompanion: (input: Pick<Companion, "name" | "instructions" | "provider" | "avatar"> & { clientCreationId: string; prepare?: boolean; templateId?: string; templateRevision?: number }) =>
-    request<{ companion: Companion }>("/api/companions", {
-      method: "POST",
-      body: JSON.stringify(input),
-    }),
-  sendMessage: async (id: string, content: string, files: File[] = []) => {
-    const fileFingerprints: string[] = [];
-    // Read sequentially to bound temporary memory to one attachment.
-    for (const file of files) fileFingerprints.push(await fingerprintFile(file));
-    const previous = readPendingMessage(id);
-    const sameRequest = previous?.content === content && previous.fileIds.length === files.length
-      && JSON.stringify(previous.fileFingerprints ?? []) === JSON.stringify(fileFingerprints);
-    if (previous && previous.fileIds.length > 0 && !sameRequest) {
-      throw new Error("The previous upload is unresolved. Retry with the original message and files, or use Cancel before sending a replacement.");
-    }
-    const pending = sameRequest
-      ? previous!
-      : { id: crypto.randomUUID(), content, fileIds: files.map(() => crypto.randomUUID()), fileFingerprints };
-    writePendingMessage(id, pending);
+  openDesktop: (id: string) => request<{ url?: string; preparing?: true }>(`/api/companions/${id}/desktop`, { method: "POST" }),
+};
 
-    const result = await request<{ runId: string }>(`/api/companions/${id}/messages`, {
-      method: "POST",
-      body: JSON.stringify({ clientMessageId: pending.id, content: pending.content, attachmentCount: files.length }),
-    });
-    await Promise.all(files.map(async (file, position) => {
-      const form = new FormData();
-      form.set("file", file);
-      form.set("clientFileId", pending.fileIds[position]);
-      form.set("position", String(position));
-      const response = await fetch(`/api/companions/${id}/runs/${result.runId}/files`, { method: "POST", credentials: "same-origin", body: form });
-      if (!response.ok) {
-        const body = await response.json().catch(() => null) as { error?: string; message?: string } | null;
-        throw new ApiError(body?.error || `File upload failed (${response.status})`, response.status);
-      }
-    }));
-    clearPendingMessage(id, pending.id);
+export const discussionApi = {
+  list: (archived = false) => request<{ discussions: Discussion[]; folders: DiscussionFolder[] }>(`/api/discussions${archived ? "?archived=true" : ""}`),
+  create: (input: { clientCreationId: string; title?: string; folderId?: string; directCompanionId?: string }) => request<{ discussion: Discussion }>("/api/discussions", { method: "POST", body: JSON.stringify(input) }),
+  snapshot: (id: string, before?: string, signal?: AbortSignal) => request<DiscussionSnapshot>(`/api/discussions/${id}${before ? `?before=${encodeURIComponent(before)}` : ""}`, { signal }),
+  update: (id: string, input: { title?: string; folderId?: string | null; archived?: boolean }) => request<{ discussion: Discussion }>(`/api/discussions/${id}`, { method: "PATCH", body: JSON.stringify(input) }),
+  directForCompanion: (id: string) => request<{ discussions: Discussion[] }>(`/api/companions/${id}/discussions`),
+  createFolder: (input: { clientCreationId: string; name: string; companionIds: string[] }) => request<{ folder: DiscussionFolder }>("/api/discussion-folders", { method: "POST", body: JSON.stringify(input) }),
+  updateFolder: (id: string, input: { name?: string; companionIds?: string[] }) => request<{ folder: DiscussionFolder }>(`/api/discussion-folders/${id}`, { method: "PATCH", body: JSON.stringify(input) }),
+  deleteFolder: (id: string) => request<{ ok: true }>(`/api/discussion-folders/${id}`, { method: "DELETE" }),
+  addParticipant: (id: string, companionId: string) => request<{ ok: true }>(`/api/discussions/${id}/participants/${companionId}`, { method: "PUT" }),
+  removeParticipant: (id: string, companionId: string) => request<{ ok: true }>(`/api/discussions/${id}/participants/${companionId}`, { method: "DELETE" }),
+  sendMessage: async (id: string, input: { clientMessageId: string; content: string; targetCompanionId?: string | null; files: Array<{ file: File; id: string }> }) => {
+    const result = await request<{ runId: string; discussionId: string; companionId: string | null }>(`/api/discussions/${id}/messages`, { method: "POST", body: JSON.stringify({ clientMessageId: input.clientMessageId, content: input.content, targetCompanionId: input.targetCompanionId, attachmentCount: input.files.length }) });
+    for (const [position, attachment] of input.files.entries()) { const form = new FormData(); form.set("file", attachment.file); form.set("clientFileId", attachment.id); form.set("position", String(position)); await request<{ file: ThreadFile }>(`/api/discussions/${id}/runs/${result.runId}/files`, { method: "POST", body: form }); }
     return result;
   },
-  cancel: async (id: string) => {
-    const pending = readPendingMessage(id);
-    const result = await request<{ ok: true }>(`/api/companions/${id}/cancel`, { method: "POST" });
-    if (pending) clearPendingMessage(id, pending.id);
-    return result;
-  },
-  openDesktop: (id: string) =>
-    request<{ url?: string; preparing?: true }>(`/api/companions/${id}/desktop`, { method: "POST" }),
-  updateCompanion: (id: string, input: Partial<Pick<Companion, "name" | "instructions" | "avatar">> & { modelId?: string | null }) =>
-    request<{ companion: Companion }>(`/api/companions/${id}`, { method: "PATCH", body: JSON.stringify(input) }),
+  cancel: (id: string) => request<{ ok: true }>(`/api/discussions/${id}/cancel`, { method: "POST" }),
+  cancelCompanion: (id: string, companionId: string) => request<{ ok: true }>(`/api/discussions/${id}/participants/${companionId}/cancel`, { method: "POST" }),
+  answerQuestion: (id: string, questionId: string, answer: string) => request<{ ok: true }>(`/api/discussions/${id}/questions/${questionId}/answer`, { method: "POST", body: JSON.stringify({ answer }) }),
+  answerProposal: (id: string, proposalId: string, accept: boolean) => request<{ ok: true }>(`/api/discussions/${id}/proposals/${proposalId}`, { method: "POST", body: JSON.stringify({ accept }) }),
 };
 
 export interface PluginServer { id: string; name: string; description?: string; provider?: string; kind?: "oauth" | "remote" | "custom"; available: boolean }
@@ -320,86 +63,24 @@ export type PluginHealthCode = "authorization_required" | "connection_failed" | 
 export interface PluginAccount { usedBy?: Array<Pick<Companion, "id" | "name" | "avatar">>; id: string; serverId: string | null; label: string; provider?: string; healthStatus: "unchecked" | "ok" | "error" | "requires_agent"; healthCode: PluginHealthCode | null; checkedAt: string | null }
 export type PluginHealthResult = Pick<PluginAccount, "id" | "healthStatus" | "healthCode" | "checkedAt">;
 export interface PluginsResponse { catalog: PluginServer[]; accounts: PluginAccount[] }
-export type CustomPluginInput =
-  | { label: string; transport: "http"; url: string; headers: Record<string, string> }
-  | { label: string; transport: "stdio"; command: string; args: string[]; env: Record<string, string> };
-export type RoutinePublicationMode = "auto" | "always" | "silent";
-export interface Routine { id: string; name: string; prompt: string; cron: string; timezone: string; enabled: boolean; publicationMode?: RoutinePublicationMode; nextFireAt?: string | null; createdAt?: string; updatedAt?: string }
-export interface RoutineHistory { runs: Array<{ id: string; status: RunStatus; resultText: string | null; error: string | null; scheduledFor: string | null; acceptedAt: string }>; missed: Array<{ firstScheduledFor: string; lastScheduledFor: string; cron: string; timezone: string }> }
-export interface TriggerFilterRequest { key: string; provider: "github" | "sentry"; connectionId?: string; path: string }
-export interface TriggerTarget { repo?: string; branch?: string; organization?: string; project?: string; events?: string[] }
-export interface Trigger { id: string; name: string; prompt: string; source: "generic" | "github" | "sentry"; mode: "direct" | "filter"; filter?: string | null; filterRequests?: TriggerFilterRequest[]; problemPath?: string | null; providerAccountId?: string | null; target?: TriggerTarget | null; enabled: boolean; registrationStatus?: "manual" | "registered" | "needs_connection" | "error"; registrationError?: string | null; url?: string | null; lastDeliveryAt?: string | null }
-export interface TriggerDelivery { id: string; eventName: string | null; payload: unknown; status: "received" | "evaluating" | "ignored" | "enqueued" | "error"; decision: string | null; errorCode: string | null; receivedAt: string; decidedAt: string | null; batchId: string | null; runId: string | null }
-export interface BillingOverview { configured: boolean; mode: "unconfigured" | "test" | "stripe" | "beta"; plan: "inactive" | "subscription" | "beta"; active: boolean; status: string | null; currentPeriodEnd: string | null; cancelAtPeriodEnd: boolean; portalAvailable: boolean; usage: Array<{ category: string; unit: string; quantity: string }> }
-export type DeliverySkillsStatus = "pending" | "ready" | "error";
-export type DeliverySoftwareStatus = "pending" | "ready" | "error";
-interface DeliveryState { status: "pending" | "accepted" | "revoked"; skillsStatus: DeliverySkillsStatus; skillsError: string | null; softwareStatus: DeliverySoftwareStatus; softwareError: string | null; maintenanceRequested: boolean; expiresAt: string; acceptedAt: string | null; companionId: string | null }
-export interface DeliverySent extends DeliveryState { id: string; clientEmail: string }
-export interface DeliveryReceived extends DeliveryState { id: string; name: string }
-export interface AgentTemplate { id: string; name: string; instructions: string; avatar: CompanionAvatarValue; revision: number; sourceCompanionId: string | null; softwareBuildId?: string | null; softwareResultId?: string | null; hasSnapshot: boolean; hasPublished?: boolean; draftCompanionId?: string | null }
-export interface CompanionTemplatePermission { templateId: string; maxChildren: number; name: string; revision: number }
-export interface AgentTemplateRevision { revision: number; name: string; instructions: string; avatar: CompanionAvatarValue; snapshotName: string | null; sourceCompanionId: string | null; softwareBuildId?: string | null; softwareResultId?: string | null; createdAt: string }
-export interface TemplateSoftwareStatus { templateId: string; templateRevision: number; build: null | { id: string; status: "queued" | "creating" | "resolving" | "installing" | "verifying" | "capturing" | "ready" | "failed"; verified: boolean; errorCode: string | null }; result: null | { id: string; verified: true } }
-export interface MaintenanceCompanion { id: string; name: string; avatar?: CompanionAvatarValue; status: string; error: string | null; grantId: string }
-export interface MaintenanceDetail { id: string; name: string; instructions: string; avatar?: CompanionAvatarValue; modelId: string | null; status: string; error: string | null; readyAt: string | null }
-export interface MaintenanceAction { id: string; operation: string; createdAt: string; status: string; error: string | null }
-export interface SpecialistTest {
-  id: string;
-  generation: number;
-  status: RunStatus | "ready";
-  createdAt: string;
-  prompt?: string | null;
-  error?: string | null;
-  assessment?: "satisfactory" | "needs_changes" | null;
-  companionId?: string | null;
-}
-export interface SpecialistPublication {
-  generation?: number;
-  id: string;
-  status: "queued" | "capturing" | "preparing" | "running" | "succeeded" | "failed";
-  createdAt?: string | null;
-  version?: number | null;
-  error?: string | null;
-}
-export interface SpecialistDraft {
-  identityRevision?: number;
-  guidance?: NonNullable<SpecialistDraft['nextStep']>[];
-  nextStep?: { id: string; runId?: string; kind: "profile" | "connections" | "test" | "publish"; message: string; providers: string[]; createdAt: string; respondedAt?: string | null } | null;
-  avatar?: CompanionAvatarValue;
-  templateId: string;
-  companionId: string;
-  generation: number;
-  name: string;
-  instructions: string;
-  initScript: string;
-  status: "draft" | "editing" | "testing" | "publishing" | "error";
-  lastTest?: SpecialistTest | null;
-  publication?: SpecialistPublication | null;
-}
-export interface SpecialistConnection {
-  slot: string;
-  required: boolean;
-  defaultAccountId: string | null;
-  overridden: boolean;
-  accountId: string | null;
-  label: string | null;
-  provider: string;
-}
-export interface SpecialistImprovement {
-  id: string;
-  templateId: string;
-  summary: string;
-  recipe: string | null;
-  status: "proposed" | "applied" | "rejected" | "unavailable";
-  baseRevision: number;
-  sourceCompanionId: string;
-}
-export interface AccountSpecialistLimits {
-  limits: { active: number; startsPerHour: number; queue: number };
-  requests: Array<{ id: string; companionId: string | null; state: string; waitingReason: string | null; kind: string }>;
-}
-
+export type CustomPluginInput = { label: string; transport: "http"; url: string; headers: Record<string, string> } | { label: string; transport: "stdio"; command: string; args: string[]; env: Record<string, string> };
 export const workspaceApi = {
+  createDelivery:(input:{clientDeliveryId:string;companionId:string;clientEmail:string;maintenanceRequested:boolean;includeSkills:boolean})=>request<{delivery:DeliverySent}>("/api/deliveries",{method:"POST",body:JSON.stringify(input)}),
+  billing: () => request<BillingOverview>("/api/billing"),
+  checkout: () => request<{ url: string }>("/api/billing/checkout", { method: "POST" }),
+  billingPortal: () => request<{ url: string }>("/api/billing/portal", { method: "POST" }),
+  deliveries: () => request<{ sent: DeliverySent[]; received: DeliveryReceived[] }>("/api/deliveries"),
+  acceptDelivery: (id: string, grantMaintenance: boolean) => request<{ companionId: string; accepted: boolean }>(`/api/deliveries/${id}/accept`, { method: "POST", body: JSON.stringify({ grantMaintenance }) }),
+  revokeDelivery: (id: string) => request<{ revoked: true }>(`/api/deliveries/${id}`, { method: "DELETE" }),
+  revokeMaintenance: (id: string) => request<{ revoked: true }>(`/api/deliveries/${id}/maintenance`, { method: "DELETE" }),
+  takeDesktop: (companionId: string) => request<unknown>(`/api/companions/${companionId}/desktop/takeover`, { method: "POST" }),
+  releaseDesktop: (companionId: string) => request<unknown>(`/api/companions/${companionId}/desktop/release`, { method: "POST" }),
+  maintenance: () => request<{ companions: MaintenanceCompanion[] }>("/api/maintenance"),
+  maintenanceDetail: (id: string) => request<{ companion: MaintenanceDetail }>(`/api/maintenance/companions/${id}`),
+  updateMaintenanceCompanion: (id: string, input: { name: string; instructions: string; modelId?: string | null }) => request<{ companion: MaintenanceDetail }>(`/api/maintenance/companions/${id}`, { method: "PATCH", body: JSON.stringify(input) }),
+  prepareMaintenanceCompanion: (id: string) => request<unknown>(`/api/maintenance/companions/${id}/prepare`, { method: "POST" }),
+  createMaintenanceTask: (id: string, clientMessageId: string, prompt: string) => request<{ runId?: string }>(`/api/maintenance/companions/${id}/tasks`, { method: "POST", body: JSON.stringify({ clientMessageId, prompt }) }),
+  maintenanceActions: (id: string) => request<{ actions: MaintenanceAction[] }>(`/api/maintenance/companions/${id}/actions`),
   plugins: () => request<PluginsResponse>("/api/plugins"),
   checkPlugin: (id: string) => request<{ account: PluginHealthResult }>(`/api/plugins/accounts/${id}/check`, { method: "POST" }),
   connectPlugin: (serverId: string, label: string) => request<{ url?: string; account?: PluginAccount }>("/api/plugins/connect", { method: "POST", body: JSON.stringify({ serverId, label }) }),
@@ -409,64 +90,13 @@ export const workspaceApi = {
   companionPlugins: (id: string) => request<{ accounts: PluginAccount[] }>(`/api/companions/${id}/plugins`),
   selectPlugin: (id: string, accountId: string) => request<{ ok: true }>(`/api/companions/${id}/plugins/${accountId}`, { method: "PUT" }),
   unselectPlugin: (id: string, accountId: string) => request<{ ok: true }>(`/api/companions/${id}/plugins/${accountId}`, { method: "DELETE" }),
-  routines: (id: string) => request<{ routines: Routine[] }>(`/api/companions/${id}/routines`),
-  createRoutine: (id: string, input: Omit<Routine, "id">) => request<{ routine: Routine }>(`/api/companions/${id}/routines`, { method: "POST", body: JSON.stringify(input) }),
-  updateRoutine: (id: string, routineId: string, input: Partial<Omit<Routine, "id">>) => request<{ routine: Routine }>(`/api/companions/${id}/routines/${routineId}`, { method: "PATCH", body: JSON.stringify(input) }),
-  deleteRoutine: (id: string, routineId: string) => request<{ ok: true }>(`/api/companions/${id}/routines/${routineId}`, { method: "DELETE" }),
-  routineHistory: (id: string, routineId: string) => request<RoutineHistory>(`/api/companions/${id}/routines/${routineId}/history`),
-  testRoutine: (id: string, routineId: string, clientMessageId: string) => request<{ runId: string }>(`/api/companions/${id}/routines/${routineId}/test`, { method: "POST", body: JSON.stringify({ clientMessageId }) }),
-  triggers: (id: string) => request<{ triggers: Trigger[] }>(`/api/companions/${id}/triggers`),
-  createTrigger: (id: string, input: Omit<Trigger, "id" | "registrationStatus" | "registrationError" | "url" | "lastDeliveryAt">) => request<{ trigger: Trigger; secret?: string }>(`/api/companions/${id}/triggers`, { method: "POST", body: JSON.stringify(input) }),
-  updateTrigger: (id: string, triggerId: string, input: Partial<Omit<Trigger, "id">>) => request<{ trigger: Trigger }>(`/api/companions/${id}/triggers/${triggerId}`, { method: "PATCH", body: JSON.stringify(input) }),
-  deleteTrigger: (id: string, triggerId: string) => request<{ ok: true }>(`/api/companions/${id}/triggers/${triggerId}`, { method: "DELETE" }),
-  testTrigger: (id: string, triggerId: string, payload: unknown) => request<{ decision: "trigger" | "ignore" }>(`/api/companions/${id}/triggers/${triggerId}/test`, { method: "POST", body: JSON.stringify(payload) }),
-  registerTrigger: (id: string, triggerId: string) => request<{ trigger: Trigger }>(`/api/companions/${id}/triggers/${triggerId}/register`, { method: "POST" }),
-  triggerDeliveries: (id: string, triggerId: string) => request<{ deliveries: TriggerDelivery[] }>(`/api/companions/${id}/triggers/${triggerId}/deliveries`),
-  billing: () => request<BillingOverview>("/api/billing"),
-  checkout: () => request<{ url: string }>("/api/billing/checkout", { method: "POST" }),
-  billingPortal: () => request<{ url: string }>("/api/billing/portal", { method: "POST" }),
-  deliveries: () => request<{ sent: DeliverySent[]; received: DeliveryReceived[] }>("/api/deliveries"),
-  createDelivery: (input: { clientDeliveryId: string; companionId: string; clientEmail: string; templateIds: string[]; maintenanceRequested: boolean; includeSkills?: boolean; includeSpecialistDisks: boolean }) => request<{ delivery: DeliverySent }>("/api/deliveries", { method: "POST", body: JSON.stringify(input) }),
-  acceptDelivery: (id: string, grantMaintenance: boolean) => request<{ companionId: string; accepted: boolean }>(`/api/deliveries/${id}/accept`, { method: "POST", body: JSON.stringify({ grantMaintenance }) }),
-  revokeDelivery: (id: string) => request<{ revoked: true }>(`/api/deliveries/${id}`, { method: "DELETE" }),
-  revokeMaintenance: (id: string) => request<{ revoked: true }>(`/api/deliveries/${id}/maintenance`, { method: "DELETE" }),
-  templates: () => request<{ templates: AgentTemplate[] }>("/api/templates"),
-  companionTemplates: (companionId: string) => request<{ templates: CompanionTemplatePermission[] }>(`/api/companions/${companionId}/templates`),
-  createTemplate: (input: Pick<AgentTemplate, "name" | "instructions" | "avatar">) => request<{ id: string; revision: number }>("/api/templates", { method: "POST", body: JSON.stringify(input) }),
-  deleteTemplate: (id: string) => request<{ deleted: true }>(`/api/templates/${id}`, { method: "DELETE" }),
-  createTemplateDraft: (input: Pick<AgentTemplate, "name" | "instructions" | "avatar">, commandId = crypto.randomUUID()) => request<{ draft: SpecialistDraft }>("/api/templates", { method: "POST", body: JSON.stringify({ ...input, draft: true, commandId }) }),
-  openTemplateDraft: (id: string, commandId = crypto.randomUUID()) => request<{ draft: SpecialistDraft }>(`/api/templates/${id}/draft`, { method: "POST", body: JSON.stringify({ commandId }) }),
-  templateDraft: (id: string) => request<{ draft: SpecialistDraft }>(`/api/templates/${id}/draft`),
-  updateTemplateDraft: (id: string, input: { expectedGeneration: number; expectedIdentityRevision?: number; name?: string; instructions?: string; initScript?: string; avatar?: CompanionAvatarValue }) => request<{ draft: SpecialistDraft }>(`/api/templates/${id}/draft`, { method: "PATCH", body: JSON.stringify(input) }),
-  testTemplateDraft: (id: string, input: { expectedGeneration: number; prompt: string }, commandId = crypto.randomUUID()) => request<{ draft: SpecialistDraft }>(`/api/templates/${id}/draft/test`, { method: "POST", body: JSON.stringify({ ...input, commandId }) }),
-  assessTemplateTest: (id: string, testId: string, assessment: "satisfactory" | "needs_changes", commandId = crypto.randomUUID()) => request<{ draft: SpecialistDraft }>(`/api/templates/${id}/draft/test/${testId}/assessment`, { method: "POST", body: JSON.stringify({ commandId, assessment }) }),
-  publishTemplateDraft: (id: string, expectedGeneration: number, commandId = crypto.randomUUID()) => request<{ draft?: SpecialistDraft; publication?: SpecialistPublication; publicationId?: string; status?: SpecialistPublication["status"] }>(`/api/templates/${id}/draft/publish`, { method: "POST", body: JSON.stringify({ commandId, expectedGeneration, contentReviewed: true }) }),
-  updateTemplate: (id: string, input: Pick<AgentTemplate, "name" | "instructions" | "avatar" | "revision">) => request<{ id: string; revision: number }>(`/api/templates/${id}`, { method: "PATCH", body: JSON.stringify({ name: input.name, instructions: input.instructions, avatar: input.avatar, expectedRevision: input.revision }) }),
-  templateRevisions: (id: string) => request<{ revisions: AgentTemplateRevision[] }>(`/api/templates/${id}/revisions`),
-  templateSoftwareStatus: (id: string) => request<TemplateSoftwareStatus>(`/api/templates/${id}/software/status`),
-  rollbackTemplate: (id: string, targetRevision: number, expectedRevision: number) => request<{ id: string; revision: number }>(`/api/templates/${id}/rollback`, { method: "POST", body: JSON.stringify({ targetRevision, expectedRevision }) }),
-  setTemplatePermission: (companionId: string, templateId: string, maxChildren: number) => request<{ templateId: string; maxChildren: number }>(`/api/companions/${companionId}/templates/${templateId}`, { method: "PUT", body: JSON.stringify({ maxChildren }) }),
-  specialistConnections: (companionId: string, templateId: string) => request<{ connections: SpecialistConnection[] }>(`/api/companions/${companionId}/specialists/${templateId}/connections`),
-  updateSpecialistConnection: (companionId: string, templateId: string, input: { slot: string; accountId: string | null; useDefault?: boolean }) => request<{ connections: SpecialistConnection[] }>(`/api/companions/${companionId}/specialists/${templateId}/connections`, { method: "PATCH", body: JSON.stringify(input) }),
-  specialistImprovements: (companionId: string) => request<{ improvements: SpecialistImprovement[] }>(`/api/companions/${companionId}/specialist-improvements`),
-  applySpecialistImprovement: (id: string, commandId = crypto.randomUUID()) => request<{ status: string; companionId?: string | null; runId?: string | null }>(`/api/specialist-improvements/${id}/apply`, { method: "POST", body: JSON.stringify({ commandId }) }),
-  rejectSpecialistImprovement: (id: string, commandId = crypto.randomUUID()) => request<{ status: string }>(`/api/specialist-improvements/${id}/reject`, { method: "POST", body: JSON.stringify({ commandId }) }),
-  specialistLimits: () => request<AccountSpecialistLimits>("/api/account/specialist-limits"),
-  updateSpecialistActiveLimit: (active: number | null) => request<unknown>("/api/account/specialist-limits", { method: "PATCH", body: JSON.stringify({ active }) }),
-  cancelSpecialistRequest: (id: string) => request<unknown>(`/api/account/specialist-requests/${id}/cancel`, { method: "POST" }),
-  replicas: (companionId: string) => request<{ replicas: Companion[] }>(`/api/companions/${companionId}/replicas`),
-  spawnReplica: (companionId: string, templateId: string, prompt: string, clientCommandId: string = crypto.randomUUID()) => request<{ companionId: string; runId: string }>(`/api/companions/${companionId}/replicas`, { method: "POST", body: JSON.stringify({ clientCommandId, templateId, prompt }) }),
-  prepare: (companionId: string) => request<unknown>(`/api/companions/${companionId}/prepare`, { method: "POST" }),
-  takeDesktop: (companionId: string) => request<unknown>(`/api/companions/${companionId}/desktop/takeover`, { method: "POST" }),
-  releaseDesktop: (companionId: string) => request<unknown>(`/api/companions/${companionId}/desktop/release`, { method: "POST" }),
-  maintenance: () => request<{ companions: MaintenanceCompanion[] }>("/api/maintenance"),
-  maintenanceDetail: (id: string) => request<{ companion: MaintenanceDetail }>(`/api/maintenance/companions/${id}`),
-  updateMaintenanceCompanion: (id: string, input: { name: string; instructions: string; modelId?: string | null }) => request<{ companion: MaintenanceDetail }>(`/api/maintenance/companions/${id}`, { method: "PATCH", body: JSON.stringify(input) }),
-  prepareMaintenanceCompanion: (id: string) => request<unknown>(`/api/maintenance/companions/${id}/prepare`, { method: "POST" }),
-  createMaintenanceTask: (id: string, clientMessageId: string, prompt: string) => request<{ runId?: string }>(`/api/maintenance/companions/${id}/tasks`, { method: "POST", body: JSON.stringify({ clientMessageId, prompt }) }),
-  maintenanceActions: (id: string) => request<{ actions: MaintenanceAction[] }>(`/api/maintenance/companions/${id}/actions`),
 };
 
-export function isActiveRun(status: RunStatus) {
-  return status === "queued" || status === "preparing" || status === "running" || status === "needs_input";
-}
+export interface BillingOverview { configured: boolean; mode: "unconfigured" | "test" | "stripe" | "beta"; plan: "inactive" | "subscription" | "beta"; active: boolean; status: string | null; currentPeriodEnd: string | null; cancelAtPeriodEnd: boolean; portalAvailable: boolean; usage: Array<{ category: string; unit: string; quantity: string }> }
+export type DeliverySkillsStatus = "pending" | "ready" | "error";
+interface DeliveryState { status: "pending" | "accepted" | "revoked"; skillsStatus: DeliverySkillsStatus; skillsError: string | null; maintenanceRequested: boolean; expiresAt: string; acceptedAt: string | null; companionId: string | null }
+export interface DeliverySent extends DeliveryState { id: string; clientEmail: string }
+export interface DeliveryReceived extends DeliveryState { id: string; name: string }
+export interface MaintenanceCompanion { id: string; name: string; avatar?: CompanionAvatarValue; status: string; error: string | null; grantId: string }
+export interface MaintenanceDetail { id: string; name: string; instructions: string; avatar?: CompanionAvatarValue; modelId: string | null; status: string; error: string | null; readyAt: string | null }
+export interface MaintenanceAction { id: string; operation: string; createdAt: string; status: string; error: string | null }

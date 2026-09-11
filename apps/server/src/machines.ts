@@ -1,4 +1,3 @@
-import {restoreSpecialistWorkspace} from './specialist-box';
 import {tracePreparation,preparationState,preparationMeasurement,type PreparationPhase} from './preparation-trace';
 import { mkdirSync, writeFileSync, unlinkSync, realpathSync } from "node:fs";
 import { join, resolve } from "node:path";
@@ -166,10 +165,12 @@ export async function prepareBox(companion: any, checkpoint: (boxId: string) => 
   if (machine.setupStatus === "failed") throw new MachineError("box_setup_failed");
   if (machine.setupStatus && machine.setupStatus !== "done") return null;
   if (companion.endpoint_secret && companion.config_digest === environmentDigest(companion.agent_secret)) {preparationState(companion.id,'box_endpoint','reused');return decrypt(companion.endpoint_secret);}
-  const values = { ...modelEnvironment(decrypt(companion.agent_secret)), AGENT_STATE_DIR: companion.template_id ? `/home/user/.companions/agents/${companion.id}` : "/home/user/.companions" };
-  if(companion.template_id||companion.specialist_draft_id){
+  const values = { ...modelEnvironment(decrypt(companion.agent_secret)), AGENT_STATE_DIR: companion.agent_state_layout==='per_companion' ? `/home/user/.companions/agents/${companion.id}` : "/home/user/.companions" };
+  if(companion.agent_state_layout==='per_companion'&&!companion.agent_state_seeded_at){
     await beforeEffect();
-    await box.command(id,restoreSpecialistWorkspace(values.AGENT_STATE_DIR));
+    await box.command(id,`set -eu; state=${values.AGENT_STATE_DIR}; marker="$state/.legacy-state-seeded"; mkdir -p "$state"; if ! test -e "$marker"; then if test -d /home/user/.specialist-workspace && ! test -e "$state/workspace"; then mkdir -p "$state/workspace"; cp -an /home/user/.specialist-workspace/. "$state/workspace"/; fi; if test -d /home/user/.specialist-skills && ! test -e "$state/pi/skills"; then mkdir -p "$state/pi/skills"; cp -an /home/user/.specialist-skills/. "$state/pi/skills"/; fi; marker_tmp="$marker.$$"; printf '%s\n' seeded > "$marker_tmp"; mv "$marker_tmp" "$marker"; fi`);
+    await beforeEffect();
+    await db`UPDATE companions SET agent_state_seeded_at=now() WHERE id=${companion.id} AND box_id=${id} AND agent_state_seeded_at IS NULL`;
   }
   // systemd EnvironmentFile uses double quoted values, not shell expansion.
   const envText = Object.entries(values).map(([key, value]) => `${key}="${value.replace(/\\/g, "\\\\").replace(/"/g, '\\"').replace(/\n/g, "\\n")}"`).join("\n");

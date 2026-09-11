@@ -48,10 +48,9 @@ test("database notifications expose committed cross-process changes and omit rol
   unsubscribe();
 });
 
-test("delegation creation, child progress and retirement invalidate the parent snapshot", async () => {
+test("delegation creation, target progress and retirement invalidate the parent snapshot", async () => {
   const parent = await createCompanion(owner, { name: "Parent events", instructions: "", provider: "local" });
   const child = await createCompanion(owner, { name: "Researcher", instructions: "", provider: "local" });
-  await db`UPDATE companions SET parent_id=${parent.id},temporary=true WHERE id=${child.id}`;
   const parentRun = await acceptMessage(owner, parent.id, crypto.randomUUID(), "Delegate this");
   const childRun = await acceptMessage(owner, child.id, crypto.randomUUID(), "Research this");
   // A distinct LISTEN connection excludes fixture notifications still queued on
@@ -140,41 +139,4 @@ test("event streams enforce ownership, revalidate sessions, and release bounded 
   }
   expect(rest).toContain("event: unauthorized");
   await eventually(() => expect(hub.activeSubscriptions).toBe(0));
-});
-
-
-test("Team notifications follow committed profile and permission changes without crossing owners", async () => {
-  const parent = await createCompanion(owner, {name:"Team listener",instructions:"",provider:"local"});
-  const otherOwner = crypto.randomUUID();
-  await db`INSERT INTO "user"(id,name,email,"emailVerified","createdAt","updatedAt") VALUES(${otherOwner},'Other',${otherOwner+'@example.test'},true,now(),now())`;
-  const foreign = await createCompanion(otherOwner, {name:"Other team",instructions:"",provider:"local"});
-  const listenerDatabase = new SQL(config.databaseUrl);
-  const hub = new CompanionEventHub(listenerDatabase as any);
-  const own: string[] = [], other: string[] = [];
-  await hub.start();
-  const offOwn = hub.subscribe(parent.id, owner, kind => own.push(kind));
-  const offOther = hub.subscribe(foreign.id, otherOwner, kind => other.push(kind));
-  const templateId = crypto.randomUUID();
-  try {
-    await db`INSERT INTO agent_templates(id,owner_id,name) VALUES(${templateId},${owner},'New profile')`;
-    await eventually(() => expect(own).toEqual(['invalidate']));
-    own.length=0;
-    await db`INSERT INTO template_permissions(parent_id,template_id,max_children) VALUES(${parent.id},${templateId},2)`;
-    await eventually(() => expect(own).toEqual(['invalidate']));
-    own.length=0;
-    await expect(db.begin(async tx => {
-      await tx`UPDATE template_permissions SET max_children=0 WHERE parent_id=${parent.id} AND template_id=${templateId}`;
-      throw Error('rollback team');
-    })).rejects.toThrow('rollback team');
-    await Bun.sleep(60);
-    expect(own).toEqual([]);
-    await db`UPDATE agent_templates SET name='Updated profile' WHERE id=${templateId}`;
-    await eventually(() => expect(own).toEqual(['invalidate']));
-    own.length=0;
-    await db`DELETE FROM template_permissions WHERE parent_id=${parent.id} AND template_id=${templateId}`;
-    await eventually(() => expect(own).toEqual(['invalidate']));
-    expect(other).toEqual([]);
-  } finally {
-    offOwn();offOther();await hub.close();await listenerDatabase.close();
-  }
 });

@@ -49,7 +49,7 @@ test('executor prepares the pinned snapshot and continues admission and observat
  const daemon=Bun.serve({hostname:'127.0.0.1',port:0,async fetch(req){events.push(req.method+' '+new URL(req.url).pathname);if(req.method==='PUT'){puts++;submittedModel=(await req.json() as any).modelId;}return Response.json(new URL(req.url).pathname==='/health'?{ready:true,activeRuns:{main:null,background:null}}:{status:'running'});}});
  const endpoint=`http://127.0.0.1:${daemon.port}`,fake=machines(endpoint,events,id),lock=await leader();
  try{
-  await db`UPDATE companions SET model_id='fixture-model',snapshot_name='private-pinned-template',template_id=${crypto.randomUUID()} WHERE id=${id}`;
+  await db`UPDATE companions SET model_id='fixture-model',snapshot_name='private-pinned-template' WHERE id=${id}`;
   const run=await acceptMessage(owner,id,crypto.randomUUID(),'Work');await tick(lock.sql,{lifecycleMachines:fake});
   expect(events[0]).toBe('prepare private-pinned-template');expect(puts).toBe(1);expect(submittedModel).toBe('fixture-model');
   await handleLifecycle({operation:'desktop_takeover',companionId:id},owner);events.length=0;

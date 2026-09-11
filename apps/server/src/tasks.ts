@@ -4,7 +4,7 @@ import {filesForThread} from './files';
 
 const uuid=z.string().uuid();
 const cursorSchema=z.object({v:z.literal(1),companionId:uuid,time:z.iso.datetime({precision:6}),id:uuid}).strict();
-const summaryColumns=`r.id,r.status,r.lane,r.source,r.routine_id AS "routineId",r.routine_name AS "routineName",r.publication_mode AS "publicationMode",r.scheduled_for AS "scheduledFor",r.created_at AS "createdAt",r.finished_at AS "finishedAt",left(btrim(r.content),120) AS title`;
+const summaryColumns=`r.id,r.status,r.lane,r.source,r.created_at AS "createdAt",r.finished_at AS "finishedAt",left(btrim(r.content),120) AS title`;
 const detailColumns=`${summaryColumns},r.content,r.result_text AS "resultText",r.error,r.started_at AS "startedAt",r.prepared_at AS "preparedAt",r.cancel_requested AS "cancelRequested",r.publish_to_chat AS "publishToChat"`;
 const terminal=new Set(['succeeded','failed','interrupted','cancelled']);
 const json=(body:unknown,status=200)=>Response.json(body,{status,headers:{'Cache-Control':'no-store'}});
@@ -24,7 +24,7 @@ function encodeCursor(companionId:string,row:any){
  return Buffer.from(JSON.stringify({v:1,companionId,time:row.cursorTime,id:row.id})).toString('base64url');
 }
 function summary(row:any){
- return {id:row.id,status:row.status,lane:row.lane,source:row.source,routineId:row.routineId,routineName:row.routineName,publicationMode:row.publicationMode,scheduledFor:row.scheduledFor,createdAt:row.createdAt,finishedAt:row.finishedAt,title:row.title};
+ return {id:row.id,status:row.status,lane:row.lane,source:row.source,createdAt:row.createdAt,finishedAt:row.finishedAt,title:row.title};
 }
 function taskDetail(row:any){
  return {...summary(row),content:row.content,resultText:row.resultText,error:row.error,startedAt:row.startedAt,preparedAt:row.preparedAt,cancelRequested:row.cancelRequested,publishToChat:row.publishToChat};

@@ -107,7 +107,7 @@ export async function progressRuntimeUpdate(sql:any,companionId:string,assertLea
  if(!companion)return false;
  if(job&&companion.runtime_update_checked_at&&clock()-new Date(companion.runtime_update_checked_at).getTime()<10_000)return true;
  if(!job){
-  if(companion.provider!=='box'||!companion.box_id||companion.status!=='ready'||!companion.endpoint_secret||companion.archived_at||companion.retired_at||companion.archive_requested_at||companion.prepare_requested||companion.temporary||companion.specialist_draft_id)return false;
+  if(companion.provider!=='box'||!companion.box_id||companion.status!=='ready'||!companion.endpoint_secret||companion.archived_at||companion.retired_at||companion.archive_requested_at||companion.prepare_requested)return false;
   if(companion.runtime_update_target===machine.release.id&&(companion.runtime_update_status==='current'||companion.runtime_update_status==='failed'||companion.runtime_update_checked_at&&clock()-new Date(companion.runtime_update_checked_at).getTime()<300_000))return false;
   job=await sql.begin(async(tx:any)=>{
    await assertLeader();
@@ -118,7 +118,6 @@ export async function progressRuntimeUpdate(sql:any,companionId:string,assertLea
    if(!c||c.retired_at||c.archive_requested_at||c.prepare_requested||c.archived_at||c.box_id!==companion.box_id)return null;
    const [activity]=await tx`SELECT
     EXISTS(SELECT 1 FROM runs WHERE companion_id=${companionId} AND status IN ('preparing','running','needs_input'))
-    OR EXISTS(SELECT 1 FROM template_candidates WHERE source_companion_id=${companionId} AND status IN ('queued','capturing','ready'))
     OR EXISTS(SELECT 1 FROM machine_admission_requests WHERE companion_id=${companionId} AND state IN ('queued','cancelling')) AS busy`;
    if(activity.busy||c.desktop_taken||c.desktop_paused_at){
     await tx`UPDATE companions SET runtime_update_target=${machine.release.id},runtime_update_status='deferred',runtime_update_error='AGENT_BUSY',runtime_update_checked_at=now() WHERE id=${companionId}`;return null;

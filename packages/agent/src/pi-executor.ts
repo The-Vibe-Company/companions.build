@@ -1,6 +1,6 @@
 import { buildCompanionInstructions } from "./companion-instructions";
 import { mkdirSync } from "node:fs";
-import { join } from "node:path";
+import {join,relative} from "node:path";
 import { InMemoryCredentialStore, Type } from "@earendil-works/pi-ai";
 import { createAgentSession, DefaultResourceLoader, ModelRuntime, SessionManager } from "@earendil-works/pi-coding-agent";
 import { runtimeSettings, skillCommands, type SkillCommands } from "./skill-commands";
@@ -14,7 +14,7 @@ import {configureAzureFoundry} from './azure-foundry';
 
 type Session = Awaited<ReturnType<typeof createAgentSession>>["session"];
 type ActiveExecution = {
-  id: string; lane: RunLane; controller: AbortController; session: Session | null;
+  id: string; conversationId?: string; lane: RunLane; controller: AbortController; session: Session | null;
   ready: Promise<Session>; submissions: Set<Promise<void>>; accepting: boolean;
   preflight: Promise<void>; preflightDone(): void;
   parked: boolean;
@@ -30,6 +30,11 @@ export interface PiSessionTools {
 }
 export type PiToolsFactory = (context: { runId: string; lane: RunLane; cwd: string }) => Promise<PiSessionTools>;
 const INITIALIZATION_TIMEOUT_MS = 30_000;
+export function scopedResourceLoader(cwd:string,agentDir:string,settingsManager:ReturnType<typeof runtimeSettings>,systemPrompt?:string){
+ const roots=[cwd,agentDir];
+ return new DefaultResourceLoader({cwd,agentDir,settingsManager,...(systemPrompt?{systemPrompt}:{}),skillsOverride:base=>({...base,
+  skills:base.skills.filter(skill=>roots.some(root=>{const path=relative(root,skill.filePath);return path!==''&&!path.startsWith('..')&&!path.startsWith('/');}))})});
+}
 
 export class PiExecutor implements RunExecutor {
   private readonly cwd: string;
@@ -44,6 +49,10 @@ export class PiExecutor implements RunExecutor {
   private readonly active = new Map<string, ActiveExecution>();
   toolsFactory?: PiToolsFactory;
   private readonly cancelled = new Set<string>();
+
+  private resourceLoader(settingsManager:ReturnType<typeof runtimeSettings>,systemPrompt?:string){
+    return scopedResourceLoader(this.cwd,this.agentDir,settingsManager,systemPrompt);
+  }
 
   private constructor(stateDir: string, modelRuntime: ModelRuntime, provider: string, modelId: string, gatewayUrl?:string) {
     this.cwd = join(stateDir, "workspace");
@@ -88,18 +97,18 @@ export class PiExecutor implements RunExecutor {
     const session = [...this.active.values()].find(run => run.lane === "main")?.session;
     if (session) return skillCommands(session.resourceLoader, session.settingsManager);
     const settings = runtimeSettings();
-    const loader = new DefaultResourceLoader({ cwd: this.cwd, agentDir: this.agentDir, settingsManager: settings });
+    const loader=this.resourceLoader(settings);
     await loader.reload();
     return skillCommands(loader, settings);
   }
 
   async execute(id: string, input: RunInput, onProgress?:(progress:RunProgress)=>void): Promise<{ text: string; publishToChat: boolean }> {
     const lane = input.lane ?? "main";
-    if ([...this.active.values()].some(run => run.lane === lane && run.accepting && (lane === "main" || !run.parked))) throw new Error("EXECUTOR_BUSY");
+    if ([...this.active.values()].some(run => run.lane === lane && run.conversationId === input.conversationId && run.accepting && (lane === "main" || !run.parked))) throw new Error("EXECUTOR_BUSY");
     let preflightDone!: () => void;
     const preflight = new Promise<void>(resolve => { preflightDone = resolve; });
     const execution: ActiveExecution = {
-      id, lane, controller: new AbortController(), session: null, submissions: new Set(),
+      id, conversationId: input.conversationId, lane, controller: new AbortController(), session: null, submissions: new Set(),
       accepting: true, ready: undefined!,
       preflight, preflightDone, parked: false, onProgress,
       modelGateway:input.modelGateway,
@@ -143,12 +152,12 @@ export class PiExecutor implements RunExecutor {
 
   async steer(rootId: string, _id: string, input: RunInput): Promise<void> {
     const execution = this.active.get(rootId);
-    if (!execution || execution.lane !== "main" || !execution.accepting) throw new Error("PI_RESPONSE_SETTLED");
+    if (!execution || execution.lane !== "main" || execution.conversationId !== input.conversationId || !execution.accepting) throw new Error("PI_RESPONSE_SETTLED");
     await this.submit(execution, input.content);
   }
 
-  acceptingRoot(lane: RunLane): string | null {
-    return [...this.active.values()].find(run => run.lane === lane && run.accepting && (lane === "main" || !run.parked))?.id ?? null;
+  acceptingRoot(lane: RunLane, conversationId?: string): string | null {
+    return [...this.active.values()].find(run => run.lane === lane && run.conversationId === conversationId && run.accepting && (lane === "main" || !run.parked))?.id ?? null;
   }
 
   async suspend(id: string): Promise<boolean> {
@@ -198,11 +207,11 @@ export class PiExecutor implements RunExecutor {
     const memory = await this.persistentMemory.startupContext();
     const instructions = buildCompanionInstructions({ instructions: input.instructions, memory,
       lane: execution.lane, desktopBoundary: process.env.DESKTOP_BOUNDARY_VERSION === "1" });
-    const resourceLoader = new DefaultResourceLoader({ cwd: this.cwd, agentDir: this.agentDir, settingsManager, systemPrompt: instructions.join("\n\n") });
+    const resourceLoader=this.resourceLoader(settingsManager,instructions.join("\n\n"));
     await resourceLoader.reload();
     const model = this.modelRuntime.getModel(this.provider, input.modelId??this.modelId);
     if (!model) throw new Error("MODEL_NOT_FOUND");
-    const sessionDir = execution.lane === "main" ? this.sessionsDir : join(this.sessionsDir, "background", execution.id);
+    const sessionDir = input.conversationId ? join(this.sessionsDir, "discussions", input.conversationId) : execution.lane === "main" ? this.sessionsDir : join(this.sessionsDir, "background", execution.id);
     const testTools = this.provider === "companion-test" ? [scriptedHumanTool(execution.id, this.cwd)] : [];
     const memoryTools = [...this.memory.tools(), ...this.persistentMemory.tools(execution.id)];
     mkdirSync(sessionDir, { recursive: true });

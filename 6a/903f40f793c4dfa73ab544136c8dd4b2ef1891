@@ -1,0 +1,58 @@
+apps/server/test/discussions.test.ts
+  s_ab29273db8553f::t_05f6954c34e9da 91,275-285
+  s_ab29273db8553f::t_f4beb54060c3fc 262-274,286
+apps/web/src/components/DiscussionsWorkspace.tsx
+  s_ab29273db8553f::t_cc9eedcb82b098 318-327,340-342
+  s_ab29273db8553f::t_627126a8770ac4 77
+  s_ab29273db8553f::t_069af8238721f2 337
+  s_ab29273db8553f::t_f4beb54060c3fc 168,230,271-272,275-282,292
+  s_ab29273db8553f::t_0ce0825b2567df 206,208-214,217,231,283
+apps/server/src/discussions.ts
+  s_ab29273db8553f::t_05f6954c34e9da 160,166
+  s_ab29273db8553f::t_f4beb54060c3fc 31-34
+apps/web/src/StandalonePages.css
+  s_ab29273db8553f::t_76e8527fef9cd3 29
+  s_ab29273db8553f::t_e01bc64bf1bcaf 1-13,15-28,30-52,54-61
+  s_ab29273db8553f::t_f4beb54060c3fc 14,53
+  s_ab29273db8553f::t_af211de70f4ae9 62
+apps/web/src/components/DiscussionsWorkspace.test.tsx
+  s_ab29273db8553f::t_f4beb54060c3fc 279-290
+  s_ab29273db8553f::t_05f6954c34e9da 291-304
+  s_ab29273db8553f::t_0ac656acadd47c 267-268,270,273
+  s_ab29273db8553f::t_069af8238721f2 253-254,305-316
+  s_ab29273db8553f::t_9f14fd4b4a7b42 1,235-252
+  s_ab29273db8553f::t_e93a6ff5940532 74-82
+  s_ab29273db8553f::t_775fc7bb2d89c8 255-266,269,271-272,274-278
+apps/web/src/components/CompanionAccount.tsx
+  s_ab29273db8553f::t_af211de70f4ae9 112-113,115,122,133-134,138,140,151,153
+  s_ab29273db8553f::t_627126a8770ac4 135-137,147-150,160
+apps/web/src/api.ts
+  s_ab29273db8553f::t_f4beb54060c3fc 9
+  s_ab29273db8553f::t_05f6954c34e9da 12
+apps/web/src/components/CompanionAccount.test.tsx
+  s_ab29273db8553f::t_33ffb0c1bf9fda 209-220
+apps/web/src/App.tsx
+  s_ab29273db8553f::t_e01bc64bf1bcaf 3,11
+  s_ab29273db8553f::t_d17f29d84635eb 43,90
+apps/web/src/components/DiscussionsWorkspace.css
+  s_ab29273db8553f::t_cc9eedcb82b098 1076-1094
+  s_ab29273db8553f::t_f4beb54060c3fc 1116-1132
+  s_ab29273db8553f::t_069af8238721f2 1133-1140
+  s_ab29273db8553f::t_0ce0825b2567df 1095-1115
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "6a903f40f793c4dfa73ab544136c8dd4b2ef1891",
+  "prompts": {},
+  "sessions": {
+    "s_ab29273db8553f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a09056-ddd0-7c80-a27a-95a44a3595d0",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "StanGirard <stan@quivr.app>"
+    }
+  }
+}

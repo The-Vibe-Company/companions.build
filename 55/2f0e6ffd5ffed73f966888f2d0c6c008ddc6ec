@@ -1,0 +1,37 @@
+apps/web/src/components/DiscussionsWorkspace.css
+  s_ab29273db8553f::t_d6d3ececb8c670 964,1015-1075
+  s_ab29273db8553f::t_e3f963a6c9ef80 187-556,558-593,595-791,793-806,808-961
+  s_ab29273db8553f::t_9ae35e7491f368 557
+  s_ab29273db8553f::t_1138e8ea04b91e 594,792,962-963,965-1014
+  s_ab29273db8553f::t_83541ca7ef22a5 158,807
+docs/design-system.md
+  s_ab29273db8553f::t_afa31575fdfc01 1,3-11,15-36,38-63,69-71
+  s_ab29273db8553f::t_d7abc76de4e2bc 37,67-68
+apps/web/src/components/DiscussionsWorkspace.test.tsx
+  s_ab29273db8553f::t_22f24bd7b4a866 61-63,100-127
+  s_ab29273db8553f::t_e3f963a6c9ef80 54-60,64-73
+  s_ab29273db8553f::t_9ae35e7491f368 74-99,128-129
+apps/web/index.html
+  s_ab29273db8553f::t_e3f963a6c9ef80 5-7
+apps/web/src/components/DiscussionsWorkspace.tsx
+  s_ab29273db8553f::t_1138e8ea04b91e 322,429,439-465
+  s_ab29273db8553f::t_9ae35e7491f368 361,420
+  s_ab29273db8553f::t_e3f963a6c9ef80 77,226,241,279-280,302-303,308-309,314,316,323,346,360,369,391,393,421
+  s_ab29273db8553f::t_d6d3ececb8c670 313,324-332,427-428
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "552f0e6ffd5ffed73f966888f2d0c6c008ddc6ec",
+  "prompts": {},
+  "sessions": {
+    "s_ab29273db8553f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a09056-ddd0-7c80-a27a-95a44a3595d0",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "StanGirard <stan@quivr.app>"
+    }
+  }
+}

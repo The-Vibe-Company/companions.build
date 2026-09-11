@@ -1,0 +1,26 @@
+apps/server/src/discussion-executor.ts
+  s_ab29273db8553f::t_7a45c6bf6580eb 2,167-172
+apps/server/src/discussions.ts
+  s_ab29273db8553f::t_7d44789c6dc7e6 32,64,72
+apps/server/test/discussions.test.ts
+  s_ab29273db8553f::t_21dd03f0ce9280 210-235,260
+  s_ab29273db8553f::t_7a45c6bf6580eb 1,236-242,244-249
+  s_ab29273db8553f::t_f749729a6635a9 243
+  s_ab29273db8553f::t_18c9d57c32c67a 4,250-259
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "679aa4f643aebc3216e89972ebde1a9cd8f7858e",
+  "prompts": {},
+  "sessions": {
+    "s_ab29273db8553f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a09056-ddd0-7c80-a27a-95a44a3595d0",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "StanGirard <stan@quivr.app>"
+    }
+  }
+}

@@ -29,7 +29,7 @@ function discussion(row:any) {
 export async function listDiscussions(ownerId:string,archived=false,companionId?:string) {
  if(companionId) await availableCompanion(ownerId,companionId);
  const discussions = await db.unsafe(`SELECT ${columns} FROM discussions WHERE owner_id=$1 AND (archived_at IS NOT NULL)=$2 AND ($3::uuid IS NULL OR direct_companion_id=$3) ORDER BY updated_at DESC,id LIMIT 500`,[ownerId,archived,companionId??null]);
- const folders = await db`SELECT id,name,companion_ids AS "companionIds",created_at AS "createdAt" FROM discussion_folders WHERE owner_id=${ownerId} ORDER BY created_at,id`;
+ const folders = await db`SELECT id,name,to_jsonb(companion_ids) AS "companionIds",created_at AS "createdAt" FROM discussion_folders WHERE owner_id=${ownerId} ORDER BY created_at,id`;
  return {discussions,folders};
 }
 export async function createDiscussion(ownerId:string,raw:unknown,sql:any=db) {
@@ -61,7 +61,7 @@ export async function saveFolder(ownerId:string,id:string,raw:unknown,create=fal
  const input=z.object({clientCreationId:uuid.optional(),name:z.string().trim().min(1).max(120).optional(),companionIds:z.array(uuid).max(50).optional()}).strict().parse(raw);
  return db.begin(async tx=>{
   await tx`SELECT pg_advisory_xact_lock(hashtextextended(${id},637))`;
-  const [prior]=await tx`SELECT * FROM discussion_folders WHERE id=${id} FOR UPDATE`;
+  const [prior]=await tx`SELECT id,owner_id,name,to_jsonb(companion_ids) AS companion_ids FROM discussion_folders WHERE id=${id} FOR UPDATE`;
   if(prior&&prior.owner_id!==ownerId||!prior&&!create)throw new DiscussionMissing('Folder not found.');
   const ids=[...new Set<string>(input.companionIds??prior?.companion_ids??[])].sort();
   await validateCompanions(ownerId,ids,tx);
@@ -69,7 +69,7 @@ export async function saveFolder(ownerId:string,id:string,raw:unknown,create=fal
   if(create&&prior&&(prior.name!==input.name||JSON.stringify([...prior.companion_ids].sort())!==JSON.stringify(ids)))throw new Conflict('This folder identifier was already used.');
   if(!prior)await tx`INSERT INTO discussion_folders(id,owner_id,name,companion_ids) VALUES(${id},${ownerId},${input.name!},ARRAY(SELECT jsonb_array_elements_text(${ids}::jsonb))::uuid[])`;
   else if(!create)await tx`UPDATE discussion_folders SET name=COALESCE(${input.name??null},name),companion_ids=ARRAY(SELECT jsonb_array_elements_text(${ids}::jsonb))::uuid[] WHERE id=${id}`;
-  return (await tx`SELECT id,name,companion_ids AS "companionIds",created_at AS "createdAt" FROM discussion_folders WHERE id=${id}`)[0];
+  return (await tx`SELECT id,name,to_jsonb(companion_ids) AS "companionIds",created_at AS "createdAt" FROM discussion_folders WHERE id=${id}`)[0];
  });
 }
 export async function deleteFolder(ownerId:string,id:string) {

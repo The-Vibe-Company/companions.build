@@ -1,7 +1,7 @@
-import {beforeAll,afterEach,expect,test} from 'bun:test';
+import {beforeAll,afterEach,expect,test,spyOn} from 'bun:test';
 import {db,migrate,createCompanion} from '../src/store';
 import {acquireExecutor} from '../src/executor';
-import {createDiscussion,acceptDiscussionMessage,saveFolder,changeParticipant,cancelDiscussion,resolveProposal,discussionSnapshot,updateDiscussion,discussionHistory} from '../src/discussions';
+import {createDiscussion,acceptDiscussionMessage,listDiscussions,saveFolder,changeParticipant,cancelDiscussion,resolveProposal,discussionSnapshot,updateDiscussion,discussionHistory} from '../src/discussions';
 import {claimDiscussionRuns,discussionTool,executeDiscussion,projectDiscussionResults} from '../src/discussion-executor';
 import {scriptedDiscussionModel} from '../src/discussion-model';
 import {storeDiscussionUpload,resolveDiscussionFile} from '../src/discussion-files';
@@ -206,4 +206,55 @@ test('a full companion configuration plus a bounded arrival briefing fits the re
  try{const response=await daemon.fetch(new Request('http://agent/runs/'+run.id,{method:'PUT',headers:{authorization:'Bearer fixture'},body:JSON.stringify({content:run.content,instructions,conversationId:d.id})}));
   expect(response.status).toBe(202);await Bun.sleep(0);expect(called).toBe(true);
  }finally{daemon.close();rmSync(dir,{recursive:true,force:true});}
+});
+
+
+test('OpenAI Responses tool steps and later turns replay local content through the gateway',async()=>{
+ const {gatewayDiscussionModel}=await import('../src/discussion-model');const {createModelGateway}=await import('../src/model-gateway');
+ const d=await discussion();await send(d.id,'Discover companions');const l=await leader();let calls=0;
+ try{
+  const gateway=createModelGateway({modelApi:async()=> 'openai-responses',key:()=> 'synthetic-key',authorize:async()=>{},fetch:Object.assign(async(_input:any,init:any)=>{
+   calls++;const body=JSON.parse(init.body);expect(body.store).toBe(false);
+   expect(body.input.some((item:any)=>item.type==='item_reference')).toBe(false);
+   if(calls===2)expect(body.input.some((item:any)=>item.type==='function_call_output')).toBe(true);
+   const item={type:'message',id:`msg_${calls}`,role:'assistant',content:[]};
+   const events:any[]=[{type:'response.output_item.added',output_index:0,item},{type:'response.output_text.delta',item_id:item.id,delta:'Gateway verified'},{type:'response.output_item.done',output_index:0,item}];
+   if(calls===1){const fn={type:'function_call',id:'fc_test',call_id:'call_test',name:'companions',arguments:'{}',status:'completed'};events.push({type:'response.output_item.added',output_index:1,item:fn},{type:'response.output_item.done',output_index:1,item:fn});}
+   events.push({type:'response.completed',response:{status:'completed',usage:{input_tokens:10,output_tokens:3,total_tokens:13}}});
+   return new Response(events.map(event=>'data: '+JSON.stringify(event)+'\n\n').join(''),{headers:{'content-type':'text/event-stream'}});
+  },{preconnect:fetch.preconnect})});
+  const transport=Object.assign(async(input:any,init:any)=>{const response=await gateway.handle(new Request(String(input),init));if(!response)throw Error('Wrong route');return response;},{preconnect:fetch.preconnect});
+  for(let turn=0;turn<2;turn++){
+   if(turn)await send(d.id,'Continue from the previous answer');
+   const [run]=await claimDiscussionRuns(l.pid);run.model_provider='openai';run.model_id='gpt-4.1';
+   await db`UPDATE discussion_runs SET model_provider=${run.model_provider},model_id=${run.model_id} WHERE id=${run.id}`;
+   await executeDiscussion(run,new AbortController().signal,gatewayDiscussionModel(run,transport));await gateway.drain();
+   expect((await db`SELECT status FROM discussion_runs WHERE id=${run.id}`)[0].status).toBe('succeeded');
+  }
+  expect(calls).toBe(3);
+ }finally{await l.close();}
+});
+
+
+test('discussion provider errors never log request payloads or persist their details',async()=>{
+ const d=await discussion();await send(d.id);const l=await leader();const log=spyOn(console,'error').mockImplementation(()=>{});
+ try{
+  const [run]=await claimDiscussionRuns(l.pid);
+  if(typeof scriptedDiscussionModel==='string')throw Error('Expected test model');
+  const model={...scriptedDiscussionModel,async doStream(){throw Object.assign(new Error('PRIVATE_PROVIDER_BODY'),{requestBodyValues:{secret:'PRIVATE_PROVIDER_BODY'}});}};
+  await executeDiscussion(run,new AbortController().signal,model);
+  expect(log).not.toHaveBeenCalled();
+  const [saved]=await db`SELECT status,error FROM discussion_runs WHERE id=${run.id}`;
+  expect(saved.status).toBe('failed');expect(saved.error).not.toContain('PRIVATE_PROVIDER_BODY');
+ }finally{log.mockRestore();await l.close();}
+});
+
+
+test('folder companion defaults are JSON arrays across creation, listing, rename and retry',async()=>{
+ const c=await companion(),id=crypto.randomUUID(),input={name:'Defaults',companionIds:[c.id]};
+ const created=await saveFolder(owner,id,input,true);
+ expect(created.companionIds).toEqual([c.id]);
+ expect((await listDiscussions(owner)).folders.find((folder:any)=>folder.id===id).companionIds).toEqual([c.id]);
+ expect((await saveFolder(owner,id,input,true)).companionIds).toEqual([c.id]);
+ expect((await saveFolder(owner,id,{name:'Renamed'})).companionIds).toEqual([c.id]);
 });

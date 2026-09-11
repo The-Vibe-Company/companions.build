@@ -1,5 +1,5 @@
 import {createHash} from 'node:crypto';
-import {ToolLoopAgent,tool,stepCountIs,type LanguageModel,type ModelMessage} from 'ai';
+import {streamText,tool,stepCountIs,type LanguageModel,type ModelMessage} from 'ai';
 import {z} from 'zod';
 import {db} from './store';
 import {config} from './config';
@@ -164,8 +164,12 @@ async function context(run:any,storage?:ObjectStorage):Promise<ModelMessage[]>{
 export async function executeDiscussion(run:any,signal:AbortSignal,model:LanguageModel=discussionModel(run),storage?:ObjectStorage){
  let preview='';let lastWrite=0;
  try{
-  const agent=new ToolLoopAgent({model,instructions,tools:discussionTools(run),maxRetries:0,stopWhen:stepCountIs(12),maxOutputTokens:8192});
-  const result=await agent.stream({messages:await context(run,storage),abortSignal:signal,timeout:10*60_000});
+  const result=streamText({model,system:instructions,tools:discussionTools(run),maxRetries:0,stopWhen:stepCountIs(12),maxOutputTokens:8192,
+   // Keep every tool step and later turn self-contained; the gateway never stores responses.
+   providerOptions:{openai:{store:false}},messages:await context(run,storage),abortSignal:signal,timeout:10*60_000,
+   // The SDK default logs provider request bodies. Persist only our safe failure below.
+   onError:()=>{}
+  });
   for await(const part of result.fullStream){
    if(part.type==='error')throw Error('DISCUSSION_MODEL_FAILED');
    if(part.type==='text-delta'){

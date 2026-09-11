@@ -1,0 +1,308 @@
+apps/web/src/components/WorkspaceConnections.test.tsx
+  s_ab29273db8553f::t_49b889963b6ad4 1-29
+apps/server/src/discussion-files.ts
+  s_ab29273db8553f::t_aa2c869ccc5d84 1-54
+  s_ab29273db8553f::t_c1b9a4de7b0097 55-67
+apps/server/test/permanent-companions.test.ts
+  s_ab29273db8553f::t_2a8505b3cdebef 1-41,62-71,73-86,88-105
+  s_ab29273db8553f::t_cbdb745ad002db 42-61
+  s_ab29273db8553f::t_d8c2cd7962339c 106-117
+  s_ab29273db8553f::t_94c25a839b54ba 72
+  s_ab29273db8553f::t_745eda1d74df85 87
+package.json
+  s_ab29273db8553f::t_beb69f5f171b4c 13
+  s_ab29273db8553f::t_d461db1af0678d 20-23,28
+apps/server/test/delivery-skills.test.ts
+  s_ab29273db8553f::t_b725cdba5f9d1e 33,36-37,40,43,67
+apps/server/src/model-gateway-token.ts
+  s_ab29273db8553f::t_d7c687a5a4acf7 9-22
+apps/server/test/fixtures/pre-discussions-schema.sql
+  s_ab29273db8553f::t_4cfbd3462cff17 1-1108
+apps/server/src/discussion-model.ts
+  s_ab29273db8553f::t_b0b78d4f475998 18
+  s_ab29273db8553f::t_21fe0ccc3c3323 1-17,21,23,25-26,28-30
+  s_ab29273db8553f::t_dfb10d4452462b 19-20,22,24,27,32-48
+apps/web/src/api.test.ts
+  s_ab29273db8553f::t_b6652d32c5c95d 1-2,5-9
+apps/server/test/creation-preparation.test.ts
+  s_ab29273db8553f::t_71f3104888709d 47-49
+apps/server/src/runtime-product.ts
+  s_ab29273db8553f::t_beb69f5f171b4c 1,9,15,41-43,119,121-124,129,158-164,170-194
+  s_ab29273db8553f::t_051830b4f8d2d9 165-169,203
+  s_ab29273db8553f::t_75a06806eed191 195-202,204
+apps/web/src/components/WorkspaceConnections.tsx
+  s_ab29273db8553f::t_4101219f7d5a7d 1-70
+apps/web/src/components/CreateCompanion.discussions.test.tsx
+  s_ab29273db8553f::t_587bdc4fc120f3 6
+  s_ab29273db8553f::t_49b889963b6ad4 11-37,41-49
+  s_ab29273db8553f::t_1c6161e1cfef91 38-40
+  s_ab29273db8553f::t_06f28a4c409106 1
+  s_ab29273db8553f::t_d44452a173c815 8-10
+  s_07cd0d261a3a36::t_718cd1219ee065 3-4
+apps/server/test/discussions.test.ts
+  s_ab29273db8553f::t_e964b94f924824 7,132-133,145,151,170-190,209
+  s_ab29273db8553f::t_311fb07cbf8e11 1-6,8-95,97-114,119,154,162
+  s_ab29273db8553f::t_7cbc3c235a8525 96,115-118,120-131,134-144,146-150,152-153,155-161,163-169,191-208
+apps/web/UI_CONTRACT.md
+  s_ab29273db8553f::t_b6652d32c5c95d 1,3,5-11,13
+apps/web/src/components/CreateCompanion.tsx
+  s_ab29273db8553f::t_b6652d32c5c95d 1-7,10-14,16-17,20-22,25,30-32,34,36-39,42-44,46,50-54,57-64
+  s_ab29273db8553f::t_4101219f7d5a7d 47-49
+packages/agent/src/pi-executor.ts
+  s_ab29273db8553f::t_049568a781898e 17,33-37,53-56,100,107,111,155,159-160,210,214
+  s_ab29273db8553f::t_fe4224198d3d52 3
+apps/server/src/delivery.ts
+  s_ab29273db8553f::t_ca1f13f00b9a24 1-36
+apps/server/test/legacy-removal.test.ts
+  s_ab29273db8553f::t_8fe6693ec6ea40 17-33
+  s_ab29273db8553f::t_5eb186786d5e93 14-16
+  s_ab29273db8553f::t_1bcaaf7d9e16c3 34-35
+  s_ab29273db8553f::t_bf76de58ddaaf6 1-2,5,7-13,37-42
+docs/research/discussion-agent-harness-2026-09-11.md
+  s_ab29273db8553f::t_aeedf490c0d302 1-67
+apps/web/src/components/DiscussionsWorkspace.tsx
+  s_ab29273db8553f::t_70ac53cb662ec1 318
+  s_ab29273db8553f::t_71654413ea0dba 74
+  s_ab29273db8553f::t_4101219f7d5a7d 55-56,75-304,351-395
+  s_ab29273db8553f::t_35ebb9a0bbc52a 447
+  s_ab29273db8553f::t_c29c012301511c 1
+  s_ab29273db8553f::t_eb424826d79bd5 2-4
+  s_ab29273db8553f::t_aedec55820b060 52-54
+  s_ab29273db8553f::t_5f90be42a769f5 57-59
+  s_ab29273db8553f::t_c5a5463a8f5efa 72-73
+  s_ab29273db8553f::t_41788706b5a73c 305-307,315-317
+  s_ab29273db8553f::t_8995b722b59419 319-321
+  s_ab29273db8553f::t_6deeee6104685c 348-350
+  s_ab29273db8553f::t_f2880bbd229b8a 396-398
+  s_ab29273db8553f::t_6020b786ac8786 444-446
+  s_ab29273db8553f::t_c4ea080154f882 448-450
+  s_07cd0d261a3a36::t_e4ad1b00bf0a4b 5-35,37,39-42,44-51,60-69,308-314,324-325,328-331,334-347,399-401,403-410,414-443,451
+packages/agent/src/types.ts
+  s_ab29273db8553f::t_049568a781898e 13,28-29,43
+docs/discussions-migration.md
+  s_ab29273db8553f::t_29059cbf600712 11,14
+  s_ab29273db8553f::t_136cd4465fc8c4 1-10,12-13,15-35
+apps/web/src/components/CompanionAccount.tsx
+  s_ab29273db8553f::t_c29c012301511c 22,28,90,102,108,158-169
+  s_ab29273db8553f::t_a0ca8f987b11dd 3,9,47
+apps/server/src/discussions.ts
+  s_ab29273db8553f::t_aeaf8da96f1ba3 66
+  s_ab29273db8553f::t_1065026994a24f 70-71
+  s_ab29273db8553f::t_71364e70af7601 19
+  s_ab29273db8553f::t_dd65ff4ea3e057 140,146,148,150,154,158-159,161-162,212
+  s_ab29273db8553f::t_b3a10b25ed1360 1-18,20-65,67-69,72-115,117-139,141-142,144-145,147,149,151,155,160,163-211,213-230
+  s_ab29273db8553f::t_84a586dac58c2f 116,143,152-153,156-157
+docs/v0.md
+  s_ab29273db8553f::t_c747e8f6c61b53 3-6
+apps/web/src/App.tsx
+  s_ab29273db8553f::t_b6652d32c5c95d 2-4,6-7,10,12,20-21,28-29,31-34,36,39,41,48,50-51,56,58,60,63-68,70-92
+  s_ab29273db8553f::t_4063a15b0360db 1,42,61
+apps/server/src/discussions.sql
+  s_ab29273db8553f::t_b3a10b25ed1360 37-41
+  s_ab29273db8553f::t_b0b78d4f475998 92-96
+  s_ab29273db8553f::t_defab8cc1eb17c 1-36,42-78,81-85,87-91
+  s_ab29273db8553f::t_71364e70af7601 79-80
+  s_ab29273db8553f::t_845f38207b355b 86
+apps/server/src/model-gateway.ts
+  s_ab29273db8553f::t_bbea2a9f28fffe 5,168-176,194-195,215-216,218-219,225
+  s_ab29273db8553f::t_c71d578445d66c 217
+packages/agent/test/linux-acceptance.test.ts
+  s_ab29273db8553f::t_1065026994a24f 72-83
+apps/server/test/control.test.ts
+  s_ab29273db8553f::t_71f3104888709d 63,65-66
+  s_ab29273db8553f::t_2a8505b3cdebef 68
+apps/server/src/admission.ts
+  s_ab29273db8553f::t_53ef70e1d4fea4 11-14
+  s_ab29273db8553f::t_febff1362df233 8-10
+  s_07cd0d261a3a36::t_b3eb76d0be0359 4,6-7,17-23
+apps/server/src/files.ts
+  s_ab29273db8553f::t_931311857efa9c 321
+packages/agent/src/daemon.ts
+  s_ab29273db8553f::t_051830b4f8d2d9 21,39,42,69,100
+  s_ab29273db8553f::t_049568a781898e 13,26,81,86,99,114,162,170,179
+  s_ab29273db8553f::t_5e9044464dd688 78
+apps/web/src/App.test.tsx
+  s_ab29273db8553f::t_b6652d32c5c95d 1,7-9,11-13,15-16,19,21-22,25-28
+apps/server/src/discussion-executor.ts
+  s_ab29273db8553f::t_b0b78d4f475998 1-7,9-11,13-31,33-34,36,43-44,46-48,51,57-58,60-70,78-83,85-92,94-95,97-128,131-145,148-149,151-167,169-178,180-204
+  s_ab29273db8553f::t_35ebb9a0bbc52a 49
+  s_ab29273db8553f::t_1065026994a24f 84,179
+  s_ab29273db8553f::t_6e1d44930b041a 37,40-42,52,54-56,59,146,150
+  s_ab29273db8553f::t_c1b9a4de7b0097 8,38-39,53,93
+  s_ab29273db8553f::t_71364e70af7601 12,32,50
+  s_ab29273db8553f::t_9f938793453e00 71-77,96,129-130,168
+  s_ab29273db8553f::t_eb929960d98fcf 35,45,147
+packages/agent/src/journal.ts
+  s_ab29273db8553f::t_049568a781898e 38,66-67,69,117,119,126,132
+  s_ab29273db8553f::t_4d67f0b43acb36 137
+apps/server/src/legacy-removal.sql
+  s_ab29273db8553f::t_845f38207b355b 1-3,5-9,18-61,67-95
+  s_ab29273db8553f::t_53ef70e1d4fea4 4,10-17,62-66
+apps/server/test/discussion-upgrade.test.ts
+  s_ab29273db8553f::t_8fe6693ec6ea40 16-46
+  s_ab29273db8553f::t_da5fbd8404211f 13-15
+  s_ab29273db8553f::t_e0b99a9d7f0ae3 47-49
+  s_ab29273db8553f::t_b1d9e754fd3e5e 1,5-12,50-51
+apps/web/src/components/LandingPage.tsx
+  s_ab29273db8553f::t_b6652d32c5c95d 13,19,22-23,66,68,84
+apps/server/src/executor.ts
+  s_ab29273db8553f::t_7ca072e8680009 58,80,106-107,155,158,160,265-266,302,306,310
+  s_ab29273db8553f::t_b0b78d4f475998 1,430
+  s_ab29273db8553f::t_1ff6097771e571 55,183,396,398,431-432
+apps/server/src/api.ts
+  s_ab29273db8553f::t_7ca072e8680009 1-2,13,22,30,34,36,61-62,82,113-114
+packages/agent/test/daemon.test.ts
+  s_ab29273db8553f::t_7e7866e5faf28b 290-316
+  s_ab29273db8553f::t_898d049bd11d92 31-32,216
+apps/web/src/api.ts
+  s_ab29273db8553f::t_b6652d32c5c95d 4,7,9-11,13-19,21-22,28,32-34,36-37,39-52,55-58,66
+  s_ab29273db8553f::t_c29c012301511c 68
+  s_ab29273db8553f::t_e12df865be628e 5,12,84-92,95-102
+apps/web/src/components/DiscussionsWorkspace.css
+  s_ab29273db8553f::t_af8ac1b5c0c488 1-186
+apps/server/src/machines.ts
+  s_ab29273db8553f::t_051830b4f8d2d9 168-169,171-173
+apps/web/src/components/DiscussionsWorkspace.test.tsx
+  s_ab29273db8553f::t_efd080ab9f5ad0 25,41-42,52,60-61,67,74-75,81,88-89,102-135
+  s_ab29273db8553f::t_6e0c63e7002f70 22-24
+  s_ab29273db8553f::t_213dab2f9abf91 26-28,38-40
+  s_ab29273db8553f::t_34f8fda9cdf2bf 43-45,49-51
+  s_ab29273db8553f::t_aca21c6ec8bd13 57-59
+  s_ab29273db8553f::t_9613e85efa7082 62-66
+  s_ab29273db8553f::t_94feed8dd4cb58 71-73
+  s_ab29273db8553f::t_4a5c226ced7b8c 76-80
+  s_ab29273db8553f::t_33113c75adf862 85-87
+  s_ab29273db8553f::t_01b88f83c6e436 90-92,99-101
+  s_ab29273db8553f::t_7f59059ecde693 136-138
+  s_07cd0d261a3a36::t_8da9148aeb6543 1,3-21,29-37,46-48,54-56,69-70,83-84,93-98,141-148
+apps/server/src/usage.ts
+  s_ab29273db8553f::t_b0b78d4f475998 51,59
+  s_ab29273db8553f::t_86204d853b4969 35,44
+apps/web/src/components/Markdown.browser.test.tsx
+  s_ab29273db8553f::t_af8ac1b5c0c488 31-32
+  s_ab29273db8553f::t_b6652d32c5c95d 19
+apps/server/test/lifecycle.test.ts
+  s_ab29273db8553f::t_71f3104888709d 5,14-15
+docs/specs/discussions.md
+  s_ab29273db8553f::t_e964b94f924824 111-114
+  s_ab29273db8553f::t_c26b6632b6aad9 1-60,62-78,80-84
+  s_ab29273db8553f::t_c747e8f6c61b53 85-110,115-118
+  s_ab29273db8553f::t_136cd4465fc8c4 79
+  s_ab29273db8553f::t_35ebb9a0bbc52a 61
+docs/companions-build.md
+  s_ab29273db8553f::t_c747e8f6c61b53 3-6
+apps/server/src/activation.ts
+  s_ab29273db8553f::t_95426855280a2f 11-12
+apps/server/src/admission.sql
+  s_ab29273db8553f::t_b210a85d7fe074 1-6
+apps/server/src/chat.ts
+  s_ab29273db8553f::t_6c11dc4e3026d6 6,9,21-22,84,104,124,129
+apps/server/src/control-help.ts
+  s_ab29273db8553f::t_6b67ce6877ff2c 2,4-5
+apps/server/src/control-product.ts
+  s_ab29273db8553f::t_32674205904e49 9,17,23,25
+apps/server/src/control.ts
+  s_ab29273db8553f::t_bc2b5961d63989 21,39,47,75,83-84,87
+apps/server/src/conversation.sql
+  s_ab29273db8553f::t_752aa853c2725e 6-15
+apps/server/src/delegation.ts
+  s_ab29273db8553f::t_938e29a7406c5d 3-4,11,15-16,24,29,34-38,43,50-53
+apps/server/src/delivery-skills.sql
+  s_ab29273db8553f::t_f3a391f8ae3fb3 1-3
+apps/server/src/delivery-skills.ts
+  s_ab29273db8553f::t_1587cd4739d490 24-26,97,106
+apps/server/src/delivery.sql
+  s_ab29273db8553f::t_f1e1663852264c 1,3-6
+apps/server/src/events.sql
+  s_ab29273db8553f::t_5c064ac3ec63bd 1-8
+apps/server/src/lifecycle.sql
+  s_ab29273db8553f::t_6aa95190f8c76b 7
+apps/server/src/lifecycle.ts
+  s_ab29273db8553f::t_e7836299a4718a 10,13-14,41-42,63-66,71-77,79,92,131,186,209,230-231,242,247-248,250,259
+apps/server/src/maintenance.ts
+  s_ab29273db8553f::t_5439ee1f4d30d7 5,34
+apps/server/src/managed-base-image.ts
+  s_ab29273db8553f::t_b87dcf3f6cf81d 81,160
+apps/server/src/retirement.ts
+  s_ab29273db8553f::t_f4434aecc34ed7 11-13,32,72
+apps/server/src/runtime-updates.ts
+  s_ab29273db8553f::t_9f9a55a6288a5d 110
+apps/server/src/store.ts
+  s_ab29273db8553f::t_9b44b87d47aad5 5,68-70,72,83-84,97,99,101
+apps/server/src/task-runtime.sql
+  s_ab29273db8553f::t_4483b93b8afd4d 1-2,8-15,17-20
+apps/server/src/task-runtime.ts
+  s_ab29273db8553f::t_473351adbf936b 1-2,4-5,7,11-28
+apps/server/src/tasks.ts
+  s_ab29273db8553f::t_29939bbfae438e 7,27
+apps/server/src/worker.ts
+  s_ab29273db8553f::t_f9e2c2f85f6c92 3,10
+apps/server/test/chat.test.ts
+  s_ab29273db8553f::t_44b5f6a6d86437 40,47,74,76
+apps/server/test/events.test.ts
+  s_ab29273db8553f::t_8e7af9e5703035 51
+apps/server/test/managed-base-image-integration.test.ts
+  s_ab29273db8553f::t_651d45080a11bf 70,73,75,79
+apps/server/test/runtime-lifecycle.test.ts
+  s_ab29273db8553f::t_4460a4b52e434b 52
+apps/server/test/runtime-updates.test.ts
+  s_ab29273db8553f::t_d02d655c4f9d29 74
+apps/server/test/tasks.test.ts
+  s_ab29273db8553f::t_04c9761b8eae9d 41,45,85
+apps/web/src/components/CompanionAccount.test.tsx
+  s_ab29273db8553f::t_95a43e6708065f 4,10,23,42,47,60,66,71,77,93,118,131,151-152,171,191-208
+bun.lock
+  s_ab29273db8553f::t_d76966ce1ae188 8-11,16,42-55,286-289,294-295,454-455,634-639,650-653,663-666
+docs/dev-workflow.md
+  s_ab29273db8553f::t_c21fbc74fd4687 151-157,178,287,301,306-307,322-341
+packages/agent/README.md
+  s_ab29273db8553f::t_e43cec1e76c6c7 51
+packages/agent/src/companion-instructions.ts
+  s_ab29273db8553f::t_ce45d3919304bf 10-11,14
+packages/agent/src/conversation-instructions.ts
+  s_ab29273db8553f::t_45dfcdb7c46b66 1,19,22,24
+packages/agent/test/skills.test.ts
+  s_ab29273db8553f::t_04f329404545dc 11,17
+packages/box/canonical-json.ts
+  s_ab29273db8553f::t_6ed348ac3aa41d 1-6
+packages/control/agent.ts
+  s_ab29273db8553f::t_3eb4c62211db90 17,102
+scripts/build-agent.ts
+  s_ab29273db8553f::t_a59a6232749666 2,8-9,25
+scripts/lib/agent-release.ts
+  s_ab29273db8553f::t_43a056b075a53b 8
+scripts/lib/distribution-verification.ts
+  s_ab29273db8553f::t_5f4e7b33c56812 8
+scripts/live-desktop-canary.ts
+  s_ab29273db8553f::t_58661d1cdc07e8 32
+scripts/prepare-box-template.ts
+  s_ab29273db8553f::t_82577029fb5a1b 19,33
+scripts/test-production-container.ts
+  s_ab29273db8553f::t_bbcdf264d08be9 75
+scripts/verify.py
+  s_ab29273db8553f::t_a62d31ace70095 231,234,236-237
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "0cd51ef3d7a0461ff8ebf32d9776002747e6b8ec",
+  "prompts": {},
+  "sessions": {
+    "s_07cd0d261a3a36": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a09078-5202-7222-8d91-139377b2c482",
+        "model": "unknown"
+      },
+      "human_author": "StanGirard <stan@quivr.app>"
+    },
+    "s_ab29273db8553f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a09056-ddd0-7c80-a27a-95a44a3595d0",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "StanGirard <stan@quivr.app>"
+    }
+  }
+}

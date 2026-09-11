@@ -19,7 +19,7 @@ describe("App discussion routing", () => {
   it("opens the latest persisted discussion from the root", async () => {
     window.history.replaceState({}, "", "/");
     vi.stubGlobal("fetch", vi.fn((input: RequestInfo | URL) => { const path = String(input); if (path === "/api/me") return response(me); if (path === "/api/config") return response(config); if (path === "/api/companions") return response({ companions: [ada] }); if (path === "/api/discussions") return response({ discussions: [discussion], folders: [] }); if (path === "/api/discussions/discussion-1") return response({ discussion, participants: [], messages: [], tasks: [], centralRuns: [], proposals: [], beforeCursor: null }); throw Error(`Unexpected ${path}`); }));
-    render(<App/>); expect(await screen.findByRole("heading", { name: "Launch" })).toBeInTheDocument(); expect(window.location.pathname).toBe("/discussions/discussion-1"); expect(screen.getByRole("textbox", { name: "Message Central" })).toBeInTheDocument();
+    render(<App/>); expect(await screen.findByRole("heading", { name: "Launch" })).toBeInTheDocument(); expect(window.location.pathname).toBe("/discussions/discussion-1"); expect(screen.getByRole("textbox", { name: "Message Companion" })).toBeInTheDocument();
   });
 
   it("redirects a legacy companion route to its latest direct discussion", async () => {

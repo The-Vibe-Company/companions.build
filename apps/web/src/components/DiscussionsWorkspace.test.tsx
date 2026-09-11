@@ -30,8 +30,9 @@ function renderWorkspace() {
   return render(<DiscussionsWorkspace user={user} companions={[ada, june]} initialDiscussionId="discussion-1" legacyCompanionId={null} onUnauthorized={vi.fn()} onCreateCompanion={vi.fn()} onApplications={vi.fn()} onAccount={vi.fn()}/>);
 }
 
+beforeEach(() => { window.history.replaceState({}, "", "/discussions/discussion-1"); localStorage.clear(); sessionStorage.clear(); });
+
 describe("discussions workspace", () => {
-  beforeEach(() => { window.history.replaceState({}, "", "/discussions/discussion-1"); localStorage.clear(); sessionStorage.clear(); });
   afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
   it("persists an explicit companion recipient and sends it with a stable request id", async () => {
@@ -56,7 +57,7 @@ describe("discussions workspace", () => {
     const fetchMock = setupFetch(path => path === "/api/discussions/discussion-1" ? response({ ...snapshot, messages: [existing] }) : undefined);
     const actor = userEvent.setup();
     renderWorkspace();
-    const composer = await screen.findByRole("textbox", { name: "Message Central" });
+    const composer = await screen.findByRole("textbox", { name: "Message Companion" });
     await actor.type(composer, "Ask @Ad");
     const suggestions = screen.getByRole("listbox", { name: "Companion suggestions" });
     expect(composer).toHaveAttribute("aria-controls", suggestions.id);
@@ -82,7 +83,7 @@ describe("discussions workspace", () => {
 
   it("preserves composing text and dismisses mentions without altering the draft", async () => {
     const fetchMock = setupFetch(); renderWorkspace();
-    const composer = await screen.findByRole("textbox", { name: "Message Central" });
+    const composer = await screen.findByRole("textbox", { name: "Message Companion" });
     fireEvent.change(composer, { target: { value: "@Ad" } });
     fireEvent.keyDown(composer, { key: "Enter", isComposing: true });
     expect(composer).toHaveValue("@Ad");
@@ -97,7 +98,7 @@ describe("discussions workspace", () => {
     const file = { id: "file-1", name: "design.png", url: "/files/design.png", mimeType: "image/png", size: 123 };
     setupFetch(path => path === "/api/discussions/discussion-1" ? response({ ...snapshot, tasks: [{ id: "task-1", companionId: "ada", status: "succeeded", content: "Design", resultText: "Design ready", previewText: null, error: null, createdAt: discussion.createdAt, finishedAt: discussion.createdAt, files: [file], questions: [] }] }) : undefined);
     const actor = userEvent.setup(); renderWorkspace();
-    const composer = await screen.findByRole("textbox", { name: "Message Central" });
+    const composer = await screen.findByRole("textbox", { name: "Message Companion" });
     await actor.type(composer, "Keep this draft");
     await actor.click(screen.getByRole("button", { name: "Ada" }));
     await actor.click(screen.getByRole("button", { name: /Files.*1/ }));
@@ -113,7 +114,7 @@ describe("discussions workspace", () => {
     const removed = { ...ada, id: "removed", name: "Previous" };
     setupFetch(path => path === "/api/discussions/discussion-1" ? response({ ...snapshot, participants: [snapshot.participants[0], { companionId: june.id, companion: june, removedAt: null }, { companionId: third.id, companion: third, removedAt: null }, { companionId: removed.id, companion: removed, removedAt: discussion.createdAt }] }) : undefined);
     const actor = userEvent.setup(); renderWorkspace();
-    const composer = await screen.findByRole("textbox", { name: "Message Central" });
+    const composer = await screen.findByRole("textbox", { name: "Message Companion" });
     await actor.type(composer, "A draft for Central");
     await actor.click(screen.getByLabelText("Choose discussion companion"));
     await actor.click(screen.getByRole("button", { name: "View Third workspace" }));
@@ -127,13 +128,13 @@ describe("discussions workspace", () => {
 
   it("moves the active mention descendant while focus stays in the composer", async () => {
     setupFetch(); renderWorkspace();
-    const composer = await screen.findByRole("textbox", { name: "Message Central" });
+    const composer = await screen.findByRole("textbox", { name: "Message Companion" });
     const actor = userEvent.setup(); await actor.type(composer, "@");
     const first = composer.getAttribute("aria-activedescendant");
     await actor.keyboard("{ArrowDown}");
     expect(composer).toHaveFocus();
     expect(composer.getAttribute("aria-activedescendant")).not.toBe(first);
-    expect(document.getElementById(composer.getAttribute("aria-activedescendant")!)).toHaveTextContent("June");
+    expect(document.getElementById(composer.getAttribute("aria-activedescendant")!)).toHaveTextContent("Ada");
   });
 
   it("loads older messages before the current snapshot without duplicating the page", async () => {
@@ -173,7 +174,7 @@ describe("discussions workspace", () => {
       return undefined;
     });
     const actor = userEvent.setup(); const { container } = renderWorkspace();
-    const composer = await screen.findByRole("textbox", { name: "Message Central" });
+    const composer = await screen.findByRole("textbox", { name: "Message Companion" });
     const form = container.querySelector(".discussion-composer")!;
     const file = new File(["notes"], "notes.txt", { type: "text/plain" });
     fireEvent.drop(form, { dataTransfer: { files: [file] } });
@@ -196,7 +197,7 @@ describe("discussions workspace", () => {
       if(path.endsWith("/files")&&options?.method==="POST"){const body=options.body as FormData;uploads.push([String(body.get("clientFileId")),String(body.get("position"))]);return response({file:{}});}
       return undefined;
     });
-    const actor=userEvent.setup(),{container}=renderWorkspace();await screen.findByRole("textbox",{name:"Message Central"});
+    const actor=userEvent.setup(),{container}=renderWorkspace();await screen.findByRole("textbox",{name:"Message Companion"});
     fireEvent.drop(container.querySelector(".discussion-composer")!,{dataTransfer:{files:[new File(["x"],"last.txt"),new File(["a"],"same.txt"),new File(["b"],"same.txt")]}});
     await actor.click(screen.getByRole("button",{name:"Send message"}));
     await waitFor(()=>expect(uploads).toEqual([["file-a","0"],["file-b","1"],["file-c","2"]]));
@@ -229,7 +230,7 @@ it('shows a failed central turn and keeps companion work available in its own ta
  expect(await screen.findByText('Send a new message to continue.')).toBeInTheDocument();
  await actor.click(screen.getByRole('button',{name:'Ada'}));
  expect(await screen.findByRole('heading',{name:'Ada'})).toBeInTheDocument();
- expect(screen.getByRole('textbox',{name:'Message Central'})).toBeInTheDocument();
+ expect(screen.getByRole('textbox',{name:'Message Companion'})).toBeInTheDocument();
  cleanup();vi.unstubAllGlobals();
 });
 
@@ -312,5 +313,58 @@ it('keeps older delegated responses inspectable when their tasks are outside the
  await actor.click(summary);
  expect(summary.closest('details')).toHaveAttribute('open');
  expect(screen.getByText('Older delegated result')).toBeInTheDocument();
+ cleanup();vi.unstubAllGlobals();
+});
+
+
+it('returns from a companion to the discussion agent using only keyboard mentions',async()=>{
+ const bodies:Array<Record<string,unknown>>=[];
+ setupFetch((path,options)=>path.endsWith('/messages')&&options?.method==='POST'?(bodies.push(JSON.parse(String(options.body))),response({runId:'central-return',discussionId:discussion.id,companionId:null})):undefined);
+ const actor=userEvent.setup();renderWorkspace();
+ const composer=await screen.findByRole('textbox',{name:'Message Companion'});
+ await actor.type(composer,'@Ad');await actor.keyboard('{Enter}');
+ expect(screen.getByRole('combobox',{name:'Message recipient'})).toHaveValue('ada');
+ await actor.type(composer,'merci. @Comp');
+ const option=screen.getByRole('option',{name:/Companion Your discussion agent/});
+ expect(composer).toHaveAttribute('aria-activedescendant',option.id);
+ await actor.keyboard('{Enter}');
+ expect(screen.getByRole('combobox',{name:'Message recipient'})).toHaveValue('');
+ expect(screen.getByRole('textbox',{name:'Message Companion'})).toHaveFocus();
+ expect(bodies).toHaveLength(0);
+ await actor.type(composer,'reprends la suite');await actor.keyboard('{Enter}');
+ await waitFor(()=>expect(bodies).toHaveLength(1));
+ expect(bodies[0]).toMatchObject({content:'@Ada merci. @Companion reprends la suite',targetCompanionId:null});
+ expect(localStorage.getItem('companions.build:discussion-target:user-1:discussion-1')).toBeNull();
+ cleanup();vi.unstubAllGlobals();
+});
+
+it('uses the last complete mention and restores the main view when addressing Companion',async()=>{
+ setupFetch();const actor=userEvent.setup();renderWorkspace();
+ await actor.click(await screen.findByRole('button',{name:'Ada'}));
+ const composer=screen.getByRole('textbox',{name:'Message Companion'});
+ fireEvent.change(composer,{target:{value:'@Ada continue puis @Companion, résume'}});
+ expect(screen.queryByRole('complementary',{name:'Ada workbench'})).not.toBeInTheDocument();
+ expect(screen.getByRole('combobox',{name:'Message recipient'})).toHaveValue('');
+ fireEvent.change(composer,{target:{value:'@Companion merci. @Ada continue'}});
+ expect(screen.getByRole('combobox',{name:'Message recipient'})).toHaveValue('ada');
+ cleanup();vi.unstubAllGlobals();
+});
+
+
+it('retries a failed message ending in @Companion with Enter and unchanged routing',async()=>{
+ const bodies:Array<Record<string,unknown>>=[];
+ setupFetch((path,options)=>{
+  if(path.endsWith('/messages')&&options?.method==='POST'){bodies.push(JSON.parse(String(options.body)));return bodies.length===1?response({error:'Temporary send failure'},503):response({runId:'retry-mention',discussionId:discussion.id,companionId:null});}
+ });
+ const actor=userEvent.setup();renderWorkspace();
+ const composer=await screen.findByRole('textbox',{name:'Message Companion'});
+ await actor.type(composer,'Help @Companion');
+ await actor.click(screen.getByRole('button',{name:'Send message'}));
+ await screen.findByText('Temporary send failure');
+ expect(screen.queryByRole('listbox',{name:'Companion suggestions'})).not.toBeInTheDocument();
+ await actor.click(composer);await actor.keyboard('{Enter}');
+ await waitFor(()=>expect(bodies).toHaveLength(2));
+ expect(bodies[1]).toEqual(bodies[0]);
+ expect(bodies[1].targetCompanionId).toBeNull();
  cleanup();vi.unstubAllGlobals();
 });

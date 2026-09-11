@@ -1,0 +1,31 @@
+apps/web/src/components/DiscussionsWorkspace.css
+  s_ab29273db8553f::t_7414a87695cb48 1141-1148
+apps/web/src/components/DiscussionsWorkspace.tsx
+  s_ab29273db8553f::t_2b6ef61bd1ecf0 228,325,332-333,336-337,339,344,367,373,393,410,421-426,444,449-451
+  s_ab29273db8553f::t_0265ac8401db96 443
+apps/server/src/discussion-executor.ts
+  s_ab29273db8553f::t_2b6ef61bd1ecf0 12
+apps/web/src/App.test.tsx
+  s_ab29273db8553f::t_2b6ef61bd1ecf0 22
+apps/web/src/components/DiscussionsWorkspace.test.tsx
+  s_ab29273db8553f::t_0265ac8401db96 352-370
+  s_ab29273db8553f::t_da5ee2305c38a7 318-351
+  s_ab29273db8553f::t_f81ea1062da03d 33-34
+  s_ab29273db8553f::t_2b6ef61bd1ecf0 60,86,101,117,131,137,177,200,233
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "3e763a8fdd8baa307ebd50b363c4f3785c07d3d0",
+  "prompts": {},
+  "sessions": {
+    "s_ab29273db8553f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a09056-ddd0-7c80-a27a-95a44a3595d0",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "StanGirard <stan@quivr.app>"
+    }
+  }
+}

@@ -194,6 +194,28 @@ const curatedAppDefinitions = [
       client: { kind: "dynamic" },
     },
   },
+  {
+    id: "app.skillpack/mcp",
+    provider: "skillpack",
+    name: "Skillpack",
+    mcp: { transport: "http", url: "https://skillpack.app/mcp" },
+    oauth: {
+      adapter: "standard",
+      resourceMetadataUrl: "https://skillpack.app/auth/.well-known/oauth-protected-resource",
+      // Better Auth publishes the origin as the authorization server and serves its metadata under
+      // the `/auth` base path, so the metadata URL is named explicitly rather than derived.
+      authorizationServer: "https://skillpack.app",
+      authorizationMetadataUrl: "https://skillpack.app/auth/.well-known/oauth-authorization-server",
+      // `prompt=consent` is what routes the member to Skillpack's consent screen, where they choose
+      // the one workspace this connection may act in. Without it Skillpack would issue a grant with
+      // no workspace and every tool call would fail closed.
+      authorizationParams: { prompt: "consent" },
+      // `offline_access` is what makes Skillpack's token endpoint return a refresh token.
+      scopes: ["openid", "offline_access"],
+      allowedOrigins: ["https://skillpack.app"],
+      client: { kind: "dynamic" },
+    },
+  },
 ] as const satisfies readonly AppDefinition[];
 
 export type AppDefinitionId = (typeof curatedAppDefinitions)[number]["id"];

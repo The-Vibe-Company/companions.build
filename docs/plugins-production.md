@@ -14,7 +14,8 @@ OAuth client; a callback belonging to the old Companion product does not configu
 
 | Provider | API and executor configuration | Provider console configuration |
 | --- | --- | --- |
-| Linear, Notion, Conductor, Sentry | No static client secrets | Dynamic registration runs when a user starts connecting; each user still grants consent. |
+| Linear, Notion, Conductor, Sentry, Railway | No static client secrets | Dynamic registration runs when a user starts connecting; each user still grants consent. |
+| Skillpack | No static client secrets | Dynamic registration against `https://skillpack.app`. The consent screen carries a workspace picker: one connection acts in exactly one Skillpack workspace, with the connecting member's own rights. To reach a second workspace, connect Skillpack again and choose it. Revoke from Skillpack's own settings or by disconnecting here. |
 | GitHub | `COMPANION_MCP_GITHUB_CLIENT_ID`, `COMPANION_MCP_GITHUB_CLIENT_SECRET` | Dedicated OAuth App, homepage `https://companions.build`, exact callback above. The broker requests `repo`, `read:org`, `read:user`, `user:email`, `admin:repo_hook`. |
 | Slack | `COMPANION_MCP_SLACK_CLIENT_ID`, `COMPANION_MCP_SLACK_CLIENT_SECRET` | Dedicated Slack app with a bot, callback above, bot scope `chat:write`. Configure distribution for the intended workspaces. This plugin exposes message posting only. |
 | Gmail | `COMPANION_MCP_GMAIL_CLIENT_ID`, `COMPANION_MCP_GMAIL_CLIENT_SECRET` | Web application OAuth client, callback above, consent screen with `gmail.readonly` and `gmail.compose`. Enable `gmail.googleapis.com` and `gmailmcp.googleapis.com` in the same project. |
@@ -54,5 +55,5 @@ Provider references:
 5. Verify a refresh preserves the connection and independently selected accounts stay isolated.
 6. Archive test-owned Boxes, verify provider state is archived, and stop owned local stacks.
 
-Report discovery, consent, health and runtime tool access separately. Never mark all seven
+Report discovery, consent, health and runtime tool access separately. Never mark all nine
 providers working based only on metadata discovery or presence of environment variables.

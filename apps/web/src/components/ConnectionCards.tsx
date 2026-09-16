@@ -15,6 +15,7 @@ const descriptions: Record<string, string> = {
   slack: "Channels and messages",
   gmail: "Email and drafts",
   sentry: "Errors and performance",
+  skillpack: "Skills, labels, secrets",
 };
 
 export function ConnectionCards({ catalog, accounts, busy, namingServer, healthText, onConnect, onRequestConnection, onCancelNaming, onRename, onCheck, onDisconnect }: {

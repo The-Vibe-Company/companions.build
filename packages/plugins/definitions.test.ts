@@ -26,7 +26,16 @@ describe("declarative App definitions", () => {
       { id: "com.google.workspace/gmail", provider: "gmail", name: "Gmail", transport: "http", url: "https://gmailmcp.googleapis.com/mcp/v1", adapter: "gmail", client: "environment", capabilities: { allowedTools: ["create_draft", "get_message", "get_thread", "list_drafts", "list_labels", "search_threads"] } },
       { id: "io.sentry/mcp", provider: "sentry", name: "Sentry", transport: "http", url: "https://mcp.sentry.dev/mcp", adapter: "standard", client: "dynamic", capabilities: undefined },
       { id: "com.railway/mcp", provider: "railway", name: "Railway", transport: "http", url: "https://mcp.railway.com", adapter: "standard", client: "dynamic", capabilities: undefined },
+      { id: "app.skillpack/mcp", provider: "skillpack", name: "Skillpack", transport: "http", url: "https://skillpack.app/mcp", adapter: "standard", client: "dynamic", capabilities: undefined },
     ]);
+  });
+
+  it("forces Skillpack's consent screen, where the member picks the workspace the connection acts in", () => {
+    const skillpack = getAppDefinition("app.skillpack/mcp");
+    expect(skillpack?.oauth.authorizationParams).toEqual({ prompt: "consent" });
+    expect(skillpack?.oauth.scopes).toEqual(["openid", "offline_access"]);
+    expect(skillpack?.oauth.authorizationServer).toBe("https://skillpack.app");
+    expect(skillpack?.oauth.allowedOrigins).toEqual(["https://skillpack.app"]);
   });
 
   it("derives compatibility catalog rows and centralized provider fallbacks", () => {

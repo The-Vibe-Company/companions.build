@@ -66,7 +66,7 @@ describe("discussions workspace", () => {
     expect(composer).toHaveValue("Ask ");
     expect(screen.getByRole("textbox", { name: "Message Ada" })).toBeInTheDocument();
     expect(fetchMock.mock.calls.some(([, options]) => options?.method === "POST")).toBe(false);
-    await actor.click(screen.getByRole("button", { name: "Open files" }));
+    await actor.click(screen.getByRole("button", { name: "Workspace" }));
     await actor.click(screen.getByRole("button", { name: "Ada" }));
     expect(await screen.findByRole("heading", { name: "Ada" })).toBeInTheDocument();
     expect(screen.getByText("Existing context")).toBeInTheDocument();
@@ -101,7 +101,7 @@ describe("discussions workspace", () => {
     const actor = userEvent.setup(); renderWorkspace();
     const composer = await screen.findByRole("textbox", { name: "Message Companion" });
     await actor.type(composer, "Keep this draft");
-    await actor.click(screen.getByRole("button", { name: "Open files" }));
+    await actor.click(screen.getByRole("button", { name: "Workspace" }));
     await actor.click(screen.getByRole("button", { name: "Ada" }));
     await actor.click(screen.getByRole("button", { name: /Files.*1/ }));
     const links = screen.getAllByRole("link", { name: "design.png" });
@@ -230,7 +230,7 @@ it('shows a failed central turn and keeps companion work available in its own ta
  setupFetch(path=>path==='/api/discussions/discussion-1'?response({...snapshot,centralRuns:[{id:'failure',status:'interrupted',error:'Send a new message to continue.',previewText:null,createdAt:discussion.createdAt,finishedAt:discussion.createdAt}]}):undefined);
  const actor=userEvent.setup();renderWorkspace();
  expect(await screen.findByText('Send a new message to continue.')).toBeInTheDocument();
- await actor.click(screen.getByRole('button',{name:'Open files'}));
+ await actor.click(screen.getByRole('button',{name:'Workspace'}));
  await actor.click(screen.getByRole('button',{name:'Ada'}));
  expect(await screen.findByRole('heading',{name:'Ada'})).toBeInTheDocument();
  expect(screen.getByRole('textbox',{name:'Message Companion'})).toBeInTheDocument();
@@ -256,23 +256,27 @@ it('keeps only current failures in the thread and leaves earlier ones to the wor
 });
 
 
-it('archives a folder discussion from the sidebar, restores it, and archives the selected discussion', async () => {
- const other={...discussion,id:'discussion-2',title:'Folder discussion',folderId:'folder-1'};
+it('archives a conversation from its row menu, restores it, and archives the open conversation', async () => {
+ const other={...discussion,id:'discussion-2',title:'Second conversation'};
  let archivedAt:string|null=null;
  const updates:Array<unknown>=[];
  const fetchMock=setupFetch((path,options)=>{
   if(path==='/api/discussions/discussion-2'&&options?.method==='PATCH') { const body=JSON.parse(String(options.body)); updates.push(body);archivedAt=body.archived?discussion.createdAt:null;return response({discussion:{...other,archivedAt}}); }
-  if(path==='/api/discussions'||path==='/api/discussions?archived=true')return response({discussions:[discussion,...(!archivedAt||path.includes('?')?[{...other,archivedAt}]:[])],folders:[{id:'folder-1',name:'Project',companionIds:[],createdAt:discussion.createdAt}]});
+  if(path==='/api/discussions'||path==='/api/discussions?archived=true')return response({discussions:[discussion,...(!archivedAt||path.includes('?')?[{...other,archivedAt}]:[])],folders:[]});
   if(path==='/api/discussions/discussion-2')return response({...snapshot,discussion:{...other,archivedAt}});
  });
  const actor=userEvent.setup();renderWorkspace();
- await actor.click(await screen.findByRole('button',{name:'Archive Folder discussion'}));
- await waitFor(()=>expect(screen.queryByRole('button',{name:'Archive Folder discussion'})).not.toBeInTheDocument());
+ await actor.click(await screen.findByRole('button',{name:'Options for Second conversation'}));
+ await actor.click(await screen.findByRole('menuitem',{name:'Archive'}));
+ await waitFor(()=>expect(screen.queryByRole('button',{name:'Options for Second conversation'})).not.toBeInTheDocument());
  expect(screen.getByRole('heading',{name:'Launch'})).toBeInTheDocument();
- await actor.click(screen.getByRole('button',{name:'Archived discussions'}));
- await actor.click(await screen.findByRole('button',{name:/Folder discussion Archived.*Restore/}));
- expect(await screen.findByRole('heading',{name:'Folder discussion'})).toBeInTheDocument();
- await actor.click(screen.getByRole('button',{name:'Archive Folder discussion'}));
+ await actor.click(screen.getByRole('button',{name:'More options'}));
+ await actor.click(await screen.findByRole('menuitem',{name:'Archived discussions'}));
+ await actor.click(await screen.findByRole('button',{name:/Second conversation Archived.*Restore/}));
+ expect(await screen.findByRole('heading',{name:'Second conversation'})).toBeInTheDocument();
+ await actor.click(screen.getByRole('button',{name:'Workspace'}));
+ await actor.click(screen.getByRole('button',{name:'Details'}));
+ await actor.click(await screen.findByRole('button',{name:/Archive conversation/}));
  expect(await screen.findByRole('heading',{name:'Launch'})).toBeInTheDocument();
  expect(updates).toEqual([{archived:true},{archived:false},{archived:true}]);
  expect(fetchMock.mock.calls.some(([path])=>String(path).endsWith('/cancel'))).toBe(false);
@@ -280,11 +284,11 @@ it('archives a folder discussion from the sidebar, restores it, and archives the
 });
 
 
-it('shows companion avatars next to inactive and folder discussion rows',async()=>{
- const other={...discussion,id:'other',title:'Other discussion',participantIds:['june'],folderId:'folder-1'};
- setupFetch(path=>path==='/api/discussions'?response({discussions:[{...discussion,participantIds:['ada']},other],folders:[{id:'folder-1',name:'Project',companionIds:[],createdAt:discussion.createdAt}]}):undefined);
+it('shows companion avatars next to conversation rows',async()=>{
+ const other={...discussion,id:'other',title:'Other discussion',participantIds:['june']};
+ setupFetch(path=>path==='/api/discussions'?response({discussions:[{...discussion,participantIds:['ada']},other],folders:[]}):undefined);
  renderWorkspace();
- const sidebar=await screen.findByRole('complementary',{name:'Discussions'});
+ const sidebar=await screen.findByRole('complementary',{name:'Conversations'});
  expect(await within(sidebar).findByLabelText('Companions: Ada')).toBeInTheDocument();
  expect(within(sidebar).getByLabelText('Companions: June').closest('.discussion-row')).toHaveTextContent('Other discussion');
  expect(within(within(sidebar).getByLabelText('Companions: June')).getByRole('img',{name:'June, Companion'})).toBeInTheDocument();
@@ -300,7 +304,7 @@ it('lets Central present delegated results once while direct replies stay in the
  expect(await within(timeline).findByText('Central summary')).toBeInTheDocument();
  expect(within(timeline).getByText('Direct answer')).toBeInTheDocument();
  expect(within(timeline).queryByText('Delegated detail')).not.toBeInTheDocument();
- await actor.click(screen.getByRole('button',{name:'Open files'}));
+ await actor.click(screen.getByRole('button',{name:'Workspace'}));
  await actor.click(screen.getByRole('button',{name:'Ada'}));
  await actor.click(screen.getByRole('button',{name:'Results'}));
  expect(await within(screen.getByRole('complementary',{name:'Ada workbench'})).findByText('Delegated detail')).toBeInTheDocument();
@@ -313,7 +317,7 @@ it('keeps older delegated responses inspectable when their tasks are outside the
  const actor=userEvent.setup();renderWorkspace();
  const timeline=await screen.findByRole('log');
  expect(within(timeline).queryByText('Older delegated result')).not.toBeInTheDocument();
- await actor.click(screen.getByRole('button',{name:'Open files'}));
+ await actor.click(screen.getByRole('button',{name:'Workspace'}));
  await actor.click(screen.getByRole('button',{name:'Ada'}));
  await actor.click(screen.getByRole('button',{name:'Results'}));
  const workbench=screen.getByRole('complementary',{name:'Ada workbench'});
@@ -346,7 +350,7 @@ it('returns from a companion to the discussion agent using only keyboard mention
 
 it('uses the last complete mention without changing the work being inspected',async()=>{
  setupFetch();const actor=userEvent.setup();renderWorkspace();
- await actor.click(await screen.findByRole('button',{name:'Open files'}));
+ await actor.click(await screen.findByRole('button',{name:'Workspace'}));
  await actor.click(screen.getByRole('button',{name:'Ada'}));
  const composer=screen.getByRole('textbox',{name:'Message Companion'});
  fireEvent.change(composer,{target:{value:'@Ada continue puis @Companion, résume'}});
@@ -490,7 +494,8 @@ it("keeps the archive modal isolated when navigation crosses its responsive brea
   await screen.findByRole("heading", { name: "Launch" });
   const main = view.container.querySelector<HTMLElement>(".discussion-main")!;
   fireEvent.click(screen.getByRole("button", { name: "Open navigation" }));
-  fireEvent.click(screen.getByRole("button", { name: "Archived discussions" }));
+  fireEvent.click(screen.getByRole("button", { name: "More options" }));
+  fireEvent.click(screen.getByRole("menuitem", { name: "Archived discussions" }));
   const archives = await screen.findByRole("dialog", { name: "Archived discussions" });
   expect(main.inert).toBe(true);
   act(() => { query.matches = false; change(); });
@@ -512,8 +517,9 @@ it("opens only supported computers, expands their controls, and preserves addres
   const actor = userEvent.setup(); renderWorkspace();
   const composer = await screen.findByRole("textbox", { name: "Message Companion" });
   await actor.type(composer, "Keep this draft");
-  await actor.click(screen.getByRole("button", { name: "Open computers" }));
-  const computers = screen.getByRole("complementary", { name: "Discussion computers" });
+  await actor.click(screen.getByRole("button", { name: "Workspace" }));
+  await actor.click(within(screen.getByRole("complementary", { name: "Discussion files" })).getByRole("button", { name: "Computers" }));
+  const computers = await screen.findByRole("complementary", { name: "Discussion computers" });
   expect(within(computers).queryByRole("button", { name: "June" })).not.toBeInTheDocument();
   await actor.click(within(computers).getByRole("button", { name: "Ada" }));
   expect(screen.getByRole("region", { name: "Computer controls" })).toBeInTheDocument();
@@ -526,20 +532,17 @@ it("opens only supported computers, expands their controls, and preserves addres
   cleanup(); vi.unstubAllGlobals();
 });
 
-it("shows the last message and its time on every roster row", async () => {
+it("shows the last message and its time on every conversation row", async () => {
   const lastMessage = { role: "assistant" as const, companionId: "ada", createdAt: "2026-09-11T09:30:00.000Z", preview: "## Heading\n\n- **Reviewing** pricing" };
   const direct = { ...discussion, id: "direct-ada", title: "Ada", directCompanionId: "ada", lastMessage: { role: "user" as const, companionId: null, createdAt: "2026-09-11T09:31:00.000Z", preview: "Take a look" } };
   setupFetch(path => path === "/api/discussions" ? response({ discussions: [{ ...discussion, participantIds: ["ada"], lastMessage }, direct], folders: [] }) : undefined);
   renderWorkspace();
-  const sidebar = await screen.findByRole("complementary", { name: "Discussions" });
+  const sidebar = await screen.findByRole("complementary", { name: "Conversations" });
   const row = (await within(sidebar).findByText("Launch")).closest(".discussion-row")!;
   expect(within(row as HTMLElement).getByText("Ada: Heading Reviewing pricing")).toBeInTheDocument();
   expect(row.querySelector("time")).toHaveAttribute("datetime", lastMessage.createdAt);
-  const companionRow = within(sidebar).getByText("June").closest(".discussion-row")!;
-  expect(within(companionRow as HTMLElement).getByText("Write")).toBeInTheDocument();
-  expect(companionRow.querySelector("time")).toBeNull();
   const adaRow = within(sidebar).getAllByText("Ada").map(node => node.closest(".discussion-row")).find(Boolean)!;
-  expect(within(adaRow as HTMLElement).getByText("Take a look")).toBeInTheDocument();
+  expect(within(adaRow as HTMLElement).getByText("You: Take a look")).toBeInTheDocument();
   cleanup(); vi.unstubAllGlobals();
 });
 
@@ -547,18 +550,20 @@ it("still names the author of a preview when that companion has been retired", a
   const lastMessage = { role: "assistant" as const, companionId: "gone", createdAt: "2026-09-11T09:30:00.000Z", preview: "Handed over" };
   setupFetch(path => path === "/api/discussions" ? response({ discussions: [{ ...discussion, lastMessage }], folders: [] }) : undefined);
   renderWorkspace();
-  const sidebar = await screen.findByRole("complementary", { name: "Discussions" });
+  const sidebar = await screen.findByRole("complementary", { name: "Conversations" });
   const row = (await within(sidebar).findByText("Launch")).closest(".discussion-row")!;
   expect(within(row as HTMLElement).getByText("Companion: Handed over")).toBeInTheDocument();
   expect(sidebar).not.toHaveTextContent("undefined");
   cleanup(); vi.unstubAllGlobals();
 });
 
-it("opens a row menu from its button and from a right click, and moves a discussion to a folder", async () => {
+it("opens a row menu from its button and from a right click, and archives from it", async () => {
   const bodies: Array<Record<string, unknown>> = [];
   setupFetch((path, options) => {
-    if (path === "/api/discussions") return response({ discussions: [discussion], folders: [{ id: "folder-1", name: "Project", companionIds: [], createdAt: discussion.createdAt }] });
+    if (path === "/api/discussions" && options?.method === "POST") return response({ discussion: { ...discussion, id: "new-discussion", title: "New discussion" } });
+    if (path === "/api/discussions") return response({ discussions: [discussion], folders: [] });
     if (path === "/api/discussions/discussion-1" && options?.method === "PATCH") { bodies.push(JSON.parse(String(options.body))); return response({ discussion }); }
+    if (path === "/api/discussions/new-discussion") return response({ ...snapshot, discussion: { ...discussion, id: "new-discussion", title: "New discussion" } });
     return undefined;
   });
   const actor = userEvent.setup(); renderWorkspace();
@@ -567,40 +572,64 @@ it("opens a row menu from its button and from a right click, and moves a discuss
   const menu = screen.getByRole("menu", { name: "Options for Launch" });
   expect(within(menu).getByRole("menuitem", { name: "Rename" })).toHaveFocus();
   await actor.keyboard("{ArrowDown}");
-  expect(within(menu).getByRole("menuitem", { name: "Move to Project" })).toHaveFocus();
+  expect(within(menu).getByRole("menuitem", { name: "Archive" })).toHaveFocus();
   await actor.keyboard("{Escape}");
   expect(screen.queryByRole("menu")).not.toBeInTheDocument();
   expect(trigger).toHaveFocus();
 
   fireEvent.contextMenu(trigger.closest(".discussion-row")!);
-  await actor.click(await screen.findByRole("menuitem", { name: "Move to Project" }));
-  await waitFor(() => expect(bodies).toEqual([{ folderId: "folder-1" }]));
+  await actor.click(await screen.findByRole("menuitem", { name: "Archive" }));
+  await waitFor(() => expect(bodies).toEqual([{ archived: true }]));
   cleanup(); vi.unstubAllGlobals();
 });
 
-it("creates a folder and a discussion inside it without opening a menu", async () => {
+it("creates a team chat with the chosen companions and no folder", async () => {
   const bodies: Array<Record<string, unknown>> = [];
-  let folders: Array<Record<string, unknown>> = [];
   setupFetch((path, options) => {
-    if (path === "/api/discussion-folders" && options?.method === "POST") {
-      const body = JSON.parse(String(options.body)); bodies.push(body);
-      folders = [{ id: "folder-1", name: body.name, companionIds: [], createdAt: discussion.createdAt }];
-      return response({ folder: folders[0] });
-    }
-    if (path === "/api/discussions" && options?.method === "POST") { bodies.push(JSON.parse(String(options.body))); return response({ discussion: { ...discussion, id: "in-folder", title: "New discussion", folderId: "folder-1" } }); }
-    if (path === "/api/discussions") return response({ discussions: [discussion], folders });
+    if (path === "/api/discussions" && options?.method === "POST") { bodies.push(JSON.parse(String(options.body))); return response({ discussion: { ...discussion, id: "team-1", title: "Launch" } }); }
+    if (path === "/api/discussions/team-1/participants/ada" && options?.method === "PUT") { bodies.push({ participant: "ada" }); return response({ ok: true }); }
+    if (path === "/api/discussions/team-1") return response({ ...snapshot, discussion: { ...discussion, id: "team-1", title: "Launch" } });
+    if (path === "/api/discussions") return response({ discussions: [discussion], folders: [] });
     return undefined;
   });
   const actor = userEvent.setup(); renderWorkspace();
 
-  await actor.click(await screen.findByRole("button", { name: "New folder" }));
-  await actor.type(screen.getByRole("textbox", { name: "New folder name" }), "Launch{Enter}");
-  await waitFor(() => expect(bodies[0]).toMatchObject({ name: "Launch", companionIds: [] }));
+  await actor.click(await screen.findByRole("button", { name: "Create" }));
+  await actor.click(await screen.findByRole("menuitem", { name: "New team chat" }));
+  await actor.type(screen.getByLabelText(/Name/), "Launch");
+  await actor.click(screen.getAllByRole("checkbox")[0]);
+  await actor.click(screen.getByRole("button", { name: "Create team chat" }));
+  await waitFor(() => expect(bodies[0]).toMatchObject({ title: "Launch" }));
+  await waitFor(() => expect(bodies.some(body => body.participant === "ada")).toBe(true));
+  expect(bodies.every(body => !("folderId" in body) || body.folderId === undefined)).toBe(true);
+  cleanup(); vi.unstubAllGlobals();
+});
 
-  const add = await screen.findByRole("button", { name: "New in Launch" });
-  await actor.click(add);
-  await waitFor(() => expect(bodies).toHaveLength(2));
-  expect(bodies[1]).toMatchObject({ folderId: "folder-1" });
+it("offers to create a Companion instead of manufacturing an empty conversation", async () => {
+  const onCreateCompanion = vi.fn();
+  const fetchMock = setupFetch(path => path === "/api/discussions" ? response({ discussions: [], folders: [] }) : undefined);
+  render(<DiscussionsWorkspace user={user} companions={[]} initialDiscussionId={null} legacyCompanionId={null} onUnauthorized={vi.fn()} onCreateCompanion={onCreateCompanion} onApplications={vi.fn()} onAccount={vi.fn()}/>);
+  expect(await screen.findByRole("heading", { name: "Create your first Companion" })).toBeInTheDocument();
+  await userEvent.setup().click(screen.getByRole("button", { name: "Create a Companion" }));
+  expect(onCreateCompanion).toHaveBeenCalled();
+  expect(fetchMock.mock.calls.some(([, options]) => options?.method === "POST")).toBe(false);
+  cleanup(); vi.unstubAllGlobals();
+});
+
+it("returns to the first-run prompt when the last conversation is archived without companions", async () => {
+  setupFetch((path, options) => {
+    if (path === "/api/discussions/discussion-1" && options?.method === "PATCH") return response({ discussion: { ...discussion, archivedAt: discussion.createdAt } });
+    if (path === "/api/discussions") return response({ discussions: [discussion], folders: [] });
+    return undefined;
+  });
+  const actor = userEvent.setup();
+  render(<DiscussionsWorkspace user={user} companions={[]} initialDiscussionId="discussion-1" legacyCompanionId={null} onUnauthorized={vi.fn()} onCreateCompanion={vi.fn()} onApplications={vi.fn()} onAccount={vi.fn()}/>);
+  await screen.findByRole("heading", { name: "Launch" });
+  await actor.click(screen.getByRole("button", { name: "Workspace" }));
+  await actor.click(screen.getByRole("button", { name: "Details" }));
+  await actor.click(await screen.findByRole("button", { name: /Archive conversation/ }));
+  expect(await screen.findByRole("heading", { name: "Create your first Companion" })).toBeInTheDocument();
+  expect(window.location.pathname).toBe("/");
   cleanup(); vi.unstubAllGlobals();
 });
 
@@ -625,7 +654,7 @@ it("collects message attachments and task files once in the discussion files vie
     tasks: [{ id: "t", companionId: ada.id, status: "succeeded", content: "Read", resultText: "Done", previewText: null, error: null, createdAt: discussion.createdAt, finishedAt: discussion.createdAt, questions: [], files: [file] }],
   }) : undefined);
   const actor = userEvent.setup(); renderWorkspace();
-  await actor.click(await screen.findByRole("button", { name: "Open files" }));
+  await actor.click(await screen.findByRole("button", { name: "Workspace" }));
   const panel = screen.getByRole("complementary", { name: "Discussion files" });
   expect(within(panel).getAllByRole("link", { name: "notes.txt" })).toHaveLength(1);
   expect(within(panel).queryByText("Done")).not.toBeInTheDocument();

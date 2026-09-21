@@ -36,25 +36,46 @@
 .discussion-title form { display: flex; align-items: center; gap: 5px; }
 .discussion-title input { min-width: 130px; width: min(36vw, 420px); height: 34px; border: 0; border-radius: var(--radius-2); padding: 0 9px; background: var(--atelier-surface); color: var(--atelier-ink); box-shadow: var(--shadow-border); }
 
-/* Files and Computer share one segmented control: outer 11 = inner 8 + 3. */
-.resource-switch { display: flex; min-width: 0; flex-shrink: 1; gap: 3px; overflow-x: auto; border-radius: 11px; padding: 3px; background: var(--atelier-rail); }
-.resource-switch button {
+.header-participants .avatar-stack-item,
+.header-participants .avatar-stack-more { box-shadow: 0 0 0 2px var(--bg-base); }
+
+/* Adding a companion is a first-class action in the header. */
+.header-add { position: relative; display: flex; min-width: 0; flex: 0 0 auto; }
+.header-add-scrim { position: fixed; z-index: 34; inset: 0; border: 0; background: transparent; }
+.header-add-menu {
+  position: absolute;
+  z-index: 35;
+  top: calc(100% + 4px);
+  right: 0;
+  display: grid;
+  width: max-content;
+  min-width: 220px;
+  max-width: min(300px, calc(100vw - 32px));
+  max-height: min(60dvh, 420px);
+  gap: 1px;
+  overflow-y: auto;
+  border-radius: var(--radius-4);
+  padding: 6px;
+  background: var(--bg-layer-3);
+  box-shadow: var(--shadow-menu);
+}
+.header-add-menu > strong { display: flex; align-items: center; gap: 7px; padding: 7px 9px; color: var(--atelier-muted); font-size: 11px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; }
+.header-add-menu > strong svg { width: 13px; height: 13px; }
+.header-add-menu button {
   display: flex;
-  min-height: 34px;
-  flex-shrink: 0;
+  min-height: 40px;
   align-items: center;
-  gap: 7px;
+  gap: 9px;
   border: 0;
   border-radius: var(--radius-2);
-  padding: 6px 10px;
+  padding: 6px 9px;
   background: transparent;
-  color: var(--atelier-muted);
-  font-size: 12.5px;
-  font-weight: 500;
+  color: var(--atelier-ink);
+  text-align: left;
+  font-size: 13px;
   cursor: pointer;
-  transition: background-color var(--duration-fast) ease, color var(--duration-fast) ease, box-shadow var(--duration-enter) ease-out;
 }
-.resource-switch button[aria-expanded="true"] { background: var(--atelier-surface); color: var(--atelier-ink); box-shadow: var(--shadow-border); }
+.header-add-menu button:hover { background: var(--bg-layer-2); }
 
 .discussion-timeline {
   grid-column: 1;
@@ -75,7 +96,7 @@
 .discussion-empty > :nth-child(3) { animation-delay: 200ms; }
 .discussion-empty > :nth-child(4) { animation-delay: 300ms; }
 @keyframes empty-enter { to { opacity: 1; translate: 0; filter: blur(0); } }
-.discussion-empty h2 { margin: 24px 0 0; font-family: "Instrument Serif", Georgia, serif; font-size: 40px; font-weight: 400; line-height: 1.05; letter-spacing: -.01em; }
+.discussion-empty h2 { margin: 20px 0 0; font-size: 26px; font-weight: 600; line-height: 1.2; letter-spacing: -.02em; }
 .discussion-empty p { max-width: 42ch; margin: 10px 0 0; color: var(--atelier-muted); font-size: 15px; line-height: 1.6; }
 .discussion-starters { display: flex; max-width: 640px; flex-wrap: wrap; justify-content: center; gap: 8px; margin-top: 28px; }
 .discussion-starters button {
@@ -241,19 +262,30 @@ span.activity-agent { cursor: default; }
 .quiet-stop:disabled { opacity: .45; cursor: default; }
 
 /* Inline cards: surface 14 = inner 6 + padding 8. */
-.invitation-proposal, .discussion-timeline > .discussion-question {
+.discussion-timeline > .discussion-question {
   margin: 0 0 20px var(--thread-gutter);
   border-radius: var(--radius-4);
   padding: 8px;
-  background: var(--atelier-surface);
+  background: var(--bg-layer-1);
   box-shadow: var(--shadow-border);
 }
-.invitation-proposal { display: flex; gap: 12px; padding: 14px 16px; }
-.invitation-proposal > svg { flex: 0 0 auto; color: var(--atelier-muted); }
-.invitation-proposal strong { font-size: 13px; font-weight: 600; }
-.invitation-proposal p, .invitation-proposal blockquote { color: var(--atelier-muted); font-size: 13px; line-height: 1.5; }
-.invitation-proposal blockquote { margin: 8px 0; border-left: 2px solid var(--atelier-border); padding-left: 10px; }
-.invitation-proposal > div > div { display: flex; gap: 7px; margin-top: 12px; }
+/* Inline event: one line, two actions. */
+.invitation-proposal {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 18px var(--thread-gutter);
+  border: 1px solid var(--atelier-border);
+  border-radius: var(--radius-3);
+  padding: 10px 12px;
+  background: var(--bg-layer-1);
+}
+.invitation-proposal > svg { flex: 0 0 auto; width: 16px; height: 16px; color: var(--atelier-muted); }
+.invitation-copy { min-width: 0; flex: 1; }
+.invitation-copy p { margin: 0; color: var(--atelier-muted); font-size: 13px; line-height: 1.5; }
+.invitation-copy p strong { color: var(--atelier-ink); font-weight: 600; }
+.invitation-prompt { overflow: hidden; margin-top: 3px !important; text-overflow: ellipsis; white-space: nowrap; font-size: 12.5px !important; }
+.invitation-actions { display: flex; flex: 0 0 auto; gap: 5px; }
 
 .discussion-question { display: grid; min-width: 0; gap: 6px; }
 .discussion-question > strong { padding: 6px 8px 0; font-size: 13px; font-weight: 600; }
@@ -338,8 +370,7 @@ span.activity-agent { cursor: default; }
 
 @media (max-width: 1024px) {
   .discussion-header { padding: 10px 12px; }
-  .discussion-header { grid-template-columns: auto auto minmax(0, 1fr) auto; }
-  .resource-switch { display: none; }
+  .discussion-header { grid-template-columns: auto auto minmax(0, 1fr) auto auto; }
   .discussion-mobile-menu { display: inline-flex; }
   .discussion-header > .ui-button { min-width: 44px; min-height: 44px; }
   .discussion-timeline { padding: 22px 16px; }

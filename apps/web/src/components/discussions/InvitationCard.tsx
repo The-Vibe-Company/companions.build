@@ -10,10 +10,8 @@ export function InvitationCard({ discussionId, proposal, companion, onRefresh, o
     try { await discussionApi.answerProposal(discussionId, proposal.id, accept); await onRefresh(); }
     catch (cause) { onError(cause); }
   }
-  return <section className="invitation-proposal"><UserPlus /><div>
-    <strong>Invite {companion?.name ?? "this companion"}?</strong>
-    <p>{proposal.reason}</p>
-    {proposal.prompt && <blockquote>{proposal.prompt}</blockquote>}
-    <div><Button size="sm" onClick={() => void answer(true)}><Check />Accept</Button><Button size="sm" variant="outline" onClick={() => void answer(false)}>Decline</Button></div>
-  </div></section>;
+  return <section className="invitation-proposal" aria-label={`Invite ${companion?.name ?? "companion"}`}><UserPlus aria-hidden="true" /><div className="invitation-copy">
+    <p><strong>Invite {companion?.name ?? "this companion"}?</strong> {proposal.reason}</p>
+    {proposal.prompt && <p className="invitation-prompt">{proposal.prompt}</p>}
+  </div><div className="invitation-actions"><Button size="sm" onClick={() => void answer(true)}><Check />Accept</Button><Button size="sm" variant="ghost" onClick={() => void answer(false)}>Decline</Button></div></section>;
 }

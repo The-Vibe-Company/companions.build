@@ -1,110 +1,79 @@
-# companions.build — Atelier
+# companions.build — interface reference
 
-The current visual reference is the owner-provided **Companions.build design système**
-archive, retained Atelier direction in `DirectionA.dc.html` and `Discussions.dc.html`,
-approved on 11 September 2026. It supersedes the former companion-only rail and specialist
-screens. The nine reference views cover home, folders, mentions, delegation, discussion menu,
-companion workbench, direct discussion and two mobile views.
+The visual reference is a calm, near-monochrome product in the spirit of DeepSeek Harness:
+neutral surfaces, one system typeface, a single blue accent, hairline separators and light/dark
+parity. It replaces the earlier warm “Atelier” direction. Product decisions remain in
+[companions-build.md](companions-build.md); the current implementation boundary is in
+[v0.md](v0.md).
 
-Reference people, proposals, applications, counts, installation results and memories illustrate
-the layout. They are not production fixtures or evidence of available backend capabilities.
-The design export runtime is for preview only and is not a production dependency.
+Reference fixtures in tests illustrate layout only. They are not production data and never
+represent a persisted state the API did not return.
 
 ## Foundation
 
-- Warm ivory canvas `oklch(.975 .01 85)` and rail `oklch(.955 .012 80)`.
-- Dark warm ink `oklch(.25 .02 60)`, readable muted text `oklch(.5 .02 70)`,
-  quiet borders `oklch(.9 .015 80)` and white composer/workbench surfaces.
-- DM Sans for body text and controls; Instrument Serif for discussion and empty-state headings.
-  Keep labels in sans, use fixed readable sizes and system fallbacks.
-- Existing persisted companion avatars remain the expressive color system. The supplied favicon
-  is the product mark. No appearance choices are overwritten by the reference characters.
-- Rounded pills for recipients and participant presence, restrained outlines, circular send action.
-  State animation follows real work and respects reduced motion.
+- One token system: `apps/web/src/styles/tokens.css`. Semantic surfaces (`--bg-base`,
+  `--bg-sidebar`, `--bg-layer-1/2`), lines (`--border-l1/l2`), text (`--label-primary/secondary/
+  tertiary`), one brand blue (`--brand`) and status colours. `[data-theme="dark"]` restates them;
+  no component introduces a second palette.
+- Light canvas is white with a `#f9fafb` rail; dark is `#151517` with a `#1b1b1c` rail.
+- System sans for everything (`--font-sans`); no webfonts and no serif headings. Code uses
+  `--font-mono`.
+- The blue accent is reserved for links, focus rings and a selected control. Hover and selected
+  nav states use a neutral tint derived from the ink colour, so both themes stay quiet.
+- Radius 6/8/12 (pills only for tags and status). Depth is a hairline; `--shadow-menu` is the only
+  shadow and belongs to menus, sheets and the mobile drawer.
+- Motion keeps the existing 120/150/200 ms rhythm and honours `prefers-reduced-motion`.
 
-## Navigation and conversation
+## Avatars
 
-A compact 264px desktop sidebar is a single messaging roster, read like a contact list. A
-**Companions** section gives each companion one row that is its direct chat; a **Discussions**
-section lists independent discussions, with optional folders as collapsible headers whose open
-state persists. Every row shares one grammar: mark, title over the last message preview, and the
-time of that message. Row actions — rename, move to a folder, archive, a companion's settings —
-live in an accessible menu opened from the row or by right click, never as permanent chrome.
-Creation, archived discussions and folder defaults remain reachable; folder defaults open a small
-focus-trapped dialog rather than an editor inside the navigation.
+- `CompanionAvatar` renders the persisted shape/colour/face at normalised sizes; the expressive
+  avatar is the only place colour is allowed.
+- `AvatarStack` overlaps up to three faces with a `--surface-ring` ring, then a `+n` chip. It marks
+  a team chat in the rail and the participant group in the header.
 
-The header is one 64px row: the participant stack, the discussion title with its rename
-affordance, a segmented Files/Computer switch, and discussion details. Mentions provide an
-accessible picker; selecting a recipient persists the destination with an explicit return to
-Central. Viewing a workbench alone must not silently address or send a message.
+## Navigation and conversations
 
-The timeline carries the conversation and nothing else. Each day opens with a separator, the same
-author keeps one header for five minutes, and a grouped message shows its time on hover or focus
-in an approximately 720px reading column. User messages sit in a right-hand bubble, companion
-replies as plain text beside their avatar. Alongside the messages the thread shows only one line
-per active run — avatar, "Ada · Working", stop — the open questions under their companion's line,
-pending invitations, and a failure while it still answers the message you just sent. Results,
-previews, finished work and earlier delegated replies belong to the companion workbench, which
-opens from the line's avatar without changing the recipient. Status colour and pulse come from
-real `tasks`/`centralRuns` state, never from a timer.
+- One rail, one list. Team chats and direct conversations share a single recency-ordered list;
+  there are no folders and no separate companion roster. A direct conversation is a normal row
+  named after its Companion; a team chat shows an `AvatarStack`.
+- Row grammar: mark, title over last-message preview, time. Row actions (rename, companion
+  settings, archive) live in the row menu, reached by its trigger or a right click.
+- The header `+` opens create: **New team chat** (participants first), **Message <Companion>**, or
+  **New companion**. The `···` menu holds archived conversations and the theme switch. Archived
+  conversations open in a focus-trapped sheet and restore in place.
+- Each row states only persisted facts: the last message and its time, or “No messages yet”.
 
-The composer is a pill: attachments, a textarea that grows with the text, then a footer holding
-the recipient pill (groups only), attach and send. It stays available while delegated work runs.
-An empty conversation offers editable starter prompts and direct-companion shortcuts.
+## Conversation
 
-## Companion workspace
+- The header is one row: the participant stack, the renameable title, a `+` that adds a Companion
+  directly, and a single **Workspace** button. Adding a companion no longer hides in a modal.
+- The timeline carries only the conversation: day separators, grouped messages, one line per active
+  run, open questions, and pending invitations. A coordinator invitation is a compact inline event
+  with Accept/Decline.
+- The composer is one row: optional recipient pill (only when a target or team exists), attach,
+  text, send. `@` addresses a specific Companion; direct conversations have no recipient control.
+- Every state comes from `tasks`/`centralRuns`/messages; nothing is simulated.
 
-On wide screens, opening a participant creates a split view: conversation/composer on the left,
-companion results and files on the right. Closing it returns space to the conversation. Render
-actual file previews and task outputs, with downloads and machine controls where available.
-A visual reference to three logo proposals does not authorize inventing proposals, comments,
-selection state or an installed-tool inventory absent from the API.
+## Conversation workspace
 
-Direct discussions retain the same conversation grammar and expose the companion's existing
-identity, configuration, applications and machine controls. Durable memory remains the companion's
-real behavior; do not display fictional memories or reversible-state controls without an API.
+- One right-hand panel, opened by the **Workspace** button, with tabs **Files**, **Computers** and
+  **Details**; selecting a Companion opens that Companion's Results/Files/Computer/Configuration
+  views. Details carries participants and archive, so there is no separate details modal.
+- On narrow screens the panel replaces the timeline and a bottom bar offers Thread, Files, Details
+  and a participant picker.
 
-## Mobile and recovery
+## First run
 
-Use a drawer for the sidebar and a compact bottom navigation for the thread, participants and
-navigation access. A companion workspace becomes full width; conversation and composer remain
-reachable without losing the draft. Check narrow widths, long names, safe areas, keyboard focus,
-scroll boundaries and reduced motion. Interactive targets must remain comfortably tappable.
-
-Retain the existing invariants during visual changes: owner/discussion-scoped drafts, stable
-message and upload identities/positions after partial failure, precision-safe history pagination,
-real permission reconciliation, trusted OAuth completion and distinct chat/companion cancellation.
-Archive and participant removal do not cancel already-accepted work.
+- A new account sees one compact form (name, role). Appearance, computer and applications sit
+  behind one disclosure. Creating a Companion lands directly in a direct conversation with it,
+  offered starter prompts and the composer.
 
 ## Validation
 
-Compare the rendered reference and actual persisted application at 1440×900 and 390×844, plus a
-narrow 320px layout. Exercise @ selection, split-view open/close, mobile navigation, direct chat,
-folder controls, scrolling, file recovery and error states. Use focused web checks while iterating
-and full verification before publishing. Reference preview fixtures remain in ignored artifacts;
-production displays only real API state. No Box is required for this visual work.
-
-## Consistent settings and interaction rules
-
-Companion settings are available directly at `/companions/:id/settings`, without creating a
-conversation. The dedicated page and contextual discussion settings share one configuration
-form. Name and role come first; appearance, model selection and client sharing are disclosures.
-Application accounts are connected globally and granted separately to each Companion.
-Standalone navigation returns to the discussion that opened it, including its saved text draft.
-The product mark navigates to an existing discussion; the plus action creates one.
-
-The coordinator keeps the name Companion, with “Coordinates this discussion” in recipient
-selection. Opening activity never changes the recipient. An accepted answer or stop request
-is acknowledged separately from the next persisted task state. Background update failures keep
-the last received messages visible. Loading archives and account data is distinct from emptiness.
-
-Buttons use 120ms pointer press feedback at scale 0.96, with a `static` opt-out. Keyboard input
-and reduced motion suppress movement. Modal sheets isolate background content, wrap focus,
-close with Escape and restore focus, including nested desktop controls. Mobile navigation
-applies the same focus behavior only at its drawer breakpoint.
-
-Browser coverage includes standalone pages at 1440×900, 390×844 and 320×844, plus discussion
-activity, draft preservation and modal keyboard behavior. CDP sets and asserts actual viewport
-widths; Chrome's command-line window size alone can clamp the layout to 500px. Screenshots use
-controlled test data and system font fallbacks, not live provider evidence. Set
-`DISCUSSION_SCREENSHOTS` to an ignored artifact directory to retain captures.
+- Rendered against real Chrome at 1440×900, 1100×900, 768×900, 390×844 and 320×844, plus a
+  reduced-motion pass. Checks cover the rail, row menu, composer growth, workspace tabs, details,
+  focus and overflow.
+- `DISCUSSION_SCREENSHOTS=<dir>` retains captures; preview fixtures stay in ignored artifacts.
+- Theme parity is checked by rendering the built stylesheet with `data-theme="dark"`; both themes
+  must keep text legible and borders visible.
+- No Box or live model is required for this visual work.

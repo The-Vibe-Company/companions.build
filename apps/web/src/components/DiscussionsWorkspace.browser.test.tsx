@@ -58,7 +58,7 @@ it("keeps the conversation usable beside resources on desktop and across mobile 
         const sixLines = field.getBoundingClientRect().height;
         result.textareaGrows = sixLines > oneLine * 2 && visible(composer) && composer.getBoundingClientRect().bottom <= innerHeight;
         setter.call(field,'Keep my draft'); field.dispatchEvent(new Event('input',{bubbles:true})); await wait();
-        document.querySelector(mobile ? '[aria-label="Show files"]' : '[aria-label="Open files"]').click(); await wait();
+        document.querySelector(mobile ? '[aria-label="Show files"]' : '[aria-label="Workspace"]').click(); await wait();
         rail = document.querySelector('.discussion-workbench');
         result.activityVisible = visible(rail) && visible(rail.querySelector('.discussion-resources'));
         result.agentTask = rail.textContent.includes('Companion workspaces');
@@ -86,17 +86,14 @@ it("keeps the conversation usable beside resources on desktop and across mobile 
         const answerInput = document.querySelector('.discussion-question input').getBoundingClientRect();
         const answerButton = document.querySelector('.discussion-question button[type="submit"]').getBoundingClientRect();
         result.answerFits = answerInput.left >= 0 && answerButton.right <= innerWidth;
-        const detailsButton = document.querySelector('[aria-label="Discussion details"]');
-        detailsButton.focus(); detailsButton.click(); await wait();
-        const modal = document.querySelector('[role="dialog"]');
-        result.modalFocus = modal.contains(document.activeElement);
-        result.modalIsolation = document.querySelector('.discussion-main').inert;
-        const close = modal.querySelector('[aria-label="Close details"]');
-        close.focus();
-        document.dispatchEvent(new KeyboardEvent('keydown',{key:'Tab',shiftKey:true,bubbles:true,cancelable:true}));
-        result.focusWrap = modal.contains(document.activeElement) && document.activeElement !== close;
-        document.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true,cancelable:true})); await wait();
-        result.focusReturned = document.activeElement === detailsButton && !document.querySelector('.discussion-main').inert;
+        const workspaceButton = document.querySelector('[aria-label="Workspace"]');
+        workspaceButton.focus(); workspaceButton.click(); await wait();
+        const detailsTab = [...document.querySelectorAll('.workbench-tabs button')].find(node => node.textContent.includes('Details'));
+        detailsTab.click(); await wait();
+        result.detailsVisible = visible(document.querySelector('.discussion-details-body'));
+        result.detailsArchive = !!document.querySelector('.archive-discussion');
+        document.querySelector('[aria-label="Close workbench"]').click(); await wait();
+        result.returnedToThread = visible(timeline) && visible(composer);
         const report = document.createElement('pre'); report.id='browser-result'; report.hidden=true; report.textContent=JSON.stringify(result); document.body.append(report);
       }
       check().catch(error=>{const report=document.createElement('pre');report.id='browser-result';report.textContent=JSON.stringify({error:String(error)});document.body.append(report);});
@@ -121,7 +118,7 @@ it("keeps the conversation usable beside resources on desktop and across mobile 
         pressScale: reducedMotion ? "1" : "0.96", answerFits: true, viewport: width, mobile: width <= 1024, initialThread: true, initialComposer: true, initialActivity: false, expands: true,
         rosterTime: true, rowMenu: true, rowMenuClosed: true, textareaGrows: true,
         overflow: false, activityVisible: true, agentTask: true, workbenchVisible: true, taskDetails: true,
-        modalFocus: true, modalIsolation: true, focusWrap: true, focusReturned: true, returnedToThread: true, draftPreserved: true, recipientUnchanged: true, composerOnScreen: true, noHorizontalOverflow: true,
+        detailsVisible: true, detailsArchive: true, returnedToThread: true, draftPreserved: true, recipientUnchanged: true, composerOnScreen: true, noHorizontalOverflow: true,
       });
       expect(result.stopWidth).toBeLessThanOrEqual(44);
     }

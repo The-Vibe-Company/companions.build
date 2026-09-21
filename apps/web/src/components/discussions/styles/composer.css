@@ -175,7 +175,7 @@
 .mention-autocomplete strong, .mention-autocomplete small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .mention-autocomplete strong { font-size: 13.5px; }
 .mention-autocomplete small { color: var(--atelier-muted); font-size: 12px; }
-.mention-autocomplete kbd { color: var(--atelier-muted); font: 11px "DM Sans", sans-serif; }
+.mention-autocomplete kbd { color: var(--atelier-muted); font: 11px var(--font-mono); }
 
 @media (hover: hover) and (pointer: fine) {
   .discussion-composer > footer > label:hover { background: var(--atelier-rail); color: var(--atelier-ink); }

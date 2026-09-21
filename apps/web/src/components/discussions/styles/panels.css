@@ -1,5 +1,5 @@
 /* Discussion details and archived discussions: sheets over the conversation. */
-.details-scrim { position: fixed; z-index: 40; inset: 0; border: 0; background: oklch(.2 .02 60/.16); }
+.details-scrim { position: fixed; z-index: 40; inset: 0; border: 0; background: color-mix(in srgb, #000 24%, transparent); }
 .discussion-details {
   position: fixed;
   z-index: 41;
@@ -16,7 +16,7 @@
 @starting-style { .discussion-details { translate: 16px 0; opacity: 0; } }
 .discussion-details > header { display: flex; min-height: 82px; align-items: center; gap: 12px; border-bottom: 1px solid var(--atelier-border); padding: 17px 20px; }
 .discussion-details > header > div { min-width: 0; flex: 1; }
-.discussion-details h2 { margin: 0; font-family: "Instrument Serif", Georgia, serif; font-size: 24px; font-weight: 400; letter-spacing: -.01em; }
+.discussion-details h2 { margin: 0; font-size: 17px; font-weight: 600; letter-spacing: -.01em; }
 .discussion-details > header p { overflow: hidden; margin: 4px 0 0; color: var(--atelier-muted); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
 
 .details-content { min-height: 0; flex: 1; overflow-y: auto; padding: 18px; }

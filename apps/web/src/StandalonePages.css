@@ -1,12 +1,8 @@
-/* The pages outside the discussion shell share its Atelier surfaces and spacing. */
+/* The pages outside the discussion shell share its surfaces and spacing. */
 .account-page,.connections-page,.onboarding {
-  --background:oklch(.975 .01 85);
-  --foreground:oklch(.25 .02 60);
-  --muted-foreground:oklch(.5 .02 70);
-  --border:oklch(.9 .015 80);
   height:100%; min-height:0; width:100%; overflow-y:auto;
   background:var(--background); color:var(--foreground);
-  font-family:"DM Sans",ui-sans-serif,system-ui,sans-serif;
+  font-family:var(--font-sans);
 }
 .standalone-header,.onboarding .onboarding-mobile-header {
   position:static; display:flex; align-items:center; gap:16px;
@@ -16,8 +12,8 @@
 .standalone-header>button,.onboarding-mobile-header>button { flex-shrink:0; min-width:44px; min-height:44px; }
 .standalone-header>div { min-width:0; }
 .standalone-header h1,.account-inner>h1,.create-heading h1 {
-  font-family:"Instrument Serif",Georgia,serif; font-weight:400;
-  font-size:36px; line-height:1.15; letter-spacing:-.02em; margin:0;
+  font-weight:600;
+  font-size:26px; line-height:1.2; letter-spacing:-.02em; margin:0;
 }
 .standalone-header p { margin:6px 0 0; color:var(--muted-foreground); line-height:1.5; }
 .account-inner,.connections-inner { width:calc(100% - 64px); margin:0 auto; padding:36px 0 64px; }
@@ -41,6 +37,11 @@ main.onboarding { display:block; padding:0; }
 }
 .create-form .field textarea { resize:vertical; }
 .appearance-toggle { display:flex; min-height:44px; align-items:center; justify-content:space-between; gap:12px; border:0; border-block:1px solid var(--border); padding:12px 0; text-align:left; cursor:pointer; }
+.create-form .create-more { margin-top: 6px; border-block: 1px solid var(--border); padding: 2px 0; }
+.create-form .create-more > summary { display:flex; min-height:44px; align-items:center; cursor:pointer; color:var(--muted-foreground); font-size:14px; font-weight:600; }
+.create-form .create-more[open] > summary { color:var(--foreground); }
+.create-form .create-more .avatar-picker { margin: 10px 0 20px; }
+.create-form .create-more .create-setup-section { margin-top: 4px; }
 .appearance-toggle span { color:var(--muted-foreground); font-size:13px; }
 .create-form .avatar-picker { min-width:0; }
 .create-form .avatar-options { flex-wrap:wrap; }
@@ -51,7 +52,7 @@ main.onboarding { display:block; padding:0; }
 .create-form form>button[type=submit] { min-height:46px; margin-top:28px; border-radius:10px; }
 @media(max-width:600px) {
   .standalone-header,.onboarding .onboarding-mobile-header { min-height:80px; gap:10px; padding:calc(16px + env(safe-area-inset-top)) 16px 16px; }
-  .standalone-header h1,.account-inner>h1,.create-heading h1 { font-size:30px; }
+  .standalone-header h1,.account-inner>h1,.create-heading h1 { font-size:22px; }
   .account-inner,.connections-inner { width:calc(100% - 32px); padding-top:24px; }
   .connections-inner .connection-card { min-height:170px; border-radius:16px; }
   .onboarding .create-form { width:calc(100% - 32px); margin:28px auto 48px; }

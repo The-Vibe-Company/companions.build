@@ -19,10 +19,15 @@
   overscroll-behavior: contain;
   padding: 20px;
 }
-.discussion-resources { gap: 0; padding: 24px; }
+.discussion-resources { gap: 16px; padding: 12px 20px 24px; }
 .discussion-resources > header { margin-bottom: 24px; padding-right: 76px; }
 .discussion-resources h2 { margin: 0; font-size: 17px; font-weight: 600; }
 .discussion-resources header p { margin: 6px 0 0; color: var(--atelier-muted); font-size: 13px; }
+
+.discussion-details-body { display: grid; align-content: start; gap: 2px; }
+.discussion-details-body > h3 { margin: 20px 4px 8px; color: var(--atelier-muted); font-size: 12px; font-weight: 600; }
+.discussion-details-body > h3:first-child { margin-top: 0; }
+.discussion-details-body .archive-discussion { margin-top: 20px; }
 
 .work-panel .discussion-task { margin: 0; }
 .work-panel .discussion-task:first-of-type { border-top: 0; }
@@ -67,12 +72,12 @@
 .workbench-tabs button span { border-radius: var(--radius-pill); padding: 1px 6px; background: var(--atelier-rail); font-size: 11px; }
 
 .workbench-empty { display: grid; justify-items: center; gap: 12px; padding: 64px 20px; color: var(--atelier-muted); text-align: center; }
-.workbench-empty h3 { margin: 0; color: var(--atelier-ink); font-family: "Instrument Serif", Georgia, serif; font-size: 28px; font-weight: 400; }
+.workbench-empty h3 { margin: 0; color: var(--atelier-ink); font-size: 18px; font-weight: 600; }
 .workbench-empty p { max-width: 34ch; margin: 0; }
 
 .work-empty { display: flex; min-height: 100%; align-items: center; justify-content: center; flex-direction: column; padding: 40px; text-align: center; }
 .work-empty > svg { width: 30px; height: 30px; color: var(--atelier-muted); }
-.work-empty h2 { margin: 16px 0 0; font-family: "Instrument Serif", Georgia, serif; font-size: 25px; font-weight: 400; }
+.work-empty h2 { margin: 16px 0 0; font-size: 18px; font-weight: 600; }
 .work-empty p { max-width: 44ch; color: var(--atelier-muted); line-height: 1.55; }
 
 .workspace-companions { margin-top: 28px; }

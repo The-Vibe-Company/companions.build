@@ -1,15 +1,4 @@
-/* Maison: calm surfaces, expressive companions, progressive controls. */
-:root {
- color-scheme: light;
- --background: oklch(.988 .003 95); --foreground: oklch(.255 .008 120);
- --card: oklch(1 0 0); --card-foreground: var(--foreground);
- --primary: oklch(.27 .008 120); --primary-foreground: oklch(.99 .002 95);
- --secondary: oklch(.958 .004 95); --secondary-foreground: var(--foreground);
- --muted: var(--secondary); --muted-foreground: oklch(.49 .009 100);
- --accent: oklch(.937 .006 95); --accent-foreground: var(--foreground);
- --border: oklch(.925 .004 95); --input: oklch(.855 .006 95); --ring: oklch(.4 .01 120);
- --sidebar: oklch(.97 .005 95); --sidebar-accent: oklch(.932 .006 95);
-}
+/* Maison: layout rules for the standalone pages. Palette lives in styles/tokens.css. */
 button,a,input,textarea,select{transition:background-color 120ms ease,color 120ms ease,border-color 120ms ease;}
 /* Status rail: companions stay visible; workspace tools have their own home. */
 .sidebar { width:96px; flex-basis:96px; padding:20px 0 16px; background:var(--sidebar); border-right:1px solid var(--border); }
@@ -138,7 +127,7 @@ button,a,input,textarea,select{transition:background-color 120ms ease,color 120m
 .companion-sections button:hover { background:var(--secondary); }
 .companion-sections button[aria-current=page] { background:var(--foreground); color:var(--card); border-color:var(--foreground); }
 .companion-sections button.nav-icon { width:38px; padding:0; }
-.nav-live-dot { width:6px; height:6px; border-radius:50%; background:oklch(.62 .15 145); }
+.nav-live-dot { width:6px; height:6px; border-radius:50%; background:var(--success); }
 .workspace-body[hidden] { display:none; }
 .companion-page { flex:1; min-height:0; overflow:auto; overscroll-behavior:contain; }
 .companion-page-inner { max-width:760px; margin:0 auto; padding:48px 36px 72px; }
@@ -284,12 +273,12 @@ button.ui-button svg { stroke-width:2; }
 .settings-advanced .muted-copy { margin-block:12px; font-size:13px; }
 .companion-configuration { display:grid; min-width:0; gap:28px; }
 .companion-configuration>section,.settings-computer { border-top:1px solid var(--border); padding-top:24px; }
-.companion-configuration h2,.settings-computer h2 { margin:0 0 8px; font:600 18px/1.35 "DM Sans",sans-serif; overflow-wrap:anywhere; }
+.companion-configuration h2,.settings-computer h2 { margin:0 0 8px; font:600 18px/1.35 var(--font-sans); overflow-wrap:anywhere; }
 .companion-configuration p { margin:0 0 12px; }
 .companion-configuration .participant-config { display:grid; gap:12px; }
 .companion-configuration fieldset { display:grid; min-width:0; gap:20px; padding:0; border:0; }
 .companion-configuration .participant-config label { display:grid; gap:8px; font-size:14px; font-weight:600; color:var(--foreground); }
-.companion-configuration .participant-config :is(input,textarea,select) { width:100%; min-width:0; min-height:44px; border:1px solid var(--border); border-radius:10px; padding:10px 12px; background:var(--card); color:var(--foreground); font:400 15px/1.5 "DM Sans",sans-serif; }
+.companion-configuration .participant-config :is(input,textarea,select) { width:100%; min-width:0; min-height:44px; border:1px solid var(--border); border-radius:10px; padding:10px 12px; background:var(--card); color:var(--foreground); font:400 15px/1.5 var(--font-sans); }
 .companion-configuration .participant-config textarea { resize:vertical; }
 .companion-configuration .participant-config>.ui-button { justify-self:start; min-height:44px; }
 .companion-configuration .avatar-options { flex-wrap:wrap; }
@@ -322,6 +311,6 @@ button.ui-button svg { stroke-width:2; }
 .companion-configuration .participant-config input[type=checkbox] { width:18px; height:18px; min-height:18px; padding:0; }
 .companion-configuration .participant-config label:has(>input[type=checkbox]) { display:flex; align-items:center; font-weight:400; }
 html[data-input=keyboard] *,html[data-input=keyboard] *::before,html[data-input=keyboard] *::after { transition:none!important; scroll-behavior:auto!important; }
-.access-page { background:oklch(.975 .01 85); }
+.access-page { background:var(--background); }
 .retirement-confirmation { display:flex; flex-wrap:wrap; gap:8px; }
 .retirement-confirmation>p { flex-basis:100%; }

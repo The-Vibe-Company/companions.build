@@ -6,7 +6,7 @@ export function EmptyState({ direct, onStarter }: { direct: Companion | null | u
   return <div className="discussion-empty">
     <div className="central-mark">c.</div>
     <h2>{direct ? `Start a conversation with ${direct.name}` : "What are we working on?"}</h2>
-    <p>{direct ? `This is a private, direct history with ${direct.name}.` : "Describe the outcome you want. Companion can bring in the right companions as the work develops."}</p>
+    <p>{direct ? `A private history with ${direct.name}.` : "Describe the outcome. Companions in this chat pick up the work you address to them."}</p>
     {!direct && <div className="discussion-starters">{STARTERS.map(value => <button key={value} onClick={() => onStarter(value)}>{value}</button>)}</div>}
   </div>;
 }

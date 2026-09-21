@@ -141,17 +141,21 @@ def main() -> None:
         link = magic_link(mail_url, email, old_ids, base)
         # The one-time token is never copied into output or artifacts.
         browser.run("open", link, quiet=True)
-        browser.wait_text("Your companions.", timeout=20)
+        # Authenticated product shell (the conversation rail) rendered after the magic link.
+        browser.wait_text("Skip to conversation", timeout=20)
         browser.run("open", str(scenario["url"]))
-        browser.wait_text("The note was written and read back.", timeout=30)
-        browser.run("fill", "textarea", "write-note")
+        # Send a prompt whose scripted reply the scenario never produced, then prove the
+        # newly persisted reply survives a reload.
+        browser.wait_text("Skip to conversation", timeout=30)
+        baseline = browser.run("get", "text", "body").count("Native steering applied.")
+        browser.run("fill", "textarea", "steered-result")
         browser.run("press", "Enter")
-        browser.wait_text_count("The note was written and read back.", 2)
+        browser.wait_text_count("Native steering applied.", baseline + 1)
         browser.run("screenshot", str(artifact_dir / "persisted-chat.png"), "--full")
         before = browser.run("snapshot", "-c")
         (artifact_dir / "before-reload.txt").write_text(before)
         browser.run("reload")
-        browser.wait_text_count("The note was written and read back.", 2, timeout=30)
+        browser.wait_text_count("Native steering applied.", baseline + 1, timeout=30)
         browser.run("screenshot", str(artifact_dir / "after-reload.png"), "--full")
         after = browser.run("snapshot", "-c")
         (artifact_dir / "after-reload.txt").write_text(after)

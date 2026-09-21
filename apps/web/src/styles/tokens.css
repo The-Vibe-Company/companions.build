@@ -1,0 +1,153 @@
+/*
+ * companions.build — one token system.
+ *
+ * Neutral surfaces, a single system typeface and one blue accent, in the
+ * spirit of DeepSeek Harness. Everything else in the app references these
+ * semantic variables; there is no second palette.
+ *
+ * The `--atelier-*` names are kept as the discussion layer's vocabulary so the
+ * existing component sheets keep reading from one place.
+ */
+
+:root {
+  color-scheme: light;
+
+  /* Surfaces */
+  --bg-base: #ffffff;
+  --bg-sidebar: #f9fafb;
+  --bg-layer-1: #ffffff;
+  --bg-layer-2: #f5f6f7;
+  --bg-layer-3: #ffffff;
+  --bg-accent-soft: #edf3fe;
+  --surface: #ffffff;
+  --surface-ring: #ffffff;
+
+  /* Lines */
+  --border-l1: rgba(0, 0, 0, 0.06);
+  --border-l2: rgba(0, 0, 0, 0.1);
+  --border-l3: rgba(0, 0, 0, 0.16);
+
+  /* Text */
+  --label-primary: #0f0f0f;
+  --label-secondary: #61666b;
+  --label-tertiary: #979da6;
+
+  /* Accents */
+  --brand: #4176e6;
+  --brand-hover: #3568d4;
+  --danger: #d92d20;
+  --success: #22c55e;
+  --warn: #d98a0b;
+
+  /* Depth: menus and sheets only. Everything else uses a hairline. */
+  --shadow-menu: 0 8px 24px rgba(0, 0, 0, 0.1), 0 0 0 1px rgba(0, 0, 0, 0.06);
+
+  /* shadcn/ui aliases */
+  --background: var(--bg-base);
+  --foreground: var(--label-primary);
+  --card: var(--bg-layer-1);
+  --card-foreground: var(--label-primary);
+  --popover: var(--bg-layer-3);
+  --popover-foreground: var(--label-primary);
+  --primary: var(--label-primary);
+  --primary-foreground: #ffffff;
+  --secondary: var(--bg-layer-2);
+  --secondary-foreground: var(--label-primary);
+  --muted: var(--bg-layer-2);
+  --muted-foreground: var(--label-secondary);
+  --accent: var(--bg-layer-2);
+  --accent-foreground: var(--label-primary);
+  --destructive: var(--danger);
+  --destructive-foreground: #ffffff;
+  --border: var(--border-l2);
+  --input: var(--border-l2);
+  --ring: var(--brand);
+  --radius: 12px;
+  --sidebar: var(--bg-sidebar);
+  --sidebar-foreground: var(--label-primary);
+  --sidebar-primary: var(--label-primary);
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: var(--bg-layer-2);
+  --sidebar-accent-foreground: var(--label-primary);
+  --sidebar-border: var(--border-l1);
+  --sidebar-ring: var(--brand);
+
+  /* Discussion layer vocabulary */
+  --atelier-canvas: var(--bg-base);
+  --atelier-rail: var(--bg-layer-2);
+  --atelier-surface: var(--bg-layer-1);
+  --atelier-ink: var(--label-primary);
+  --atelier-muted: var(--label-secondary);
+  --atelier-border: var(--border-l1);
+  --atelier-soft: var(--bg-layer-2);
+  --atelier-accent: var(--brand);
+
+  --status-active: #3568d4;
+  --status-done: #1f9d55;
+  --status-wait: #b0770a;
+  --status-failed: var(--danger);
+  --status-idle: var(--label-secondary);
+
+  --shadow-border: 0 0 0 1px var(--border-l1);
+  --shadow-border-hover: 0 0 0 1px var(--border-l2);
+  --shadow-raised: var(--shadow-menu);
+
+  --radius-1: 6px;
+  --radius-2: 8px;
+  --radius-3: 12px;
+  --radius-4: 12px;
+  --radius-composer: 14px;
+  --radius-pill: 999px;
+
+  /* Layout rhythm shared by the shell, the rail and the composer. */
+  --sidebar-width: 264px;
+  --thread-column: 720px;
+  --thread-avatar: 34px;
+  --thread-gap: 10px;
+  --thread-gutter: 44px;
+  --duration-fast: 120ms;
+  --duration-enter: 150ms;
+  --duration-panel: 200ms;
+
+  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+    "Hiragino Sans GB", "Microsoft YaHei", "Helvetica Neue", Helvetica, Arial, sans-serif;
+  --font-mono: "SF Mono", "JetBrains Mono", "Fira Code", Consolas, "Liberation Mono", Menlo, monospace;
+
+  --ease-ui: cubic-bezier(0.23, 1, 0.32, 1);
+}
+
+[data-theme="dark"] {
+  color-scheme: dark;
+
+  --bg-base: #151517;
+  --bg-sidebar: #1b1b1c;
+  --bg-layer-1: #232324;
+  --bg-layer-2: #2c2c2e;
+  --bg-layer-3: #2c2c2e;
+  --bg-accent-soft: #283142;
+  --surface: #151517;
+  --surface-ring: #151517;
+
+  --border-l1: rgba(255, 255, 255, 0.06);
+  --border-l2: rgba(255, 255, 255, 0.12);
+  --border-l3: rgba(255, 255, 255, 0.2);
+
+  --label-primary: #f5f5f5;
+  --label-secondary: #adadb8;
+  --label-tertiary: #81858c;
+
+  --brand: #5686fe;
+  --brand-hover: #6f97ff;
+  --danger: #f25a5a;
+  --success: #4ed17e;
+  --warn: #f7ad31;
+
+  --shadow-menu: 0 8px 24px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255, 255, 255, 0.1);
+
+  --primary-foreground: #0f0f0f;
+  --sidebar-primary-foreground: #0f0f0f;
+
+  --status-active: #6f97ff;
+  --status-done: #4ed17e;
+  --status-wait: #f7ad31;
+}

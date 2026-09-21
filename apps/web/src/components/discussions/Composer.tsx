@@ -97,6 +97,7 @@ export function Composer({ userId, snapshot, companions, initialDraft, onInitial
     finally { setSending(false); }
   }
   const targetCompanion = companions.find(companion => companion.id === target);
+  const teamMembers = snapshot.participants.filter(participant => !participant.removedAt).length;
   const mentionMatch=!attempted&&!directId&&!mentionDismissed?draft.match(/(?:^|\s)@([^\s@]*)$/):null;
   const mentionOptions=mentionMatch?mentionTargets.filter(companion=>companion.name.toLocaleLowerCase().startsWith(mentionMatch[1].toLocaleLowerCase())):[];
   const addressee = directId ? targetCompanion?.name ?? "companion" : targetCompanion?.name ?? "Companion";
@@ -119,7 +120,7 @@ export function Composer({ userId, snapshot, companions, initialDraft, onInitial
     {attempted&&!sending&&<p className="composer-file-error">Retry sends the same message. <button type="button" onClick={()=>{setAttempted(false);setDraft('');setFiles([]);setFileError('');restored.current=null;clientMessageId.current=crypto.randomUUID();}}>Start another message</button></p>}
     {fileError && <p className="composer-file-error" role="alert">{fileError}</p>}
     <footer>
-      {!directId && <div className="recipient-pill">
+      {!directId && (targetCompanion || teamMembers > 0) && <div className="recipient-pill">
         {targetCompanion ? <CompanionAvatar name={targetCompanion.name} avatar={targetCompanion.avatar} size={18}/> : <span className="central-mark central-mark--pill" aria-hidden="true">c</span>}
         <select disabled={attempted} aria-label="Message recipient" value={target ?? ""} onChange={event => chooseTarget(event.target.value || null)}>
           <option value="">@Companion</option>

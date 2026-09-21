@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { CircleAlert, LoaderCircle, X } from "lucide-react";
-import { ApiError, discussionApi, type AccountUser, type Companion, type Discussion, type DiscussionFolder, type DiscussionSnapshot } from "@/api";
+import { ApiError, discussionApi, type AccountUser, type Companion, type Discussion, type DiscussionSnapshot } from "@/api";
 import { Button } from "./ui/button";
 import { useModalFocus } from "@/hooks/useModalFocus";
 import { Sidebar } from "./discussions/Sidebar";
 import { Thread } from "./discussions/Thread";
-import { ArchivedPanel, DiscussionDetails } from "./discussions/DetailsPanel";
+import { ArchivedPanel } from "./discussions/DetailsPanel";
 import { POLL_INTERVAL, mergeMessages } from "./discussions/shared";
 import "./discussions/styles/index.css";
 
@@ -23,7 +23,6 @@ type Props = {
 
 export function DiscussionsWorkspace({ user, companions, initialDiscussionId, legacyCompanionId, onUnauthorized, onCreateCompanion, onApplications, onAccount, onCompanionSettings }: Props) {
   const [discussions, setDiscussions] = useState<Discussion[]>([]);
-  const [folders, setFolders] = useState<DiscussionFolder[]>([]);
   const [selectedId, setSelectedId] = useState(initialDiscussionId);
   const [snapshot, setSnapshot] = useState<DiscussionSnapshot | null>(null);
   const [olderMessages, setOlderMessages] = useState<DiscussionSnapshot["messages"]>([]);
@@ -35,7 +34,6 @@ export function DiscussionsWorkspace({ user, companions, initialDiscussionId, le
   const [error, setError] = useState("");
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const sidebarRef = useModalFocus(sidebarOpen, () => setSidebarOpen(false), "(max-width: 1024px)");
-  const [detailOpen, setDetailOpen] = useState(false);
   const [archivedOpen, setArchivedOpen] = useState(false);
   const [loadingArchived, setLoadingArchived] = useState(false);
   const [archiveError, setArchiveError] = useState("");
@@ -54,7 +52,6 @@ export function DiscussionsWorkspace({ user, companions, initialDiscussionId, le
   const loadList = useCallback(async () => {
     const result = await discussionApi.list();
     setDiscussions(result.discussions);
-    setFolders(result.folders);
     return result;
   }, []);
 
@@ -69,16 +66,21 @@ export function DiscussionsWorkspace({ user, companions, initialDiscussionId, le
     window.history[replace ? "replaceState" : "pushState"]({}, "", path);
   }, []);
 
-  const createDiscussion = useCallback(async (input: { title?: string; folderId?: string; directCompanionId?: string } = {}) => {
-    const signature = JSON.stringify(input);
+  const createDiscussion = useCallback(async (input: { title?: string; directCompanionId?: string; participantIds?: string[] } = {}) => {
+    const signature = JSON.stringify({ title: input.title, directCompanionId: input.directCompanionId, participantIds: input.participantIds ?? [] });
     const clientCreationId = creationIntents.current.get(signature) ?? crypto.randomUUID();
     creationIntents.current.set(signature, clientCreationId);
-    const result = await discussionApi.create({ clientCreationId, ...input });
+    const result = await discussionApi.create({ clientCreationId, title: input.title, directCompanionId: input.directCompanionId });
+    // A team chat is created with its people: each invitation is durable once accepted.
+    for (const companionId of input.participantIds ?? []) {
+      if (companionId === input.directCompanionId) continue;
+      await discussionApi.addParticipant(result.discussion.id, companionId).catch(cause => handleError(cause, "One participant could not be added."));
+    }
     creationIntents.current.delete(signature);
     setDiscussions(current => [result.discussion, ...current.filter(item => item.id !== result.discussion.id)]);
     openDiscussion(result.discussion.id);
     return result.discussion;
-  }, [openDiscussion]);
+  }, [openDiscussion, handleError]);
 
   useEffect(() => {
     let active = true;
@@ -95,10 +97,14 @@ export function DiscussionsWorkspace({ user, companions, initialDiscussionId, le
           setSelectedId(initialDiscussionId);
         } else if (list.discussions.find(item => !item.directCompanionId)) {
           openDiscussion(list.discussions.find(item => !item.directCompanionId)!.id, true);
-        } else {
+        } else if (list.discussions[0]) {
+          openDiscussion(list.discussions[0].id, true);
+        } else if (companions.length > 0) {
           await createDiscussion({ title: "New discussion" });
         }
-      } catch (cause) { if (active) handleError(cause, "Could not load discussions."); }
+        // With no companions and no conversations there is nothing to open; the shell
+        // offers to create a first Companion instead of manufacturing an empty chat.
+      } catch (cause) { if (active) handleError(cause, "Could not load conversations."); }
       finally { if (active) setLoading(false); }
     })();
     return () => { active = false; };
@@ -119,7 +125,7 @@ export function DiscussionsWorkspace({ user, companions, initialDiscussionId, le
     } catch (cause) {
       if (currentId.current !== id) return;
       if (quiet && !(cause instanceof ApiError && cause.status === 401)) setRefreshError("Updates are unavailable. The last received messages are still shown.");
-      else handleError(cause, "Could not open this discussion.");
+      else handleError(cause, "Could not open this conversation.");
     }
     finally { if (currentId.current === id && !quiet) setLoadingDiscussion(false); }
   }, [handleError]);
@@ -153,7 +159,7 @@ export function DiscussionsWorkspace({ user, companions, initialDiscussionId, le
   async function showArchived() {
     setArchivedOpen(true); setLoadingArchived(true); setArchiveError("");
     try { setArchived((await discussionApi.list(true)).discussions.filter(item => item.archivedAt)); }
-    catch (cause) { setArchiveError("Could not load archived discussions."); if (cause instanceof ApiError && cause.status === 401) onUnauthorized(); }
+    catch (cause) { setArchiveError("Could not load archived conversations."); if (cause instanceof ApiError && cause.status === 401) onUnauthorized(); }
     finally { setLoadingArchived(false); }
   }
 
@@ -162,18 +168,19 @@ export function DiscussionsWorkspace({ user, companions, initialDiscussionId, le
       await discussionApi.update(id, { archived: true });
       setDiscussions(current => current.filter(item => item.id !== id));
       if (currentId.current === id) {
-        setDetailOpen(false);
         const next = discussions.find(item => item.id !== id);
-        if (next) openDiscussion(next.id, true); else await createDiscussion({ title: "New discussion" });
+        if (next) openDiscussion(next.id, true);
+        else if (companions.length > 0) await createDiscussion({ title: "New discussion" });
+        else { setSelectedId(null); setSnapshot(null); window.history.replaceState({}, "", "/"); }
       }
-    } catch (cause) { handleError(cause, "Could not archive this discussion."); }
+    } catch (cause) { handleError(cause, "Could not archive this conversation."); }
   }
   async function archiveCurrent() { if (snapshot) await archiveDiscussion(snapshot.discussion.id); }
 
   if (loading) return <div className="discussion-loading" role="status"><div/><div/><main><span/><span/></main></div>;
 
   return <div className="discussion-shell">
-    <a className="skip-link" href="#discussion-main">Skip to discussion</a>
+    <a className="skip-link" href="#discussion-main">Skip to conversation</a>
     {sidebarOpen && <button className="discussion-scrim" aria-label="Close navigation" onClick={() => setSidebarOpen(false)} />}
     <Sidebar
       panelRef={sidebarRef}
@@ -181,7 +188,6 @@ export function DiscussionsWorkspace({ user, companions, initialDiscussionId, le
       user={user}
       companions={companions}
       discussions={discussions}
-      folders={folders}
       selectedId={selectedId}
       onClose={() => setSidebarOpen(false)}
       onOpen={openDiscussion}
@@ -198,24 +204,21 @@ export function DiscussionsWorkspace({ user, companions, initialDiscussionId, le
     {error && <div className="discussion-error" role="alert"><CircleAlert />{error}<button onClick={() => setError("")} aria-label="Dismiss error"><X /></button></div>}
     <main className="discussion-main" id="discussion-main">
       {refreshError && <div className="refresh-notice" role="status">{refreshError}<Button variant="ghost" size="sm" onClick={() => void refresh(true)}>Retry updates</Button></div>}
-      {loadingDiscussion && !snapshot ? <div className="discussion-opening" role="status"><LoaderCircle className="spin" />Opening discussion…</div> : snapshot ? <Thread
+      {loadingDiscussion && !snapshot ? <div className="discussion-opening" role="status"><LoaderCircle className="spin" />Opening conversation…</div> : snapshot ? <Thread
         key={snapshot.discussion.id}
         user={user}
         snapshot={snapshot}
         olderMessages={olderMessages}
         companions={companions}
-        folders={folders}
         onMenu={() => setSidebarOpen(true)}
-        onDetails={() => setDetailOpen(true)}
         onRefresh={() => refresh(true)}
         onListRefresh={loadList}
         onArchive={archiveCurrent}
         onLoadOlder={loadOlder}
         loadingOlder={loadingOlder}
         onError={handleError}
-      /> : <div className="discussion-opening" role="status">Choose a discussion</div>}
+      /> : companions.length === 0 ? <div className="discussion-first-run"><h2>Create your first Companion</h2><p>Companions do the work in a conversation. Create one, then start a direct chat or a team chat.</p><Button onClick={onCreateCompanion}>Create a Companion</Button></div> : <div className="discussion-opening" role="status">Choose a conversation</div>}
     </main>
-    {detailOpen && snapshot && <DiscussionDetails snapshot={snapshot} companions={companions} folders={folders} onClose={() => setDetailOpen(false)} onRefresh={() => refresh(true)} onListRefresh={loadList} onArchive={archiveCurrent} onError={handleError} />}
     {archivedOpen && <ArchivedPanel loading={loadingArchived} error={archiveError} onRetry={() => void showArchived()} discussions={archived} onClose={() => setArchivedOpen(false)} onRestore={async discussion => { try { await discussionApi.update(discussion.id, { archived: false }); setArchived(current => current.filter(item => item.id !== discussion.id)); await loadList(); openDiscussion(discussion.id); setArchivedOpen(false); } catch (cause) { handleError(cause); } }} />}
   </div>;
 }

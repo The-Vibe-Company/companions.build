@@ -73,6 +73,23 @@ export function CompanionAvatar({
   );
 }
 
+/**
+ * Overlapping avatars for a team chat: at most `max` faces, then a count.
+ * The ring uses --surface-ring so it stays correct on any surface, in either theme.
+ */
+export function AvatarStack({ companions, size = 28, max = 3, className }: {
+  companions: Array<{ id?: string; name: string; avatar?: CompanionAvatarValue | null }>;
+  size?: number; max?: number; className?: string;
+}) {
+  const shown = companions.slice(0, max);
+  const rest = companions.length - shown.length;
+  const names = companions.map(companion => companion.name).join(", ");
+  return <span className={cn("avatar-stack", className)} aria-label={`Companions: ${names}`} title={names}>
+    {shown.map((companion, index) => <CompanionAvatar key={companion.id ?? `${companion.name}-${index}`} name={companion.name} avatar={companion.avatar} size={size} className="avatar-stack-item" />)}
+    {rest > 0 && <span className="avatar-stack-more" style={{ width: size, height: size, fontSize: Math.max(9, Math.round(size * 0.34)) }}>+{rest}</span>}
+  </span>;
+}
+
 export function AvatarPicker({ value, onChange }: { value: CompanionAvatarValue; onChange: (avatar: CompanionAvatarValue) => void }) {
   const id = useId();
   return (

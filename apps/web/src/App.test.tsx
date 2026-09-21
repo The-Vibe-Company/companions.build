@@ -35,6 +35,7 @@ describe("settings and return navigation", () => {
   afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
   function installApi() {
     let current = { ...ada };
+    const direct = { ...discussion, id: "direct-1", title: "Ada", directCompanionId: "ada" };
     const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const path = String(input);
       if (path === "/api/me") return response(me);
@@ -46,8 +47,8 @@ describe("settings and return navigation", () => {
       }
       if (path === "/api/plugins") return response({ accounts: [], catalog: [] });
       if (path === "/api/companions/ada/plugins") return response({ accounts: [] });
-      if (path === "/api/discussions") return response({ discussions: [discussion], folders: [] });
-      if (path === "/api/discussions/discussion-1") return response({ discussion, participants: [], messages: [], tasks: [], centralRuns: [], proposals: [], beforeCursor: null });
+      if (path === "/api/discussions") return response({ discussions: [discussion, direct], folders: [] });
+      if (path === "/api/discussions/discussion-1") return response({ discussion, participants: [{ companionId: "ada", removedAt: null, companion: current }], messages: [], tasks: [], centralRuns: [], proposals: [], beforeCursor: null });
       throw Error(`Unexpected ${path}`);
     });
     vi.stubGlobal("fetch", fetchMock);

@@ -35,6 +35,9 @@ def launch_owned(command, persist, **kwargs):
     """
     read_fd, write_fd = os.pipe()
     child = None
+    # Never inherit the caller's terminal as stdin: a child that reads or puts it in
+    # raw mode would compete with the developer's shell for keystrokes.
+    kwargs.setdefault('stdin', subprocess.DEVNULL)
     try:
         child = subprocess.Popen([sys.executable, str(ROOT / 'scripts/dev-child.py'),
                                   str(read_fd), *command], pass_fds=(read_fd,),

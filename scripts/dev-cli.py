@@ -6,12 +6,14 @@ import os
 from pathlib import Path
 import re
 import shlex
+import shutil
 import signal
 import socket
 import subprocess
 import sys
 import time
 import uuid
+import urllib.parse
 import urllib.request
 
 from dev_environment import runtime_environment, MODEL_KEYS
@@ -143,6 +145,64 @@ def validate_model_env(env):
     if env.get('AGENT_TEST_MODE') == '0' and not any(env.get(key) for key in [key for keys in MODEL_KEYS.values() for key in keys]):
         raise RuntimeError('Live mode needs a model API key in the main checkout .env, worktree .env or shell. No credentials are saved in dev options.')
 
+def _url_port(value):
+    try:
+        return urllib.parse.urlsplit(value).port if isinstance(value, str) else None
+    except (ValueError, AttributeError):
+        return None
+
+def _pending_forward_ports(status):
+    path = status.get('request_file') if isinstance(status, dict) else None
+    if not isinstance(path, str):
+        return set()
+    try:
+        queue = json.loads(Path(path).read_text())
+    except (OSError, json.JSONDecodeError):
+        return set()
+    pending = queue.get('pending') if isinstance(queue, dict) else None
+    if not isinstance(pending, list):
+        return set()
+    return {item.get('remote_port') for item in pending if isinstance(item, dict)}
+
+def herdr_port_forward(current):
+    """Expose the human-facing dev ports through the Herdr port-forward plugin.
+
+    Only acts inside a Herdr pane, only when the plugin reports that it runs on
+    the remote side of a Herdr connection, and only best-effort: forwarding can
+    never fail `up`. A mirror or local placement needs nothing because the ports
+    are already on the machine running the browser.
+    """
+    try:
+        if os.environ.get('HERDR_ENV') != '1':
+            return
+        binary = shutil.which('herdr-portfwd')
+        if not binary:
+            return
+        probe = subprocess.run([binary, 'status', '--json'], stdin=subprocess.DEVNULL,
+                               capture_output=True, text=True, timeout=10)
+        status = json.loads(probe.stdout)
+        if not isinstance(status, dict):
+            return
+        selected = status.get('selected')
+        placement = selected.get('placement') if isinstance(selected, dict) else None
+        placement = placement.get('placement') if isinstance(placement, dict) else None
+        if placement != 'remote':
+            return
+        endpoints = current.get('endpoints') if isinstance(current, dict) else None
+        services = current.get('services') if isinstance(current, dict) else None
+        endpoints = endpoints if isinstance(endpoints, dict) else {}
+        services = services if isinstance(services, dict) else {}
+        storage = services.get('storage')
+        candidates = [endpoints.get('webPort'), _url_port(endpoints.get('mailUrl')),
+                      _url_port(storage.get('url') if isinstance(storage, dict) else None)]
+        pending = _pending_forward_ports(status)
+        for port in dict.fromkeys(port for port in candidates if isinstance(port, int) and port not in pending):
+            subprocess.run([binary, 'add', str(port)], stdin=subprocess.DEVNULL,
+                           capture_output=True, text=True, timeout=15)
+    except Exception:
+        # Port forwarding is a convenience; a plugin problem must never break `up`.
+        return
+
 def choose_base():
     endpoints = read_json(LOCAL / 'dev-endpoints.json')
     previous = endpoints.get('basePort')
@@ -174,6 +234,7 @@ def up(direct=False, only=None):
         current = status()
         if alive(current):
             if current['status'] == 'ready':
+                herdr_port_forward(current)
                 print(current['url'])
                 return
             if current['status'] in ('degraded', 'build-failed'):
@@ -181,6 +242,7 @@ def up(direct=False, only=None):
                     service = current.get('services', {}).get(name, {})
                     if service.get('status') != 'ready' and service.get('managed', True):
                         _service_action('start', name)
+                herdr_port_forward(current)
                 print(current.get('url', 'Services started.'))
                 return
             raise RuntimeError('Stack is already starting/restarting or unhealthy. Inspect ./dev logs.')
@@ -203,12 +265,14 @@ def up(direct=False, only=None):
             command = [*proxy_command(), name, *command]
         write_json(STATE, {'status': 'starting'})
         with (LOCAL / 'dev-launch.log').open('a') as output:
-            child = subprocess.Popen(command, cwd=ROOT, env=env, stdout=output, stderr=subprocess.STDOUT, start_new_session=True)
+            child = subprocess.Popen(command, cwd=ROOT, env=env, stdin=subprocess.DEVNULL,
+                                     stdout=output, stderr=subprocess.STDOUT, start_new_session=True)
         deadline = time.monotonic() + 180
         try:
             while time.monotonic() < deadline:
                 current = status()
                 if current.get('status') == 'ready' or (only and current.get('heartbeat') and current.get('services', {}).get(only, {}).get('status') == 'ready'):
+                    herdr_port_forward(current)
                     print(current['url'])
                     return
                 if child.poll() is not None:

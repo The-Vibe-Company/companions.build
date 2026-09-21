@@ -267,5 +267,61 @@ time.sleep(60)
             dev_support.terminate_process(child)
         child.wait.assert_called_once_with(timeout=10)
 
+class HerdrPortForwardTests(unittest.TestCase):
+    """The Herdr port-forward hook is a convenience and must never break `up`."""
+
+    def _probe(self, payload):
+        body = payload if isinstance(payload, str) else json.dumps(payload)
+        return subprocess.CompletedProcess(['herdr-portfwd', 'status', '--json'], 0, body, '')
+
+    def test_inert_outside_a_herdr_pane(self):
+        with patch.dict(os.environ, {}, clear=True), patch.object(cli.shutil, 'which') as which:
+            cli.herdr_port_forward({'endpoints': {'webPort': 22070}})
+        which.assert_not_called()
+
+    def test_malformed_plugin_output_never_raises(self):
+        current = {'endpoints': {'webPort': 22070}, 'services': {'storage': {'url': 'http://127.0.0.1:22074'}}}
+        for payload in ('[]', 'not json', '{"selected": 3}', '{"selected": {"placement": []}}', '{"selected": {"placement": {"placement": "remote"}}, "request_file": 7}'):
+            with self.subTest(payload=payload), patch.dict(os.environ, {'HERDR_ENV': '1'}), \
+                 patch.object(cli.shutil, 'which', return_value='/usr/bin/herdr-portfwd'), \
+                 patch.object(cli.subprocess, 'run', return_value=self._probe(payload)):
+                cli.herdr_port_forward(current)
+
+    def test_queues_human_facing_ports_and_skips_pending(self):
+        with tempfile.TemporaryDirectory() as directory:
+            queue = Path(directory) / 'requests.json'
+            queue.write_text(json.dumps({'version': 1, 'last_consumed_id': 0, 'pending': [{'remote_port': 22076}]}))
+            status = {'selected': {'placement': {'placement': 'remote'}}, 'request_file': str(queue)}
+            calls: list[list[str]] = []
+
+            def run(args, **kwargs):
+                calls.append(list(args))
+                return self._probe(status) if args[1] == 'status' else subprocess.CompletedProcess(args, 0, '', '')
+
+            current = {'endpoints': {'webPort': 22070, 'mailUrl': 'http://127.0.0.1:22076'},
+                       'services': {'storage': {'url': 'http://127.0.0.1:22074'}}}
+            with patch.dict(os.environ, {'HERDR_ENV': '1'}), \
+                 patch.object(cli.shutil, 'which', return_value='/usr/bin/herdr-portfwd'), \
+                 patch.object(cli.subprocess, 'run', side_effect=run):
+                cli.herdr_port_forward(current)
+
+        added = [args[2] for args in calls if len(args) > 2 and args[1] == 'add']
+        self.assertEqual(added, ['22070', '22074'])
+
+    def test_local_placement_needs_no_forward(self):
+        current = {'endpoints': {'webPort': 22070}}
+        status = {'selected': {'placement': {'placement': 'local'}}}
+        calls: list[list[str]] = []
+
+        def run(args, **kwargs):
+            calls.append(list(args))
+            return self._probe(status)
+
+        with patch.dict(os.environ, {'HERDR_ENV': '1'}), \
+             patch.object(cli.shutil, 'which', return_value='/usr/bin/herdr-portfwd'), \
+             patch.object(cli.subprocess, 'run', side_effect=run):
+            cli.herdr_port_forward(current)
+        self.assertEqual([args for args in calls if args[1] == 'add'], [])
+
 if __name__ == '__main__':
     unittest.main()

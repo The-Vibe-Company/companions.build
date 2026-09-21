@@ -69,6 +69,15 @@ Starting one application component from a stopped stack also prepares shared Pos
 storage and mail dependencies. Other application processes remain stopped. S3 and the storage
 console belong to the same MinIO container; their restart/stop buttons control that container.
 
+Inside a Herdr pane, `up` also asks the Herdr port-forward plugin (`herdr-portfwd`, when it is
+installed) to expose the human-facing URLs — dev web, Mailpit and the storage console — but only
+when the plugin reports that it runs on the remote side of a Herdr connection. A mirror or local
+placement needs nothing because those ports are already on the machine running the browser. The
+step is best-effort: it never fails `up`, it skips ports already queued, and it depends on the
+plugin's two-machine setup (`herdr-portfwd attach <host>`, with `hosts.toml` on both sides).
+Background services are launched with their standard input detached, so `up` never competes with
+the developer's terminal for keystrokes.
+
 The CLI starts deterministic local services without inheriting hosted credentials, database
 URLs or `.env` values. Billing test access is development-only. The original
 `python3 scripts/dev.py` entrypoint remains available for explicitly configured live canaries;

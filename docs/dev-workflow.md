@@ -117,6 +117,14 @@ credential-free connection address is displayed separately. Workers expose logs,
 
 ## Validation and evidence
 
+Local storage and verification use digest-pinned `pgsty/minio` and `pgsty/mc`
+2026-08-04 images: the last server release under the original `pgsty/minio`
+name and its matching client. The former upstream Quay repositories no longer permit anonymous pulls.
+The [server release lineage](https://github.com/pgsty/silo#readme) and
+[client compatibility notes](https://github.com/pgsty/mc#compatibility) describe
+these independent community builds. Both development and verification use the
+same pins; hosted S3 configuration is independent of these test images.
+
 ```sh
 ./dev check web
 ./dev check server --test retirement

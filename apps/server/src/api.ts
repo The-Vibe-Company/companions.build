@@ -1,3 +1,4 @@
+import { handleStats } from "./stats";
 import {handleDiscussions,DiscussionMissing} from "./discussions";
 import {handleDiscussionFiles} from "./discussion-files";
 import {privateBetaEmails} from "./private-beta";
@@ -56,6 +57,7 @@ export async function handler(request: Request): Promise<Response> {
       const user = await sessionUser(request);
       return user ? json({ user: { id: user.id, email: user.email, name: user.name } }) : json({ error: "Authentication required." }, 401);
     }
+    if (request.method === "GET" && url.pathname === "/api/stats") return await handleStats(request);
     const ownerId = await requireUser(request);
     if(mutationStartsWork(url.pathname,request.method))await requireHostedActivation(ownerId);
     const discussionFiles=await handleDiscussionFiles(request,ownerId);if(discussionFiles)return discussionFiles;

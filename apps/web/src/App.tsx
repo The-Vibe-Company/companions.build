@@ -1,3 +1,4 @@
+import { identifyAnalytics } from "./lib/analytics";
 import {AccountProduct} from '@/components/CompanionAccount';
 import { lazy, Suspense, useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { ArrowLeft, CircleAlert, LoaderCircle, Mail } from "lucide-react";
@@ -52,6 +53,7 @@ export function App() {
   const [loading, setLoading] = useState(!publicLegalPage && !publicHomepage);
   const [error, setError] = useState("");
   const [user, setUser] = useState<AccountUser | null>(null);
+  useEffect(() => { identifyAnalytics(authRequired ? null : user?.id ?? null); }, [user?.id, authRequired]);
   const [config, setConfig] = useState<AppConfig | null>(null);
   const [companions, setCompanions] = useState<Companion[]>([]);
 

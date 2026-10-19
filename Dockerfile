@@ -16,6 +16,9 @@ COPY packages ./packages
 COPY scripts/build-agent.ts ./scripts/build-agent.ts
 COPY scripts/lib/pinned-bun.ts ./scripts/lib/pinned-bun.ts
 COPY scripts/lib/agent-release.ts ./scripts/lib/agent-release.ts
+# Vite embeds these public analytics settings during the production build.
+ARG VITE_POSTHOG_KEY
+ARG VITE_POSTHOG_HOST=https://us.i.posthog.com
 RUN bun run --cwd apps/web build && bun scripts/build-agent.ts
 
 FROM debian:bookworm-slim@sha256:88200866dfff7ea7f5cbcb6ec7c8a701889efe6fe859fe64d6990e4b07ea4171 AS agent-runtime-check
